@@ -48,6 +48,17 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 | zeroize / secrecy | Secure wiping and redaction of secrets in memory |
 | subtle | Constant-time comparisons (timing-attack mitigation) |
 
+## FAQ
+
+**Can the server see my passwords?**
+No. Everything is encrypted and decrypted on your own device, never on the server — it's like handing someone a locked safe to hold onto: they can store it, but they never get a key to open it or see what's inside.
+
+**What happens if someone steals the server's database?**
+They don't get your passwords — they only get locked safes. Without your master password (which is never stored anywhere, not even on the server), there's no way to open them.
+
+**How do you protect my keys in the computer's memory (RAM) while they're being used?**
+The key is never left sitting around in memory waiting for someone to grab it. Every time it's needed, it's rebuilt on the spot from your password, used for an instant, and immediately wiped — like writing something on a piece of paper, using it once, and tearing it up right away, instead of leaving it lying on the desk. Your master password is kept only while your session is open and never touches the disk: close the browser or app, and it's gone. The one thing this can't prevent: if your computer already has malware spying on it, that malware could see the key at the exact instant you're using it — no password manager can protect you from that, because at that point the attacker is already inside your machine, not inside the system.
+
 ## Status
 
 Actively in development, early stage.

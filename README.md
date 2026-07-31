@@ -48,6 +48,17 @@ Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servid
 | zeroize / secrecy | Borrado y redacción seguros de secretos en memoria |
 | subtle | Comparaciones en tiempo constante (mitiga timing attacks) |
 
+## Preguntas frecuentes
+
+**¿El servidor puede ver mis contraseñas?**
+No. Todo se cifra y se descifra en tu dispositivo, nunca en el servidor — es como dejarle a alguien una caja fuerte cerrada para guardar: puede guardarla, pero nunca tiene la llave para abrirla ni ver qué hay adentro.
+
+**¿Qué pasa si alguien roba la base de datos del servidor?**
+No consigue tus contraseñas — sólo consigue cajas fuertes cerradas. Sin tu contraseña maestra (que nunca se guarda en ningún lado, ni en el servidor), no hay forma de abrirlas.
+
+**¿Cómo protegen mis claves en la memoria de la computadora (RAM) mientras las uso?**
+La clave nunca queda "dando vueltas" guardada en la memoria, esperando a que alguien la agarre. Cada vez que hace falta usarla, se reconstruye al toque a partir de tu contraseña, se usa un instante, y se borra inmediatamente — como escribir algo en un papel, usarlo una vez, y romperlo al toque, en vez de dejarlo dando vueltas sobre el escritorio. Tu contraseña maestra se guarda sólo mientras tenés la sesión abierta y nunca toca el disco: si cerrás el navegador o la app, se pierde sola. Lo único que esto no puede evitar es que, si tu computadora ya tiene un virus espiándola, ese virus vea la clave justo en el instante en que la estás usando — ningún gestor de contraseñas puede protegerte de eso, porque ahí el atacante ya está adentro de tu máquina, no del sistema.
+
 ## Estado
 
 En desarrollo activo, etapa temprana.
