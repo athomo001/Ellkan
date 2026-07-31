@@ -1,0 +1,50 @@
+# Material de investigación completo: clones de terceros (Passbolt, Bitwarden) Y
+# los resúmenes propios (investigacion-passbolt/, investigacion-bitwarden/) —
+# decisión explícita del usuario: nada de esta carpeta se sube al repo público,
+# ni siquiera los resúmenes. Cada clon además tiene su propio .git/ adentro, así
+# que sin este exclude git los trataría como gitlinks rotos (submódulos fantasma
+# sin .gitmodules).
+/passbolt/
+/bitwarden/
+spec/*
+.agents/
+docs/*
+.clauderules
+CLAUDE.md
+01-propuesta-tecnica.md
+
+# Rust
+/target/
+**/target/
+Cargo.lock
+# Nota: Cargo.lock normalmente SÍ se versiona para binarios (reproducibilidad) — se
+# excluye acá sólo hasta que exista el workspace real; sacar esta línea en Fase 0
+# apenas se cree el primer Cargo.toml.
+
+# Frontend (SvelteKit/pnpm), cuando exista
+node_modules/
+.svelte-kit/
+/frontend/build/
+/frontend/.env
+/frontend/.env.*
+!/frontend/.env.example
+
+# WASM build output del cripto core
+*.wasm
+pkg/
+
+# Secretos de despliegue (convención *_FILE, sección 2.5 de spec/09-guia-de-codificacion-segura.md)
+/secrets/
+.env
+.env.*
+!.env.example
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs y artefactos de test
+*.log
+coverage/
