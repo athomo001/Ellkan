@@ -8,6 +8,8 @@
 
 **Ellkan** — del mapudungún *elkan*, "esconder, ocultar".
 
+**ADVERTENCIA** : desarrollo en fase alpha
+
 ## Qué es Ellkan
 
 Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servidor nunca ve tus claves privadas ni tus secretos en claro. Backend en Rust (Axum), cifrado con primitivas modernas (X25519, Ed25519, XChaCha20-Poly1305, Argon2id), frontend web y extensión de navegador comparten el mismo núcleo criptográfico compilado a WebAssembly.
