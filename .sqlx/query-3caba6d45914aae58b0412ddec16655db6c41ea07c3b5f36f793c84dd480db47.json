@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select sealed_dek, secret_ciphertext, secret_nonce\n            from secret_envelopes where resource_id = $1 and user_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sealed_dek",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "sealed_dek"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "secret_ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "secret_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "secret_nonce"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3caba6d45914aae58b0412ddec16655db6c41ea07c3b5f36f793c84dd480db47"
+}

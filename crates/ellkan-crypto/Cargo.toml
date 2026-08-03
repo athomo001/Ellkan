@@ -1,0 +1,66 @@
+[package]
+name = "ellkan-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# "std" habilita `impl std::error::Error` sobre `argon2::Error` (lo exige
+# `#[from]` de thiserror) — disponible en los dos targets soportados
+# (nativo y wasm32-unknown-unknown, ambos con std), no es un no_std real.
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "std"] }
+chacha20poly1305 = "0.11.0"
+# `crypto_box` todavía vive en la generación rand_core 0.6 del ecosistema RustCrypto
+# (vía su dependencia de curve25519-dalek 4.x), mientras que x25519-dalek/ed25519-dalek
+# ya migraron a rand_core 0.10 (curve25519-dalek 5.x) — son traits distintos y no
+# intercambiables, así que se declaran las dos generaciones explícitamente, cada una
+# sólo para el/los crate(s) que la exige.
+crypto_box = { version = "0.9.1", features = ["seal"] }
+rand_core_06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
+ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
+# Entropía CSPRNG (nativo: SO real; wasm32: ver override de target más abajo).
+getrandom = "0.4"
+hkdf = "0.13.0"
+# HMAC-SHA1 para TOTP (F-38, RFC 6238) — SHA-1 es obsoleto para firmas propias,
+# pero es el algoritmo que fija el estándar (Google Authenticator y demás apps
+# TOTP lo esperan); no es una elección propia de Ellkan, es interoperabilidad.
+hmac = "0.13.0"
+rand = "0.10.2"
+rand_core = "0.10.1"
+secrecy = "0.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+thiserror = "2.0.19"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+zeroize = { version = "1.9.0", features = ["derive"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# Sólo nativo: `criterion` depende de `rayon`, incompatible con wasm32 — si
+# fuera un `[dev-dependencies]` liso, `wasm-pack test` fallaría al compilar
+# también los benches para ese target.
+criterion = "0.7"
+
+[[bench]]
+name = "lectura_recurso"
+harness = false
+
+# WASM: `getrandom` sin entropía de SO por defecto en este target — se activa la
+# feature vigente `wasm_js` (la `js` de 0.2 quedó obsoleta), sólo para wasm32, nunca
+# incondicional en una librería salvo que ya dependa de wasm-bindgen sin condición
+# para ese mismo target (caso de este crate).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+# `crypto_box` (vía rand_core 0.6/aead 0.5) trae transitivamente `getrandom` 0.2,
+# que en wasm32 exige su propia feature `js` (nombre obsoleto de esa generación,
+# distinto de `wasm_js` de arriba) — sin declarar esta versión explícitamente acá
+# no hay forma de activarle esa feature, porque el grafo la trae sólo indirecto.
+getrandom-legacy = { package = "getrandom", version = "0.2", features = ["js"] }
+wasm-bindgen = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# Corre los tests compilados a wasm32 de verdad en Node (`wasm-pack test --node`),
+# no sólo `cargo build`/`cargo clippy` sobre ese target.
+wasm-bindgen-test = "0.3"

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, user_id, device_token_hash, code_hash from device_challenges\n               where id = $1 and consumed_at is null and expires_at > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "device_challenges",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "device_challenges",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "device_token_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "device_challenges",
+            "name": "device_token_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "code_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "device_challenges",
+            "name": "code_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2f95f87ba67e6c241838d1d31beb8e4f96c3dea128bf0eaf7f0c7d377e18f9dd"
+}

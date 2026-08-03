@@ -1,0 +1,43 @@
+[package]
+name = "ellkan-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["macros"] }
+base64 = "0.23.0"
+ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
+ellkan-crypto = { version = "0.1.0", path = "../crates/ellkan-crypto" }
+governor = "0.10.4"
+hex = "0.4.3"
+opentelemetry = "0.32.0"
+# `reqwest-client` (async) en vez del `reqwest-blocking-client` por defecto —
+# un cliente bloqueante en un exportador de spans colgaría el runtime de tokio.
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["trace"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "migrate", "json", "macros"] }
+thiserror = "2.0.19"
+time = { version = "0.3.54", features = ["serde"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.0", features = ["trace", "cors"] }
+tower_governor = "0.8.0"
+tracing = "0.1.44"
+tracing-opentelemetry = "0.33.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.24.0", features = ["v7", "serde"] }
+
+[dev-dependencies]
+base64 = "0.23.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
+secrecy = "0.10.3"
+testcontainers = "0.27.3"
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+tokio = { version = "1.53.1", features = ["full", "test-util"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

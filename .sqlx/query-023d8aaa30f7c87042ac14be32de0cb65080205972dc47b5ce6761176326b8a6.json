@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select s.user_id\n            from sessions s\n            join users u on u.id = s.user_id\n            where s.id = $1\n              and s.revoked_at is null\n              and s.expires_at > now()\n              and s.security_stamp = u.security_stamp\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "023d8aaa30f7c87042ac14be32de0cb65080205972dc47b5ce6761176326b8a6"
+}
