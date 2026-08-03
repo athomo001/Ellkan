@@ -1,0 +1,21 @@
+# Autor: Athan Espinoza
+
+# Excepciones documentadas al gate transversal `cargo audit` — cada entrada
+# acá exige una justificación real de por qué la vulnerabilidad no aplica al
+# uso concreto que Ellkan hace de esa dependencia, nunca un silenciamiento
+# sin motivo. Ver `spec/05-plan-de-implementacion.md` sección 1.2 (F-03) para
+# el contexto completo de esta excepción puntual.
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 ("Marvin Attack", canal lateral de timing en
+    # operaciones RSA con la clave PRIVADA) — `rsa` llega vía `crypto-glue`,
+    # dependencia obligatoria (no gateable por feature) de
+    # `webauthn-rs-core`/`webauthn-attestation-ca` para soportar RS256 en
+    # claves COSE. Ellkan, como Relying Party WebAuthn, sólo VERIFICA firmas
+    # con la clave PÚBLICA del autenticador — nunca posee ni opera con una
+    # clave privada RSA, así que el canal lateral de timing (que exige una
+    # operación con la clave privada) no es alcanzable en este uso. Sin
+    # versión corregida disponible todavía en `rsa` — revisar esta excepción
+    # cuando exista un fix.
+    "RUSTSEC-2023-0071",
+]

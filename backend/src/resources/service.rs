@@ -9,20 +9,24 @@ use uuid::Uuid;
 use crate::error::DomainError;
 
 use super::models::{NivelPermiso, Resource, SecretEnvelope};
-use super::repository::{PermissionRepository, ResourceRepository, SecretEnvelopeRepository};
+use super::repository::{
+    PermissionRepository, ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository,
+};
 
-pub struct ResourceService<'a, R, E, P> {
+pub struct ResourceService<'a, R, E, P, T> {
     pub recursos: &'a R,
     pub envolturas: &'a E,
     pub permisos: &'a P,
+    pub tipos_recurso: &'a T,
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<'a, R, E, P> ResourceService<'a, R, E, P>
+impl<'a, R, E, P, T> ResourceService<'a, R, E, P, T>
 where
     R: ResourceRepository,
     E: SecretEnvelopeRepository,
     P: PermissionRepository,
+    T: ResourceTypeRepository,
 {
     pub async fn crear(
         &self,
@@ -34,10 +38,11 @@ where
         sealed_dek: &[u8],
         secret_ciphertext: &[u8],
         secret_nonce: &[u8],
+        metadata_key_id: Option<Uuid>,
     ) -> Result<Resource, DomainError> {
         let recurso = self
             .recursos
-            .crear(id, resource_type_id, metadata_ciphertext, metadata_nonce, owner_id)
+            .crear(id, resource_type_id, metadata_ciphertext, metadata_nonce, owner_id, metadata_key_id)
             .await?;
 
         self.envolturas
@@ -110,6 +115,15 @@ where
             return Err(DomainError::PermissionDenied);
         }
 
+        // F-06 completo: sólo un recurso cifrado con la metadata key
+        // compartida puede compartirse — uno con metadata personal
+        // (`user_key`) fallaría en que el destinatario ni siquiera pueda
+        // descifrar el nombre/URI, así que se rechaza acá, explícito.
+        let recurso = self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
+        if recurso.metadata_key_type != "shared_key" {
+            return Err(DomainError::MetadataPersonalNoCompartible);
+        }
+
         self.envolturas
             .insertar(resource_id, recipient_id, sealed_dek, secret_ciphertext, secret_nonce)
             .await
@@ -123,5 +137,72 @@ where
             .await?;
 
         Ok(())
+    }
+
+    /// F-33: el cliente descifró la metadata con la clave saliente (via su
+    /// propio `metadata_key_envelopes`) y la re-envuelve para la entrante —
+    /// el servidor sólo mueve bytes opacos, igual criterio que el resto de
+    /// este Service. Exige `update`+ (misma autoridad que editar el
+    /// recurso), no `owner` — re-envolver metadata durante una rotación no
+    /// es una decisión de a quién pertenece el recurso.
+    pub async fn rekey_metadata(
+        &self,
+        resource_id: Uuid,
+        actor_id: Uuid,
+        expected_current_metadata_key_id: Uuid,
+        new_metadata_key_id: Uuid,
+        metadata_ciphertext: &[u8],
+        metadata_nonce: &[u8],
+    ) -> Result<(), DomainError> {
+        if !self
+            .permisos
+            .tiene_permiso(resource_id, actor_id, NivelPermiso::Update.as_db_str())
+            .await?
+        {
+            return Err(DomainError::PermissionDenied);
+        }
+
+        let aplicado = self
+            .recursos
+            .rekey_metadata(
+                resource_id,
+                expected_current_metadata_key_id,
+                new_metadata_key_id,
+                metadata_ciphertext,
+                metadata_nonce,
+            )
+            .await?;
+
+        if !aplicado {
+            return Err(DomainError::Conflict);
+        }
+        Ok(())
+    }
+
+    /// `GET /resources/{id}/totp` (F-08) — sólo metadata de configuración,
+    /// nunca el código generado (eso lo calcula el cliente tras descifrar
+    /// vía `/resources/{id}/secret`). Deriva de si el `resource_type`
+    /// declara `totp_secret` en `secret`, nunca inspecciona contenido
+    /// cifrado.
+    pub async fn tiene_totp(&self, resource_id: Uuid, user_id: Uuid) -> Result<bool, DomainError> {
+        if !self
+            .permisos
+            .tiene_permiso(resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .await?
+        {
+            return Err(DomainError::PermissionDenied);
+        }
+
+        let recurso = self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
+        let schema = self
+            .tipos_recurso
+            .json_schema_por_id(recurso.resource_type_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+
+        let declara_totp = schema["secret"]
+            .as_array()
+            .is_some_and(|campos| campos.iter().any(|c| c == "totp_secret"));
+        Ok(declara_totp)
     }
 }

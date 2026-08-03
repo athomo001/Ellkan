@@ -77,6 +77,9 @@ where
                         tracing::error!(error = %e, "no se pudo encolar el email de verificación de dispositivo");
                     }
                 }
+                // F-33: consumidor dedicado en `metadata::rotacion`, no
+                // genera ninguna notificación por email.
+                DomainEvent::MetadataKeyRotationStarted { .. } => {}
             }
         }
     });

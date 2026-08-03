@@ -19,6 +19,26 @@ use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 
+/// El consumidor de eventos que encola el email corre en su propia tarea
+/// tokio, desacoplada del request que la dispara — bajo carga (varios tests
+/// con Postgres en paralelo) puede no haber escrito la fila todavía en el
+/// instante exacto en que el test la busca, así que se reintenta brevemente.
+async fn esperar_email(pool: &sqlx::PgPool, email: &str) -> String {
+    for _ in 0..20 {
+        if let Ok((body,)) = sqlx::query_as::<_, (String,)>(
+            "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
+        )
+        .bind(email)
+        .fetch_one(pool)
+        .await
+        {
+            return body;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("debería haber un email encolado para {email} tras reintentar");
+}
+
 struct Contexto {
     base: String,
     cliente: reqwest::Client,
@@ -110,7 +130,7 @@ async fn intentar_verify(ctx: &Contexto, usuario: &Usuario) -> Value {
     let cuerpo: Value = resp.json().await.unwrap();
     let nonce = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
     let firma = usuario.ed25519.firmante().sign(&nonce);
-    let device_token_hash_b64 = B64.encode(Sha256::digest(usuario.device_token).to_vec());
+    let device_token_hash_b64 = B64.encode(Sha256::digest(usuario.device_token));
 
     let resp = ctx
         .cliente
@@ -155,13 +175,7 @@ async fn ningun_codigo_en_claro_queda_en_device_challenges() {
     let cuerpo = intentar_verify(&ctx, &usuario).await;
     assert_eq!(cuerpo["estado"], "pendiente_dispositivo");
 
-    let (body,): (String,) = sqlx::query_as(
-        "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
-    )
-    .bind(&usuario.email)
-    .fetch_one(&ctx.pool)
-    .await
-    .unwrap();
+    let body = esperar_email(&ctx.pool, &usuario.email).await;
     let codigo = body.lines().find_map(|l| l.strip_prefix("Código de verificación: ")).unwrap().trim().to_string();
 
     // El código SÍ aparece en el cuerpo del email (es lo que se manda) —
@@ -185,13 +199,7 @@ async fn dispositivo_ya_conocido_no_vuelve_a_pedir_verificacion() {
     let cuerpo = intentar_verify(&ctx, &usuario).await;
     assert_eq!(cuerpo["estado"], "pendiente_dispositivo");
     let device_challenge_id = cuerpo["device_challenge_id"].as_str().unwrap();
-    let (body,): (String,) = sqlx::query_as(
-        "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
-    )
-    .bind(&usuario.email)
-    .fetch_one(&ctx.pool)
-    .await
-    .unwrap();
+    let body = esperar_email(&ctx.pool, &usuario.email).await;
     let codigo = body.lines().find_map(|l| l.strip_prefix("Código de verificación: ")).unwrap().trim().to_string();
 
     let resp = ctx

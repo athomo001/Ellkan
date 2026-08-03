@@ -67,17 +67,29 @@ async fn registrar(cliente: &reqwest::Client, base: &str, email: &str, passphras
 
 /// Extrae el código de 6 dígitos del cuerpo del email encolado — simula
 /// "revisar la casilla", ya que el envío real de SMTP queda diferido a Fase 1
-/// (stub en `notificaciones.rs`, ver decisión en el plan).
+/// (stub en `notificaciones.rs`, ver decisión en el plan). El consumidor que
+/// encola corre en su propia tarea tokio, desacoplada del request que la
+/// dispara — bajo carga (varios tests con Postgres en paralelo) puede no
+/// haber escrito la fila todavía en el instante exacto en que se la busca,
+/// así que se reintenta brevemente en vez de fallar al primer miss.
 async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> String {
-    let fila: (String,) = sqlx::query_as(
-        "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
-    )
-    .bind(email)
-    .fetch_one(pool)
-    .await
-    .expect("debería haber un email encolado para este usuario");
+    let mut cuerpo = None;
+    for _ in 0..20 {
+        if let Ok(fila) = sqlx::query_as::<_, (String,)>(
+            "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
+        )
+        .bind(email)
+        .fetch_one(pool)
+        .await
+        {
+            cuerpo = Some(fila.0);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let cuerpo = cuerpo.expect("debería haber un email encolado para este usuario tras reintentar");
 
-    fila.0
+    cuerpo
         .lines()
         .find_map(|linea| linea.strip_prefix("Código de verificación: "))
         .expect("el cuerpo del email debería contener el código")
@@ -103,7 +115,7 @@ async fn login(cliente: &reqwest::Client, base: &str, pool: &sqlx::PgPool, usuar
     let firma = usuario.ed25519.firmante().sign(&nonce);
 
     use sha2::{Digest, Sha256};
-    let device_token_hash_b64 = B64.encode(Sha256::digest(usuario.device_token).to_vec());
+    let device_token_hash_b64 = B64.encode(Sha256::digest(usuario.device_token));
 
     let resp = cliente
         .post(format!("{base}/auth/verify"))
@@ -182,6 +194,31 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
     let sesion_alice = login(&cliente, &base, &pool, &alice).await;
     let sesion_bob = login(&cliente, &base, &pool, &bob).await;
 
+    // --- F-06 completo: un recurso compartible necesita metadata key
+    // compartida — se promueve a Alice a admin (equivalente de test a
+    // `ellkan-cli admin promote-to-admin`, F-41) sólo para poder crearla.
+    sqlx::query("update users set role_id = (select id from roles where name = 'admin') where id = $1")
+        .bind(alice.user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let metadata_key_publica = KeypairAcuerdo::generar();
+    let metadata_key_id = Uuid::now_v7();
+    let resp = cliente
+        .post(format!("{base}/admin/metadata-keys"))
+        .bearer_auth(sesion_alice)
+        .json(&json!({
+            "id": metadata_key_id,
+            "public_key_x25519_b64": B64.encode(metadata_key_publica.publica().as_bytes()),
+            "fingerprint": "test-fingerprint",
+            "destinatarios": [],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "un admin puede crear la metadata key compartida");
+
     // --- Alice crea un recurso (todo cifrado client-side) ---
     let dek_bytes: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     let dek_secreta = SecretBox::new(Box::new(dek_bytes));
@@ -209,6 +246,7 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
             "sealed_dek_b64": B64.encode(&sealed_dek_alice),
             "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
             "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            "metadata_key_id": metadata_key_id,
         }))
         .send()
         .await

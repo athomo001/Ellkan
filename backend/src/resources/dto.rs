@@ -16,6 +16,11 @@ pub struct CrearRecursoRequest {
     pub sealed_dek_b64: String,
     pub secret_ciphertext_b64: String,
     pub secret_nonce_b64: String,
+    /// F-06 completo: si se omite, el recurso queda `user_key` (personal,
+    /// no compartible) — mismo comportamiento que Fase 0. Si se da, debe
+    /// referenciar una metadata key compartida actualmente activa.
+    #[serde(default)]
+    pub metadata_key_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,6 +32,14 @@ pub struct RecursoResponse {
     pub created_by: Uuid,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    pub metadata_key_type: String,
+    pub metadata_key_id: Option<Uuid>,
+}
+
+/// F-08 — nunca un código generado, sólo si el tipo de recurso declara TOTP.
+#[derive(Debug, Serialize)]
+pub struct TotpResponse {
+    pub tiene_totp: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,6 +47,26 @@ pub struct SecretoResponse {
     pub sealed_dek_b64: String,
     pub secret_ciphertext_b64: String,
     pub secret_nonce_b64: String,
+}
+
+/// `GET /resources?tag_id=...` — extensión de F-10 sobre el listado ya
+/// existente (`03-api-contrato.md`: "filtros por carpeta/tag").
+#[derive(Debug, Deserialize, Default)]
+pub struct ListarQuery {
+    pub tag_id: Option<Uuid>,
+}
+
+/// `POST /resources/{id}/rekey-metadata` — F-33, endpoint nuevo no listado
+/// en el inventario original de `03-api-contrato.md`: sin él, la migración
+/// de metadata durante una rotación no tiene ningún mecanismo real por el
+/// que un cliente pueda ejecutarla (el servidor nunca ve la metadata en
+/// claro, así que no puede re-envolverla él mismo).
+#[derive(Debug, Deserialize)]
+pub struct RekeyMetadataRequest {
+    pub expected_current_metadata_key_id: Uuid,
+    pub new_metadata_key_id: Uuid,
+    pub metadata_ciphertext_b64: String,
+    pub metadata_nonce_b64: String,
 }
 
 #[derive(Debug, Deserialize)]

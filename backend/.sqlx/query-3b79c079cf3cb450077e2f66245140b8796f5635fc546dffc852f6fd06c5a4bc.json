@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select sealed_private_key from metadata_key_envelopes\n            where metadata_key_id = $1 and user_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sealed_private_key",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "metadata_key_envelopes",
+            "name": "sealed_private_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3b79c079cf3cb450077e2f66245140b8796f5635fc546dffc852f6fd06c5a4bc"
+}

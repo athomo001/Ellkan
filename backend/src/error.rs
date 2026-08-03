@@ -33,6 +33,28 @@ pub enum DomainError {
     ValidacionInvalida(String),
     #[error("demasiadas solicitudes")]
     RateLimited,
+    /// F-06: un recurso con metadata personal (`metadata_key_type =
+    /// 'user_key'`) no puede compartirse — sólo los cifrados con la
+    /// metadata key compartida.
+    #[error("un recurso con metadata personal no puede compartirse")]
+    MetadataPersonalNoCompartible,
+    /// F-12: re-parentar un grupo de forma que quede como su propio
+    /// ancestro.
+    #[error("ese movimiento crearía un ciclo en el árbol de grupos")]
+    CicloDeGrupo,
+    /// F-12: no puede borrarse un grupo con subgrupos sin re-ubicarlos o
+    /// borrarlos primero.
+    #[error("el grupo tiene subgrupos, no puede borrarse directamente")]
+    GrupoTieneSubgrupos,
+    /// F-12: no puede borrarse un grupo que sea único Owner de un recurso o
+    /// carpeta compartida.
+    #[error("el grupo es único Owner de al menos un recurso/carpeta compartida")]
+    GrupoEsUnicoOwner,
+    /// F-12: regla distinta a `GrupoEsUnicoOwner` — ésta es sobre quién
+    /// puede seguir administrando el grupo en sí, no sobre ownership de
+    /// recursos.
+    #[error("no se puede quitar ni degradar al único manager de un grupo con miembros")]
+    UnicoManagerDeGrupo,
     #[error("error interno")]
     Interno(#[from] RepoError),
 }
@@ -107,6 +129,31 @@ impl From<DomainError> for ApiError {
                 StatusCode::TOO_MANY_REQUESTS,
                 "RATE_LIMITED",
                 "demasiadas solicitudes, esperá antes de reintentar",
+            ),
+            DomainError::MetadataPersonalNoCompartible => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "METADATA_PERSONAL_NO_COMPARTIBLE",
+                "un recurso con metadata personal no puede compartirse",
+            ),
+            DomainError::CicloDeGrupo => ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "GROUP_CYCLE",
+                "ese movimiento crearía un ciclo en el árbol de grupos",
+            ),
+            DomainError::GrupoTieneSubgrupos => ApiError::new(
+                StatusCode::CONFLICT,
+                "GROUP_HAS_SUBGROUPS",
+                "el grupo tiene subgrupos, no puede borrarse directamente",
+            ),
+            DomainError::GrupoEsUnicoOwner => ApiError::new(
+                StatusCode::CONFLICT,
+                "GROUP_SOLE_OWNER",
+                "el grupo es único Owner de al menos un recurso/carpeta compartida",
+            ),
+            DomainError::UnicoManagerDeGrupo => ApiError::new(
+                StatusCode::CONFLICT,
+                "GROUP_SOLE_MANAGER",
+                "no se puede quitar ni degradar al único manager de un grupo con miembros",
             ),
             // Todo error no mapeado explícitamente cae acá — nunca se filtra
             // el mensaje real de sqlx::Error ni un panic al cliente.

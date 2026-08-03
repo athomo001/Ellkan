@@ -31,7 +31,26 @@ tower_governor = "0.8.0"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.33.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.7"
 uuid = { version = "1.24.0", features = ["v7", "serde"] }
+# F-03: ceremonia WebAuthn (Kanidm). Fijado en `0.6.1-dev`, no en el `0.5.5`
+# marcado "stable" en crates.io, a propósito: `webauthn-authenticator-rs`
+# (dev-dependency, autenticador de software real para tests E2E) fija
+# `webauthn-rs-proto = "=0.6.1-dev"` sin flexibilidad — mezclar `0.5.5` acá
+# con `0.6.1-dev` en tests produciría dos tipos `CreationChallengeResponse`
+# (etc.) incompatibles entre sí en tiempo de compilación, aunque representen
+# el mismo JSON. Mismo proyecto/repo para ambas crates, versionado en
+# lockstep — no es una `-dev` de un tercero ajeno.
+# `default-features = false` para no arrastrar la feature `attestation`
+# (valida cadenas de certificados de fabricante vía openssl-sys) — Ellkan no
+# necesita verificar la cadena de atestación de hardware del autenticador,
+# sólo la firma de la ceremonia en sí. `danger-allow-state-serialisation`
+# habilita persistir `PasskeyRegistration`/`PasskeyAuthentication` — el
+# nombre "danger" es sobre exponer ese estado al cliente (ej. en una cookie,
+# lo que permitiría un replay); acá se persiste server-side en Postgres,
+# indexado por `user_id`, nunca viaja al cliente — exactamente el caso
+# "seguro" que la propia documentación de la crate describe.
+webauthn-rs = { version = "=0.6.1-dev", default-features = false, features = ["danger-allow-state-serialisation"] }
 
 [dev-dependencies]
 base64 = "0.23.0"
@@ -41,3 +60,6 @@ testcontainers = "0.27.3"
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 tokio = { version = "1.53.1", features = ["full", "test-util"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# Autenticador de software real (protocolo-compatible, no un mock) para
+# ejercitar la ceremonia WebAuthn de punta a punta sin navegador ni hardware.
+webauthn-authenticator-rs = { version = "0.6.1-dev", features = ["softpasskey"] }

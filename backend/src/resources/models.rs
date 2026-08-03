@@ -11,6 +11,10 @@ pub struct Resource {
     pub metadata_nonce: Vec<u8>,
     pub created_by: Uuid,
     pub created_at: OffsetDateTime,
+    /// `user_key` (default, F-05/F-06 básico) | `shared_key` (F-06
+    /// completo) — sólo un recurso `shared_key` puede compartirse.
+    pub metadata_key_type: String,
+    pub metadata_key_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]

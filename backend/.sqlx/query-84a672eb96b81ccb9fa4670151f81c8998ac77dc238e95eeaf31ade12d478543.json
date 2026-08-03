@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select distinct rt.resource_id\n            from resource_tags rt\n            join permissions p on p.subject_type = 'resource' and p.subject_id = rt.resource_id\n            where rt.tag_id = $1 and p.grantee_type = 'user' and p.grantee_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "resource_tags",
+            "name": "resource_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "84a672eb96b81ccb9fa4670151f81c8998ac77dc238e95eeaf31ade12d478543"
+}

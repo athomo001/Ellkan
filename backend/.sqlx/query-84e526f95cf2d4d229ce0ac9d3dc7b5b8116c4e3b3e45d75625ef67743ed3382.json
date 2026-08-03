@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update device_approval_requests\n            set status = 'approved', sealed_user_private_key = $2, session_id = $3\n            where id = $1 and status = 'pending' and expires_at > now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84e526f95cf2d4d229ce0ac9d3dc7b5b8116c4e3b3e45d75625ef67743ed3382"
+}

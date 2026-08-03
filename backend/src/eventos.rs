@@ -14,6 +14,10 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub enum DomainEvent {
     DispositivoNoReconocido { user_id: Uuid, email: String, codigo: String },
+    /// F-33: dispara el consumidor de `metadata::rotacion`, que vigila
+    /// `saliente_id` hasta que ningún recurso lo referencie más y recién
+    /// entonces la expira — nunca antes.
+    MetadataKeyRotationStarted { saliente_id: Uuid, entrante_id: Uuid },
 }
 
 pub type EmisorDeEventos = tokio::sync::broadcast::Sender<DomainEvent>;

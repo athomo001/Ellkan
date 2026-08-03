@@ -1,6 +1,6 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use uuid::Uuid;
 
@@ -8,8 +8,12 @@ use crate::auth::extractor::AuthenticatedUser;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
+use crate::tags::service::TagService;
 
-use super::dto::{CompartirRequest, CrearRecursoRequest, RecursoResponse, SecretoResponse};
+use super::dto::{
+    CompartirRequest, CrearRecursoRequest, ListarQuery, RecursoResponse, RekeyMetadataRequest,
+    SecretoResponse, TotpResponse,
+};
 use super::models::NivelPermiso;
 use super::repository::ResourceTypeRepository;
 use super::service::ResourceService;
@@ -19,6 +23,7 @@ type Servicio<'a> = ResourceService<
     super::repository::PgResourceRepository,
     super::repository::PgSecretEnvelopeRepository,
     super::repository::PgPermissionRepository,
+    super::repository::PgResourceTypeRepository,
 >;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
@@ -26,6 +31,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         recursos: &state.recursos,
         envolturas: &state.envolturas,
         permisos: &state.permisos,
+        tipos_recurso: &state.tipos_recurso,
     }
 }
 
@@ -37,6 +43,8 @@ fn a_response(recurso: super::models::Resource) -> RecursoResponse {
         metadata_nonce_b64: b64::encode(&recurso.metadata_nonce),
         created_by: recurso.created_by,
         created_at: recurso.created_at,
+        metadata_key_type: recurso.metadata_key_type,
+        metadata_key_id: recurso.metadata_key_id,
     }
 }
 
@@ -63,6 +71,22 @@ pub async fn crear(
     let secret_nonce = b64::decode(&req.secret_nonce_b64)
         .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
 
+    // El servidor rechaza un blob de metadata cuya envoltura no corresponda
+    // a una clave declarada activa (F-06, criterio de aceptación literal) —
+    // se valida acá, antes de tocar la fila de `resources`.
+    if let Some(metadata_key_id) = req.metadata_key_id {
+        use crate::metadata::repository::MetadataKeyRepository;
+        let clave = state
+            .claves_metadata
+            .buscar(metadata_key_id)
+            .await
+            .map_err(DomainError::from)?
+            .ok_or_else(|| DomainError::ValidacionInvalida("metadata_key_id no existe".into()))?;
+        if clave.expired_at.is_some() {
+            return Err(DomainError::ValidacionInvalida("metadata_key_id no está activa".into()).into());
+        }
+    }
+
     let recurso = servicio(&state)
         .crear(
             req.id,
@@ -73,6 +97,7 @@ pub async fn crear(
             &sealed_dek,
             &secret_ciphertext,
             &secret_nonce,
+            req.metadata_key_id,
         )
         .await?;
 
@@ -82,8 +107,21 @@ pub async fn crear(
 pub async fn listar(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
+    Query(q): Query<ListarQuery>,
 ) -> Result<Json<Vec<RecursoResponse>>, ApiError> {
     let recursos = servicio(&state).listar_visibles(auth.user_id).await?;
+
+    let recursos = match q.tag_id {
+        None => recursos,
+        Some(tag_id) => {
+            let ids_con_tag = TagService { tags: &state.tags, permisos: &state.permisos }
+                .recursos_por_tag(auth.user_id, tag_id)
+                .await?;
+            let ids_con_tag: std::collections::HashSet<Uuid> = ids_con_tag.into_iter().collect();
+            recursos.into_iter().filter(|r| ids_con_tag.contains(&r.id)).collect()
+        }
+    };
+
     Ok(Json(recursos.into_iter().map(a_response).collect()))
 }
 
@@ -138,6 +176,40 @@ pub async fn compartir(
             &secret_ciphertext,
             &secret_nonce,
             nivel,
+        )
+        .await?;
+
+    Ok(())
+}
+
+pub async fn totp(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+) -> Result<Json<TotpResponse>, ApiError> {
+    let tiene_totp = servicio(&state).tiene_totp(resource_id, auth.user_id).await?;
+    Ok(Json(TotpResponse { tiene_totp }))
+}
+
+pub async fn rekey_metadata(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+    Json(req): Json<RekeyMetadataRequest>,
+) -> Result<(), ApiError> {
+    let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
+    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+
+    servicio(&state)
+        .rekey_metadata(
+            resource_id,
+            auth.user_id,
+            req.expected_current_metadata_key_id,
+            req.new_metadata_key_id,
+            &metadata_ciphertext,
+            &metadata_nonce,
         )
         .await?;
 

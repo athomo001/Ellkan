@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update metadata_keys set resources_pendientes_al_iniciar = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a201d0867365302de16bfee79e325e75ae33c3bd67f8040e202740c5fb8c3a8"
+}

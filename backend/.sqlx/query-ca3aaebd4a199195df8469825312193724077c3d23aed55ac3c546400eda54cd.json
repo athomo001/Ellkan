@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update metadata_keys set expired_at = now() where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ca3aaebd4a199195df8469825312193724077c3d23aed55ac3c546400eda54cd"
+}

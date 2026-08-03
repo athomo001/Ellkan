@@ -20,6 +20,7 @@ pub trait ResourceRepository {
         metadata_ciphertext: &[u8],
         metadata_nonce: &[u8],
         created_by: Uuid,
+        metadata_key_id: Option<Uuid>,
     ) -> Result<Resource, RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Resource>, RepoError>;
@@ -27,10 +28,31 @@ pub trait ResourceRepository {
     /// Recursos donde `user_id` tiene al menos permiso `read` — join contra
     /// `permissions` (sin grupos todavía, F-11 básico).
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError>;
+
+    /// F-33: re-envuelve la metadata de un recurso hacia otra metadata key
+    /// (ej. la entrante de una rotación en curso) — `UPDATE` condicionado a
+    /// que la fila siga apuntando a `expected_current_metadata_key_id`, para
+    /// no pisar una migración/edición concurrente de la misma fila. Devuelve
+    /// `false` si la condición no matcheó (ya migrado, o recurso inexistente).
+    #[allow(clippy::too_many_arguments)]
+    async fn rekey_metadata(
+        &self,
+        resource_id: Uuid,
+        expected_current_metadata_key_id: Uuid,
+        new_metadata_key_id: Uuid,
+        metadata_ciphertext: &[u8],
+        metadata_nonce: &[u8],
+    ) -> Result<bool, RepoError>;
 }
 
 pub trait ResourceTypeRepository {
     async fn id_por_slug(&self, slug: &str) -> Result<Option<Uuid>, RepoError>;
+
+    /// F-08: el `json_schema` completo — el servidor sólo lo usa para
+    /// derivar si el tipo declara `totp_secret` en `secret`
+    /// (`GET /resources/{id}/totp`), nunca para interpretar contenido
+    /// cifrado.
+    async fn json_schema_por_id(&self, id: Uuid) -> Result<Option<serde_json::Value>, RepoError>;
 }
 
 pub trait SecretEnvelopeRepository {
@@ -60,13 +82,41 @@ pub trait PermissionRepository {
     ) -> Result<(), RepoError>;
 
     /// `true` si `user_id` tiene exactamente `nivel` o uno más alto
-    /// (`owner` > `update` > `read`) sobre el recurso.
+    /// (`owner` > `update` > `read`) sobre el recurso — directo (`grantee_type
+    /// = 'user'`) o vía membresía de un grupo con acceso (F-12: `grantee_type
+    /// = 'group'`, resuelto contra `group_members`).
     async fn tiene_permiso(
         &self,
         resource_id: Uuid,
         user_id: Uuid,
         nivel_minimo: &str,
     ) -> Result<bool, RepoError>;
+
+    /// `subject_id` de tipo `resource` donde `grantee_type`/`grantee_id`
+    /// tiene acceso — F-12 lo usa para saber qué recursos ya comparte un
+    /// grupo antes de agregar un miembro nuevo.
+    async fn recursos_por_grantee(&self, grantee_type: &str, grantee_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
+
+    /// `true` si, además de `grantee_type`/`grantee_id`, existe **otro**
+    /// grantee con nivel `owner` sobre el mismo `subject` — F-12 lo usa para
+    /// rechazar borrar un grupo que sea único Owner de algo.
+    #[allow(clippy::too_many_arguments)]
+    async fn existe_otro_owner(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        excluir_grantee_type: &str,
+        excluir_grantee_id: Uuid,
+    ) -> Result<bool, RepoError>;
+
+    /// `(subject_type, subject_id)` donde `grantee_type`/`grantee_id` tiene
+    /// exactamente nivel `owner` — F-12 recorre esto al intentar borrar un
+    /// grupo.
+    async fn subjects_owner_de(
+        &self,
+        grantee_type: &str,
+        grantee_id: Uuid,
+    ) -> Result<Vec<(String, Uuid)>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -82,18 +132,26 @@ impl ResourceRepository for PgResourceRepository {
         metadata_ciphertext: &[u8],
         metadata_nonce: &[u8],
         created_by: Uuid,
+        metadata_key_id: Option<Uuid>,
     ) -> Result<Resource, RepoError> {
+        let metadata_key_type = if metadata_key_id.is_some() { "shared_key" } else { "user_key" };
         let fila = sqlx::query!(
             r#"
-            insert into resources (id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by)
-            values ($1, $2, $3, $4, $5)
-            returning id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at
+            insert into resources (
+                id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by,
+                metadata_key_id, metadata_key_type
+            )
+            values ($1, $2, $3, $4, $5, $6, $7)
+            returning id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at,
+                      metadata_key_type, metadata_key_id
             "#,
             id,
             resource_type_id,
             metadata_ciphertext,
             metadata_nonce,
             created_by,
+            metadata_key_id,
+            metadata_key_type,
         )
         .fetch_one(&self.pool)
         .await?;
@@ -105,13 +163,16 @@ impl ResourceRepository for PgResourceRepository {
             metadata_nonce: fila.metadata_nonce,
             created_by: fila.created_by,
             created_at: fila.created_at,
+            metadata_key_type: fila.metadata_key_type,
+            metadata_key_id: fila.metadata_key_id,
         })
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Resource>, RepoError> {
         let fila = sqlx::query!(
             r#"
-            select id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at
+            select id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at,
+                   metadata_key_type, metadata_key_id
             from resources where id = $1 and deleted_at is null
             "#,
             id,
@@ -126,6 +187,8 @@ impl ResourceRepository for PgResourceRepository {
             metadata_nonce: f.metadata_nonce,
             created_by: f.created_by,
             created_at: f.created_at,
+            metadata_key_type: f.metadata_key_type,
+            metadata_key_id: f.metadata_key_id,
         }))
     }
 
@@ -133,7 +196,7 @@ impl ResourceRepository for PgResourceRepository {
         let filas = sqlx::query!(
             r#"
             select distinct r.id, r.resource_type_id, r.metadata_ciphertext, r.metadata_nonce,
-                   r.created_by, r.created_at
+                   r.created_by, r.created_at, r.metadata_key_type, r.metadata_key_id
             from resources r
             join permissions p on p.subject_type = 'resource' and p.subject_id = r.id
             where p.grantee_type = 'user' and p.grantee_id = $1 and r.deleted_at is null
@@ -153,8 +216,35 @@ impl ResourceRepository for PgResourceRepository {
                 metadata_nonce: f.metadata_nonce,
                 created_by: f.created_by,
                 created_at: f.created_at,
+                metadata_key_type: f.metadata_key_type,
+                metadata_key_id: f.metadata_key_id,
             })
             .collect())
+    }
+
+    async fn rekey_metadata(
+        &self,
+        resource_id: Uuid,
+        expected_current_metadata_key_id: Uuid,
+        new_metadata_key_id: Uuid,
+        metadata_ciphertext: &[u8],
+        metadata_nonce: &[u8],
+    ) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"
+            update resources
+            set metadata_ciphertext = $1, metadata_nonce = $2, metadata_key_id = $3
+            where id = $4 and metadata_key_id = $5 and deleted_at is null
+            "#,
+            metadata_ciphertext,
+            metadata_nonce,
+            new_metadata_key_id,
+            resource_id,
+            expected_current_metadata_key_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
     }
 }
 
@@ -172,6 +262,16 @@ impl ResourceTypeRepository for PgResourceTypeRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.map(|f| f.id))
+    }
+
+    async fn json_schema_por_id(&self, id: Uuid) -> Result<Option<serde_json::Value>, RepoError> {
+        let fila = sqlx::query!(
+            r#"select json_schema from resource_types where id = $1 and deleted_at is null"#,
+            id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| f.json_schema))
     }
 }
 
@@ -262,16 +362,21 @@ impl PermissionRepository for PgPermissionRepository {
         user_id: Uuid,
         nivel_minimo: &str,
     ) -> Result<bool, RepoError> {
-        let fila = sqlx::query!(
+        let filas = sqlx::query!(
             r#"
             select level from permissions
             where subject_type = 'resource' and subject_id = $1
-              and grantee_type = 'user' and grantee_id = $2
+              and (
+                (grantee_type = 'user' and grantee_id = $2)
+                or (grantee_type = 'group' and grantee_id in (
+                    select group_id from group_members where user_id = $2
+                ))
+              )
             "#,
             resource_id,
             user_id,
         )
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         let orden = |n: &str| match n {
@@ -281,6 +386,62 @@ impl PermissionRepository for PgPermissionRepository {
             _ => -1,
         };
 
-        Ok(fila.is_some_and(|f| orden(&f.level) >= orden(nivel_minimo)))
+        Ok(filas.iter().any(|f| orden(&f.level) >= orden(nivel_minimo)))
+    }
+
+    async fn recursos_por_grantee(&self, grantee_type: &str, grantee_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select subject_id from permissions
+            where subject_type = 'resource' and grantee_type = $1 and grantee_id = $2
+            "#,
+            grantee_type,
+            grantee_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.subject_id).collect())
+    }
+
+    async fn existe_otro_owner(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        excluir_grantee_type: &str,
+        excluir_grantee_id: Uuid,
+    ) -> Result<bool, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select 1 as "existe!" from permissions
+            where subject_type = $1 and subject_id = $2 and level = 'owner'
+              and not (grantee_type = $3 and grantee_id = $4)
+            limit 1
+            "#,
+            subject_type,
+            subject_id,
+            excluir_grantee_type,
+            excluir_grantee_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.is_some())
+    }
+
+    async fn subjects_owner_de(
+        &self,
+        grantee_type: &str,
+        grantee_id: Uuid,
+    ) -> Result<Vec<(String, Uuid)>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select subject_type, subject_id from permissions
+            where grantee_type = $1 and grantee_id = $2 and level = 'owner'
+            "#,
+            grantee_type,
+            grantee_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| (f.subject_type, f.subject_id)).collect())
     }
 }

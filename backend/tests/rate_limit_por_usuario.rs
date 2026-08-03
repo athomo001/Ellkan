@@ -85,7 +85,7 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
 
     use sha2::{Digest, Sha256};
     let device_token: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let device_token_hash_b64 = B64.encode(Sha256::digest(device_token).to_vec());
+    let device_token_hash_b64 = B64.encode(Sha256::digest(device_token));
 
     let resp = cliente
         .post(format!("{base}/auth/verify"))

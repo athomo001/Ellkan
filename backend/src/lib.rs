@@ -1,19 +1,26 @@
 // Autor: Athan Espinoza
 
+pub mod admin;
 pub mod auth;
 pub mod b64;
 pub mod config;
+pub mod devices;
 pub mod error;
 pub mod eventos;
+pub mod folders;
+pub mod groups;
+pub mod metadata;
 pub mod notificaciones;
 pub mod observabilidad;
+pub mod passkeys;
 pub mod rate_limit;
 pub mod resources;
 pub mod state;
+pub mod tags;
 
 use std::time::Duration;
 
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::Router;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::GovernorLayer;
@@ -93,29 +100,102 @@ pub fn construir_router(estado: AppState) -> Router {
     notificaciones::spawn_consumidor_de_eventos(&estado.eventos, estado.emails.clone());
     notificaciones::spawn_poller_de_envio(estado.emails.clone(), Duration::from_secs(5));
 
+    // F-33: consumidor de `MetadataKeyRotationStarted` + reconciliación de
+    // una rotación que ya estuviera en curso si el proceso se reinició.
+    metadata::rotacion::spawn_consumidor(&estado.eventos, estado.claves_metadata.clone());
+    tokio::spawn(metadata::rotacion::reconciliar_al_arrancar(estado.claves_metadata.clone()));
+
+    let webauthn_router = Router::new()
+        .route("/register/options", post(passkeys::handlers::register_options))
+        .route("/register/verify", post(passkeys::handlers::register_verify))
+        .route("/login/options", post(passkeys::handlers::login_options))
+        .route("/login/verify", post(passkeys::handlers::login_verify));
+
+    let device_approval_router = Router::new()
+        .route("/request", post(devices::handlers::solicitar_aprobacion))
+        .route(
+            "/{id}",
+            get(devices::handlers::estado_aprobacion),
+        )
+        .route("/{id}/approve", post(devices::handlers::aprobar));
+
     let auth_router = Router::new()
         .route("/register", post(auth::handlers::register))
         .route("/server-key", get(auth::handlers::server_key))
         .route("/challenge", post(auth::handlers::challenge))
         .route("/verify", post(auth::handlers::verify))
         .route("/verify-device", post(auth::handlers::verify_device))
-        .route("/logout", post(auth::handlers::logout));
+        .route("/logout", post(auth::handlers::logout))
+        .nest("/webauthn", webauthn_router)
+        .nest("/device-approval", device_approval_router);
+
+    let me_devices_router = Router::new()
+        .route("/", get(devices::handlers::listar_confiables))
+        .route("/trust", post(devices::handlers::marcar_confiable))
+        .route("/{id}", axum::routing::delete(devices::handlers::revocar))
+        .route("/pending-approvals", get(devices::handlers::listar_pendientes));
+
+    let admin_device_approval_policy_router = Router::new()
+        .route("/", get(devices::handlers::politica).put(devices::handlers::actualizar_politica));
 
     let resources_router = Router::new()
         .route("/", get(resources::handlers::listar).post(resources::handlers::crear))
         .route("/{id}", get(resources::handlers::obtener))
         .route("/{id}/secret", get(resources::handlers::obtener_secreto))
         .route("/{id}/share", post(resources::handlers::compartir))
+        .route(
+            "/{id}/tags/{tag_id}",
+            post(tags::handlers::aplicar).delete(tags::handlers::quitar),
+        )
+        .route("/{id}/rekey-metadata", post(resources::handlers::rekey_metadata))
+        .route("/{id}/totp", get(resources::handlers::totp))
         .route_layer(axum::middleware::from_fn_with_state(
             estado.clone(),
             rate_limit::limitar_por_usuario,
         ));
+
+    let tags_router =
+        Router::new().route("/", get(tags::handlers::listar).post(tags::handlers::crear));
+
+    let groups_router = Router::new()
+        .route("/", get(groups::handlers::listar).post(groups::handlers::crear))
+        .route("/{id}", get(groups::handlers::obtener).delete(groups::handlers::eliminar))
+        .route("/{id}/subgroups", get(groups::handlers::subgrupos))
+        .route("/{id}/move", put(groups::handlers::mover))
+        .route(
+            "/{id}/members/{user_id}",
+            post(groups::handlers::agregar_miembro)
+                .delete(groups::handlers::quitar_miembro)
+                .put(groups::handlers::set_manager),
+        );
+
+    let metadata_keys_router = Router::new().route("/", get(metadata::handlers::listar));
+    let admin_metadata_keys_router = Router::new()
+        .route("/", post(metadata::handlers::crear))
+        .route("/rotate", post(metadata::handlers::rotar))
+        .route("/rotation-status", get(metadata::handlers::rotation_status));
+
+    let admin_roles_router = Router::new()
+        .route("/", get(admin::handlers::listar).post(admin::handlers::crear))
+        .route("/{id}", put(admin::handlers::actualizar_permisos));
+
+    let folders_router = Router::new()
+        .route("/", get(folders::handlers::listar).post(folders::handlers::crear))
+        .route("/{id}/move", put(folders::handlers::mover));
 
     Router::new()
         .route("/healthz", get(healthz))
         .route("/users/{email}/public-key", get(auth::handlers::public_key))
         .nest("/auth", auth_router)
         .nest("/resources", resources_router)
+        .nest("/admin/roles", admin_roles_router)
+        .nest("/folders", folders_router)
+        .nest("/tags", tags_router)
+        .nest("/metadata-keys", metadata_keys_router)
+        .nest("/admin/metadata-keys", admin_metadata_keys_router)
+        .nest("/groups", groups_router)
+        .nest("/me/devices", me_devices_router)
+        .nest("/admin/device-approval-policy", admin_device_approval_policy_router)
         .layer(GovernorLayer::new(governor_conf))
         .layer(
             TraceLayer::new_for_http()

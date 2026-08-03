@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into metadata_key_envelopes (metadata_key_id, user_id, sealed_private_key)\n            values ($1, $2, $3)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd2bf2c37edc50dc61510cee627b0cf6938cd6f42b6cda0e8e356e379cb0e4ec"
+}

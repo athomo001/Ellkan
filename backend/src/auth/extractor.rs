@@ -9,6 +9,7 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use uuid::Uuid;
 
+use crate::admin::repository::RoleRepository;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
@@ -48,5 +49,38 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         tracing::Span::current().record("actor_id", user_id.to_string());
 
         Ok(AuthenticatedUser { session_id, user_id })
+    }
+}
+
+/// Envuelve `AuthenticatedUser` y además exige el permiso comodín `"*"`
+/// (rol `admin` de organización, F-22 adelantado — ver
+/// `spec/05-plan-de-implementacion.md`). Para autoridad delegada de grupo
+/// (F-12, "¿es manager de este subárbol puntual?") el chequeo vive en
+/// `GroupService`, no acá — esa pregunta depende del `group_id` del path, no
+/// es una propiedad estática de la sesión.
+pub struct AdminUser {
+    pub user_id: Uuid,
+}
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let autenticado = AuthenticatedUser::from_request_parts(parts, state).await?;
+
+        let es_admin = state
+            .roles
+            .usuario_tiene_permiso(autenticado.user_id, "*")
+            .await
+            .map_err(DomainError::from)?;
+
+        if !es_admin {
+            return Err(DomainError::PermissionDenied.into());
+        }
+
+        Ok(AdminUser { user_id: autenticado.user_id })
     }
 }

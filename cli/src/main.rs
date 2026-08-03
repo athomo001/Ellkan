@@ -523,7 +523,12 @@ fn main() -> anyhow::Result<()> {
                     cli.client_key.clone(),
                     cli.ca_bundle.clone(),
                 )?;
-                println!("Nota: asignación de rol admin (F-22) llega en Fase 1 — este comando por ahora sólo hace bootstrap del usuario.");
+                // El modelo de roles (F-22) ya existe (Fase 1.1), pero
+                // ninguna ruta HTTP permite auto-asignarse admin —
+                // deliberado: la promoción real (F-41 `promote-to-admin`,
+                // Fase 1.6) exige acceso directo a la base de datos, mismo
+                // nivel de confianza que el backup del sistema.
+                println!("Nota: este comando sólo hace bootstrap del usuario con rol 'user'. La promoción a admin (F-41 promote-to-admin, Fase 1.6) exige acceso directo a la base de datos, no HTTP.");
             }
             AdminAccion::Healthcheck => println!("{}", cliente.healthz()?),
         },

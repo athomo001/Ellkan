@@ -20,6 +20,11 @@ pub trait UserRepository {
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError>;
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError>;
     async fn buscar_keys(&self, user_id: Uuid) -> Result<Option<UserKeysRow>, RepoError>;
+
+    /// F-03: `webauthn-rs` exige `email`/`display_name` al iniciar el
+    /// registro de una passkey — no hace falta en el resto del módulo, que
+    /// sólo trabaja con `id`+`security_stamp`.
+    async fn email_y_nombre(&self, user_id: Uuid) -> Result<Option<(String, String)>, RepoError>;
 }
 
 pub trait AuthChallengeRepository {
@@ -77,10 +82,14 @@ pub struct PgUserRepository {
 impl UserRepository for PgUserRepository {
     async fn crear(&self, nuevo: NuevoUsuario<'_>) -> Result<User, RepoError> {
         let mut tx = self.pool.begin().await?;
+        // El auto-registro (`POST /auth/register`) siempre nace con el rol
+        // `user` — promover a admin es una acción deliberada aparte (CLI
+        // `admin promote-to-admin`/`create-user --role admin`, F-41), nunca
+        // algo que el propio request de registro pueda elegir.
         let fila = sqlx::query!(
             r#"
-            insert into users (email, display_name)
-            values ($1, $2)
+            insert into users (email, display_name, role_id)
+            values ($1, $2, (select id from roles where name = 'user'))
             returning id, security_stamp
             "#,
             nuevo.email,
@@ -152,6 +161,16 @@ impl UserRepository for PgUserRepository {
             public_key_x25519: f.public_key_x25519,
             public_key_ed25519: f.public_key_ed25519,
         }))
+    }
+
+    async fn email_y_nombre(&self, user_id: Uuid) -> Result<Option<(String, String)>, RepoError> {
+        let fila = sqlx::query!(
+            r#"select email, display_name from users where id = $1 and active and deleted_at is null"#,
+            user_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| (f.email, f.display_name)))
     }
 }
 
