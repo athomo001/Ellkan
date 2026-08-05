@@ -1,6 +1,7 @@
 // Autor: Athan Espinoza
 
 pub mod admin;
+pub mod audit;
 pub mod auth;
 pub mod b64;
 pub mod config;
@@ -10,6 +11,7 @@ pub mod eventos;
 pub mod folders;
 pub mod groups;
 pub mod metadata;
+pub mod mfa;
 pub mod notificaciones;
 pub mod observabilidad;
 pub mod passkeys;
@@ -70,11 +72,14 @@ async fn healthz(
 
 /// Conecta, corre migraciones y arma el `AppState` — usado por el binario y
 /// por los tests de integración (misma inicialización, sin duplicar lógica).
-pub async fn construir_estado(database_url: &str) -> anyhow::Result<AppState> {
+pub async fn construir_estado(
+    database_url: &str,
+    secrets_key: ellkan_crypto::secretos::ClaveSecreta32,
+) -> anyhow::Result<AppState> {
     let pool = sqlx::PgPool::connect(database_url).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     let server_public_key = cargar_o_generar_server_key(&pool).await?;
-    Ok(AppState::nuevo(pool, server_public_key))
+    Ok(AppState::nuevo(pool, server_public_key, secrets_key))
 }
 
 /// Arma el router completo — separado de `main()` para que los tests de
@@ -105,6 +110,11 @@ pub fn construir_router(estado: AppState) -> Router {
     metadata::rotacion::spawn_consumidor(&estado.eventos, estado.claves_metadata.clone());
     tokio::spawn(metadata::rotacion::reconciliar_al_arrancar(estado.claves_metadata.clone()));
 
+    // F-13: consumidor de `DomainEvent::Auditoria` — persiste cada entrada
+    // de forma asíncrona, nunca dentro de la transacción de la acción que
+    // audita (ver `audit::consumidor`).
+    audit::consumidor::spawn_consumidor(&estado.eventos, estado.audit_log.clone());
+
     let webauthn_router = Router::new()
         .route("/register/options", post(passkeys::handlers::register_options))
         .route("/register/verify", post(passkeys::handlers::register_verify))
@@ -119,6 +129,12 @@ pub fn construir_router(estado: AppState) -> Router {
         )
         .route("/{id}/approve", post(devices::handlers::aprobar));
 
+    // F-14: rate limit dedicado, keyed por sesión parcial — más estricto que
+    // el general, ver `rate_limit::limitar_mfa_por_sesion`.
+    let auth_mfa_router = Router::new().route("/verify", post(mfa::handlers::verify)).route_layer(
+        axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_sesion),
+    );
+
     let auth_router = Router::new()
         .route("/register", post(auth::handlers::register))
         .route("/server-key", get(auth::handlers::server_key))
@@ -127,7 +143,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/verify-device", post(auth::handlers::verify_device))
         .route("/logout", post(auth::handlers::logout))
         .nest("/webauthn", webauthn_router)
-        .nest("/device-approval", device_approval_router);
+        .nest("/device-approval", device_approval_router)
+        .nest("/mfa", auth_mfa_router);
 
     let me_devices_router = Router::new()
         .route("/", get(devices::handlers::listar_confiables))
@@ -137,6 +154,13 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let admin_device_approval_policy_router = Router::new()
         .route("/", get(devices::handlers::politica).put(devices::handlers::actualizar_politica));
+
+    let me_mfa_totp_router = Router::new()
+        .route("/setup", post(mfa::handlers::setup_totp))
+        .route("/confirm", post(mfa::handlers::confirm_totp));
+
+    let admin_mfa_policy_router = Router::new()
+        .route("/", get(mfa::handlers::politica).put(mfa::handlers::actualizar_politica));
 
     let resources_router = Router::new()
         .route("/", get(resources::handlers::listar).post(resources::handlers::crear))
@@ -179,6 +203,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", get(admin::handlers::listar).post(admin::handlers::crear))
         .route("/{id}", put(admin::handlers::actualizar_permisos));
 
+    let admin_audit_log_router = Router::new()
+        .route("/", get(audit::handlers::listar))
+        .route("/export", get(audit::handlers::exportar));
+
     let folders_router = Router::new()
         .route("/", get(folders::handlers::listar).post(folders::handlers::crear))
         .route("/{id}/move", put(folders::handlers::mover));
@@ -189,13 +217,16 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/auth", auth_router)
         .nest("/resources", resources_router)
         .nest("/admin/roles", admin_roles_router)
+        .nest("/admin/audit-log", admin_audit_log_router)
         .nest("/folders", folders_router)
         .nest("/tags", tags_router)
         .nest("/metadata-keys", metadata_keys_router)
         .nest("/admin/metadata-keys", admin_metadata_keys_router)
         .nest("/groups", groups_router)
         .nest("/me/devices", me_devices_router)
+        .nest("/me/mfa/totp", me_mfa_totp_router)
         .nest("/admin/device-approval-policy", admin_device_approval_policy_router)
+        .nest("/admin/mfa-policy", admin_mfa_policy_router)
         .layer(GovernorLayer::new(governor_conf))
         .layer(
             TraceLayer::new_for_http()

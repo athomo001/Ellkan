@@ -7,6 +7,7 @@ use governor::{DefaultKeyedRateLimiter, Quota};
 use uuid::Uuid;
 
 use crate::admin::repository::PgRoleRepository;
+use crate::audit::repository::PgAuditLogRepository;
 use crate::auth::repository::{
     PgAuthChallengeRepository, PgDeviceChallengeRepository, PgKnownDeviceRepository,
     PgSessionRepository, PgUserRepository,
@@ -18,6 +19,7 @@ use crate::eventos::{self, EmisorDeEventos};
 use crate::folders::repository::{PgFolderItemRepository, PgFolderRepository};
 use crate::groups::repository::{PgGroupMemberRepository, PgGroupRepository, PgOrganizationRepository};
 use crate::metadata::repository::{PgMetadataKeyEnvelopeRepository, PgMetadataKeyRepository};
+use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, PgTotpCredentialRepository};
 use crate::notificaciones::PgOutboundEmailRepository;
 use crate::passkeys::repository::{PgCeremonyStateRepository, PgPasskeyRepository};
 use crate::resources::repository::{
@@ -25,6 +27,7 @@ use crate::resources::repository::{
     PgSecretEnvelopeRepository,
 };
 use crate::tags::repository::PgTagRepository;
+use ellkan_crypto::secretos::ClaveSecreta32;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -42,6 +45,7 @@ pub struct AppState {
     pub envolturas: PgSecretEnvelopeRepository,
     pub permisos: PgPermissionRepository,
     pub roles: PgRoleRepository,
+    pub audit_log: PgAuditLogRepository,
     pub carpetas: PgFolderRepository,
     pub items_de_carpeta: PgFolderItemRepository,
     pub tags: PgTagRepository,
@@ -55,6 +59,18 @@ pub struct AppState {
     pub dispositivos_confiables: PgTrustedDeviceRepository,
     pub solicitudes_aprobacion: PgApprovalRequestRepository,
     pub politica_aprobacion_dispositivo: PgDeviceApprovalPolicyRepository,
+    pub mfa_policy: PgMfaPolicyRepository,
+    pub mfa_totp: PgTotpCredentialRepository,
+    pub mfa_challenges: PgMfaChallengeRepository,
+    /// F-14: clave maestra de servidor para cifrar el secreto TOTP de login
+    /// en reposo — nunca una clave del usuario. `Arc` (no `Clone` sobre el
+    /// `SecretBox` en sí) para que `AppState` siga siendo barato de clonar
+    /// por request, igual criterio que `server_public_key_ed25519`.
+    pub secrets_key: Arc<ClaveSecreta32>,
+    /// Rate limiting dedicado sobre `POST /auth/mfa/verify`, keyed por
+    /// sesión parcial — más estricto que el general por usuario, porque un
+    /// código TOTP de 6 dígitos tiene espacio de búsqueda acotado (F-14).
+    pub limitador_mfa: Arc<DefaultKeyedRateLimiter<Uuid>>,
     /// F-03: instancia única del RP WebAuthn — `rp_id`/origin se leen de
     /// `ELLKAN_RP_ID`/`ELLKAN_RP_ORIGIN` (default de desarrollo
     /// `localhost`/`http://localhost:8080`). **Producción debe fijar
@@ -87,9 +103,13 @@ fn construir_webauthn() -> webauthn_rs::prelude::Webauthn {
 }
 
 impl AppState {
-    pub fn nuevo(pool: sqlx::PgPool, server_public_key_ed25519: [u8; 32]) -> Self {
+    pub fn nuevo(pool: sqlx::PgPool, server_public_key_ed25519: [u8; 32], secrets_key: ClaveSecreta32) -> Self {
         let cuota = Quota::per_second(NonZeroU32::new(10).expect("10 no es cero"))
             .allow_burst(NonZeroU32::new(20).expect("20 no es cero"));
+        // F-14: "más estricto que el general" — 5 intentos por minuto por
+        // sesión parcial, muy por debajo del espacio de búsqueda de un
+        // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.
+        let cuota_mfa = Quota::per_minute(NonZeroU32::new(5).expect("5 no es cero"));
         Self {
             usuarios: PgUserRepository { pool: pool.clone() },
             challenges: PgAuthChallengeRepository { pool: pool.clone() },
@@ -103,6 +123,7 @@ impl AppState {
             envolturas: PgSecretEnvelopeRepository { pool: pool.clone() },
             permisos: PgPermissionRepository { pool: pool.clone() },
             roles: PgRoleRepository { pool: pool.clone() },
+            audit_log: PgAuditLogRepository { pool: pool.clone() },
             carpetas: PgFolderRepository { pool: pool.clone() },
             items_de_carpeta: PgFolderItemRepository { pool: pool.clone() },
             tags: PgTagRepository { pool: pool.clone() },
@@ -116,6 +137,11 @@ impl AppState {
             dispositivos_confiables: PgTrustedDeviceRepository { pool: pool.clone() },
             solicitudes_aprobacion: PgApprovalRequestRepository { pool: pool.clone() },
             politica_aprobacion_dispositivo: PgDeviceApprovalPolicyRepository { pool: pool.clone() },
+            mfa_policy: PgMfaPolicyRepository { pool: pool.clone() },
+            mfa_totp: PgTotpCredentialRepository { pool: pool.clone() },
+            mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },
+            secrets_key: Arc::new(secrets_key),
+            limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),

@@ -41,13 +41,29 @@ pub trait AuthChallengeRepository {
 }
 
 pub trait SessionRepository {
+    /// Sesión completa — `mfa_verified_at` se fija de inmediato porque el
+    /// login no requería (o ya satisfizo) un segundo factor.
     async fn crear(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError>;
 
-    /// Válida sólo si: no revocada, no vencida, y `sessions.security_stamp`
-    /// (congelado al crearse) coincide con el `users.security_stamp` VIGENTE
-    /// — así rotar el stamp invalida todas las sesiones de un usuario de una
-    /// sola vez, sin iterar ni marcar cada fila.
+    /// F-14: sesión parcial — `mfa_verified_at` queda `null` hasta que
+    /// `mfa::service` la marque completa (verificando un código, o
+    /// confirmando un TOTP nuevo en el flujo "configura tu MFA ahora").
+    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError>;
+
+    /// Válida para operar sobre el resto de la API: no revocada, no vencida,
+    /// `security_stamp` vigente, **y MFA ya verificado**. Rotar el stamp
+    /// invalida todas las sesiones de un usuario de una sola vez, sin
+    /// iterar ni marcar cada fila.
     async fn validar(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError>;
+
+    /// Igual que `validar` pero sin exigir `mfa_verified_at` — la única
+    /// franja de la API donde una sesión parcial es válida: verificar el
+    /// código MFA o configurar el segundo factor por primera vez (F-14).
+    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError>;
+
+    /// Cierra el estado parcial de una sesión — la deja utilizable por el
+    /// resto de la API (F-14).
+    async fn marcar_mfa_verificada(&self, session_id: Uuid) -> Result<(), RepoError>;
 
     async fn revocar(&self, session_id: Uuid) -> Result<(), RepoError>;
 }
@@ -90,7 +106,7 @@ impl UserRepository for PgUserRepository {
             r#"
             insert into users (email, display_name, role_id)
             values ($1, $2, (select id from roles where name = 'user'))
-            returning id, security_stamp
+            returning id, security_stamp, created_at
             "#,
             nuevo.email,
             nuevo.display_name,
@@ -122,31 +138,31 @@ impl UserRepository for PgUserRepository {
 
         tx.commit().await?;
 
-        Ok(User { id: fila.id, security_stamp: fila.security_stamp })
+        Ok(User { id: fila.id, security_stamp: fila.security_stamp, created_at: fila.created_at })
     }
 
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, security_stamp from users
+            r#"select id, security_stamp, created_at from users
                where email = $1 and active and deleted_at is null"#,
             email,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp }))
+        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
     }
 
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, security_stamp from users
+            r#"select id, security_stamp, created_at from users
                where id = $1 and active and deleted_at is null"#,
             user_id,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp }))
+        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
     }
 
     async fn buscar_keys(&self, user_id: Uuid) -> Result<Option<UserKeysRow>, RepoError> {
@@ -235,7 +251,43 @@ impl SessionRepository for PgSessionRepository {
         Ok(Session { id: fila.id, user_id: fila.user_id })
     }
 
+    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            insert into sessions (user_id, security_stamp, mfa_verified_at, expires_at)
+            values ($1, $2, null, now() + interval '12 hours')
+            returning id, user_id
+            "#,
+            user_id,
+            security_stamp,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(Session { id: fila.id, user_id: fila.user_id })
+    }
+
     async fn validar(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select s.user_id
+            from sessions s
+            join users u on u.id = s.user_id
+            where s.id = $1
+              and s.revoked_at is null
+              and s.expires_at > now()
+              and s.security_stamp = u.security_stamp
+              and s.mfa_verified_at is not null
+            "#,
+            session_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(fila.map(|f| f.user_id))
+    }
+
+    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError> {
         let fila = sqlx::query!(
             r#"
             select s.user_id
@@ -252,6 +304,16 @@ impl SessionRepository for PgSessionRepository {
         .await?;
 
         Ok(fila.map(|f| f.user_id))
+    }
+
+    async fn marcar_mfa_verificada(&self, session_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"update sessions set mfa_verified_at = now() where id = $1 and mfa_verified_at is null"#,
+            session_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn revocar(&self, session_id: Uuid) -> Result<(), RepoError> {

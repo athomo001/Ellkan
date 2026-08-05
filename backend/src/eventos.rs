@@ -7,6 +7,8 @@
 
 use uuid::Uuid;
 
+use crate::audit::models::EventoAuditoria;
+
 /// El campo `codigo` viaja en claro (es lo que efectivamente se manda por
 /// email) sólo mientras el evento vive en memoria — el único consumidor hoy
 /// lo usa para escribir `outbound_emails.body` y lo suelta ahí mismo, nunca
@@ -18,6 +20,10 @@ pub enum DomainEvent {
     /// `saliente_id` hasta que ningún recurso lo referencie más y recién
     /// entonces la expira — nunca antes.
     MetadataKeyRotationStarted { saliente_id: Uuid, entrante_id: Uuid },
+    /// F-13: dispara el consumidor de `audit::consumidor`, que persiste la
+    /// entrada de forma asíncrona — nunca dentro de la transacción de la
+    /// acción que audita.
+    Auditoria(EventoAuditoria),
 }
 
 pub type EmisorDeEventos = tokio::sync::broadcast::Sender<DomainEvent>;

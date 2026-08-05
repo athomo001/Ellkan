@@ -6,7 +6,9 @@
 
 use uuid::Uuid;
 
+use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
+use crate::eventos::{DomainEvent, EmisorDeEventos};
 
 use super::models::{NivelPermiso, Resource, SecretEnvelope};
 use super::repository::{
@@ -18,6 +20,7 @@ pub struct ResourceService<'a, R, E, P, T> {
     pub envolturas: &'a E,
     pub permisos: &'a P,
     pub tipos_recurso: &'a T,
+    pub eventos: EmisorDeEventos,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -52,6 +55,11 @@ where
         self.permisos
             .otorgar(recurso.id, owner_id, NivelPermiso::Owner.as_db_str())
             .await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::ResourceCreated, Some(owner_id))
+                .con_sujeto("resource", recurso.id),
+        ));
 
         Ok(recurso)
     }
@@ -135,6 +143,15 @@ where
         self.permisos
             .otorgar(resource_id, recipient_id, nivel.as_db_str())
             .await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(owner_id))
+                .con_sujeto("resource", resource_id)
+                .con_metadata(serde_json::json!({
+                    "recipient_user_id": recipient_id,
+                    "level": nivel.as_db_str(),
+                })),
+        ));
 
         Ok(())
     }

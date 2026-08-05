@@ -15,7 +15,7 @@ use super::service::RoleService;
 type Servicio<'a> = RoleService<'a, super::repository::PgRoleRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
-    RoleService { roles: &state.roles }
+    RoleService { roles: &state.roles, eventos: state.eventos.clone() }
 }
 
 fn a_response(rol: Role) -> RolResponse {
@@ -32,19 +32,19 @@ pub async fn listar(
 
 pub async fn crear(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    admin: AdminUser,
     Json(req): Json<CrearRolRequest>,
 ) -> Result<Json<RolResponse>, ApiError> {
-    let rol = servicio(&state).crear(&req.name, req.permissions).await?;
+    let rol = servicio(&state).crear(admin.user_id, &req.name, req.permissions).await?;
     Ok(Json(a_response(rol)))
 }
 
 pub async fn actualizar_permisos(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    admin: AdminUser,
     Path(role_id): Path<Uuid>,
     Json(req): Json<ActualizarPermisosRequest>,
 ) -> Result<Json<RolResponse>, ApiError> {
-    let rol = servicio(&state).actualizar_permisos(role_id, req.permissions).await?;
+    let rol = servicio(&state).actualizar_permisos(admin.user_id, role_id, req.permissions).await?;
     Ok(Json(a_response(rol)))
 }

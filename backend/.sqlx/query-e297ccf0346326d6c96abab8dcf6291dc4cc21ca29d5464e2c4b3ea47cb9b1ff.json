@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into user_totp_credentials (user_id, secret_ciphertext, secret_nonce)\n               values ($1, $2, $3)\n               returning id, user_id, secret_ciphertext, secret_nonce, confirmed_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "user_totp_credentials",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "user_totp_credentials",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_totp_credentials",
+            "name": "secret_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "secret_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_totp_credentials",
+            "name": "secret_nonce"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "confirmed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "user_totp_credentials",
+            "name": "confirmed_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e297ccf0346326d6c96abab8dcf6291dc4cc21ca29d5464e2c4b3ea47cb9b1ff"
+}

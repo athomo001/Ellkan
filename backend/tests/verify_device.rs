@@ -60,7 +60,10 @@ async fn levantar() -> Contexto {
 
     let puerto = contenedor.get_host_port_ipv4(5432).await.unwrap();
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
-    let estado = ellkan_backend::construir_estado(&database_url).await.expect("migrar y conectar");
+    let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
+    let estado = ellkan_backend::construir_estado(&database_url, secrets_key)
+        .await
+        .expect("migrar y conectar");
     let pool = estado.pool.clone();
     let app = ellkan_backend::construir_router(estado);
 

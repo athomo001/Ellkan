@@ -21,5 +21,6 @@ pub struct RolResponse {
     pub id: Uuid,
     pub name: String,
     pub permissions: Vec<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }

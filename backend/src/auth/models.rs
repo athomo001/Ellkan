@@ -1,11 +1,16 @@
 // Autor: Athan Espinoza
 
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct User {
     pub id: Uuid,
     pub security_stamp: Uuid,
+    /// F-14: determina si un usuario ya existía cuando la política de MFA
+    /// se activó (elegible para el período de gracia) o se registró después
+    /// (sin gracia, configura MFA en el propio flujo de alta).
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]
@@ -31,12 +36,17 @@ pub struct Session {
     pub user_id: Uuid,
 }
 
-/// Resultado de `AuthService::verify` — puede resolver en sesión completa o
-/// dejar un desafío de dispositivo pendiente (F-02).
+/// Resultado de `AuthService::verify` — puede resolver en sesión completa,
+/// un desafío de dispositivo pendiente (F-02), o (una vez el dispositivo ya
+/// es conocido) el estado de MFA que corresponda (F-14): verificar un
+/// código contra un desafío ya emitido, o configurar un segundo factor por
+/// primera vez si la política lo exige y todavía no existe ninguno.
 #[derive(Debug, Clone)]
 pub enum ResultadoVerify {
     SesionCompleta(Session),
     PendienteDispositivo { device_challenge_id: Uuid },
+    PendienteMfa { session_id: Uuid },
+    RequiereConfigurarMfa { session_id: Uuid },
 }
 
 /// Fila de `device_challenges` pendiente — el service compara `code_hash` en

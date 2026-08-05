@@ -10,8 +10,10 @@ use sha2::{Digest, Sha256};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
+use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::auth::repository::{SessionRepository, UserRepository};
 use crate::error::DomainError;
+use crate::eventos::{DomainEvent, EmisorDeEventos};
 
 use super::models::{ApprovalRequest, DeviceApprovalPolicy, TrustedDevice};
 use super::repository::{ApprovalRequestRepository, DeviceApprovalPolicyRepository, TrustedDeviceRepository};
@@ -28,6 +30,7 @@ pub struct DeviceService<'a, T, A, PR, S, U> {
     pub policy: &'a PR,
     pub sesiones: &'a S,
     pub usuarios: &'a U,
+    pub eventos: EmisorDeEventos,
 }
 
 impl<'a, T, A, PR, S, U> DeviceService<'a, T, A, PR, S, U>
@@ -47,10 +50,17 @@ where
         sealed_user_private_key: &[u8],
         label: Option<&str>,
     ) -> Result<TrustedDevice, DomainError> {
-        Ok(self
+        let dispositivo = self
             .confiables
             .crear(Uuid::now_v7(), user_id, device_public_key, sealed_user_private_key, label)
-            .await?)
+            .await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::DeviceTrusted, Some(user_id))
+                .con_sujeto("trusted_device", dispositivo.id),
+        ));
+
+        Ok(dispositivo)
     }
 
     pub async fn listar_confiables(&self, user_id: Uuid) -> Result<Vec<TrustedDevice>, DomainError> {
@@ -63,6 +73,12 @@ where
             return Err(DomainError::PermissionDenied);
         }
         self.confiables.revocar(device_id).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::DeviceRevoked, Some(user_id))
+                .con_sujeto("trusted_device", device_id),
+        ));
+
         Ok(())
     }
 
@@ -70,8 +86,22 @@ where
         Ok(self.policy.obtener().await?)
     }
 
-    pub async fn actualizar_politica(&self, policy: DeviceApprovalPolicy) -> Result<(), DomainError> {
+    pub async fn actualizar_politica(
+        &self,
+        actor_id: Uuid,
+        policy: DeviceApprovalPolicy,
+    ) -> Result<(), DomainError> {
         self.policy.actualizar(&policy).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::DeviceApprovalPolicyUpdated, Some(actor_id)).con_metadata(
+                serde_json::json!({
+                    "allow_peer_device_approval": policy.allow_peer_device_approval,
+                    "allow_admin_device_approval": policy.allow_admin_device_approval,
+                }),
+            ),
+        ));
+
         Ok(())
     }
 
@@ -141,6 +171,11 @@ where
         self.confiables
             .crear(Uuid::now_v7(), solicitud.user_id, &solicitud.device_public_key, sealed_user_private_key, None)
             .await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::DeviceApprovalGranted, Some(actor_id))
+                .con_sujeto("device_approval_request", approval_request_id),
+        ));
 
         Ok(())
     }

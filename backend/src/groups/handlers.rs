@@ -32,6 +32,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         organizacion: &state.organizacion,
         permisos: &state.permisos,
         roles: &state.roles,
+        eventos: state.eventos.clone(),
     }
 }
 
