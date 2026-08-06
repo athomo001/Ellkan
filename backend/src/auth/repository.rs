@@ -25,6 +25,10 @@ pub trait UserRepository {
     /// registro de una passkey — no hace falta en el resto del módulo, que
     /// sólo trabaja con `id`+`security_stamp`.
     async fn email_y_nombre(&self, user_id: Uuid) -> Result<Option<(String, String)>, RepoError>;
+
+    /// F-01 (frontend web): material de desbloqueo por email — nunca la
+    /// clave privada en claro, sólo lo que ya vive en `user_keys`.
+    async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError>;
 }
 
 pub trait AuthChallengeRepository {
@@ -188,6 +192,28 @@ impl UserRepository for PgUserRepository {
         .await?;
         Ok(fila.map(|f| (f.email, f.display_name)))
     }
+
+    async fn material_desbloqueo_por_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
+            from user_keys uk
+            join users u on u.id = uk.user_id
+            where u.email = $1 and u.active and u.deleted_at is null
+            "#,
+            email,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| super::models::MaterialDesbloqueo {
+            encrypted_private_key_blob: f.encrypted_private_key_blob,
+            private_key_nonce: f.private_key_nonce,
+            kdf_salt: f.kdf_salt,
+        }))
+    }
 }
 
 #[derive(Clone)]
@@ -278,6 +304,7 @@ impl SessionRepository for PgSessionRepository {
               and s.expires_at > now()
               and s.security_stamp = u.security_stamp
               and s.mfa_verified_at is not null
+              and u.active and u.deleted_at is null
             "#,
             session_id,
         )
@@ -297,6 +324,7 @@ impl SessionRepository for PgSessionRepository {
               and s.revoked_at is null
               and s.expires_at > now()
               and s.security_stamp = u.security_stamp
+              and u.active and u.deleted_at is null
             "#,
             session_id,
         )

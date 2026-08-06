@@ -6,6 +6,10 @@ use std::sync::Arc;
 use governor::{DefaultKeyedRateLimiter, Quota};
 use uuid::Uuid;
 
+use crate::account_recovery::repository::{
+    PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository,
+    PgRecoveryRequestRepository,
+};
 use crate::admin::repository::PgRoleRepository;
 use crate::audit::repository::PgAuditLogRepository;
 use crate::auth::repository::{
@@ -15,6 +19,10 @@ use crate::auth::repository::{
 use crate::devices::repository::{
     PgApprovalRequestRepository, PgDeviceApprovalPolicyRepository, PgTrustedDeviceRepository,
 };
+use crate::directory_sync::repository::PgDirectorySyncConfigRepository;
+use crate::emergency_access::repository::{
+    PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
+};
 use crate::eventos::{self, EmisorDeEventos};
 use crate::folders::repository::{PgFolderItemRepository, PgFolderRepository};
 use crate::groups::repository::{PgGroupMemberRepository, PgGroupRepository, PgOrganizationRepository};
@@ -22,11 +30,16 @@ use crate::metadata::repository::{PgMetadataKeyEnvelopeRepository, PgMetadataKey
 use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, PgTotpCredentialRepository};
 use crate::notificaciones::PgOutboundEmailRepository;
 use crate::passkeys::repository::{PgCeremonyStateRepository, PgPasskeyRepository};
+use crate::password_policy::repository::PgPasswordPolicyRepository;
 use crate::resources::repository::{
     PgPermissionRepository, PgResourceRepository, PgResourceTypeRepository,
     PgSecretEnvelopeRepository,
 };
+use crate::retention::repository::{PgPurgeRepository, PgRetentionPolicyRepository};
+use crate::scim::repository::{PgScimTokenRepository, PgScimUserRepository};
+use crate::sso::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIdentityRepository};
 use crate::tags::repository::PgTagRepository;
+use crate::users_admin::repository::PgUserPurgeRepository;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
 #[derive(Clone)]
@@ -85,6 +98,30 @@ pub struct AppState {
     /// `tower_governor::GovernorLayer` porque ese layer corre antes de que
     /// exista `AuthenticatedUser` (no tiene forma de extraer `user_id`).
     pub limitador_por_usuario: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    // F-15
+    pub password_policy: PgPasswordPolicyRepository,
+    // F-16 (account recovery, admin-driven)
+    pub account_recovery_policy: PgAccountRecoveryPolicyRepository,
+    pub org_recovery_key: PgOrgRecoveryKeyRepository,
+    pub account_recovery_escrow: PgEscrowRepository,
+    pub account_recovery_requests: PgRecoveryRequestRepository,
+    // F-17
+    pub sso_config: PgSsoConfigRepository,
+    pub sso_identities: PgSsoIdentityRepository,
+    pub sso_login_state: PgLoginStateRepository,
+    // F-18
+    pub scim_tokens: PgScimTokenRepository,
+    pub scim_users: PgScimUserRepository,
+    // F-19
+    pub directory_sync_config: PgDirectorySyncConfigRepository,
+    // F-36 (emergency access, peer-to-peer)
+    pub emergency_access_policy: PgEmergencyAccessPolicyRepository,
+    pub emergency_access: PgEmergencyAccessRepository,
+    pub emergency_access_requests: PgEmergencyAccessRequestRepository,
+    // F-40
+    pub retention_policy: PgRetentionPolicyRepository,
+    pub purge: PgPurgeRepository,
+    pub users_purge: PgUserPurgeRepository,
 }
 
 /// Lee `ELLKAN_RP_ID`/`ELLKAN_RP_ORIGIN` con default de desarrollo — ver el
@@ -145,6 +182,23 @@ impl AppState {
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),
+            password_policy: PgPasswordPolicyRepository { pool: pool.clone() },
+            account_recovery_policy: PgAccountRecoveryPolicyRepository { pool: pool.clone() },
+            org_recovery_key: PgOrgRecoveryKeyRepository { pool: pool.clone() },
+            account_recovery_escrow: PgEscrowRepository { pool: pool.clone() },
+            account_recovery_requests: PgRecoveryRequestRepository { pool: pool.clone() },
+            sso_config: PgSsoConfigRepository { pool: pool.clone() },
+            sso_identities: PgSsoIdentityRepository { pool: pool.clone() },
+            sso_login_state: PgLoginStateRepository { pool: pool.clone() },
+            scim_tokens: PgScimTokenRepository { pool: pool.clone() },
+            scim_users: PgScimUserRepository { pool: pool.clone() },
+            directory_sync_config: PgDirectorySyncConfigRepository { pool: pool.clone() },
+            emergency_access_policy: PgEmergencyAccessPolicyRepository { pool: pool.clone() },
+            emergency_access: PgEmergencyAccessRepository { pool: pool.clone() },
+            emergency_access_requests: PgEmergencyAccessRequestRepository { pool: pool.clone() },
+            retention_policy: PgRetentionPolicyRepository { pool: pool.clone() },
+            purge: PgPurgeRepository { pool: pool.clone() },
+            users_purge: PgUserPurgeRepository { pool: pool.clone() },
             pool,
         }
     }

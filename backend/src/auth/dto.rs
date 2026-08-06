@@ -29,6 +29,23 @@ pub struct ChallengeRequest {
     pub email: String,
 }
 
+/// F-01 (frontend web) — no está en `03-api-contrato.md`, documentado igual
+/// que `rekey-metadata`/`device-approval` en fases anteriores: sin este
+/// endpoint, un navegador sin estado local no tiene forma de desbloquear su
+/// propia clave privada al loguearse (la CLI lo evita cacheando el blob en
+/// un perfil local tras registrarse, un navegador no tiene ese cache).
+#[derive(Debug, Deserialize)]
+pub struct KeyMaterialRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct KeyMaterialResponse {
+    pub encrypted_private_key_blob_b64: String,
+    pub private_key_nonce_b64: String,
+    pub kdf_salt_b64: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ChallengeResponse {
     pub nonce_b64: String,

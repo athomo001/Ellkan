@@ -1,0 +1,102 @@
+/* Autor: Athan Espinoza */
+
+/*
+ * F-30: sistema de diseño base. Paleta exacta de 01-propuesta-tecnica.md
+ * §2.5 — navy/teal/dorado, degradé reservado a acentos puntuales (logo,
+ * CTA primario, estado activo de nav), nunca al 95% de la superficie
+ * (tablas/formularios/admin siguen planos, densos, legibles).
+ */
+
+:root {
+	/* Acentos de marca — mismos en claro y oscuro */
+	--color-teal: #187890;
+	--color-teal-dark: #084058;
+	--color-gold: #e0b860;
+	--color-gold-dark: #b08838;
+	--color-gold-light: #f8e090;
+
+	/* Tipografía */
+	--font-sans:
+		'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-base: 0.9375rem;
+	--text-lg: 1.125rem;
+	--text-xl: 1.5rem;
+	--text-2xl: 2rem;
+
+	/* Densidad: espaciado ajustado a propósito (tablas/admin densos, no
+	   "wow factor" — 01-propuesta-tecnica.md §2.5) */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--nav-width: 15.5rem;
+	--content-max-width: none; /* sección 7: sin columna centrada angosta en desktop */
+
+	color-scheme: dark;
+
+	/* Modo oscuro — default de marca */
+	--bg-base: #102335;
+	--bg-raised: #16293c;
+	--bg-overlay: #1c3245;
+	--border-color: #26405a;
+	--text-primary: #f8f8f8;
+	--text-secondary: #a9b8c7;
+	--text-muted: #6f8298;
+	--accent-primary: var(--color-teal);
+	--accent-primary-hover: #1e8ba6;
+	--accent-secondary: var(--color-gold);
+	--focus-ring: var(--color-teal);
+	--danger: #e2695f;
+	--success: #4caf7d;
+	--warning: var(--color-gold);
+
+	/* Degradé de marca — sólo para el logo/CTA primario/estado activo de
+	   nav, nunca fondo general (01-propuesta-tecnica.md §2.5). */
+	--gradient-brand: linear-gradient(135deg, var(--color-teal) 0%, var(--color-gold) 100%);
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+	--bg-base: #f5f7f9;
+	--bg-raised: #ffffff;
+	--bg-overlay: #eef1f4;
+	--border-color: #d7dee4;
+	--text-primary: #16232e;
+	--text-secondary: #445362;
+	--text-muted: #74838f;
+	--accent-primary: var(--color-teal);
+	--accent-primary-hover: #0f6070;
+	--accent-secondary: #a9791f;
+	--focus-ring: var(--color-teal);
+	--danger: #c0392b;
+	--success: #1f7a4d;
+	--warning: #a9791f;
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme='dark']) {
+		color-scheme: light;
+		--bg-base: #f5f7f9;
+		--bg-raised: #ffffff;
+		--bg-overlay: #eef1f4;
+		--border-color: #d7dee4;
+		--text-primary: #16232e;
+		--text-secondary: #445362;
+		--text-muted: #74838f;
+		--accent-primary: var(--color-teal);
+		--accent-primary-hover: #0f6070;
+		--accent-secondary: #a9791f;
+		--focus-ring: var(--color-teal);
+		--danger: #c0392b;
+		--success: #1f7a4d;
+		--warning: #a9791f;
+	}
+}

@@ -19,6 +19,19 @@ pub struct UserKeysRow {
     pub public_key_ed25519: Vec<u8>,
 }
 
+/// F-01, frontend web (Fase 1.4): material que un navegador sin estado
+/// local necesita para desbloquear la clave privada durante el login — a
+/// diferencia de la CLI (que lo cachea en un perfil local tras registrarse,
+/// `cli/src/config.rs`), una pestaña nueva no tiene ese cache y necesita
+/// pedirlo al servidor. Es el equivalente exacto de lo que ya persiste
+/// `user_keys`, nunca la clave privada en claro.
+#[derive(Debug, Clone)]
+pub struct MaterialDesbloqueo {
+    pub encrypted_private_key_blob: Vec<u8>,
+    pub private_key_nonce: Vec<u8>,
+    pub kdf_salt: Vec<u8>,
+}
+
 #[derive(Debug, Clone)]
 pub struct NuevoUsuario<'a> {
     pub email: &'a str,

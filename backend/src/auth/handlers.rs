@@ -8,8 +8,8 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    ChallengeRequest, ChallengeResponse, PublicKeyResponse, RegisterRequest, RegisterResponse,
-    ServerKeyResponse, VerifyDeviceRequest, VerifyRequest, VerifyResponse,
+    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PublicKeyResponse,
+    RegisterRequest, RegisterResponse, ServerKeyResponse, VerifyDeviceRequest, VerifyRequest, VerifyResponse,
 };
 use super::extractor::AuthenticatedUser;
 use super::models::{NuevoUsuario, ResultadoVerify};
@@ -115,6 +115,18 @@ pub async fn challenge(
 ) -> Result<Json<ChallengeResponse>, ApiError> {
     let nonce = servicio(&state).challenge(&req.email).await?;
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
+}
+
+pub async fn key_material(
+    State(state): State<AppState>,
+    Json(req): Json<KeyMaterialRequest>,
+) -> Result<Json<KeyMaterialResponse>, ApiError> {
+    let material = servicio(&state).material_desbloqueo(&req.email).await?;
+    Ok(Json(KeyMaterialResponse {
+        encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
+        private_key_nonce_b64: b64::encode(&material.private_key_nonce),
+        kdf_salt_b64: b64::encode(&material.kdf_salt),
+    }))
 }
 
 pub async fn verify(

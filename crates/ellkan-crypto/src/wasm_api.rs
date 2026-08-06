@@ -174,6 +174,14 @@ pub fn clave_publica_x25519_de(x25519_private: Vec<u8>) -> Result<Vec<u8>, JsVal
 }
 
 #[wasm_bindgen]
+pub fn clave_publica_ed25519_de(ed25519_private: Vec<u8>) -> Result<Vec<u8>, JsValue> {
+    use ed25519_dalek::SigningKey;
+    let arreglo: [u8; 32] = ed25519_private.try_into().map_err(|_| err_js("clave privada debe ser de 32 bytes"))?;
+    let firmante = SigningKey::from_bytes(&arreglo);
+    Ok(firmante.verifying_key().to_bytes().to_vec())
+}
+
+#[wasm_bindgen]
 pub fn generar_dek() -> Vec<u8> {
     bytes_aleatorios::<32>().to_vec()
 }

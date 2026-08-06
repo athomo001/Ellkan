@@ -89,6 +89,24 @@ where
         Ok(nonce.to_vec())
     }
 
+    /// F-01 (frontend web): material de desbloqueo por email — mismo
+    /// criterio anti-enumeración que `challenge()`: si el email no existe,
+    /// devuelve bytes aleatorios con exactamente el mismo largo que el
+    /// material real (80/24/16 bytes), para que la forma de la respuesta
+    /// nunca distinga "no existe" de "existe" — el intento de desbloqueo
+    /// va a fallar en los dos casos de la misma manera (passphrase
+    /// "incorrecta").
+    pub async fn material_desbloqueo(&self, email: &str) -> Result<crate::auth::models::MaterialDesbloqueo, DomainError> {
+        if let Some(material) = self.usuarios.material_desbloqueo_por_email(email).await? {
+            return Ok(material);
+        }
+        Ok(crate::auth::models::MaterialDesbloqueo {
+            encrypted_private_key_blob: bytes_aleatorios::<80>().to_vec(),
+            private_key_nonce: bytes_aleatorios::<24>().to_vec(),
+            kdf_salt: bytes_aleatorios::<16>().to_vec(),
+        })
+    }
+
     /// F-13: envuelve `verify_con_usuario` para poder auditar exactamente una
     /// vez por intento, con el `actor_user_id` correcto (`None` si el email
     /// no corresponde a ninguna cuenta — anti user-enumeration en el propio
@@ -206,7 +224,7 @@ where
     /// vez. Compartido entre `verify_con_usuario` y
     /// `verify_device_con_desafio` — la decisión de MFA es la misma en los
     /// dos casos, sólo cambia cómo se llegó hasta acá.
-    async fn resolver_tras_f02(&self, user: User) -> Result<ResultadoVerify, DomainError> {
+    pub(crate) async fn resolver_tras_f02(&self, user: User) -> Result<ResultadoVerify, DomainError> {
         let politica = self.mfa_policy.obtener().await?;
         let tiene_confirmado = self.mfa_totp.buscar_confirmado(user.id).await?.is_some();
 

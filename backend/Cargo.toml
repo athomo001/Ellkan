@@ -14,6 +14,16 @@ ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
 ellkan-crypto = { version = "0.1.0", path = "../crates/ellkan-crypto" }
 governor = "0.10.4"
 hex = "0.4.3"
+# F-19: sincronización con directorios LDAP/Active Directory. `tls-rustls-ring`
+# en vez de sólo `tls-rustls` — el feature genérico no trae un crypto
+# provider por defecto y falla en runtime ("No crypto provider selected").
+ldap3 = { version = "0.12.1", default-features = false, features = ["tls-rustls-ring"] }
+# F-17: SSO/OIDC. Sin dependencia directa a `reqwest` — se usa el re-export
+# `openidconnect::reqwest::Client`, que ya trae su propia versión de
+# `reqwest` compatible con el trait `AsyncHttpClient` que pide `exchange_code`;
+# una dependencia directa a `reqwest` en otra versión produce dos impls
+# incompatibles del mismo trait.
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
 opentelemetry = "0.32.0"
 # `reqwest-client` (async) en vez del `reqwest-blocking-client` por defecto —
 # un cliente bloqueante en un exportador de spans colgaría el runtime de tokio.
@@ -54,10 +64,15 @@ zeroize = "1.9.0"
 # indexado por `user_id`, nunca viaja al cliente — exactamente el caso
 # "seguro" que la propia documentación de la crate describe.
 webauthn-rs = { version = "=0.6.1-dev", default-features = false, features = ["danger-allow-state-serialisation"] }
+# F-16: re-sellado del material de recuperación de cuenta hacia la clave
+# efímera del aprobador — mismo primitivo `crypto_box` que `ellkan_crypto::sellado`.
+# Misma versión que `ellkan-crypto` (3.0.0, feature `static_secrets`) — dos
+# versiones distintas producen dos tipos `PublicKey` incompatibles entre sí.
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
 
 [dev-dependencies]
 base64 = "0.23.0"
-reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "cookies", "query", "form"] }
 testcontainers = "0.27.3"
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 tokio = { version = "1.53.1", features = ["full", "test-util"] }
