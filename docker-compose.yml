@@ -21,10 +21,10 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:18
+    image: "${POSTGRES_IMAGE:-postgres:18}"
     environment:
-      POSTGRES_DB: ellkan
-      POSTGRES_USER: ellkan
+      POSTGRES_DB: "${POSTGRES_DB:-ellkan}"
+      POSTGRES_USER: "${POSTGRES_USER:-ellkan}"
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
@@ -34,7 +34,7 @@ services:
       # https://github.com/docker-library/postgres/pull/1259.
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ellkan -d ellkan"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ellkan} -d ${POSTGRES_DB:-ellkan}"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -8,12 +8,15 @@ use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::mfa::models::DecisionMfa;
+use crate::mfa::repository::{MfaChallengeRepository, MfaPolicyRepository, TotpCredentialRepository};
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
 
-use super::models::{NuevoUsuario, ResultadoVerify, Session, User};
+use super::models::{DeviceChallengeRow, NuevoUsuario, ResultadoVerify, User};
 use super::repository::{
     AuthChallengeRepository, DeviceChallengeRepository, KnownDeviceRepository, SessionRepository,
     UserRepository,
@@ -33,22 +36,31 @@ fn generar_codigo_device() -> String {
     format!("{n:06}")
 }
 
-pub struct AuthService<'a, U, C, S, KD, DC> {
+pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC> {
     pub usuarios: &'a U,
     pub challenges: &'a C,
     pub sesiones: &'a S,
     pub dispositivos: &'a KD,
     pub desafios_dispositivo: &'a DC,
+    /// F-14: sólo se consultan para decidir el estado del login una vez que
+    /// F-02 (dispositivo conocido) ya se resolvió — la verificación del
+    /// código en sí vive en `mfa::service::MfaService`, no acá.
+    pub mfa_policy: &'a MP,
+    pub mfa_totp: &'a MT,
+    pub mfa_challenges: &'a MC,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, U, C, S, KD, DC> AuthService<'a, U, C, S, KD, DC>
+impl<'a, U, C, S, KD, DC, MP, MT, MC> AuthService<'a, U, C, S, KD, DC, MP, MT, MC>
 where
     U: UserRepository,
     C: AuthChallengeRepository,
     S: SessionRepository,
     KD: KnownDeviceRepository,
     DC: DeviceChallengeRepository,
+    MP: MfaPolicyRepository,
+    MT: TotpCredentialRepository,
+    MC: MfaChallengeRepository,
 {
     pub async fn registrar(&self, nuevo: NuevoUsuario<'_>) -> Result<User, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
@@ -77,6 +89,11 @@ where
         Ok(nonce.to_vec())
     }
 
+    /// F-13: envuelve `verify_con_usuario` para poder auditar exactamente una
+    /// vez por intento, con el `actor_user_id` correcto (`None` si el email
+    /// no corresponde a ninguna cuenta — anti user-enumeration en el propio
+    /// log: el intento queda registrado internamente aunque la respuesta
+    /// HTTP no distinga los dos casos).
     pub async fn verify(
         &self,
         email: &str,
@@ -84,11 +101,46 @@ where
         signature: &[u8],
         device_token_hash: &[u8],
     ) -> Result<ResultadoVerify, DomainError> {
-        let user = self
-            .usuarios
-            .buscar_por_email(email)
-            .await?
-            .ok_or(DomainError::InvalidCredentials)?;
+        let user_encontrado = self.usuarios.buscar_por_email(email).await?;
+        let actor_conocido = user_encontrado.as_ref().map(|u| u.id);
+
+        let resultado =
+            self.verify_con_usuario(user_encontrado, email, nonce, signature, device_token_hash).await;
+
+        match &resultado {
+            Ok(ResultadoVerify::SesionCompleta(sesion)) => {
+                let _ = self.eventos.send(DomainEvent::Auditoria(
+                    EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(sesion.user_id))
+                        .con_sujeto("user", sesion.user_id),
+                ));
+            }
+            // El caso "dispositivo no reconocido" ya se audita en el punto
+            // donde se detecta, más abajo — acá no es ni éxito ni fallo.
+            // Los dos estados de MFA tampoco son éxito ni fallo todavía:
+            // `mfa::service` audita el desenlace real cuando se resuelvan.
+            Ok(ResultadoVerify::PendienteDispositivo { .. })
+            | Ok(ResultadoVerify::PendienteMfa { .. })
+            | Ok(ResultadoVerify::RequiereConfigurarMfa { .. }) => {}
+            Err(_) => {
+                let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
+                    AuditEventType::AuthLoginFailed,
+                    actor_conocido,
+                )));
+            }
+        }
+
+        resultado
+    }
+
+    async fn verify_con_usuario(
+        &self,
+        user: Option<User>,
+        email: &str,
+        nonce: &[u8],
+        signature: &[u8],
+        device_token_hash: &[u8],
+    ) -> Result<ResultadoVerify, DomainError> {
+        let user = user.ok_or(DomainError::InvalidCredentials)?;
 
         let consumido = self.challenges.consumir_challenge(user.id, nonce).await?;
         if !consumido {
@@ -136,26 +188,91 @@ where
                 email: email.to_string(),
                 codigo,
             });
+            let _ = self.eventos.send(DomainEvent::Auditoria(
+                EventoAuditoria::nuevo(AuditEventType::AuthDeviceUnrecognized, Some(user.id))
+                    .con_sujeto("user", user.id),
+            ));
 
             return Ok(ResultadoVerify::PendienteDispositivo { device_challenge_id });
         }
 
-        let sesion = self.sesiones.crear(user.id, user.security_stamp).await?;
-        Ok(ResultadoVerify::SesionCompleta(sesion))
+        self.resolver_tras_f02(user).await
+    }
+
+    /// F-14: una vez que F-02 (dispositivo conocido) ya se resolvió —ya sea
+    /// porque el dispositivo ya era conocido, o porque se lo acaba de
+    /// verificar—, decide si el login queda completo, pendiente de un
+    /// código MFA, o forzado a configurar un segundo factor por primera
+    /// vez. Compartido entre `verify_con_usuario` y
+    /// `verify_device_con_desafio` — la decisión de MFA es la misma en los
+    /// dos casos, sólo cambia cómo se llegó hasta acá.
+    async fn resolver_tras_f02(&self, user: User) -> Result<ResultadoVerify, DomainError> {
+        let politica = self.mfa_policy.obtener().await?;
+        let tiene_confirmado = self.mfa_totp.buscar_confirmado(user.id).await?.is_some();
+
+        match crate::mfa::service::decidir(&politica, tiene_confirmado, user.created_at) {
+            DecisionMfa::NoRequerido => {
+                let sesion = self.sesiones.crear(user.id, user.security_stamp).await?;
+                Ok(ResultadoVerify::SesionCompleta(sesion))
+            }
+            DecisionMfa::DebeVerificar => {
+                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+                let hash = crate::mfa::service::hash_de_sesion(parcial.id);
+                let expires_at = OffsetDateTime::now_utc()
+                    + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
+                self.mfa_challenges.crear(user.id, &hash, expires_at).await?;
+                Ok(ResultadoVerify::PendienteMfa { session_id: parcial.id })
+            }
+            DecisionMfa::DebeConfigurar => {
+                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+                Ok(ResultadoVerify::RequiereConfigurarMfa { session_id: parcial.id })
+            }
+        }
     }
 
     /// Confirma el código de un dispositivo no reconocido (F-02) — da de alta
     /// el dispositivo y emite la sesión completa que `verify` no pudo emitir.
+    /// F-13: mismo criterio que `verify` — se audita exactamente una vez por
+    /// intento, con el `actor_user_id` que ya se conoce en cada punto.
     pub async fn verify_device(
         &self,
         device_challenge_id: Uuid,
         codigo: &str,
-    ) -> Result<Session, DomainError> {
-        let desafio = self
-            .desafios_dispositivo
-            .buscar_pendiente(device_challenge_id)
-            .await?
-            .ok_or(DomainError::InvalidCredentials)?;
+    ) -> Result<ResultadoVerify, DomainError> {
+        let desafio = self.desafios_dispositivo.buscar_pendiente(device_challenge_id).await?;
+        let actor_conocido = desafio.as_ref().map(|d| d.user_id);
+
+        let resultado = self.verify_device_con_desafio(desafio, codigo).await;
+
+        // "Dispositivo verificado" es un hecho consumado apenas el código de
+        // F-02 es correcto, sin importar qué decida F-14 después — un fallo
+        // acá es siempre sobre el código de dispositivo en sí, nunca sobre MFA.
+        match &resultado {
+            Ok(_) => {
+                if let Some(user_id) = actor_conocido {
+                    let _ = self.eventos.send(DomainEvent::Auditoria(
+                        EventoAuditoria::nuevo(AuditEventType::AuthDeviceVerified, Some(user_id))
+                            .con_sujeto("user", user_id),
+                    ));
+                }
+            }
+            Err(_) => {
+                let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
+                    AuditEventType::AuthDeviceVerificationFailed,
+                    actor_conocido,
+                )));
+            }
+        }
+
+        resultado
+    }
+
+    async fn verify_device_con_desafio(
+        &self,
+        desafio: Option<DeviceChallengeRow>,
+        codigo: &str,
+    ) -> Result<ResultadoVerify, DomainError> {
+        let desafio = desafio.ok_or(DomainError::InvalidCredentials)?;
 
         // Comparación en tiempo constante — nunca en SQL.
         if !secreto_coincide(&desafio.code_hash, &hash_de_codigo(codigo)) {
@@ -169,11 +286,14 @@ where
             .buscar_por_id(desafio.user_id)
             .await?
             .ok_or(DomainError::InvalidCredentials)?;
-        self.sesiones.crear(user.id, user.security_stamp).await.map_err(DomainError::from)
+        self.resolver_tras_f02(user).await
     }
 
-    pub async fn logout(&self, session_id: Uuid) -> Result<(), DomainError> {
+    pub async fn logout(&self, session_id: Uuid, user_id: Uuid) -> Result<(), DomainError> {
         self.sesiones.revocar(session_id).await?;
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::AuthLogout, Some(user_id)).con_sujeto("user", user_id),
+        ));
         Ok(())
     }
 }

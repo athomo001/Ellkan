@@ -33,6 +33,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         policy: &state.politica_aprobacion_dispositivo,
         sesiones: &state.sesiones,
         usuarios: &state.usuarios,
+        eventos: state.eventos.clone(),
     }
 }
 
@@ -147,14 +148,17 @@ pub async fn politica(
 
 pub async fn actualizar_politica(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    admin: AdminUser,
     Json(req): Json<DeviceApprovalPolicyResponse>,
 ) -> Result<(), ApiError> {
     servicio(&state)
-        .actualizar_politica(DeviceApprovalPolicy {
-            allow_peer_device_approval: req.allow_peer_device_approval,
-            allow_admin_device_approval: req.allow_admin_device_approval,
-        })
+        .actualizar_politica(
+            admin.user_id,
+            DeviceApprovalPolicy {
+                allow_peer_device_approval: req.allow_peer_device_approval,
+                allow_admin_device_approval: req.allow_admin_device_approval,
+            },
+        )
         .await?;
     Ok(())
 }

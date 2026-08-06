@@ -8,7 +8,9 @@
 use uuid::Uuid;
 
 use crate::admin::repository::RoleRepository;
+use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
+use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::resources::repository::PermissionRepository;
 
 use super::models::{EnvelopeParaMiembroNuevo, Group, Miembro};
@@ -20,6 +22,7 @@ pub struct GroupService<'a, G, M, O, P, R> {
     pub organizacion: &'a O,
     pub permisos: &'a P,
     pub roles: &'a R,
+    pub eventos: EmisorDeEventos,
 }
 
 impl<'a, G, M, O, P, R> GroupService<'a, G, M, O, P, R>
@@ -187,7 +190,15 @@ where
         resultado.map_err(|e| match e {
             crate::error::RepoError::Conflict => DomainError::Conflict,
             otro => DomainError::Interno(otro),
-        })
+        })?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::GroupMemberAdded, Some(actor_id))
+                .con_sujeto("group", group_id)
+                .con_metadata(serde_json::json!({ "user_id": user_id, "is_admin": is_admin })),
+        ));
+
+        Ok(())
     }
 
     pub async fn quitar_miembro(&self, actor_id: Uuid, group_id: Uuid, user_id: Uuid) -> Result<(), DomainError> {
@@ -210,6 +221,13 @@ where
 
         let recursos_compartidos = self.permisos.recursos_por_grantee("group", group_id).await?;
         self.miembros.quitar(group_id, user_id, &recursos_compartidos).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::GroupMemberRemoved, Some(actor_id))
+                .con_sujeto("group", group_id)
+                .con_metadata(serde_json::json!({ "user_id": user_id })),
+        ));
+
         Ok(())
     }
 
@@ -237,6 +255,13 @@ where
         }
 
         self.miembros.set_admin(group_id, user_id, is_admin).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::GroupManagerChanged, Some(actor_id))
+                .con_sujeto("group", group_id)
+                .con_metadata(serde_json::json!({ "user_id": user_id, "is_admin": is_admin })),
+        ));
+
         Ok(())
     }
 

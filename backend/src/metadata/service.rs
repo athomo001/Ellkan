@@ -7,6 +7,7 @@
 
 use uuid::Uuid;
 
+use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
@@ -39,6 +40,7 @@ where
     /// una rotación en curso y no se puede crear una tercera.
     pub async fn crear_clave_compartida(
         &self,
+        actor_id: Uuid,
         id: Uuid,
         public_key_x25519: &[u8],
         fingerprint: &str,
@@ -57,6 +59,12 @@ where
         for (user_id, sealed) in destinatarios {
             self.envelopes.insertar(clave.id, user_id, &sealed).await?;
         }
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::MetadataKeyCreated, Some(actor_id))
+                .con_sujeto("metadata_key", clave.id),
+        ));
+
         Ok(clave)
     }
 
@@ -81,6 +89,7 @@ where
     /// ejecutó), 2 significa que ya hay una rotación en curso.
     pub async fn iniciar_rotacion(
         &self,
+        actor_id: Uuid,
         id_entrante: Uuid,
         public_key_x25519: &[u8],
         fingerprint: &str,
@@ -117,6 +126,11 @@ where
             saliente_id: saliente.id,
             entrante_id: entrante.id,
         });
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::MetadataKeyRotationStarted, Some(actor_id))
+                .con_sujeto("metadata_key", entrante.id)
+                .con_metadata(serde_json::json!({ "saliente_id": saliente.id, "entrante_id": entrante.id })),
+        ));
 
         Ok(entrante)
     }

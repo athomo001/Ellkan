@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            delete from resource_tags where tag_id in (\n                select id from tags where deleted_at < now() - make_interval(days => $1)\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2afdaa3923762a5a3010c0a8617edf9f3230da5d50fb53447b1181904f25776f"
+}

@@ -44,9 +44,14 @@ pub struct VerifyRequest {
     pub device_token_hash_b64: String,
 }
 
-/// `estado` es `"completo"` (con `session_id`/`user_id`) o
-/// `"pendiente_dispositivo"` (con `device_challenge_id`) — nunca ambos pares
-/// de campos a la vez.
+/// `estado` es `"completo"` (con `session_id`/`user_id`), `"pendiente_dispositivo"`
+/// (con `device_challenge_id`), `"pendiente_mfa"` (con `session_id` de una
+/// sesión parcial, F-14 — el cliente lo usa como Bearer contra
+/// `POST /auth/mfa/verify`) o `"requiere_configurar_mfa"` (mismo
+/// `session_id` parcial, pero contra `POST /me/mfa/totp/setup`) — nunca más
+/// de un par de campos relevante a la vez. Mismo shape para `POST
+/// /auth/verify` y `POST /auth/verify-device`: los dos pueden resolver en
+/// cualquiera de estos cuatro estados desde que existe F-14.
 #[derive(Debug, Serialize)]
 pub struct VerifyResponse {
     pub estado: &'static str,
@@ -62,12 +67,6 @@ pub struct VerifyResponse {
 pub struct VerifyDeviceRequest {
     pub device_challenge_id: Uuid,
     pub code: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct VerifyDeviceResponse {
-    pub session_id: Uuid,
-    pub user_id: Uuid,
 }
 
 #[derive(Debug, Serialize)]

@@ -9,7 +9,7 @@ use crate::state::AppState;
 
 use super::dto::{
     ChallengeRequest, ChallengeResponse, PublicKeyResponse, RegisterRequest, RegisterResponse,
-    ServerKeyResponse, VerifyDeviceRequest, VerifyDeviceResponse, VerifyRequest, VerifyResponse,
+    ServerKeyResponse, VerifyDeviceRequest, VerifyRequest, VerifyResponse,
 };
 use super::extractor::AuthenticatedUser;
 use super::models::{NuevoUsuario, ResultadoVerify};
@@ -26,6 +26,9 @@ fn servicio(
     super::repository::PgSessionRepository,
     super::repository::PgKnownDeviceRepository,
     super::repository::PgDeviceChallengeRepository,
+    crate::mfa::repository::PgMfaPolicyRepository,
+    crate::mfa::repository::PgTotpCredentialRepository,
+    crate::mfa::repository::PgMfaChallengeRepository,
 > {
     AuthService {
         usuarios: &state.usuarios,
@@ -33,7 +36,41 @@ fn servicio(
         sesiones: &state.sesiones,
         dispositivos: &state.dispositivos,
         desafios_dispositivo: &state.desafios_dispositivo,
+        mfa_policy: &state.mfa_policy,
+        mfa_totp: &state.mfa_totp,
+        mfa_challenges: &state.mfa_challenges,
         eventos: state.eventos.clone(),
+    }
+}
+
+/// Mismo shape de respuesta para `verify` y `verify_device` — desde F-14 los
+/// dos pueden resolver en cualquiera de los cuatro estados.
+fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
+    match resultado {
+        ResultadoVerify::SesionCompleta(sesion) => VerifyResponse {
+            estado: "completo",
+            session_id: Some(sesion.id),
+            user_id: Some(sesion.user_id),
+            device_challenge_id: None,
+        },
+        ResultadoVerify::PendienteDispositivo { device_challenge_id } => VerifyResponse {
+            estado: "pendiente_dispositivo",
+            session_id: None,
+            user_id: None,
+            device_challenge_id: Some(device_challenge_id),
+        },
+        ResultadoVerify::PendienteMfa { session_id } => VerifyResponse {
+            estado: "pendiente_mfa",
+            session_id: Some(session_id),
+            user_id: None,
+            device_challenge_id: None,
+        },
+        ResultadoVerify::RequiereConfigurarMfa { session_id } => VerifyResponse {
+            estado: "requiere_configurar_mfa",
+            session_id: Some(session_id),
+            user_id: None,
+            device_challenge_id: None,
+        },
     }
 }
 
@@ -92,35 +129,22 @@ pub async fn verify(
         .map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
 
     let resultado = servicio(&state).verify(&req.email, &nonce, &firma, &device_token_hash).await?;
-    Ok(Json(match resultado {
-        ResultadoVerify::SesionCompleta(sesion) => VerifyResponse {
-            estado: "completo",
-            session_id: Some(sesion.id),
-            user_id: Some(sesion.user_id),
-            device_challenge_id: None,
-        },
-        ResultadoVerify::PendienteDispositivo { device_challenge_id } => VerifyResponse {
-            estado: "pendiente_dispositivo",
-            session_id: None,
-            user_id: None,
-            device_challenge_id: Some(device_challenge_id),
-        },
-    }))
+    Ok(Json(resultado_a_response(resultado)))
 }
 
 pub async fn verify_device(
     State(state): State<AppState>,
     Json(req): Json<VerifyDeviceRequest>,
-) -> Result<Json<VerifyDeviceResponse>, ApiError> {
-    let sesion = servicio(&state).verify_device(req.device_challenge_id, &req.code).await?;
-    Ok(Json(VerifyDeviceResponse { session_id: sesion.id, user_id: sesion.user_id }))
+) -> Result<Json<VerifyResponse>, ApiError> {
+    let resultado = servicio(&state).verify_device(req.device_challenge_id, &req.code).await?;
+    Ok(Json(resultado_a_response(resultado)))
 }
 
 pub async fn logout(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
 ) -> Result<(), ApiError> {
-    servicio(&state).logout(auth.session_id).await?;
+    servicio(&state).logout(auth.session_id, auth.user_id).await?;
     Ok(())
 }
 

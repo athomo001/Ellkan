@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select issuer_url, client_id, jit_provisioning_enabled from sso_config where organization_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "issuer_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sso_config",
+            "name": "issuer_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "client_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sso_config",
+            "name": "client_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "jit_provisioning_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "sso_config",
+            "name": "jit_provisioning_enabled"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "610470f6c542eaa9354a5005101ee1a9b4f011bfba417b7470a40e90cc1c22d7"
+}

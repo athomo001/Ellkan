@@ -80,6 +80,9 @@ where
                 // F-33: consumidor dedicado en `metadata::rotacion`, no
                 // genera ninguna notificación por email.
                 DomainEvent::MetadataKeyRotationStarted { .. } => {}
+                // F-13: consumidor dedicado en `audit::consumidor`, no
+                // genera ninguna notificación por email.
+                DomainEvent::Auditoria(_) => {}
             }
         }
     });

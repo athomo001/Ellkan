@@ -16,7 +16,9 @@ pub struct MarcarConfiableRequest {
 pub struct TrustedDeviceResponse {
     pub id: Uuid,
     pub label: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub revoked_at: Option<OffsetDateTime>,
 }
 

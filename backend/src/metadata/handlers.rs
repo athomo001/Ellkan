@@ -60,7 +60,7 @@ fn decodificar_destinatarios(
 
 pub async fn crear(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    admin: AdminUser,
     Json(req): Json<CrearMetadataKeyRequest>,
 ) -> Result<Json<MetadataKeyResponse>, ApiError> {
     let public_key = b64::decode(&req.public_key_x25519_b64)
@@ -68,7 +68,7 @@ pub async fn crear(
     let destinatarios = decodificar_destinatarios(req.destinatarios)?;
 
     let clave = servicio(&state)
-        .crear_clave_compartida(req.id, &public_key, &req.fingerprint, destinatarios)
+        .crear_clave_compartida(admin.user_id, req.id, &public_key, &req.fingerprint, destinatarios)
         .await?;
 
     Ok(Json(MetadataKeyResponse {
@@ -82,7 +82,7 @@ pub async fn crear(
 
 pub async fn rotar(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    admin: AdminUser,
     Json(req): Json<CrearMetadataKeyRequest>,
 ) -> Result<Json<MetadataKeyResponse>, ApiError> {
     let public_key = b64::decode(&req.public_key_x25519_b64)
@@ -90,7 +90,7 @@ pub async fn rotar(
     let destinatarios = decodificar_destinatarios(req.destinatarios)?;
 
     let entrante = servicio(&state)
-        .iniciar_rotacion(req.id, &public_key, &req.fingerprint, destinatarios)
+        .iniciar_rotacion(admin.user_id, req.id, &public_key, &req.fingerprint, destinatarios)
         .await?;
 
     Ok(Json(MetadataKeyResponse {
