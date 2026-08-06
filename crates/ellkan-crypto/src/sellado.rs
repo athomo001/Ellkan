@@ -43,6 +43,17 @@ pub fn abrir_dek(privada_destinatario: &StaticSecret, sellado: &[u8]) -> Result<
     Ok(secrecy::SecretBox::new(Box::new(arreglo)))
 }
 
+pub fn sellar_bytes(publica_destinatario: &X25519PublicKey, payload: &[u8]) -> Vec<u8> {
+    let caja = a_caja_publica(publica_destinatario);
+    let mut rng = csprng_v6();
+    caja.seal(&mut rng, payload).expect("sellar un payload no debería fallar")
+}
+
+pub fn abrir_bytes(privada_destinatario: &StaticSecret, sellado: &[u8]) -> Result<Vec<u8>, ErrorSellado> {
+    let caja = a_caja_privada(privada_destinatario);
+    caja.unseal(sellado).map_err(|_| ErrorSellado::AperturaFallida)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

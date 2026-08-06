@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# `cdylib` para compilar a `ellkan_crypto.wasm` (Fase 1.4, `wasm-pack`);
+# `rlib` para seguir siendo consumible como dependencia normal de Rust
+# (backend, CLI, `wasm-bindgen-test` nativo).
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 # "std" habilita `impl std::error::Error` sobre `argon2::Error` (lo exige
 # `#[from]` de thiserror) — disponible en los dos targets soportados

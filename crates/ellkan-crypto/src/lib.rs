@@ -13,3 +13,7 @@ pub mod secretos;
 pub mod sellado;
 pub mod sesion;
 pub mod totp;
+// Sólo wasm32: `wasm_bindgen` es dependencia condicional para ese target
+// (Cargo.toml) — este módulo es la superficie JS del frontend (Fase 1.4).
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_api;

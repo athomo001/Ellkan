@@ -29,7 +29,7 @@ pub struct RecursoResponse {
     pub resource_type_id: Uuid,
     pub metadata_ciphertext_b64: String,
     pub metadata_nonce_b64: String,
-    pub created_by: Uuid,
+    pub created_by: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     pub metadata_key_type: String,

@@ -9,7 +9,7 @@ pub struct Resource {
     pub resource_type_id: Uuid,
     pub metadata_ciphertext: Vec<u8>,
     pub metadata_nonce: Vec<u8>,
-    pub created_by: Uuid,
+    pub created_by: Option<Uuid>,
     pub created_at: OffsetDateTime,
     /// `user_key` (default, F-05/F-06 básico) | `shared_key` (F-06
     /// completo) — sólo un recurso `shared_key` puede compartirse.

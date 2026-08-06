@@ -53,7 +53,7 @@ where
 
         // Un tag personal ajeno ni siquiera puede aplicarse — no es un
         // objeto que el actor tenga autoridad sobre.
-        if !tag.is_shared && tag.created_by != actor_id {
+        if !tag.is_shared && tag.created_by != Some(actor_id) {
             return Err(DomainError::PermissionDenied);
         }
 
@@ -87,7 +87,7 @@ where
     /// para B").
     pub async fn recursos_por_tag(&self, actor_id: Uuid, tag_id: Uuid) -> Result<Vec<Uuid>, DomainError> {
         let tag = self.tags.buscar(tag_id).await?.ok_or(DomainError::NotFound)?;
-        if !tag.is_shared && tag.created_by != actor_id {
+        if !tag.is_shared && tag.created_by != Some(actor_id) {
             return Err(DomainError::NotFound);
         }
         Ok(self.tags.recursos_visibles_con_tag(actor_id, tag_id).await?)
