@@ -24,5 +24,25 @@ export default defineConfig({
 	],
 	// `ellkan_crypto.wasm` se sirve como asset — nunca reinterpretado como
 	// módulo JS por el dev server.
-	assetsInclude: ['**/*.wasm']
+	assetsInclude: ['**/*.wasm'],
+	// Sólo desarrollo: en producción Axum sirve el build compilado y las
+	// rutas de API desde el mismo origen (ver comentario arriba), así que
+	// `api/client.ts::baseUrl()` puede seguir devolviendo `''`. El proxy
+	// evita levantar un CORS aparte sólo para `pnpm dev`.
+	server: {
+		proxy: {
+			'/auth': 'http://localhost:8080',
+			'/resources': 'http://localhost:8080',
+			'/admin': 'http://localhost:8080',
+			'/me': 'http://localhost:8080',
+			'/groups': 'http://localhost:8080',
+			'/folders': 'http://localhost:8080',
+			'/tags': 'http://localhost:8080',
+			'/metadata-keys': 'http://localhost:8080',
+			'/scim': 'http://localhost:8080',
+			'/account-recovery': 'http://localhost:8080',
+			'/users': 'http://localhost:8080',
+			'/healthz': 'http://localhost:8080'
+		}
+	}
 });

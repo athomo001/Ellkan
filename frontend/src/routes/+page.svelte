@@ -1,2 +1,11 @@
-<h1>Welcome to SvelteKit</h1>
-<p>Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the documentation</p>
+<!-- Autor: Athan Espinoza -->
+<script lang="ts">
+	// Sin guard de sesión propio todavía (llega con /vault, F-07) — por ahora
+	// la raíz sólo redirige a la primera pantalla real que existe.
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
+
+	onMount(() => {
+		goto('/login', { replaceState: true });
+	});
+</script>

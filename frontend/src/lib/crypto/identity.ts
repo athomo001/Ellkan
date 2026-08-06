@@ -45,6 +45,7 @@ export async function registrar(email: string, displayName: string, passphrase: 
 interface ResultadoLogin {
 	estado: 'completo' | 'pendiente_dispositivo' | 'pendiente_mfa' | 'requiere_configurar_mfa';
 	sessionId?: string;
+	userId?: string;
 	deviceChallengeId?: string;
 	claves?: ClavesDesbloqueadas;
 }
@@ -81,6 +82,7 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 	const verify = await api.post<{
 		estado: string;
 		session_id?: string;
+		user_id?: string;
 		device_challenge_id?: string;
 	}>('/auth/verify', {
 		email,
@@ -99,6 +101,7 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 	return {
 		estado: verify.estado as ResultadoLogin['estado'],
 		sessionId: verify.session_id,
+		userId: verify.user_id,
 		deviceChallengeId: verify.device_challenge_id,
 		claves
 	};
@@ -107,10 +110,10 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 export async function verificarDispositivo(
 	deviceChallengeId: string,
 	codigo: string
-): Promise<{ estado: string; sessionId?: string }> {
-	const resp = await api.post<{ estado: string; session_id?: string }>('/auth/verify-device', {
-		device_challenge_id: deviceChallengeId,
-		code: codigo
-	});
-	return { estado: resp.estado, sessionId: resp.session_id };
+): Promise<{ estado: string; sessionId?: string; userId?: string }> {
+	const resp = await api.post<{ estado: string; session_id?: string; user_id?: string }>(
+		'/auth/verify-device',
+		{ device_challenge_id: deviceChallengeId, code: codigo }
+	);
+	return { estado: resp.estado, sessionId: resp.session_id, userId: resp.user_id };
 }
