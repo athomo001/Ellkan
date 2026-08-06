@@ -23,6 +23,6 @@ function tokenCrudo(): Uint8Array {
 
 export async function deviceTokenHashB64(): Promise<string> {
 	const token = tokenCrudo();
-	const hash = await crypto.subtle.digest('SHA-256', token);
+	const hash = await crypto.subtle.digest('SHA-256', token as BufferSource);
 	return bytesABase64(new Uint8Array(hash));
 }

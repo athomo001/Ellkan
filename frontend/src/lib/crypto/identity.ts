@@ -50,23 +50,26 @@ interface ResultadoLogin {
 }
 
 /**
- * F-01/F-02: challenge→firma→verify. Necesita el blob cifrado del usuario
- * (obtenido junto con el desafío en un backend real vía un endpoint propio
- * — acá se asume que el caller ya lo tiene, ej. cacheado localmente tras un
- * primer login, o pedido a un endpoint de blob antes de esta llamada).
+ * F-01/F-02: key-material→abrir→challenge→firma→verify. A diferencia de la
+ * CLI (que cachea el blob cifrado en un perfil local tras registrarse), un
+ * navegador sin estado local lo pide en cada login vía `/auth/key-material`
+ * — mismo patrón anti-enumeración que `/auth/challenge` (forma de
+ * respuesta idéntica exista o no la cuenta, ver `auth::service::material_desbloqueo`).
  */
-export async function iniciarSesion(
-	email: string,
-	passphrase: string,
-	blobCifrado: { saltB64: string; nonceB64: string; ciphertextB64: string }
-): Promise<ResultadoLogin> {
+export async function iniciarSesion(email: string, passphrase: string): Promise<ResultadoLogin> {
 	const wasm = await cargarCrypto();
+
+	const material = await api.post<{
+		encrypted_private_key_blob_b64: string;
+		private_key_nonce_b64: string;
+		kdf_salt_b64: string;
+	}>('/auth/key-material', { email });
 
 	const abierta = wasm.abrir_clave_privada(
 		passphrase,
-		base64ABytes(blobCifrado.saltB64),
-		base64ABytes(blobCifrado.nonceB64),
-		base64ABytes(blobCifrado.ciphertextB64),
+		base64ABytes(material.kdf_salt_b64),
+		base64ABytes(material.private_key_nonce_b64),
+		base64ABytes(material.encrypted_private_key_blob_b64),
 		aadClavePrivada(email)
 	);
 
