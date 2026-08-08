@@ -13,6 +13,7 @@ use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::mfa::models::DecisionMfa;
 use crate::mfa::repository::{MfaChallengeRepository, MfaPolicyRepository, TotpCredentialRepository};
+use crate::smtp_config::repository::SmtpConfigRepository;
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
 
@@ -36,7 +37,7 @@ fn generar_codigo_device() -> String {
     format!("{n:06}")
 }
 
-pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC> {
+pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC> {
     pub usuarios: &'a U,
     pub challenges: &'a C,
     pub sesiones: &'a S,
@@ -48,10 +49,14 @@ pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC> {
     pub mfa_policy: &'a MP,
     pub mfa_totp: &'a MT,
     pub mfa_challenges: &'a MC,
+    /// Parte A/B: si no está configurado, F-02 no puede pedir un código que
+    /// nunca va a llegar — se relee en cada intento de login (nunca
+    /// cacheado), así que un cambio del admin aplica de inmediato.
+    pub smtp_config: &'a SC,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, U, C, S, KD, DC, MP, MT, MC> AuthService<'a, U, C, S, KD, DC, MP, MT, MC>
+impl<'a, U, C, S, KD, DC, MP, MT, MC, SC> AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC>
 where
     U: UserRepository,
     C: AuthChallengeRepository,
@@ -61,6 +66,7 @@ where
     MP: MfaPolicyRepository,
     MT: TotpCredentialRepository,
     MC: MfaChallengeRepository,
+    SC: SmtpConfigRepository,
 {
     pub async fn registrar(&self, nuevo: NuevoUsuario<'_>) -> Result<User, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
@@ -192,6 +198,29 @@ where
         // (F-14/F-17 son Fase 1/2), así que hoy la condición siempre aplica.
         let conocido = self.dispositivos.es_conocido(user.id, device_token_hash).await?;
         if !conocido {
+            // Parte A/B: sin SMTP configurado, un código que nunca va a
+            // llegar bloquearía a cualquier usuario (incluido el primer
+            // admin) para siempre — se marca el dispositivo conocido sin
+            // pedirlo, mismo método que usa el camino de éxito real
+            // (`verify_device_con_desafio`), y queda trazado en el audit
+            // log para que no sea un bypass silencioso. Si el admin
+            // configura SMTP después, el próximo dispositivo nuevo sí
+            // vuelve a pedir verificación real — esto no marca nada más
+            // allá de este dispositivo puntual.
+            let smtp_configurado = self.smtp_config.obtener().await?.esta_configurado();
+            if !smtp_configurado {
+                tracing::warn!(
+                    user_id = %user.id,
+                    "SMTP no configurado — dispositivo nuevo marcado conocido sin verificación real (F-02 desactivado)"
+                );
+                self.dispositivos.marcar_conocido(user.id, device_token_hash).await?;
+                let _ = self.eventos.send(DomainEvent::Auditoria(
+                    EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id))
+                        .con_sujeto("user", user.id),
+                ));
+                return self.resolver_tras_f02(user).await;
+            }
+
             let codigo = generar_codigo_device();
             let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_DEVICE_CHALLENGE_SEGUNDOS);
             let device_challenge_id = self

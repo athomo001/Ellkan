@@ -39,6 +39,11 @@ pub trait UserPurgeRepository {
     async fn desactivar(&self, user_id: Uuid) -> Result<bool, RepoError>;
 
     async fn activar(&self, user_id: Uuid) -> Result<bool, RepoError>;
+
+    /// `GET /admin/users` (F-29) — keyset pagination por `id desc`, mismo
+    /// patrón que `audit::repository::listar` (`users.id` es `uuidv7`,
+    /// monótono con `created_at`, no hace falta cursor compuesto).
+    async fn listar(&self, active: Option<bool>, cursor: Option<Uuid>, limite: i64) -> Result<Vec<ResumenUsuario>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -247,5 +252,29 @@ impl UserPurgeRepository for PgUserPurgeRepository {
         .execute(&self.pool)
         .await?;
         Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn listar(&self, active: Option<bool>, cursor: Option<Uuid>, limite: i64) -> Result<Vec<ResumenUsuario>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select id, email, display_name, active
+            from users
+            where deleted_at is null
+              and ($1::uuid is null or id < $1)
+              and ($2::bool is null or active = $2)
+            order by id desc
+            limit $3
+            "#,
+            cursor,
+            active,
+            limite,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| ResumenUsuario { id: f.id, email: f.email, display_name: f.display_name, active: f.active })
+            .collect())
     }
 }

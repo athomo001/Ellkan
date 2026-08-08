@@ -24,19 +24,24 @@ use crate::emergency_access::repository::{
     PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
 };
 use crate::eventos::{self, EmisorDeEventos};
+use crate::export::repository::{PgExportPolicyRepository, PgExportRepository};
+use crate::external_shares::repository::{PgExternalSharePolicyRepository, PgExternalShareRepository};
 use crate::folders::repository::{PgFolderItemRepository, PgFolderRepository};
 use crate::groups::repository::{PgGroupMemberRepository, PgGroupRepository, PgOrganizationRepository};
+use crate::me::repository::PgPreferenciasRepository;
 use crate::metadata::repository::{PgMetadataKeyEnvelopeRepository, PgMetadataKeyRepository};
 use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, PgTotpCredentialRepository};
 use crate::notificaciones::PgOutboundEmailRepository;
 use crate::passkeys::repository::{PgCeremonyStateRepository, PgPasskeyRepository};
 use crate::password_policy::repository::PgPasswordPolicyRepository;
+use crate::reports::repository::PgReportsRepository;
 use crate::resources::repository::{
     PgPermissionRepository, PgResourceRepository, PgResourceTypeRepository,
     PgSecretEnvelopeRepository,
 };
 use crate::retention::repository::{PgPurgeRepository, PgRetentionPolicyRepository};
 use crate::scim::repository::{PgScimTokenRepository, PgScimUserRepository};
+use crate::smtp_config::repository::PgSmtpConfigRepository;
 use crate::sso::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIdentityRepository};
 use crate::tags::repository::PgTagRepository;
 use crate::users_admin::repository::PgUserPurgeRepository;
@@ -75,6 +80,7 @@ pub struct AppState {
     pub mfa_policy: PgMfaPolicyRepository,
     pub mfa_totp: PgTotpCredentialRepository,
     pub mfa_challenges: PgMfaChallengeRepository,
+    pub smtp_config: PgSmtpConfigRepository,
     /// F-14: clave maestra de servidor para cifrar el secreto TOTP de login
     /// en reposo — nunca una clave del usuario. `Arc` (no `Clone` sobre el
     /// `SecretBox` en sí) para que `AppState` siga siendo barato de clonar
@@ -100,6 +106,7 @@ pub struct AppState {
     pub limitador_por_usuario: Arc<DefaultKeyedRateLimiter<Uuid>>,
     // F-15
     pub password_policy: PgPasswordPolicyRepository,
+    pub reportes: PgReportsRepository,
     // F-16 (account recovery, admin-driven)
     pub account_recovery_policy: PgAccountRecoveryPolicyRepository,
     pub org_recovery_key: PgOrgRecoveryKeyRepository,
@@ -122,6 +129,14 @@ pub struct AppState {
     pub retention_policy: PgRetentionPolicyRepository,
     pub purge: PgPurgeRepository,
     pub users_purge: PgUserPurgeRepository,
+    // F-30/F-31/F-39
+    pub preferencias_usuario: PgPreferenciasRepository,
+    // F-26
+    pub external_shares: PgExternalShareRepository,
+    pub external_share_policy: PgExternalSharePolicyRepository,
+    // F-27/F-29
+    pub export_policy: PgExportPolicyRepository,
+    pub export_datos: PgExportRepository,
 }
 
 /// Lee `ELLKAN_RP_ID`/`ELLKAN_RP_ORIGIN` con default de desarrollo — ver el
@@ -177,12 +192,14 @@ impl AppState {
             mfa_policy: PgMfaPolicyRepository { pool: pool.clone() },
             mfa_totp: PgTotpCredentialRepository { pool: pool.clone() },
             mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },
+            smtp_config: PgSmtpConfigRepository { pool: pool.clone() },
             secrets_key: Arc::new(secrets_key),
             limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),
             password_policy: PgPasswordPolicyRepository { pool: pool.clone() },
+            reportes: PgReportsRepository { pool: pool.clone() },
             account_recovery_policy: PgAccountRecoveryPolicyRepository { pool: pool.clone() },
             org_recovery_key: PgOrgRecoveryKeyRepository { pool: pool.clone() },
             account_recovery_escrow: PgEscrowRepository { pool: pool.clone() },
@@ -199,6 +216,11 @@ impl AppState {
             retention_policy: PgRetentionPolicyRepository { pool: pool.clone() },
             purge: PgPurgeRepository { pool: pool.clone() },
             users_purge: PgUserPurgeRepository { pool: pool.clone() },
+            preferencias_usuario: PgPreferenciasRepository { pool: pool.clone() },
+            external_shares: PgExternalShareRepository { pool: pool.clone() },
+            external_share_policy: PgExternalSharePolicyRepository { pool: pool.clone() },
+            export_policy: PgExportPolicyRepository { pool: pool.clone() },
+            export_datos: PgExportRepository { pool: pool.clone() },
             pool,
         }
     }

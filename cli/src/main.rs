@@ -1,5 +1,6 @@
 // Autor: Athan Espinoza
 
+mod admin_db;
 mod api;
 mod config;
 mod crypto_local;
@@ -106,6 +107,63 @@ enum AdminAccion {
         display_name: String,
     },
     Healthcheck,
+    /// F-41: re-valida integridad de datos en modo sólo-lectura — reporta, no toca nada.
+    /// Necesita `DATABASE_URL` (acceso directo a Postgres, ver `admin_db.rs`).
+    Datacheck,
+    /// F-41: dry-run por default (reporta lo que `datacheck` detectaría); `--fix` corrige
+    /// de verdad. Rehúsa correr con `--fix` si no queda ningún admin activo.
+    Cleanup {
+        #[arg(long)]
+        fix: bool,
+    },
+    /// F-41: el break-glass real — promueve a un usuario a admin directo por SQL, sin
+    /// pasar por la API/UI, para "nos quedamos sin ningún admin activo".
+    PromoteToAdmin {
+        #[arg(long = "user")]
+        email: String,
+    },
+    /// F-41: recupera/genera el setup inicial de una cuenta a medio onboarding — ver
+    /// `admin_db::recover_setup` para la limitación real documentada (el registro de
+    /// Ellkan es atómico, no hay estado "invitado, pendiente" que recuperar hoy).
+    RecoverSetup {
+        #[arg(long = "user")]
+        email: String,
+        #[arg(long)]
+        create: bool,
+    },
+    /// F-41: verifica que la cola de notificaciones + el poller de envío funcionan de
+    /// punta a punta, sin disparar un flujo de negocio real sólo para probarlo.
+    SendTestEmail {
+        #[arg(long)]
+        to: String,
+    },
+    /// F-28: backup/restore cifrado del sistema completo — CLI-only, sin superficie REST.
+    Backup {
+        #[command(subcommand)]
+        accion: BackupAccion,
+    },
+}
+
+#[derive(Subcommand)]
+enum BackupAccion {
+    /// Cifrado obligatorio en streaming a una clave pública de operaciones (age) — sin
+    /// clave configurada, falla explícitamente antes de tocar la base de datos.
+    Create {
+        #[arg(long)]
+        output: std::path::PathBuf,
+        /// Clave pública age del destinatario (`age1...`) — también se puede fijar vía
+        /// `ELLKAN_BACKUP_RECIPIENT` para no tipearla en cada corrida (ej. cron).
+        #[arg(long)]
+        recipient: Option<String>,
+    },
+    /// Exige la clave privada de operaciones (`AGE-SECRET-KEY-1...`), que nunca vive en
+    /// la instancia — se aporta manualmente en el momento del restore (F-28).
+    Restore {
+        #[arg(long)]
+        input: std::path::PathBuf,
+        #[arg(long)]
+        identity: Option<String>,
+    },
 }
 
 fn leer_passphrase(prompt: &str) -> anyhow::Result<SecretBox<String>> {
@@ -525,12 +583,94 @@ fn main() -> anyhow::Result<()> {
                 )?;
                 // El modelo de roles (F-22) ya existe (Fase 1.1), pero
                 // ninguna ruta HTTP permite auto-asignarse admin —
-                // deliberado: la promoción real (F-41 `promote-to-admin`,
-                // Fase 1.6) exige acceso directo a la base de datos, mismo
-                // nivel de confianza que el backup del sistema.
-                println!("Nota: este comando sólo hace bootstrap del usuario con rol 'user'. La promoción a admin (F-41 promote-to-admin, Fase 1.6) exige acceso directo a la base de datos, no HTTP.");
+                // deliberado: la promoción real exige acceso directo a la
+                // base de datos, mismo nivel de confianza que el backup
+                // del sistema (F-41 `promote-to-admin`, ver abajo).
+                println!("Nota: este comando sólo hace bootstrap del usuario con rol 'user'. Para promoverlo a admin corré 'ellkan-cli admin promote-to-admin --user {email}' (F-41, acceso directo a la base de datos, no HTTP).");
             }
             AdminAccion::Healthcheck => println!("{}", cliente.healthz()?),
+            AdminAccion::Datacheck => admin_db::bloquear(async {
+                let pool = admin_db::conectar().await?;
+                let huerfanas = admin_db::datacheck(&pool).await?;
+                if huerfanas.is_empty() {
+                    println!("datacheck: sin filas huérfanas.");
+                } else {
+                    println!("datacheck: {} fila(s) huérfana(s) encontradas:", huerfanas.len());
+                    for h in &huerfanas {
+                        println!("  [{}] {} — {}", h.tabla, h.id, h.detalle);
+                    }
+                }
+                anyhow::Ok(())
+            })?,
+            AdminAccion::Cleanup { fix } => admin_db::bloquear(async {
+                let pool = admin_db::conectar().await?;
+                let huerfanas = admin_db::cleanup(&pool, *fix).await?;
+                if huerfanas.is_empty() {
+                    println!("cleanup: nada que limpiar.");
+                } else if *fix {
+                    println!("cleanup --fix: {} fila(s) corregidas.", huerfanas.len());
+                } else {
+                    println!("cleanup (dry-run): {} fila(s) se corregirían con --fix:", huerfanas.len());
+                    for h in &huerfanas {
+                        println!("  [{}] {} — {}", h.tabla, h.id, h.detalle);
+                    }
+                }
+                anyhow::Ok(())
+            })?,
+            AdminAccion::PromoteToAdmin { email } => admin_db::bloquear(async {
+                let pool = admin_db::conectar().await?;
+                let user_id = admin_db::promote_to_admin(&pool, email).await?;
+                println!("'{email}' ({user_id}) promovido a admin.");
+                anyhow::Ok(())
+            })?,
+            AdminAccion::RecoverSetup { email, create } => admin_db::bloquear(async {
+                let pool = admin_db::conectar().await?;
+                match admin_db::recover_setup(&pool, email, *create).await? {
+                    admin_db::EstadoRecoverySetup::NoExiste => {
+                        println!("'{email}' no tiene ninguna cuenta en Ellkan.");
+                    }
+                    admin_db::EstadoRecoverySetup::YaRegistrado { user_id, active } => {
+                        println!(
+                            "'{email}' ({user_id}) ya está completamente registrado (active={active}) — no hay ningún setup pendiente que recuperar."
+                        );
+                    }
+                }
+                anyhow::Ok(())
+            })?,
+            AdminAccion::SendTestEmail { to } => admin_db::bloquear(async {
+                let pool = admin_db::conectar().await?;
+                if admin_db::send_test_email(&pool, to).await? {
+                    println!("OK: el email de prueba a '{to}' fue encolado y procesado por el poller.");
+                } else {
+                    println!(
+                        "ADVERTENCIA: el email a '{to}' se encoló pero el poller no lo marcó 'enviado' a tiempo — revisá que el backend esté corriendo."
+                    );
+                }
+                anyhow::Ok(())
+            })?,
+            AdminAccion::Backup { accion } => match accion {
+                BackupAccion::Create { output, recipient } => {
+                    let recipient = recipient
+                        .clone()
+                        .or_else(|| std::env::var("ELLKAN_BACKUP_RECIPIENT").ok())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "no hay clave pública de backup configurada — pasá --recipient o seteá ELLKAN_BACKUP_RECIPIENT (F-28: sin esto, el comando rehúsa correr, no hay modo 'sin cifrar')"
+                            )
+                        })?;
+                    let database_url = admin_db::database_url()?;
+                    admin_db::backup_create(&database_url, output, &recipient)?;
+                    println!("Backup cifrado escrito en '{}'.", output.display());
+                }
+                BackupAccion::Restore { input, identity } => {
+                    let identity = identity.clone().ok_or_else(|| {
+                        anyhow::anyhow!("--identity es obligatorio para restore (la clave privada de operaciones, nunca almacenada en la instancia)")
+                    })?;
+                    let database_url = admin_db::database_url()?;
+                    admin_db::backup_restore(&database_url, input, &identity)?;
+                    println!("Restore completado desde '{}'.", input.display());
+                }
+            },
         },
     }
 

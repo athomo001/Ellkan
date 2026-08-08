@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update outbound_emails set attempts = attempts + 1,\n               status = case when attempts + 1 >= $2 then 'fallido' else status end\n               where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e6f490d5a1d46ac4fa1805d3feb27f70ce1c8108c0a3e4dc87c28f958a45f5b8"
+}

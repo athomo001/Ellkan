@@ -279,6 +279,56 @@ async fn agregar_miembro_a_grupo_con_recursos_exige_envelopes_y_da_acceso_verifi
     assert_eq!(dek_de_nuevo.expose_secret(), recurso.dek.expose_secret());
 }
 
+/// `GET /groups/{id}/resources` (F-12) — lo que el cliente consulta antes
+/// de agregar un miembro nuevo, para saber a qué recursos re-sellar.
+#[tokio::test]
+async fn recursos_compartidos_del_grupo_refleja_lo_que_ya_tiene_acceso() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin-grp-recursos@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let grupo_id = crear_grupo_raiz(&entorno, sesion_admin, "ConRecursosListado").await;
+
+    // Sin recursos compartidos todavía -> lista vacía.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/groups/{grupo_id}/resources", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let vacio: Value = resp.json().await.unwrap();
+    assert_eq!(vacio.as_array().unwrap().len(), 0);
+
+    let recurso = crear_recurso_compartido_con_grupo(&entorno, sesion_admin, &admin, grupo_id).await;
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/groups/{grupo_id}/resources", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let lista: Value = resp.json().await.unwrap();
+    let ids: Vec<String> = lista.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    assert_eq!(ids, vec![recurso.id.to_string()]);
+
+    // Un usuario sin autoridad sobre el grupo no puede consultarlo.
+    let otro = common::registrar(&entorno, "otro-grp-recursos@test.ellkan").await;
+    let sesion_otro = common::login(&entorno, &otro).await;
+    let resp = entorno
+        .cliente
+        .get(format!("{}/groups/{grupo_id}/resources", entorno.base))
+        .bearer_auth(sesion_otro)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
 #[tokio::test]
 async fn subgrupo_sin_herencia_de_acceso() {
     let entorno = common::levantar().await;

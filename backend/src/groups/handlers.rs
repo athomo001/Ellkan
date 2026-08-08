@@ -44,6 +44,16 @@ fn miembro_a_response(m: Miembro) -> MiembroResponse {
     MiembroResponse { user_id: m.user_id, is_admin: m.is_admin }
 }
 
+/// `GET /groups/{id}/resources` (F-12).
+pub async fn recursos_compartidos(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<Vec<Uuid>>, ApiError> {
+    let ids = servicio(&state).recursos_compartidos(auth.user_id, group_id).await?;
+    Ok(Json(ids))
+}
+
 pub async fn listar(
     State(state): State<AppState>,
     _auth: AuthenticatedUser,

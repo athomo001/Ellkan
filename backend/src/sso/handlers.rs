@@ -55,6 +55,7 @@ fn auth_service(
     crate::mfa::repository::PgMfaPolicyRepository,
     crate::mfa::repository::PgTotpCredentialRepository,
     crate::mfa::repository::PgMfaChallengeRepository,
+    crate::smtp_config::repository::PgSmtpConfigRepository,
 > {
     crate::auth::service::AuthService {
         usuarios: &state.usuarios,
@@ -65,6 +66,7 @@ fn auth_service(
         mfa_policy: &state.mfa_policy,
         mfa_totp: &state.mfa_totp,
         mfa_challenges: &state.mfa_challenges,
+        smtp_config: &state.smtp_config,
         eventos: state.eventos.clone(),
     }
 }

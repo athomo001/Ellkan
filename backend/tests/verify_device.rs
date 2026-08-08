@@ -65,6 +65,18 @@ async fn levantar() -> Contexto {
         .await
         .expect("migrar y conectar");
     let pool = estado.pool.clone();
+
+    // Parte A/B: sin SMTP configurado, F-02 auto-verifica el dispositivo sin
+    // pedir código (comportamiento nuevo, intencional) — este archivo prueba
+    // exactamente el flujo real de verificación, necesita que quede activo.
+    // Mismo criterio que `common/mod.rs::levantar()`.
+    sqlx::query!(
+        r#"update smtp_config set host = 'smtp.invalid', port = 25, from_address = 'no-reply@ellkan.test' where organization_id = 1"#
+    )
+    .execute(&pool)
+    .await
+    .expect("seedear smtp_config para los tests");
+
     let app = ellkan_backend::construir_router(estado);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

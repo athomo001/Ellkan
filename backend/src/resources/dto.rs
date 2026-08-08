@@ -32,8 +32,36 @@ pub struct RecursoResponse {
     pub created_by: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    /// F-30/F-07: refresco inteligente por foco de pestaña (`huboCambios`)
+    /// y valor de `If-Match` al editar (concurrencia optimista).
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
     pub metadata_key_type: String,
     pub metadata_key_id: Option<Uuid>,
+}
+
+/// `GET /resources/{id}/recipients` (F-07).
+#[derive(Debug, Serialize)]
+pub struct DestinatarioResponse {
+    pub user_id: Uuid,
+    pub public_key_x25519_b64: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnvelopeInputRequest {
+    pub recipient_user_id: Uuid,
+    pub sealed_dek_b64: String,
+    pub secret_ciphertext_b64: String,
+    pub secret_nonce_b64: String,
+}
+
+/// `PUT /resources/{id}` (F-07) — el header `If-Match` (no el body) lleva
+/// el `updated_at` esperado, mismo criterio HTTP estándar que la spec pide.
+#[derive(Debug, Deserialize)]
+pub struct ActualizarRecursoRequest {
+    pub metadata_ciphertext_b64: String,
+    pub metadata_nonce_b64: String,
+    pub envelopes: Vec<EnvelopeInputRequest>,
 }
 
 /// F-08 — nunca un código generado, sólo si el tipo de recurso declara TOTP.

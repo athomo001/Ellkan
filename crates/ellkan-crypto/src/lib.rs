@@ -9,6 +9,7 @@ pub mod claves;
 pub mod clave_privada;
 pub mod comparacion;
 pub mod derivacion;
+pub mod prf;
 pub mod secretos;
 pub mod sellado;
 pub mod sesion;

@@ -16,9 +16,11 @@ use webauthn_rs::prelude::{
     PublicKeyCredential, RegisterPublicKeyCredential, RequestChallengeResponse, Webauthn,
 };
 
+use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::auth::models::Session;
 use crate::auth::repository::{SessionRepository, UserRepository};
 use crate::error::DomainError;
+use crate::eventos::{DomainEvent, EmisorDeEventos};
 
 use super::models::TipoCeremonia;
 use super::repository::{CeremonyStateRepository, PasskeyRepository};
@@ -33,6 +35,7 @@ pub struct PasskeyService<'a, P, C, U, S> {
     pub usuarios: &'a U,
     pub sesiones: &'a S,
     pub webauthn: Arc<Webauthn>,
+    pub eventos: EmisorDeEventos,
 }
 
 impl<'a, P, C, U, S> PasskeyService<'a, P, C, U, S>
@@ -142,11 +145,15 @@ where
     /// que se considera equivalente a MFA activo a los efectos del desafío
     /// de "dispositivo no reconocido" de F-02 (que se omite en ese mismo
     /// caso) — decisión de scope documentada en el plan de esta fase.
+    ///
+    /// Devuelve además el `prf_wrapped_private_key` de la passkey usada
+    /// (`None` si se registró sin PRF) — el servidor sólo lo reenvía, nunca
+    /// lo calcula ni lo valida.
     pub async fn finalizar_autenticacion(
         &self,
         email: &str,
         credencial: PublicKeyCredential,
-    ) -> Result<Session, DomainError> {
+    ) -> Result<(Session, Option<Vec<u8>>), DomainError> {
         let user = self.usuarios.buscar_por_email(email).await?.ok_or(DomainError::InvalidCredentials)?;
 
         let estado_json = self
@@ -172,6 +179,28 @@ where
         let credential_id: Vec<u8> = usada.passkey_data.cred_id().clone();
         self.passkeys.actualizar_tras_auth(&credential_id, &usada.passkey_data).await?;
 
-        self.sesiones.crear(user.id, user.security_stamp).await.map_err(DomainError::from)
+        let sesion = self.sesiones.crear(user.id, user.security_stamp).await.map_err(DomainError::from)?;
+        Ok((sesion, usada.prf_wrapped_private_key))
+    }
+
+    /// `GET /me/passkeys`.
+    pub async fn listar(&self, user_id: Uuid) -> Result<Vec<super::models::PasskeyRow>, DomainError> {
+        Ok(self.passkeys.listar_de(user_id).await?)
+    }
+
+    /// `DELETE /me/passkeys/{id}` — sólo el dueño puede revocar su propia
+    /// passkey, mismo guard que `devices::service::revocar`.
+    pub async fn revocar(&self, user_id: Uuid, passkey_id: Uuid) -> Result<(), DomainError> {
+        let passkey = self.passkeys.buscar(passkey_id).await?.ok_or(DomainError::NotFound)?;
+        if passkey.user_id != user_id {
+            return Err(DomainError::PermissionDenied);
+        }
+        self.passkeys.eliminar(passkey_id).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::PasskeyRevoked, Some(user_id)).con_sujeto("passkey", passkey_id),
+        ));
+
+        Ok(())
     }
 }

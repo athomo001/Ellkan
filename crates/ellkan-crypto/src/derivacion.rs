@@ -24,6 +24,14 @@ pub mod contexto {
     pub const CIFRADO_CLAVE_PRIVADA: &[u8] = b"ellkan:v1:private-key-wrap";
     /// F-38: envoltura de la passphrase para el desbloqueo local con TOTP.
     pub const DESBLOQUEO_TOTP: &[u8] = b"ellkan:v1:totp-unlock-wrap";
+    /// F-26: combinación de la clave del fragmento de la URL con la capa
+    /// opcional de passphrase de un external share.
+    pub const EXTERNAL_SHARE_PASSPHRASE: &[u8] = b"ellkan:v1:external-share-passphrase-combine";
+    /// F-03 (PRF): envoltura de la passphrase con el output de la extensión
+    /// PRF de WebAuthn — mismo criterio que `DESBLOQUEO_TOTP` (secreto de
+    /// alta entropía ya generado por CSPRNG/hardware, no una passphrase
+    /// humana, así que tampoco pasa por Argon2id acá).
+    pub const DESBLOQUEO_PRF: &[u8] = b"ellkan:v1:prf-unlock-wrap";
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -75,6 +83,21 @@ pub fn derivar_clave_desde_secreto(secreto: &[u8], info: &[u8]) -> ClaveSecreta3
         .expect("32 bytes está dentro del límite de HKDF-SHA256");
     let resultado = SecretBox::new(Box::new(subclave));
     subclave.zeroize();
+    resultado
+}
+
+/// Combina dos secretos independientes en una única clave (F-26: la clave
+/// del fragmento de la URL, que nunca llega al servidor, con el output de
+/// Argon2id de la capa opcional de passphrase) — HKDF-Extract con `a` como
+/// salt y `b` como material de entrada, luego expand con `info`. Comprometer
+/// uno solo de los dos secretos no alcanza para reconstruir la clave final.
+pub fn combinar_secretos(a: &[u8], b: &[u8], info: &[u8]) -> ClaveSecreta32 {
+    let hk = Hkdf::<Sha256>::new(Some(a), b);
+    let mut combinada = [0u8; 32];
+    hk.expand(info, &mut combinada)
+        .expect("32 bytes está dentro del límite de HKDF-SHA256");
+    let resultado = SecretBox::new(Box::new(combinada));
+    combinada.zeroize();
     resultado
 }
 

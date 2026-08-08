@@ -1,7 +1,8 @@
 // Autor: Athan Espinoza
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
+use uuid::Uuid;
 use webauthn_rs::prelude::{CreationChallengeResponse, RequestChallengeResponse};
 
 use crate::auth::extractor::AuthenticatedUser;
@@ -11,8 +12,9 @@ use crate::state::AppState;
 
 use super::dto::{
     FinalizarAutenticacionRequest, FinalizarRegistroRequest, IniciarAutenticacionRequest,
-    SesionWebauthnResponse,
+    PasskeyResponse, SesionWebauthnResponse,
 };
+use super::models::PasskeyRow;
 use super::service::PasskeyService;
 
 type Servicio<'a> = PasskeyService<
@@ -30,6 +32,17 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         usuarios: &state.usuarios,
         sesiones: &state.sesiones,
         webauthn: state.webauthn.clone(),
+        eventos: state.eventos.clone(),
+    }
+}
+
+fn a_response(p: PasskeyRow) -> PasskeyResponse {
+    PasskeyResponse {
+        id: p.id,
+        label: p.label,
+        created_at: p.created_at,
+        last_used_at: p.last_used_at,
+        tiene_prf: p.prf_wrapped_private_key.is_some(),
     }
 }
 
@@ -71,6 +84,29 @@ pub async fn login_verify(
     State(state): State<AppState>,
     Json(req): Json<FinalizarAutenticacionRequest>,
 ) -> Result<Json<SesionWebauthnResponse>, ApiError> {
-    let sesion = servicio(&state).finalizar_autenticacion(&req.email, req.credential).await?;
-    Ok(Json(SesionWebauthnResponse { session_id: sesion.id, user_id: sesion.user_id }))
+    let (sesion, prf_wrapped) = servicio(&state).finalizar_autenticacion(&req.email, req.credential).await?;
+    Ok(Json(SesionWebauthnResponse {
+        session_id: sesion.id,
+        user_id: sesion.user_id,
+        prf_wrapped_private_key_b64: prf_wrapped.as_deref().map(b64::encode),
+    }))
+}
+
+/// `GET /me/passkeys` (F-03).
+pub async fn listar(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+) -> Result<Json<Vec<PasskeyResponse>>, ApiError> {
+    let passkeys = servicio(&state).listar(auth.user_id).await?;
+    Ok(Json(passkeys.into_iter().map(a_response).collect()))
+}
+
+/// `DELETE /me/passkeys/{id}` (F-03).
+pub async fn revocar(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(passkey_id): Path<Uuid>,
+) -> Result<(), ApiError> {
+    servicio(&state).revocar(auth.user_id, passkey_id).await?;
+    Ok(())
 }

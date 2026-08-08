@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{Resource, SecretEnvelope};
+use super::models::{Destinatario, EnvelopeInput, Resource, SecretEnvelope};
 
 pub trait ResourceRepository {
     #[allow(clippy::too_many_arguments)]
@@ -43,6 +43,29 @@ pub trait ResourceRepository {
         metadata_ciphertext: &[u8],
         metadata_nonce: &[u8],
     ) -> Result<bool, RepoError>;
+
+    /// F-07: editar un recurso ya creado. Concurrencia optimista real —
+    /// `expected_updated_at` viene del `If-Match` del cliente (último `GET`
+    /// que hizo); si no coincide con el `updated_at` actual, no aplica nada
+    /// y devuelve `Ok(None)` (el handler lo traduce a `409`). Reemplaza
+    /// metadata **y** todas las filas de `secret_envelopes` del recurso en
+    /// una única transacción — el cliente ya las re-selló client-side para
+    /// cada destinatario actual (`listar_destinatarios`), el servidor nunca
+    /// re-cifra nada.
+    #[allow(clippy::too_many_arguments)]
+    async fn actualizar(
+        &self,
+        resource_id: Uuid,
+        expected_updated_at: time::OffsetDateTime,
+        metadata_ciphertext: &[u8],
+        metadata_nonce: &[u8],
+        envelopes: &[EnvelopeInput],
+    ) -> Result<Option<Resource>, RepoError>;
+
+    /// F-07: quiénes tienen hoy un `secret_envelope` propio en este recurso
+    /// — lo que el cliente necesita para re-sellar la DEK nueva al editar,
+    /// mismo dato que ya resuelve `compartir` para un destinatario nuevo.
+    async fn listar_destinatarios(&self, resource_id: Uuid) -> Result<Vec<Destinatario>, RepoError>;
 }
 
 pub trait ResourceTypeRepository {
@@ -143,7 +166,7 @@ impl ResourceRepository for PgResourceRepository {
             )
             values ($1, $2, $3, $4, $5, $6, $7)
             returning id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at,
-                      metadata_key_type, metadata_key_id
+                      updated_at, metadata_key_type, metadata_key_id
             "#,
             id,
             resource_type_id,
@@ -163,6 +186,7 @@ impl ResourceRepository for PgResourceRepository {
             metadata_nonce: fila.metadata_nonce,
             created_by: fila.created_by,
             created_at: fila.created_at,
+            updated_at: fila.updated_at,
             metadata_key_type: fila.metadata_key_type,
             metadata_key_id: fila.metadata_key_id,
         })
@@ -172,7 +196,7 @@ impl ResourceRepository for PgResourceRepository {
         let fila = sqlx::query!(
             r#"
             select id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at,
-                   metadata_key_type, metadata_key_id
+                   updated_at, metadata_key_type, metadata_key_id
             from resources where id = $1 and deleted_at is null
             "#,
             id,
@@ -187,6 +211,7 @@ impl ResourceRepository for PgResourceRepository {
             metadata_nonce: f.metadata_nonce,
             created_by: f.created_by,
             created_at: f.created_at,
+            updated_at: f.updated_at,
             metadata_key_type: f.metadata_key_type,
             metadata_key_id: f.metadata_key_id,
         }))
@@ -196,7 +221,7 @@ impl ResourceRepository for PgResourceRepository {
         let filas = sqlx::query!(
             r#"
             select distinct r.id, r.resource_type_id, r.metadata_ciphertext, r.metadata_nonce,
-                   r.created_by, r.created_at, r.metadata_key_type, r.metadata_key_id
+                   r.created_by, r.created_at, r.updated_at, r.metadata_key_type, r.metadata_key_id
             from resources r
             join permissions p on p.subject_type = 'resource' and p.subject_id = r.id
             where p.grantee_type = 'user' and p.grantee_id = $1 and r.deleted_at is null
@@ -216,6 +241,7 @@ impl ResourceRepository for PgResourceRepository {
                 metadata_nonce: f.metadata_nonce,
                 created_by: f.created_by,
                 created_at: f.created_at,
+                updated_at: f.updated_at,
                 metadata_key_type: f.metadata_key_type,
                 metadata_key_id: f.metadata_key_id,
             })
@@ -245,6 +271,96 @@ impl ResourceRepository for PgResourceRepository {
         .execute(&self.pool)
         .await?;
         Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn actualizar(
+        &self,
+        resource_id: Uuid,
+        expected_updated_at: time::OffsetDateTime,
+        metadata_ciphertext: &[u8],
+        metadata_nonce: &[u8],
+        envelopes: &[EnvelopeInput],
+    ) -> Result<Option<Resource>, RepoError> {
+        let mut tx = self.pool.begin().await?;
+
+        // Concurrencia optimista: el `UPDATE` sólo aplica si `updated_at`
+        // sigue siendo el que el cliente vio en su último `GET` — una
+        // edición concurrente (dos pestañas, o edición web + import) ya
+        // habría corrido su propio `UPDATE` y adelantado `updated_at`,
+        // haciendo que éste no afecte ninguna fila.
+        let fila = sqlx::query!(
+            r#"
+            update resources
+            set metadata_ciphertext = $1, metadata_nonce = $2, updated_at = now()
+            where id = $3 and updated_at = $4 and deleted_at is null
+            returning id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at,
+                      updated_at, metadata_key_type, metadata_key_id
+            "#,
+            metadata_ciphertext,
+            metadata_nonce,
+            resource_id,
+            expected_updated_at,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(fila) = fila else {
+            return Ok(None);
+        };
+
+        // Reemplazo completo de `secret_envelopes`: el cliente ya resolvió
+        // la lista completa de destinatarios actuales (`listar_destinatarios`)
+        // y las re-selló con la DEK nueva — nunca un merge parcial, porque
+        // un destinatario que se hubiera agregado/quitado entre el `GET` de
+        // destinatarios y este `PUT` quedaría con un envelope inconsistente.
+        sqlx::query!(r#"delete from secret_envelopes where resource_id = $1"#, resource_id)
+            .execute(&mut *tx)
+            .await?;
+
+        for env in envelopes {
+            sqlx::query!(
+                r#"
+                insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce)
+                values ($1, $2, $3, $4, $5)
+                "#,
+                resource_id,
+                env.user_id,
+                env.sealed_dek,
+                env.secret_ciphertext,
+                env.secret_nonce,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(Some(Resource {
+            id: fila.id,
+            resource_type_id: fila.resource_type_id,
+            metadata_ciphertext: fila.metadata_ciphertext,
+            metadata_nonce: fila.metadata_nonce,
+            created_by: fila.created_by,
+            created_at: fila.created_at,
+            updated_at: fila.updated_at,
+            metadata_key_type: fila.metadata_key_type,
+            metadata_key_id: fila.metadata_key_id,
+        }))
+    }
+
+    async fn listar_destinatarios(&self, resource_id: Uuid) -> Result<Vec<Destinatario>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select se.user_id, uk.public_key_x25519
+            from secret_envelopes se
+            join user_keys uk on uk.user_id = se.user_id
+            where se.resource_id = $1
+            "#,
+            resource_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| Destinatario { user_id: f.user_id, public_key_x25519: f.public_key_x25519 }).collect())
     }
 }
 

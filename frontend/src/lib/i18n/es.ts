@@ -1,0 +1,455 @@
+// Autor: Athan Espinoza
+
+// F-31: diccionario español — clave → string, nunca texto hardcodeado en
+// componentes. Estructura por pantalla para que agregar una pantalla nueva
+// (Vault real, panel de administración) sea agregar una sección acá, no
+// reorganizar nada existente.
+
+const es = {
+	login: {
+		titulo: 'Iniciar sesión — Ellkan',
+		subtitulo: 'Ingresá con tu cuenta de Ellkan.',
+		email: 'Email',
+		passphrase: 'Contraseña',
+		iniciarSesion: 'Iniciar sesión',
+		sinCuenta: '¿No tenés cuenta?',
+		registrate: 'Registrate',
+		usarPasskey: 'Usar una passkey',
+		usarCodigoLocal: 'Código local',
+		usarPassphrase: 'Usar contraseña',
+		continuarConPasskey: 'Continuar con passkey',
+		codigoLocal: 'Código local',
+		desbloquear: 'Desbloquear',
+		codigoVerificacionDispositivo: 'Código de verificación',
+		verificarDispositivoHint: 'Te enviamos un código a tu email para reconocer este dispositivo.',
+		verificar: 'Verificar',
+		codigoApp: 'Código de la app de autenticación',
+		mfaPendienteHint: 'Ingresá el código de tu app de autenticación.',
+		mfaSetupHint: 'Esta cuenta requiere un segundo factor. Configurá TOTP para continuar.',
+		qrAlt: 'Código QR para configurar TOTP',
+		generandoCodigo: 'Generando código…',
+		sinCamaraHint: '¿Sin cámara? Ingresá este código a mano:',
+		confirmar: 'Confirmar',
+		errorGenerico: 'No se pudo iniciar sesión.',
+		errorCodigoIncorrecto: 'Código incorrecto.',
+		errorCodigoIncorrectoOVencido: 'Código incorrecto o vencido.',
+		errorSetupMfa: 'No se pudo iniciar la configuración de MFA.',
+		errorVerificarDispositivo: 'No se pudo verificar el dispositivo.',
+		errorPasskey: 'No se pudo iniciar sesión con la passkey.',
+		errorDesbloqueoLocal: 'No se pudo desbloquear.'
+	},
+	registro: {
+		titulo: 'Crear cuenta — Ellkan',
+		subtitulo: 'Creá tu cuenta de Ellkan.',
+		nombre: 'Nombre',
+		email: 'Email',
+		passphrase: 'Contraseña',
+		passphraseHint: 'Se valida client-side, nunca viaja en claro al servidor.',
+		confirmarPassphrase: 'Confirmar contraseña',
+		crearCuenta: 'Crear cuenta',
+		yaTenesCuenta: '¿Ya tenés cuenta?',
+		iniciaSesion: 'Iniciá sesión',
+		errorNoCoinciden: 'Las contraseñas no coinciden.',
+		errorGenerico: 'No se pudo completar el registro.'
+	},
+	fortalezaPassword: {
+		muyDebil: 'Muy débil',
+		debil: 'Débil',
+		aceptable: 'Aceptable',
+		fuerte: 'Fuerte',
+		muyFuerte: 'Muy fuerte'
+	},
+	appShell: {
+		vault: 'Vault',
+		preferencias: 'Preferencias',
+		seguridad: 'Seguridad',
+		administracion: 'Administración',
+		cerrarSesion: 'Cerrar sesión'
+	},
+	lockOverlay: {
+		titulo: 'Sesión bloqueada',
+		hint: '— sin actividad por un rato. Tu sesión sigue activa, sólo hace falta desbloquear.',
+		passphrase: 'Contraseña',
+		codigoLocal: 'Código local',
+		desbloquear: 'Desbloquear',
+		usarPassphrase: 'Usar contraseña',
+		usarCodigoLocal: 'Usar código local',
+		errorPassphrase: 'Contraseña incorrecta.',
+		errorCodigo: 'Código incorrecto.'
+	},
+	secretField: {
+		revelar: 'Revelar',
+		ocultar: 'Ocultar',
+		copiar: 'Copiar'
+	},
+	externalShare: {
+		titulo: 'Contenido compartido',
+		cargando: 'Cargando…',
+		sinClave:
+			'Falta la clave en el link — el fragmento después de "#" es parte necesaria de la URL, revisá que se haya copiado completo.',
+		noDisponible:
+			'Este link no está disponible. Puede que ya haya expirado, que ya se haya abierto la cantidad máxima de veces permitida, o que haya sido revocado.',
+		requierePassphrase: 'Este contenido está protegido con una contraseña adicional.',
+		passphrase: 'Contraseña',
+		desbloquear: 'Desbloquear',
+		errorPassphrase: 'Contraseña incorrecta, o el contenido está corrupto.',
+		errorGenerico: 'No se pudo descifrar el contenido.',
+		advertenciaUnaVez:
+			'Este contenido puede haberse consumido ya con esta misma carga de página — si necesitás verlo de nuevo, va a hacer falta un link nuevo.'
+	},
+	vault: {
+		titulo: 'Vault',
+		cargando: 'Cargando…',
+		conteo: (n: number) => `${n} ${n === 1 ? 'recurso' : 'recursos'} en tu vault.`,
+		sinRecursos: 'Todavía no tenés recursos.',
+		nuevoRecurso: 'Nuevo recurso',
+		nombre: 'Nombre',
+		usuario: 'Usuario',
+		uri: 'URI',
+		password: 'Contraseña',
+		notas: 'Notas',
+		totpOpcional: 'Secreto TOTP (opcional, base32)',
+		crear: 'Crear',
+		cancelar: 'Cancelar',
+		verSecreto: 'Ver secreto',
+		ocultarSecreto: 'Ocultar',
+		editar: 'Editar',
+		guardarEdicion: 'Guardar cambios',
+		compartir: 'Compartir',
+		compartirCon: 'Email del destinatario',
+		enviarCompartir: 'Compartir',
+		compartido: 'Compartido.',
+		personal: 'Personal — no compartible',
+		error: 'No se pudo cargar el vault.',
+		errorCrear: 'No se pudo crear el recurso.',
+		errorVerSecreto: 'No se pudo abrir el secreto.',
+		errorCompartir: 'No se pudo compartir.',
+		errorEditar: 'No se pudo guardar la edición.',
+		buscar: 'Buscar por nombre, usuario o URI…',
+		carpetas: {
+			titulo: 'Carpetas',
+			todas: 'Todos los recursos',
+			nuevaCarpeta: 'Nueva carpeta',
+			nombreCarpeta: 'Nombre',
+			crear: 'Crear',
+			mover: 'Mover a…',
+			raiz: '(raíz)',
+			cargando: 'Cargando…',
+			sinCarpetas: 'Todavía no tenés carpetas.',
+			error: 'No se pudieron cargar las carpetas.',
+			errorCrear: 'No se pudo crear la carpeta.',
+			hintSinAsociarRecursos:
+				'Todavía no se pueden mover recursos a una carpeta — esta vista sólo organiza carpetas por ahora.'
+		},
+		tags: {
+			todos: 'Todos',
+			personal: 'Personal',
+			compartido: 'Compartido',
+			nuevoTag: 'Nuevo tag',
+			nombreTag: 'Nombre del tag',
+			compartidoCheckbox: 'Compartido (visible para toda la organización)',
+			crear: 'Crear',
+			cargando: 'Cargando…',
+			error: 'No se pudieron cargar los tags.',
+			errorCrear: 'No se pudo crear el tag.'
+		}
+	},
+	exportImport: {
+		titulo: 'Exportar / Importar',
+		cargandoPolitica: 'Cargando…',
+		sinFormatosHabilitados: 'La exportación y la importación están desactivadas por política de organización.',
+		viaExcepcionAdmin: 'La política está desactivada para el resto de la organización — podés exportar tu cuenta igual, como admin.',
+		exportarTitulo: 'Exportar mis recursos',
+		exportarHint: 'Se genera 100% en tu navegador — el servidor nunca ve el contenido en claro.',
+		formato: 'Formato',
+		passwordArchivo: 'Contraseña del archivo',
+		passwordArchivoHint: 'Protege el archivo KDBX — usá una contraseña fuerte, es la única defensa si el archivo se filtra.',
+		exportar: 'Exportar',
+		exportando: 'Generando archivo…',
+		exportadoOk: (n: number) => `Listo — ${n} ${n === 1 ? 'recurso exportado' : 'recursos exportados'}.`,
+		errorExportar: 'No se pudo exportar.',
+		importarTitulo: 'Importar recursos',
+		importarHint: 'El import corre exactamente el mismo flujo de creación que usar "Nuevo recurso" a mano, una vez por entrada.',
+		archivo: 'Archivo',
+		passwordArchivoImport: 'Contraseña del archivo (si es KDBX cifrado)',
+		previsualizar: 'Previsualizar',
+		previewConteo: (n: number) => `${n} ${n === 1 ? 'entrada encontrada' : 'entradas encontradas'} en el archivo.`,
+		confirmarImportar: 'Confirmar importación',
+		importando: 'Importando…',
+		importadoOk: (n: number) => `Listo — ${n} ${n === 1 ? 'recurso importado' : 'recursos importados'}.`,
+		errorImportar: 'No se pudo importar.',
+		errorFormatoDesconocido: 'No se pudo determinar el formato del archivo por su extensión.'
+	},
+	settingsPreferences: {
+		titulo: 'Preferencias',
+		idioma: 'Idioma',
+		espanol: 'Español',
+		ingles: 'English',
+		tema: 'Tema',
+		oscuro: 'Oscuro',
+		claro: 'Claro',
+		portapapeles: 'Limpiar portapapeles (minutos)',
+		autoBloqueo: 'Auto-bloqueo (minutos, vacío = deshabilitado)',
+		guardar: 'Guardar',
+		guardado: 'Guardado.',
+		error: 'No se pudieron guardar las preferencias.'
+	},
+	settingsSecurity: {
+		titulo: 'Seguridad',
+		passkeysTitulo: 'Passkeys',
+		passkeysHint:
+			'Una passkey reemplaza tu contraseña al iniciar sesión en este dispositivo (F-03). Todavía seguís necesitando la contraseña para operaciones sobre tus recursos.',
+		nombreOpcional: 'Nombre (opcional)',
+		nombreHint: 'Ej: laptop de trabajo',
+		agregarPasskey: 'Agregar passkey',
+		passphrasePrfHint:
+			'Se usa localmente para envolverla con la extensión PRF si el autenticador la soporta — nunca viaja al servidor. Sin PRF, la passkey igual se registra, pero seguís necesitando la contraseña para iniciar sesión.',
+		passkeyRegistrada: 'Passkey registrada.',
+		errorPasskey: 'No se pudo registrar la passkey.',
+		sinNombre: '(sin nombre)',
+		desbloqueoAutomatico: 'Desbloqueo automático',
+		revocarPasskey: 'Revocar',
+		desbloqueoTitulo: 'Desbloqueo rápido (este dispositivo)',
+		desbloqueoHint:
+			'Un código TOTP local reemplaza tu contraseña al iniciar sesión en este dispositivo (F-38) — nunca se transmite al servidor, es independiente del segundo factor de login. Revocarlo acá borra el código local; no afecta otros dispositivos.',
+		activoEnDispositivo: 'Activo en este dispositivo.',
+		desactivar: 'Desactivar',
+		activarEnDispositivo: 'Activar en este dispositivo',
+		passphraseActual: 'Tu contraseña actual',
+		continuar: 'Continuar',
+		codigoApp: 'Código de la app de autenticación',
+		activar: 'Activar',
+		qrAlt: 'Código QR para configurar el desbloqueo rápido',
+		sinCamaraHint: '¿Sin cámara? Ingresá este código a mano:',
+		errorPassphraseIncorrecta: 'Contraseña incorrecta.',
+		errorCodigoIncorrecto: 'Código incorrecto.'
+	},
+	admin: {
+		nav: {
+			usuarios: 'Usuarios',
+			roles: 'Roles',
+			grupos: 'Grupos',
+			auditoria: 'Auditoría',
+			reportes: 'Reportes',
+			politicaMfa: 'Política MFA',
+			politicaPassword: 'Política de contraseña',
+			politicaRetencion: 'Retención de datos',
+			politicaRecovery: 'Recuperación de cuenta',
+			politicaEmergencia: 'Acceso de emergencia',
+			politicaDispositivo: 'Aprobación de dispositivo',
+			politicaExport: 'Política de exportación',
+			smtp: 'SMTP',
+			sso: 'SSO',
+			scim: 'SCIM',
+			directorySync: 'Directory Sync',
+			metadataKeys: 'Claves de metadata'
+		},
+		comun: {
+			guardar: 'Guardar',
+			guardado: 'Guardado.',
+			cargando: 'Cargando…',
+			crear: 'Crear',
+			eliminar: 'Eliminar',
+			cancelar: 'Cancelar',
+			buscar: 'Buscar',
+			si: 'Sí',
+			no: 'No',
+			error: 'Ocurrió un error.'
+		},
+		usuarios: {
+			titulo: 'Usuarios',
+			listadoTitulo: 'Todos los usuarios',
+			listadoVacio: 'No hay usuarios para mostrar.',
+			buscarTitulo: 'Buscar por email',
+			hint: 'Buscar por email para operar sobre un usuario puntual, o elegir uno del listado de arriba.',
+			email: 'Email',
+			estado: 'Estado',
+			activo: 'Activo',
+			inactivo: 'Inactivo',
+			desactivarCuenta: 'Desactivar',
+			activarCuenta: 'Activar',
+			verBloqueosPurga: 'Ver bloqueos de purga',
+			purgar: 'Purgar usuario',
+			purgaConfirmar: '¿Purgar definitivamente a este usuario? No se puede deshacer.',
+			purgaBloqueada: 'No se puede purgar: tiene grupos o recursos bloqueando.',
+			purgaOk: (n: number) => `Purgado. ${n} recursos huérfanos eliminados.`,
+			gruposBloqueados: 'Grupos donde es el único manager:',
+			recursosBloqueados: 'Recursos donde es el único owner:',
+			sinBloqueos: 'Sin bloqueos — se puede purgar.',
+			errorBuscar: 'No se encontró un usuario con ese email.',
+			crearTitulo: 'Crear usuario',
+			crearHint:
+				'Corre la misma ceremonia de registro que la pantalla pública — el navegador genera las claves acá mismo, el servidor nunca ve la passphrase. Crea sólo un usuario con rol "user"; para admin, usar la CLI (ellkan-cli admin promote-to-admin).',
+			nombre: 'Nombre',
+			passphraseTemporal: 'Passphrase temporal',
+			crear: 'Crear usuario',
+			creando: 'Creando…',
+			creadoOk: 'Usuario creado — compartile esta passphrase por fuera de la aplicación, no se vuelve a mostrar:',
+			passphraseGenerada: 'Passphrase temporal',
+			errorCrear: 'No se pudo crear el usuario.'
+		},
+		roles: {
+			titulo: 'Roles',
+			nombre: 'Nombre',
+			permisos: 'Permisos (uno por línea)',
+			colPermisos: 'Permisos',
+			nuevoRol: 'Nuevo rol',
+			editarPermisos: 'Editar permisos',
+			sinRoles: 'No hay roles para mostrar.'
+		},
+		grupos: {
+			titulo: 'Grupos',
+			nombre: 'Nombre',
+			colPadre: 'Grupo padre',
+			sinGrupos: 'No hay grupos para mostrar.',
+			grupoRaiz: '(raíz)',
+			nuevoGrupo: 'Nuevo grupo',
+			miembros: 'Miembros',
+			agregarMiembro: 'Agregar miembro (email)',
+			admin: 'Admin del grupo',
+			quitar: 'Quitar',
+			eliminarGrupo: 'Eliminar grupo',
+			hintResellado:
+				'Este grupo ya tiene recursos compartidos — al agregar un miembro se re-sella el secreto para esa persona, sólo si vos mismo tenés acceso a todos ellos.',
+			errorSinDesbloquear: 'Hace falta tu contraseña para re-sellar los recursos del grupo.',
+			errorEnvelopes: 'No se pudo agregar el miembro — puede que no tengas acceso a alguno de los recursos del grupo.'
+		},
+		reportes: {
+			titulo: 'Reportes',
+			reporte: 'Reporte',
+			passwordsExpired: 'Contraseñas vencidas',
+			mfaCoverage: 'Cobertura de MFA',
+			inactiveUsers: 'Usuarios inactivos',
+			resourcesNeverRotated: 'Recursos sin rotar',
+			umbralDias: 'Umbral (días)',
+			hintPasswordsExpired:
+				'Sin rotación de contraseña implementada todavía (F-15): usa la fecha de alta de la cuenta como única referencia real disponible.',
+			sinResultados: 'Sin resultados.',
+			colEmail: 'Email',
+			colPassphraseDesde: 'Contraseña desde',
+			colMfa: 'MFA activo',
+			colUltimoLogin: 'Último login',
+			colRecurso: 'Recurso',
+			colCreado: 'Creado',
+			nunca: 'Nunca'
+		},
+		auditoria: {
+			titulo: 'Auditoría',
+			actorUserId: 'Actor (user id)',
+			tipoEvento: 'Tipo de evento',
+			fecha: 'Fecha',
+			desde: 'Desde',
+			hasta: 'Hasta',
+			filtrar: 'Filtrar',
+			exportarNdjson: 'Exportar NDJSON',
+			exportarCsv: 'Exportar CSV',
+			cargarMas: 'Cargar más',
+			sinResultados: 'Sin resultados para este filtro.'
+		},
+		politicaMfa: {
+			titulo: 'Política de MFA',
+			requerir: 'Requerir MFA',
+			metodosPermitidos: 'Métodos permitidos (uno por línea)',
+			diasGracia: 'Días de gracia'
+		},
+		smtp: {
+			titulo: 'SMTP',
+			estadoConfigurado: 'SMTP configurado.',
+			estadoNoConfigurado:
+				'SMTP no configurado — la verificación de dispositivo por email (F-02) está desactivada hasta que se configure. Cualquier login desde un dispositivo nuevo se acepta sin pedir código.',
+			host: 'Host',
+			puerto: 'Puerto',
+			remitente: 'Remitente (From)',
+			tls: 'TLS (STARTTLS + autenticación)',
+			usuario: 'Usuario (opcional)',
+			contrasena: 'Contraseña',
+			contrasenaHint: 'Dejar en blanco para no cambiarla. Ya hay una guardada si el estado dice "configurado".',
+			contrasenaBorrar: 'Borrar contraseña guardada (relay sin autenticación)'
+		},
+		politicaPassword: {
+			titulo: 'Política de contraseña',
+			minLongitud: 'Longitud mínima',
+			minEntropia: 'Entropía mínima (bits)',
+			rotacionDias: 'Rotación forzada (días, vacío = sin rotación)',
+			generadorLongitud: 'Longitud default del generador',
+			techoPortapapeles: 'Techo de limpieza de portapapeles (minutos, vacío = sin techo)',
+			techoAutoBloqueo: 'Techo de auto-bloqueo (minutos, vacío = sin techo)'
+		},
+		politicaRetencion: {
+			titulo: 'Retención de datos',
+			datosDias: 'Retención de datos (días)',
+			auditoriaDias: 'Retención de auditoría (días)'
+		},
+		politicaRecovery: {
+			titulo: 'Recuperación de cuenta',
+			requerido: 'Obligatorio para todos los usuarios',
+			diasGracia: 'Días de gracia',
+			umbralAprobacion: 'Umbral de aprobación (cantidad de admins)'
+		},
+		politicaEmergencia: {
+			titulo: 'Acceso de emergencia',
+			habilitado: 'Habilitado'
+		},
+		politicaDispositivo: {
+			titulo: 'Aprobación de dispositivo',
+			peer: 'Permitir aprobación por otro dispositivo propio',
+			admin: 'Permitir aprobación por un admin'
+		},
+		politicaExport: {
+			titulo: 'Política de exportación',
+			exportEnabled: 'Exportación habilitada (interruptor maestro)',
+			exportEnabledHint: 'Un admin siempre puede exportar su propia cuenta aunque esté desactivada para el resto.',
+			importEnabled: 'Importación habilitada',
+			formatosPermitidos: 'Formatos permitidos',
+			formatoKdbx: 'KDBX (KeePass)',
+			formatoCsv: 'CSV',
+			formatoCxf: 'CXF (Credential Exchange Format)'
+		},
+		sso: {
+			titulo: 'SSO (OIDC)',
+			issuerUrl: 'Issuer URL',
+			clientId: 'Client ID',
+			jit: 'Aprovisionamiento automático (JIT)'
+		},
+		scim: {
+			titulo: 'SCIM',
+			hint: 'Generar un token nuevo para que el proveedor de identidad (Okta, Azure AD, etc.) sincronice usuarios.',
+			generar: 'Generar token nuevo',
+			tokenGenerado: 'Token generado — copialo ahora, no se vuelve a mostrar:'
+		},
+		directorySync: {
+			titulo: 'Directory Sync (LDAP)',
+			ldapUrl: 'LDAP URL',
+			bindDn: 'Bind DN',
+			bindPassword: 'Bind password',
+			requireStarttls: 'Exigir STARTTLS',
+			baseDn: 'Base DN',
+			userFilter: 'Filtro de usuarios',
+			ultimaSync: 'Última sincronización',
+			nunca: 'Nunca',
+			dryRun: 'Simular (dry-run)',
+			aplicar: 'Aplicar cambios',
+			crear: 'Crear',
+			reactivar: 'Reactivar',
+			desactivar: 'Desactivar',
+			sinCambios: 'Sin cambios',
+			conflictos: 'Conflictos'
+		},
+		metadataKeys: {
+			titulo: 'Claves de metadata',
+			activas: 'Activas',
+			fingerprint: 'Fingerprint',
+			expira: 'Expira',
+			nuncaExpira: 'No expira',
+			crearNueva: 'Crear clave nueva',
+			rotar: 'Rotar',
+			estadoRotacion: 'Estado de rotación',
+			rotacionActiva: 'Rotación en curso',
+			sinRotacion: 'Sin rotación activa',
+			pendientes: 'Recursos pendientes de migrar'
+		}
+	}
+};
+
+export default es;
+export type Diccionario = typeof es;

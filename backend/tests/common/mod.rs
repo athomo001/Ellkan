@@ -47,6 +47,23 @@ pub async fn levantar() -> Entorno {
         .await
         .expect("migrar y conectar");
     let pool = estado.pool.clone();
+
+    // Parte A/B: sin esto, `smtp_config` queda sin configurar por default
+    // (fila insertada por la migración con `host` nulo) — F-02 auto-verifica
+    // el dispositivo sin pedir código (comportamiento nuevo, intencional,
+    // ver `auth::service::verify_con_usuario`), y el resto de esta suite
+    // (escrita contra el flujo real de F-02) dejaría de poder llegar a
+    // `pendiente_dispositivo`. `smtp.invalid` (RFC 2606: dominio reservado,
+    // nunca resuelve) para que el poller de envío falle rápido y
+    // determinístico en vez de intentar una conexión real — los tests leen
+    // el código directo de `outbound_emails`, nunca por SMTP de verdad.
+    sqlx::query!(
+        r#"update smtp_config set host = 'smtp.invalid', port = 25, from_address = 'no-reply@ellkan.test' where organization_id = 1"#
+    )
+    .execute(&pool)
+    .await
+    .expect("seedear smtp_config para los tests");
+
     let app = ellkan_backend::construir_router(estado);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

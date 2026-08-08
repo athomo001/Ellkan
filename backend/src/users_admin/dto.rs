@@ -86,3 +86,17 @@ pub struct PurgaResponse {
 pub struct ActualizarActivoRequest {
     pub active: bool,
 }
+
+/// `GET /admin/users` (F-29) — mismo patrón de página que `AuditLogPage`.
+#[derive(Debug, Deserialize)]
+pub struct ListarUsuariosQuery {
+    pub cursor: Option<Uuid>,
+    pub active: Option<bool>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UsuariosPageResponse {
+    pub items: Vec<UsuarioResponse>,
+    pub next_cursor: Option<Uuid>,
+}

@@ -10,7 +10,7 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
-use super::models::{NivelPermiso, Resource, SecretEnvelope};
+use super::models::{Destinatario, EnvelopeInput, NivelPermiso, Resource, SecretEnvelope};
 use super::repository::{
     PermissionRepository, ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository,
 };
@@ -194,6 +194,58 @@ where
             return Err(DomainError::Conflict);
         }
         Ok(())
+    }
+
+    /// `GET /resources/{id}/recipients` (F-07) — mismo permiso mínimo que
+    /// leer el recurso: hace falta antes de armar el `PUT`, para saber a
+    /// quién re-sellar la DEK nueva.
+    pub async fn listar_destinatarios(&self, resource_id: Uuid, user_id: Uuid) -> Result<Vec<Destinatario>, DomainError> {
+        if !self
+            .permisos
+            .tiene_permiso(resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .await?
+        {
+            return Err(DomainError::PermissionDenied);
+        }
+        Ok(self.recursos.listar_destinatarios(resource_id).await?)
+    }
+
+    /// `PUT /resources/{id}` (F-07) — edita metadata + re-sella el secreto
+    /// para todos los destinatarios actuales (el cliente ya hizo el trabajo
+    /// criptográfico, acá sólo se autoriza y se aplica de forma atómica).
+    /// Exige `update`+ (misma autoridad que `rekey_metadata`), no `owner` —
+    /// editar contenido no es una decisión de a quién pertenece el recurso.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn editar(
+        &self,
+        resource_id: Uuid,
+        actor_id: Uuid,
+        expected_updated_at: time::OffsetDateTime,
+        metadata_ciphertext: &[u8],
+        metadata_nonce: &[u8],
+        envelopes: Vec<EnvelopeInput>,
+    ) -> Result<Resource, DomainError> {
+        if !self
+            .permisos
+            .tiene_permiso(resource_id, actor_id, NivelPermiso::Update.as_db_str())
+            .await?
+        {
+            return Err(DomainError::PermissionDenied);
+        }
+
+        let resultado = self
+            .recursos
+            .actualizar(resource_id, expected_updated_at, metadata_ciphertext, metadata_nonce, &envelopes)
+            .await?;
+        let recurso = resultado.ok_or(DomainError::Conflict)?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::ResourceUpdated, Some(actor_id))
+                .con_sujeto("resource", resource_id)
+                .con_metadata(serde_json::json!({ "destinatarios": envelopes.len() })),
+        ));
+
+        Ok(recurso)
     }
 
     /// `GET /resources/{id}/totp` (F-08) — sólo metadata de configuración,

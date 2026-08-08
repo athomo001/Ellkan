@@ -47,6 +47,19 @@ where
         Ok(self.miembros.es_manager_de_alguno(actor_id, &ancestros).await?)
     }
 
+    /// `GET /groups/{id}/resources` (F-12) — recursos actualmente
+    /// compartidos con el grupo (`permissions.grantee_type = 'group'`) —
+    /// lo que el cliente necesita para saber a cuáles re-sellar la DEK al
+    /// agregar un miembro nuevo (`AgregarMiembroRequest.envelopes` exige
+    /// cubrir exactamente este conjunto).
+    pub async fn recursos_compartidos(&self, actor_id: Uuid, group_id: Uuid) -> Result<Vec<Uuid>, DomainError> {
+        self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
+        if !self.autorizado_para_administrar(actor_id, group_id).await? {
+            return Err(DomainError::PermissionDenied);
+        }
+        Ok(self.permisos.recursos_por_grantee("group", group_id).await?)
+    }
+
     /// `POST /groups` — sin `parent_group_id` exige admin de organización;
     /// con `parent_group_id` sólo exige ser manager de ese padre (o admin).
     pub async fn crear(

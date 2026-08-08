@@ -354,8 +354,14 @@ mod tests {
             if let Ok((mut stream, _)) = listener.accept() {
                 let mut buf = [0u8; 1024];
                 let _ = stream.read(&mut buf);
+                // `Connection: close` fuerza al cliente a abrir una conexión
+                // nueva para la request de redirect en vez de reusar esta
+                // vía keep-alive — el mock sólo atiende un `accept()` por
+                // conexión, si el cliente reusara la conexión el segundo
+                // `accept()` de abajo se quedaría esperando una conexión que
+                // nunca llega.
                 let respuesta =
-                    "HTTP/1.1 302 Found\r\nLocation: /destino\r\nContent-Length: 0\r\n\r\n";
+                    "HTTP/1.1 302 Found\r\nLocation: /destino\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 let _ = stream.write_all(respuesta.as_bytes());
             }
             if let Ok((mut stream, _)) = listener.accept() {

@@ -15,6 +15,11 @@ pub enum AuditEventType {
     AuthDeviceUnrecognized,
     AuthDeviceVerified,
     AuthDeviceVerificationFailed,
+    /// F-02/Parte B (SMTP editable): SMTP no está configurado, así que el
+    /// dispositivo se marca conocido sin pedir código — nunca queda
+    /// silencioso, esto es lo que permite auditar cuántos logins pasaron
+    /// sin la verificación real.
+    AuthDeviceAutoVerifiedNoSmtp,
     AuthLogout,
     /// F-14: código MFA incorrecto o desafío no encontrado — análogo a
     /// `AuthLoginFailed` pero para el segundo factor.
@@ -24,9 +29,14 @@ pub enum AuditEventType {
     GroupMemberRemoved,
     GroupManagerChanged,
     ResourceCreated,
+    /// F-07: edición de un recurso ya creado — nunca contiene metadata/secreto,
+    /// sólo cuántos destinatarios se re-sellaron.
+    ResourceUpdated,
     DeviceTrusted,
     DeviceRevoked,
     DeviceApprovalGranted,
+    /// F-03 (PRF): revocación de una passkey propia (`DELETE /me/passkeys/{id}`).
+    PasskeyRevoked,
     MetadataKeyCreated,
     MetadataKeyRotationStarted,
     RoleCreated,
@@ -66,6 +76,39 @@ pub enum AuditEventType {
     DirectorySyncConfigUpdated,
     DirectorySyncDryRun,
     DirectorySyncApplied,
+    /// F-26: creación de un external share (`POST /external-shares`).
+    ExternalShareCreated,
+    /// F-26: acceso exitoso al contenido (`GET /external-shares/{id}` sin
+    /// autenticación) — nunca se audita el contenido en sí, sólo el evento.
+    ExternalShareAccessed,
+    ExternalShareRevoked,
+    /// F-26: se alcanzó `max_views` o venció `expires_at` — en ambos casos
+    /// dispara el borrado efectivo de `ciphertext`, no sólo un flag.
+    ExternalShareBurned,
+    ExternalSharePolicyUpdated,
+    /// F-27
+    ExportPolicyUpdated,
+    /// F-27: reportado por el cliente vía `POST /export-events` — nunca
+    /// transmite contenido, sólo formato/cantidad.
+    ExportPerformed,
+    ImportPerformed,
+    /// F-29
+    UsersExported,
+    GroupsExported,
+    /// F-28/F-41: CLI-only, sin sesión HTTP — `actor_user_id` va `None`
+    /// salvo en los dos eventos que sí tienen un usuario afectado como
+    /// sujeto (`CliUserPromoted`/`CliRecoverySetupIssued`).
+    BackupCreated,
+    BackupFailed,
+    BackupRestored,
+    RestoreFailed,
+    CliCleanupRan,
+    CliUserPromoted,
+    CliRecoverySetupIssued,
+    /// Parte A (SMTP editable): host/puerto/from/tls/usuario/contraseña
+    /// cambiados desde `PUT /admin/smtp-config` — nunca incluye la
+    /// contraseña en sí en `metadata`.
+    SmtpConfigUpdated,
 }
 
 impl AuditEventType {
@@ -76,6 +119,7 @@ impl AuditEventType {
             AuditEventType::AuthDeviceUnrecognized => "auth.device_unrecognized",
             AuditEventType::AuthDeviceVerified => "auth.device_verified",
             AuditEventType::AuthDeviceVerificationFailed => "auth.device_verification_failed",
+            AuditEventType::AuthDeviceAutoVerifiedNoSmtp => "auth.device_auto_verified_no_smtp",
             AuditEventType::AuthLogout => "auth.logout",
             AuditEventType::AuthMfaFailed => "auth.mfa_failed",
             AuditEventType::PermissionGranted => "permission.granted",
@@ -83,9 +127,11 @@ impl AuditEventType {
             AuditEventType::GroupMemberRemoved => "group.member_removed",
             AuditEventType::GroupManagerChanged => "group.manager_changed",
             AuditEventType::ResourceCreated => "resource.created",
+            AuditEventType::ResourceUpdated => "resource.updated",
             AuditEventType::DeviceTrusted => "device.trusted",
             AuditEventType::DeviceRevoked => "device.revoked",
             AuditEventType::DeviceApprovalGranted => "device.approval_granted",
+            AuditEventType::PasskeyRevoked => "passkey.revoked",
             AuditEventType::MetadataKeyCreated => "metadata_key.created",
             AuditEventType::MetadataKeyRotationStarted => "metadata_key.rotation_started",
             AuditEventType::RoleCreated => "role.created",
@@ -124,6 +170,24 @@ impl AuditEventType {
             AuditEventType::DirectorySyncConfigUpdated => "directory_sync.config_updated",
             AuditEventType::DirectorySyncDryRun => "directory_sync.dry_run",
             AuditEventType::DirectorySyncApplied => "directory_sync.applied",
+            AuditEventType::ExternalShareCreated => "external_share.created",
+            AuditEventType::ExternalShareAccessed => "external_share.accessed",
+            AuditEventType::ExternalShareRevoked => "external_share.revoked",
+            AuditEventType::ExternalShareBurned => "external_share.burned",
+            AuditEventType::ExternalSharePolicyUpdated => "external_share_policy.updated",
+            AuditEventType::ExportPolicyUpdated => "export_policy.updated",
+            AuditEventType::ExportPerformed => "export.performed",
+            AuditEventType::ImportPerformed => "import.performed",
+            AuditEventType::UsersExported => "users.exported",
+            AuditEventType::GroupsExported => "groups.exported",
+            AuditEventType::BackupCreated => "backup.created",
+            AuditEventType::BackupFailed => "backup.failed",
+            AuditEventType::BackupRestored => "backup.restored",
+            AuditEventType::RestoreFailed => "restore.failed",
+            AuditEventType::CliCleanupRan => "cli.cleanup_ran",
+            AuditEventType::CliUserPromoted => "cli.user_promoted",
+            AuditEventType::CliRecoverySetupIssued => "cli.recovery_setup_issued",
+            AuditEventType::SmtpConfigUpdated => "smtp_config.updated",
         }
     }
 
@@ -137,6 +201,7 @@ impl AuditEventType {
             "auth.device_unrecognized" => AuditEventType::AuthDeviceUnrecognized,
             "auth.device_verified" => AuditEventType::AuthDeviceVerified,
             "auth.device_verification_failed" => AuditEventType::AuthDeviceVerificationFailed,
+            "auth.device_auto_verified_no_smtp" => AuditEventType::AuthDeviceAutoVerifiedNoSmtp,
             "auth.logout" => AuditEventType::AuthLogout,
             "auth.mfa_failed" => AuditEventType::AuthMfaFailed,
             "permission.granted" => AuditEventType::PermissionGranted,
@@ -144,9 +209,11 @@ impl AuditEventType {
             "group.member_removed" => AuditEventType::GroupMemberRemoved,
             "group.manager_changed" => AuditEventType::GroupManagerChanged,
             "resource.created" => AuditEventType::ResourceCreated,
+            "resource.updated" => AuditEventType::ResourceUpdated,
             "device.trusted" => AuditEventType::DeviceTrusted,
             "device.revoked" => AuditEventType::DeviceRevoked,
             "device.approval_granted" => AuditEventType::DeviceApprovalGranted,
+            "passkey.revoked" => AuditEventType::PasskeyRevoked,
             "metadata_key.created" => AuditEventType::MetadataKeyCreated,
             "metadata_key.rotation_started" => AuditEventType::MetadataKeyRotationStarted,
             "role.created" => AuditEventType::RoleCreated,
@@ -185,6 +252,24 @@ impl AuditEventType {
             "directory_sync.config_updated" => AuditEventType::DirectorySyncConfigUpdated,
             "directory_sync.dry_run" => AuditEventType::DirectorySyncDryRun,
             "directory_sync.applied" => AuditEventType::DirectorySyncApplied,
+            "external_share.created" => AuditEventType::ExternalShareCreated,
+            "external_share.accessed" => AuditEventType::ExternalShareAccessed,
+            "external_share.revoked" => AuditEventType::ExternalShareRevoked,
+            "external_share.burned" => AuditEventType::ExternalShareBurned,
+            "external_share_policy.updated" => AuditEventType::ExternalSharePolicyUpdated,
+            "export_policy.updated" => AuditEventType::ExportPolicyUpdated,
+            "export.performed" => AuditEventType::ExportPerformed,
+            "import.performed" => AuditEventType::ImportPerformed,
+            "users.exported" => AuditEventType::UsersExported,
+            "groups.exported" => AuditEventType::GroupsExported,
+            "backup.created" => AuditEventType::BackupCreated,
+            "backup.failed" => AuditEventType::BackupFailed,
+            "backup.restored" => AuditEventType::BackupRestored,
+            "restore.failed" => AuditEventType::RestoreFailed,
+            "cli.cleanup_ran" => AuditEventType::CliCleanupRan,
+            "cli.user_promoted" => AuditEventType::CliUserPromoted,
+            "cli.recovery_setup_issued" => AuditEventType::CliRecoverySetupIssued,
+            "smtp_config.updated" => AuditEventType::SmtpConfigUpdated,
             _ => return None,
         })
     }

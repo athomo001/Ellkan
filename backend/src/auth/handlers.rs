@@ -29,6 +29,7 @@ fn servicio(
     crate::mfa::repository::PgMfaPolicyRepository,
     crate::mfa::repository::PgTotpCredentialRepository,
     crate::mfa::repository::PgMfaChallengeRepository,
+    crate::smtp_config::repository::PgSmtpConfigRepository,
 > {
     AuthService {
         usuarios: &state.usuarios,
@@ -39,6 +40,7 @@ fn servicio(
         mfa_policy: &state.mfa_policy,
         mfa_totp: &state.mfa_totp,
         mfa_challenges: &state.mfa_challenges,
+        smtp_config: &state.smtp_config,
         eventos: state.eventos.clone(),
     }
 }

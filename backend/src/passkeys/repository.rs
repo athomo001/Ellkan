@@ -24,6 +24,13 @@ pub trait PasskeyRepository {
 
     async fn listar_de(&self, user_id: Uuid) -> Result<Vec<PasskeyRow>, RepoError>;
 
+    async fn buscar(&self, id: Uuid) -> Result<Option<PasskeyRow>, RepoError>;
+
+    /// Hard delete — a diferencia de `trusted_devices` (soft-revoke, ver
+    /// `devices::repository::revocar`), una passkey removida no necesita
+    /// retener la fila: no hay ningún flujo que dependa de saber que existió.
+    async fn eliminar(&self, id: Uuid) -> Result<(), RepoError>;
+
     /// Post-autenticación: nuevo estado del `Passkey` (contador, flags de
     /// backup) + `last_used_at` — buscado por `credential_id`, que
     /// `AuthenticationResult::cred_id()` ya identifica sin ambigüedad.
@@ -90,7 +97,7 @@ impl PasskeyRepository for PgPasskeyRepository {
     async fn listar_de(&self, user_id: Uuid) -> Result<Vec<PasskeyRow>, RepoError> {
         let filas = sqlx::query!(
             r#"
-            select id, user_id, passkey_data, prf_wrapped_private_key, last_used_at
+            select id, user_id, passkey_data, prf_wrapped_private_key, label, created_at, last_used_at
             from passkeys where user_id = $1
             "#,
             user_id,
@@ -106,9 +113,39 @@ impl PasskeyRepository for PgPasskeyRepository {
                 passkey_data: serde_json::from_value(f.passkey_data)
                     .expect("passkey_data persistido siempre es un Passkey válido"),
                 prf_wrapped_private_key: f.prf_wrapped_private_key,
+                label: f.label,
+                created_at: f.created_at,
                 last_used_at: f.last_used_at,
             })
             .collect())
+    }
+
+    async fn buscar(&self, id: Uuid) -> Result<Option<PasskeyRow>, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select id, user_id, passkey_data, prf_wrapped_private_key, label, created_at, last_used_at
+            from passkeys where id = $1
+            "#,
+            id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(fila.map(|f| PasskeyRow {
+            id: f.id,
+            user_id: f.user_id,
+            passkey_data: serde_json::from_value(f.passkey_data)
+                .expect("passkey_data persistido siempre es un Passkey válido"),
+            prf_wrapped_private_key: f.prf_wrapped_private_key,
+            label: f.label,
+            created_at: f.created_at,
+            last_used_at: f.last_used_at,
+        }))
+    }
+
+    async fn eliminar(&self, id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"delete from passkeys where id = $1"#, id).execute(&self.pool).await?;
+        Ok(())
     }
 
     async fn actualizar_tras_auth(

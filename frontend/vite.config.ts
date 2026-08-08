@@ -19,7 +19,24 @@ export default defineConfig({
 				assets: 'build',
 				fallback: 'index.html',
 				strict: false
-			})
+			}),
+			// `adapter-static` no puede setear headers HTTP — el CSP real que
+			// importa lo sigue poniendo Axum (`backend/src/lib.rs`, incluye
+			// `frame-ancestors`, que un <meta> no puede expresar por spec).
+			// Pero el propio bootstrap inline que SvelteKit inyecta en
+			// `index.html` (el `<script>` que hace `Promise.all([import(...)])`
+			// para arrancar la app) necesita quedar permitido por `script-src`
+			// — sin `'unsafe-inline'` (que no vamos a usar) hace falta su hash
+			// exacto, que cambia con cada build (los nombres de archivo
+			// hasheados cambian). `csp: { mode: 'hash' }` hace que SvelteKit
+			// calcule ese hash en cada build y lo inyecte solo en un <meta
+			// http-equiv="Content-Security-Policy">, sin tocar el header real.
+			csp: {
+				mode: 'hash',
+				directives: {
+					'script-src': ['self', 'wasm-unsafe-eval']
+				}
+			}
 		})
 	],
 	// `ellkan_crypto.wasm` se sirve como asset — nunca reinterpretado como
@@ -41,6 +58,9 @@ export default defineConfig({
 			'/metadata-keys': 'http://localhost:8080',
 			'/scim': 'http://localhost:8080',
 			'/account-recovery': 'http://localhost:8080',
+			'/external-shares': 'http://localhost:8080',
+			'/export-policy': 'http://localhost:8080',
+			'/export-events': 'http://localhost:8080',
 			'/users': 'http://localhost:8080',
 			'/healthz': 'http://localhost:8080'
 		}

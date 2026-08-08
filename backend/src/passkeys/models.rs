@@ -10,6 +10,8 @@ pub struct PasskeyRow {
     pub user_id: Uuid,
     pub passkey_data: WebauthnPasskey,
     pub prf_wrapped_private_key: Option<Vec<u8>>,
+    pub label: Option<String>,
+    pub created_at: OffsetDateTime,
     pub last_used_at: Option<OffsetDateTime>,
 }
 

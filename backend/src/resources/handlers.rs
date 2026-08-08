@@ -1,6 +1,7 @@
 // Autor: Athan Espinoza
 
 use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use axum::Json;
 use uuid::Uuid;
 
@@ -11,10 +12,10 @@ use crate::state::AppState;
 use crate::tags::service::TagService;
 
 use super::dto::{
-    CompartirRequest, CrearRecursoRequest, ListarQuery, RecursoResponse, RekeyMetadataRequest,
-    SecretoResponse, TotpResponse,
+    ActualizarRecursoRequest, CompartirRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery,
+    RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
 };
-use super::models::NivelPermiso;
+use super::models::{EnvelopeInput, NivelPermiso};
 use super::repository::ResourceTypeRepository;
 use super::service::ResourceService;
 
@@ -44,6 +45,7 @@ fn a_response(recurso: super::models::Resource) -> RecursoResponse {
         metadata_nonce_b64: b64::encode(&recurso.metadata_nonce),
         created_by: recurso.created_by,
         created_at: recurso.created_at,
+        updated_at: recurso.updated_at,
         metadata_key_type: recurso.metadata_key_type,
         metadata_key_id: recurso.metadata_key_id,
     }
@@ -215,4 +217,61 @@ pub async fn rekey_metadata(
         .await?;
 
     Ok(())
+}
+
+/// `GET /resources/{id}/recipients` (F-07).
+pub async fn recipients(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+) -> Result<Json<Vec<DestinatarioResponse>>, ApiError> {
+    let destinatarios = servicio(&state).listar_destinatarios(resource_id, auth.user_id).await?;
+    Ok(Json(
+        destinatarios
+            .into_iter()
+            .map(|d| DestinatarioResponse { user_id: d.user_id, public_key_x25519_b64: b64::encode(&d.public_key_x25519) })
+            .collect(),
+    ))
+}
+
+/// `PUT /resources/{id}` (F-07) — concurrencia optimista real vía
+/// `If-Match`, no un detalle cosmético: sin header, o con un valor que no
+/// coincide con el `updated_at` actual, se rechaza antes de tocar nada.
+pub async fn actualizar(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(req): Json<ActualizarRecursoRequest>,
+) -> Result<Json<RecursoResponse>, ApiError> {
+    let if_match = headers
+        .get("if-match")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| DomainError::ValidacionInvalida("falta el header If-Match".into()))?;
+    let expected_updated_at = time::OffsetDateTime::parse(if_match, &time::format_description::well_known::Rfc3339)
+        .map_err(|_| DomainError::ValidacionInvalida("If-Match debe ser una fecha RFC3339 válida".into()))?;
+
+    let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
+    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+
+    let mut envelopes = Vec::with_capacity(req.envelopes.len());
+    for e in req.envelopes {
+        envelopes.push(EnvelopeInput {
+            user_id: e.recipient_user_id,
+            sealed_dek: b64::decode(&e.sealed_dek_b64)
+                .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?,
+            secret_ciphertext: b64::decode(&e.secret_ciphertext_b64)
+                .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?,
+            secret_nonce: b64::decode(&e.secret_nonce_b64)
+                .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?,
+        });
+    }
+
+    let recurso = servicio(&state)
+        .editar(resource_id, auth.user_id, expected_updated_at, &metadata_ciphertext, &metadata_nonce, envelopes)
+        .await?;
+
+    Ok(Json(a_response(recurso)))
 }

@@ -4,16 +4,37 @@
 //! nunca síncrono dentro del request. El consumidor de eventos escribe la
 //! fila; un poller aparte la procesa.
 //!
-//! **Envío real de SMTP queda pendiente** (decisión explícita del usuario):
-//! el poller de acá es un stub que loguea y marca `enviado` — la
-//! arquitectura (evento → cola → consumidor) queda lista para reemplazar el
-//! cuerpo de `procesar_pendientes` por una llamada SMTP real más adelante,
-//! sin tocar el resto.
+//! **Envío real de SMTP** (`smtp_config` configurada desde el admin, Parte
+//! A — reemplaza el `ELLKAN_SMTP_*` por variable de entorno que este módulo
+//! tenía antes): el poller relee la config en cada tick y manda cada email
+//! pendiente vía SMTP de verdad. **Sin configurar**: se mantiene el stub
+//! original, que sólo marca `enviado` sin mandar nada — la arquitectura
+//! (evento → cola → consumidor) es la misma en los dos casos, sólo cambia
+//! el cuerpo del `tick`.
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
+
+use lettre::message::Mailbox;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use uuid::Uuid;
+
+use ellkan_crypto::secretos::ClaveSecreta32;
 
 use crate::error::RepoError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::smtp_config::repository::SmtpConfigRepository;
+
+/// Fila lista para enviar — a diferencia del stub original, acá sí hace
+/// falta leer el cuerpo completo, no sólo marcar la fila.
+#[derive(Debug, Clone)]
+pub struct EmailPendiente {
+    pub id: Uuid,
+    pub recipient: String,
+    pub subject: String,
+    pub body: String,
+}
 
 // A diferencia de los repositories de `auth`/`resources` (genéricos, sin
 // `dyn`, nunca cruzan un `tokio::spawn`), acá el future SÍ necesita ser
@@ -21,15 +42,23 @@ use crate::eventos::{DomainEvent, EmisorDeEventos};
 // spawneadas, y `async fn` en un trait no garantiza `Send` por sí solo.
 pub trait OutboundEmailRepository {
     fn encolar(&self, recipient: &str, subject: &str, body: &str) -> impl Future<Output = Result<(), RepoError>> + Send;
-    /// Devuelve cuántas filas `pendiente` se marcaron `enviado` — el stub de
-    /// Fase 0 no necesita leer el cuerpo, un consumidor SMTP real sí.
+    /// Stub de Fase 0/dev sin SMTP configurado: marca todo lo `pendiente`
+    /// como `enviado` sin leer el cuerpo ni mandar nada.
     fn marcar_pendientes_como_enviadas(&self) -> impl Future<Output = Result<u64, RepoError>> + Send;
+    /// SMTP real: trae hasta `limite` filas `pendiente` para enviar de verdad.
+    fn tomar_pendientes(&self, limite: i64) -> impl Future<Output = Result<Vec<EmailPendiente>, RepoError>> + Send;
+    fn marcar_enviada(&self, id: Uuid) -> impl Future<Output = Result<(), RepoError>> + Send;
+    /// Incrementa `attempts`; pasado `MAX_INTENTOS` la deja `fallido` en vez
+    /// de reintentarla para siempre.
+    fn marcar_intento_fallido(&self, id: Uuid) -> impl Future<Output = Result<(), RepoError>> + Send;
 }
 
 #[derive(Clone)]
 pub struct PgOutboundEmailRepository {
     pub pool: sqlx::PgPool,
 }
+
+const MAX_INTENTOS: i32 = 5;
 
 impl OutboundEmailRepository for PgOutboundEmailRepository {
     async fn encolar(&self, recipient: &str, subject: &str, body: &str) -> Result<(), RepoError> {
@@ -52,6 +81,40 @@ impl OutboundEmailRepository for PgOutboundEmailRepository {
         .execute(&self.pool)
         .await?;
         Ok(resultado.rows_affected())
+    }
+
+    async fn tomar_pendientes(&self, limite: i64) -> Result<Vec<EmailPendiente>, RepoError> {
+        let filas = sqlx::query!(
+            r#"select id, recipient, subject, body from outbound_emails
+               where status = 'pendiente' order by created_at limit $1"#,
+            limite,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas
+            .into_iter()
+            .map(|f| EmailPendiente { id: f.id, recipient: f.recipient, subject: f.subject, body: f.body })
+            .collect())
+    }
+
+    async fn marcar_enviada(&self, id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"update outbound_emails set status = 'enviado', sent_at = now() where id = $1"#, id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn marcar_intento_fallido(&self, id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"update outbound_emails set attempts = attempts + 1,
+               status = case when attempts + 1 >= $2 then 'fallido' else status end
+               where id = $1"#,
+            id,
+            MAX_INTENTOS,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }
 
@@ -88,20 +151,118 @@ where
     });
 }
 
-/// Poller stub — Fase 1 reemplaza el cuerpo de este `tick` por un envío SMTP
-/// real; el `interval` y el ciclo de vida de la tarea no cambian.
-pub fn spawn_poller_de_envio<E>(emails: E, intervalo: Duration)
+/// Config SMTP lista para `lettre` — convertida desde `smtp_config::models::SmtpConfig`
+/// (la fila de la DB, Parte A) en cada tick del poller, nunca cacheada.
+#[derive(Debug, Clone)]
+pub struct SmtpConfig {
+    pub host: String,
+    pub port: u16,
+    pub from: String,
+    /// STARTTLS + auth (producción) vs. relay local sin cifrar (Mailhog de
+    /// dev/test) — nunca hay un default inseguro implícito: el admin lo
+    /// tiene que tildar a propósito en `PUT /admin/smtp-config`.
+    pub tls: bool,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+impl SmtpConfig {
+    fn desde_db(cfg: &crate::smtp_config::models::SmtpConfig, secrets_key: &ClaveSecreta32) -> Option<Self> {
+        if !cfg.esta_configurado() {
+            return None;
+        }
+        Some(Self {
+            host: cfg.host.clone()?,
+            port: cfg.port.and_then(|p| u16::try_from(p).ok()).unwrap_or(25),
+            from: cfg.from_address.clone().unwrap_or_else(|| "no-reply@ellkan.local".to_string()),
+            tls: cfg.tls,
+            username: cfg.username.clone(),
+            password: crate::smtp_config::service::descifrar_password(secrets_key, cfg),
+        })
+    }
+}
+
+fn construir_mailer(cfg: &SmtpConfig) -> AsyncSmtpTransport<Tokio1Executor> {
+    if cfg.tls {
+        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)
+            .expect("host SMTP inválido")
+            .port(cfg.port);
+        if let (Some(u), Some(p)) = (&cfg.username, &cfg.password) {
+            builder = builder.credentials(Credentials::new(u.clone(), p.clone()));
+        }
+        builder.build()
+    } else {
+        // `builder_dangerous`: sin TLS/auth, sólo para un relay local de
+        // confianza (Mailhog de dev/test) — nunca el default implícito, el
+        // admin tiene que tildar `tls` a propósito en `PUT /admin/smtp-config`
+        // para el camino cifrado (Parte A).
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.host).port(cfg.port).build()
+    }
+}
+
+async fn enviar(mailer: &AsyncSmtpTransport<Tokio1Executor>, from: &str, correo: &EmailPendiente) -> anyhow::Result<()> {
+    let mensaje = Message::builder()
+        .from(from.parse::<Mailbox>()?)
+        .to(correo.recipient.parse::<Mailbox>()?)
+        .subject(&correo.subject)
+        .body(correo.body.clone())?;
+    mailer.send(mensaje).await?;
+    Ok(())
+}
+
+/// Poller de envío — relee `smtp_config` (Parte A) en cada tick, así que un
+/// cambio del admin en `PUT /admin/smtp-config` aplica en el siguiente tick
+/// sin reiniciar el proceso. Configurada, manda de verdad vía SMTP; sin
+/// configurar, mantiene el stub original.
+pub fn spawn_poller_de_envio<E, SC>(emails: E, smtp_config: SC, secrets_key: Arc<ClaveSecreta32>, intervalo: Duration)
 where
     E: OutboundEmailRepository + Send + Sync + 'static,
+    SC: SmtpConfigRepository + Send + Sync + 'static,
 {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(intervalo);
         loop {
             ticker.tick().await;
-            match emails.marcar_pendientes_como_enviadas().await {
-                Ok(0) => {}
-                Ok(n) => tracing::debug!(cantidad = n, "emails marcados como enviados (stub, sin SMTP real)"),
-                Err(e) => tracing::error!(error = %e, "fallo el poller de envío de emails"),
+
+            let cfg_db = match smtp_config.obtener().await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(error = %e, "no se pudo leer smtp_config");
+                    continue;
+                }
+            };
+
+            match SmtpConfig::desde_db(&cfg_db, &secrets_key) {
+                Some(cfg) => {
+                    let mailer = construir_mailer(&cfg);
+                    let pendientes = match emails.tomar_pendientes(50).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::error!(error = %e, "fallo el poller de envío de emails");
+                            continue;
+                        }
+                    };
+                    for correo in pendientes {
+                        match enviar(&mailer, &cfg.from, &correo).await {
+                            Ok(()) => {
+                                if let Err(e) = emails.marcar_enviada(correo.id).await {
+                                    tracing::error!(error = %e, "no se pudo marcar el email como enviado");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, email_id = %correo.id, "fallo el envío SMTP real");
+                                if let Err(e) = emails.marcar_intento_fallido(correo.id).await {
+                                    tracing::error!(error = %e, "no se pudo marcar el intento fallido");
+                                }
+                            }
+                        }
+                    }
+                }
+                None => match emails.marcar_pendientes_como_enviadas().await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::debug!(cantidad = n, "emails marcados como enviados (stub, sin SMTP configurado)"),
+                    Err(e) => tracing::error!(error = %e, "fallo el poller de envío de emails"),
+                },
             }
         }
     });

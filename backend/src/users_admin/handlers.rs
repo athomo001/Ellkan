@@ -1,6 +1,6 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use uuid::Uuid;
 
@@ -9,7 +9,8 @@ use crate::error::ApiError;
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarActivoRequest, DryRunResponse, PurgaResponse, PurgarRequest, UsuarioResponse,
+    ActualizarActivoRequest, DryRunResponse, ListarUsuariosQuery, PurgaResponse, PurgarRequest, UsuarioResponse,
+    UsuariosPageResponse,
 };
 use super::repository::PgUserPurgeRepository;
 use super::service::UsersAdminService;
@@ -62,4 +63,16 @@ pub async fn purgar(
 ) -> Result<Json<PurgaResponse>, ApiError> {
     let resultado = servicio(&state).purgar(admin.user_id, id, req.transfer.into()).await?;
     Ok(Json(PurgaResponse { resources_huerfanos_eliminados: resultado.resources_huerfanos_eliminados }))
+}
+
+/// `GET /admin/users` (F-29) — listado completo paginado, a diferencia de
+/// `/admin/users/{id}` (necesita el id de antemano) o la búsqueda por email
+/// de F-01 (`/users/{email}/public-key`).
+pub async fn listar(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Query(q): Query<ListarUsuariosQuery>,
+) -> Result<Json<UsuariosPageResponse>, ApiError> {
+    let (usuarios, next_cursor) = servicio(&state).listar(q.active, q.cursor, q.limit).await?;
+    Ok(Json(UsuariosPageResponse { items: usuarios.into_iter().map(UsuarioResponse::from).collect(), next_cursor }))
 }

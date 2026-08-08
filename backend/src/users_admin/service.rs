@@ -11,6 +11,11 @@ use crate::eventos::{DomainEvent, EmisorDeEventos};
 use super::models::{Bloqueos, ResultadoPurgaUsuario, ResumenUsuario, Transferencia};
 use super::repository::UserPurgeRepository;
 
+/// Mismo techo que `audit::repository::LIMITE_PAGINA_MAXIMO` — evita que un
+/// `?limit=` desmedido tumbe el pool de conexiones con una sola query.
+pub const LIMITE_PAGINA_MAXIMO: i64 = 200;
+pub const LIMITE_PAGINA_DEFAULT: i64 = 50;
+
 pub struct UsersAdminService<'a, R> {
     pub repo: &'a R,
     pub eventos: EmisorDeEventos,
@@ -76,5 +81,19 @@ where
             EventoAuditoria::nuevo(AuditEventType::UserActivated, Some(actor_id)).con_sujeto("user", user_id),
         ));
         Ok(())
+    }
+
+    /// `GET /admin/users` (F-29) — sin evento de auditoría: es sólo lectura,
+    /// mismo criterio que `GET /admin/audit-log` (no se audita leer).
+    pub async fn listar(
+        &self,
+        active: Option<bool>,
+        cursor: Option<Uuid>,
+        limit: Option<i64>,
+    ) -> Result<(Vec<ResumenUsuario>, Option<Uuid>), DomainError> {
+        let limite = limit.unwrap_or(LIMITE_PAGINA_DEFAULT).clamp(1, LIMITE_PAGINA_MAXIMO);
+        let usuarios = self.repo.listar(active, cursor, limite).await?;
+        let next_cursor = if usuarios.len() as i64 == limite { usuarios.last().map(|u| u.id) } else { None };
+        Ok((usuarios, next_cursor))
     }
 }

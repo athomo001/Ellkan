@@ -14,6 +14,11 @@ ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
 ellkan-crypto = { version = "0.1.0", path = "../crates/ellkan-crypto" }
 governor = "0.10.4"
 hex = "0.4.3"
+# F-02/F-14: envío real de SMTP desde el poller de `outbound_emails`
+# (`notificaciones.rs`) — sin autenticación/TLS por default (dev, contra un
+# relay local tipo Mailhog); `ELLKAN_SMTP_TLS=true` activa STARTTLS + auth
+# para producción. `tokio1-rustls-tls` para no arrastrar `native-tls`/OpenSSL.
+lettre = { version = "0.11.19", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
 # F-19: sincronización con directorios LDAP/Active Directory. `tls-rustls-ring`
 # en vez de sólo `tls-rustls` — el feature genérico no trae un crypto
 # provider por defecto y falla en runtime ("No crypto provider selected").
@@ -29,6 +34,15 @@ opentelemetry = "0.32.0"
 # un cliente bloqueante en un exportador de spans colgaría el runtime de tokio.
 opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["trace"] }
+# Múltiples dependencias traen `rustls` (ldap3 con el provider `ring` vía
+# `tls-rustls-ring`, `lettre`/`reqwest`/`hyper-rustls` con `aws-lc-rs` por
+# default) — sin instalar un `CryptoProvider` de proceso explícito, rustls
+# no puede elegir automáticamente entre los dos y entra en pánico en
+# runtime la primera vez que alguno de los dos lo necesita. Se fuerza
+# `ring` acá (mismo provider que ya elige `ldap3` explícitamente) una sola
+# vez al arrancar (`construir_estado`), antes de que cualquier cliente TLS
+# lo use.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 secrecy = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -38,7 +52,7 @@ thiserror = "2.0.19"
 time = { version = "0.3.54", features = ["serde"] }
 tokio = { version = "1.53.1", features = ["full"] }
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.0", features = ["trace", "cors"] }
+tower-http = { version = "0.7.0", features = ["trace", "cors", "fs", "set-header"] }
 tower_governor = "0.8.0"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.33.0"

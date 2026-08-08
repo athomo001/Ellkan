@@ -1,0 +1,14 @@
+# Autor: Athan Espinoza
+
+# `kdbxweb` (F-27, export/import KDBX) trae `@xmldom/xmldom@^0.7.4` como
+# dependencia transitiva, resuelto a 0.7.13 — vulnerable a inyección de
+# nodos XML (GHSA-j759-j44w-7fr8 y relacionados, `pnpm audit`). Se fuerza
+# la versión parcheada acá porque pnpm v10+ dejó de leer `pnpm.overrides`
+# desde `package.json`. Fijada exactamente en `0.8.13` (el primer patch),
+# no `>=0.8.13`: desde 0.9.0, `DOMParser` tira un `TypeError` explícito si
+# recibe `errorHandler` como objeto en vez de función — y `kdbxweb` (sin
+# actualizar hace tiempo) sigue pasando el objeto viejo, rompiendo en
+# runtime cualquier `0.9.x`, verificado corriendo el roundtrip real de un
+# KDBX contra este código.
+overrides:
+  '@xmldom/xmldom': '0.8.13'

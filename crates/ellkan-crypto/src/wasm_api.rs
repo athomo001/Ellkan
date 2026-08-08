@@ -18,6 +18,7 @@ use wasm_bindgen::prelude::*;
 use crate::aead::{self, Envoltura};
 use crate::aleatoriedad::bytes_aleatorios;
 use crate::clave_privada::{cifrar_clave_privada, descifrar_clave_privada, EncryptedPrivateKeyBlob};
+use crate::prf;
 use crate::secretos::PassphraseSecreta;
 use crate::totp;
 
@@ -244,6 +245,31 @@ pub fn descifrar_aead(clave: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8>, aad: 
         .map_err(|_| err_js("no se pudo descifrar (clave incorrecta o datos corruptos)"))
 }
 
+/// F-26: combina la clave del fragmento de la URL (nunca llega al
+/// servidor) con la capa opcional de passphrase de un external share —
+/// Argon2id(passphrase, salt) → HKDF-combinar con la clave del fragmento.
+/// El resultado es la clave real de `descifrar_aead`/`cifrar_aead` cuando
+/// `password_protected` está activo; sin esta función el destinatario
+/// necesitaría reimplementar Argon2id en TS, que es exactamente lo que el
+/// resto de este archivo evita.
+#[wasm_bindgen]
+pub fn combinar_clave_de_share_con_passphrase(
+    clave_fragmento: Vec<u8>,
+    passphrase: String,
+    salt: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    use secrecy::ExposeSecret;
+    let salt: [u8; 16] = salt.try_into().map_err(|_| err_js("salt debe ser de 16 bytes"))?;
+    let derivada_passphrase =
+        crate::derivacion::derivar_clave_maestra(&passphrase_de(passphrase), &salt).map_err(err_js)?;
+    let combinada = crate::derivacion::combinar_secretos(
+        &clave_fragmento,
+        derivada_passphrase.expose_secret(),
+        crate::derivacion::contexto::EXTERNAL_SHARE_PASSPHRASE,
+    );
+    Ok(combinada.expose_secret().to_vec())
+}
+
 /// F-38: desbloqueo local por TOTP, alternativa a la passphrase — nunca
 /// toca el servidor (distinto de F-14, que sí es server-verified).
 #[wasm_bindgen]
@@ -259,4 +285,59 @@ pub fn totp_codigo_actual(secreto: Vec<u8>, ahora_unix_segundos: u64) -> u32 {
 #[wasm_bindgen]
 pub fn totp_verificar(secreto: Vec<u8>, codigo: u32, ahora_unix_segundos: u64) -> bool {
     totp::verificar_totp(&secreto, codigo, ahora_unix_segundos)
+}
+
+/// F-38: envuelve la passphrase con una clave derivada (HKDF, sin Argon2id)
+/// del secreto TOTP local — el resultado se guarda cifrado sólo en este
+/// dispositivo (`localStorage`), nunca en el servidor.
+#[wasm_bindgen]
+pub fn totp_envolver_passphrase(secreto: Vec<u8>, passphrase: String, aad: Vec<u8>) -> Result<Cifrado, JsValue> {
+    let envoltura = totp::envolver_passphrase(&secreto, &passphrase_de(passphrase), &aad).map_err(err_js)?;
+    Ok(Cifrado { ciphertext: envoltura.ciphertext, nonce: envoltura.nonce.to_vec() })
+}
+
+/// F-38: reconstruye la passphrase a partir del código TOTP ya verificado —
+/// el llamador ya corrió `totp_verificar` (o el control de intentos propio)
+/// antes de llegar acá.
+#[wasm_bindgen]
+pub fn totp_desenvolver_passphrase(
+    secreto: Vec<u8>,
+    nonce: Vec<u8>,
+    ciphertext: Vec<u8>,
+    aad: Vec<u8>,
+) -> Result<String, JsValue> {
+    use secrecy::ExposeSecret;
+    let nonce: [u8; 24] = nonce.try_into().map_err(|_| err_js("nonce debe ser de 24 bytes"))?;
+    let envoltura = Envoltura { nonce, ciphertext };
+    let passphrase = totp::desenvolver_passphrase(&secreto, &envoltura, &aad)
+        .map_err(|_| err_js("no se pudo recuperar la passphrase (secreto TOTP incorrecto o datos corruptos)"))?;
+    Ok(passphrase.expose_secret().clone())
+}
+
+/// F-03 (PRF): envuelve la passphrase con una clave derivada (HKDF, sin
+/// Argon2id) del output de la extensión PRF de WebAuthn obtenido al
+/// registrar la passkey — el resultado se manda al backend como
+/// `prf_wrapped_private_key_b64`, un blob opaco que el servidor nunca
+/// puede descifrar.
+#[wasm_bindgen]
+pub fn prf_envolver_passphrase(prf_output: Vec<u8>, passphrase: String, aad: Vec<u8>) -> Result<Cifrado, JsValue> {
+    let envoltura = prf::envolver_passphrase(&prf_output, &passphrase_de(passphrase), &aad).map_err(err_js)?;
+    Ok(Cifrado { ciphertext: envoltura.ciphertext, nonce: envoltura.nonce.to_vec() })
+}
+
+/// F-03 (PRF): reconstruye la passphrase a partir del output de PRF
+/// obtenido en la ceremonia de login (`getClientExtensionResults().prf`).
+#[wasm_bindgen]
+pub fn prf_desenvolver_passphrase(
+    prf_output: Vec<u8>,
+    nonce: Vec<u8>,
+    ciphertext: Vec<u8>,
+    aad: Vec<u8>,
+) -> Result<String, JsValue> {
+    use secrecy::ExposeSecret;
+    let nonce: [u8; 24] = nonce.try_into().map_err(|_| err_js("nonce debe ser de 24 bytes"))?;
+    let envoltura = Envoltura { nonce, ciphertext };
+    let passphrase = prf::desenvolver_passphrase(&prf_output, &envoltura, &aad)
+        .map_err(|_| err_js("no se pudo recuperar la passphrase (output de PRF incorrecto o datos corruptos)"))?;
+    Ok(passphrase.expose_secret().clone())
 }

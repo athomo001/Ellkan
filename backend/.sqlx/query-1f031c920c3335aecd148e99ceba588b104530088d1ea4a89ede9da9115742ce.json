@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set locale = $1, theme = $2, clipboard_clear_minutes = $3, auto_lock_minutes = $4\n               where id = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f031c920c3335aecd148e99ceba588b104530088d1ea4a89ede9da9115742ce"
+}
