@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select\n                u.id, u.email, u.display_name, r.name as role, u.active, u.deleted_at,\n                u.created_at, u.updated_at,\n                exists(\n                    select 1 from user_totp_credentials t\n                    where t.user_id = u.id and t.confirmed_at is not null\n                ) as \"mfa_configured!\",\n                (select count(*) from passkeys p where p.user_id = u.id) as \"passkey_count!\",\n                uk.public_key_x25519 as \"public_key_x25519?\"\n            from users u\n            join roles r on r.id = u.role_id\n            left join user_keys uk on uk.user_id = u.id\n            order by u.email\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "roles",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "active"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "deleted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "mfa_configured!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "passkey_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "public_key_x25519?",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "public_key_x25519"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "3c6bb1bdc6f3615c1af686a5551e07a2dfbd0ff3b52f645bc4fae4a6b6ec2e22"
+}

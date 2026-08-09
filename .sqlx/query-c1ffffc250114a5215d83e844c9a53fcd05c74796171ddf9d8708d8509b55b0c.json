@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select allow_peer_device_approval, allow_admin_device_approval from organizations where id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "allow_peer_device_approval",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "allow_peer_device_approval"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "allow_admin_device_approval",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "allow_admin_device_approval"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c1ffffc250114a5215d83e844c9a53fcd05c74796171ddf9d8708d8509b55b0c"
+}

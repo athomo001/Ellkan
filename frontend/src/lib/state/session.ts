@@ -27,10 +27,18 @@ export interface SesionActual {
 // el guard de `(app)/+layout.svelte` (que redirige a `/login` sin
 // `sessionId`) expulsaría de la app entera en cada auto-bloqueo, exactamente
 // lo que la spec dice que no debe pasar.
+//
+// `ubicacion: 'session'`, no `'memory'` — bug real encontrado en uso: un
+// F5/reload perdía el id de sesión HTTP (sólo un bearer token, no material
+// sensible) y expulsaba a login por completo, en vez de comportarse como el
+// auto-bloqueo (sesión HTTP viva, sólo hace falta reingresar la contraseña
+// para reconstruir las claves). `sessionStorage` sobrevive un reload de la
+// misma pestaña y se pierde al cerrarla — ninguna garantía de F-04 se
+// debilita, la clave privada y `clavesDesbloqueadas` siguen en `'memory'`.
 export const sesion = declararStore<SesionActual>(
 	'sesion',
 	{ sessionId: null, userId: null, email: null },
-	{ ubicacion: 'memory', clearOn: ['logout'] }
+	{ ubicacion: 'session', clearOn: ['logout'] }
 );
 
 /** Sólo poblado tras desbloquear con la passphrase — nunca persiste. */

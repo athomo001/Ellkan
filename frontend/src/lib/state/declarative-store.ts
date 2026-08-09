@@ -8,7 +8,7 @@
 
 import { writable, type Writable } from 'svelte/store';
 
-export type Ubicacion = 'memory' | 'disk';
+export type Ubicacion = 'memory' | 'session' | 'disk';
 export type EventoLimpieza = 'lock' | 'logout';
 
 interface DefinicionStore<T> {
@@ -21,9 +21,16 @@ interface DefinicionStore<T> {
 
 const registro = new Map<string, DefinicionStore<unknown>>();
 
-function leerDeDisco<T>(clave: string, defaultValue: T): T {
-	if (typeof localStorage === 'undefined') return defaultValue;
-	const crudo = localStorage.getItem(`ellkan:${clave}`);
+function storageDe(ubicacion: Ubicacion): Storage | undefined {
+	if (ubicacion === 'disk') return typeof localStorage === 'undefined' ? undefined : localStorage;
+	if (ubicacion === 'session') return typeof sessionStorage === 'undefined' ? undefined : sessionStorage;
+	return undefined;
+}
+
+function leerDeStorage<T>(ubicacion: Ubicacion, clave: string, defaultValue: T): T {
+	const storage = storageDe(ubicacion);
+	if (!storage) return defaultValue;
+	const crudo = storage.getItem(`ellkan:${clave}`);
 	if (!crudo) return defaultValue;
 	try {
 		return JSON.parse(crudo) as T;
@@ -33,24 +40,33 @@ function leerDeDisco<T>(clave: string, defaultValue: T): T {
 }
 
 /**
- * Declara un store con su ubicación (`"memory"` → sólo en memoria, se
- * pierde al cerrar pestaña; `"disk"` → persiste en `localStorage`, no
- * usar nunca para material sensible) y su política de limpieza.
+ * Declara un store con su ubicación y su política de limpieza:
+ * - `"memory"` → sólo en memoria, se pierde con cualquier reload (F5
+ *   incluido) — para material sensible de verdad (clave privada
+ *   desenvuelta, `clavesDesbloqueadas`), nunca baja de acá.
+ * - `"session"` → `sessionStorage`, sobrevive un reload de la misma
+ *   pestaña pero se pierde al cerrarla — para lo que no es sensible en sí
+ *   (ej. el id de sesión HTTP, un bearer token) pero tampoco debería
+ *   sobrevivir más allá de la pestaña actual. Antes no existía este nivel
+ *   intermedio, así que todo lo que necesitaba sobrevivir un F5 terminaba
+ *   forzado a `"memory"` (perdido igual) — bug real, no una decisión.
+ * - `"disk"` → persiste en `localStorage`, nunca usar para nada sensible.
  *
- * **Passphrase y claves de sesión siempre van con `ubicacion: "memory"`**
- * (F-04, mismo criterio ya fijado para la extensión) — nunca `"disk"`.
+ * **Passphrase y claves ya desenvueltas siempre van con `ubicacion:
+ * "memory"`** (F-04) — nunca `"session"` ni `"disk"`.
  */
 export function declararStore<T>(
 	clave: string,
 	defaultValue: T,
 	opciones: { ubicacion: Ubicacion; clearOn: EventoLimpieza[] }
 ): Writable<T> {
-	const inicial = opciones.ubicacion === 'disk' ? leerDeDisco(clave, defaultValue) : defaultValue;
+	const inicial = leerDeStorage(opciones.ubicacion, clave, defaultValue);
 	const store = writable<T>(inicial);
 
-	if (opciones.ubicacion === 'disk' && typeof localStorage !== 'undefined') {
+	const storage = storageDe(opciones.ubicacion);
+	if (storage) {
 		store.subscribe((valor) => {
-			localStorage.setItem(`ellkan:${clave}`, JSON.stringify(valor));
+			storage.setItem(`ellkan:${clave}`, JSON.stringify(valor));
 		});
 	}
 
@@ -67,9 +83,8 @@ export function limpiarStoresEn(evento: EventoLimpieza): void {
 	for (const def of registro.values()) {
 		if (def.clearOn.includes(evento)) {
 			def.store.set(def.defaultValue);
-			if (def.ubicacion === 'disk' && typeof localStorage !== 'undefined') {
-				localStorage.removeItem(`ellkan:${def.clave}`);
-			}
+			const storage = storageDe(def.ubicacion);
+			storage?.removeItem(`ellkan:${def.clave}`);
 		}
 	}
 }

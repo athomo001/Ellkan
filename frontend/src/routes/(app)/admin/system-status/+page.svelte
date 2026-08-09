@@ -31,13 +31,24 @@
 		const e = $t.admin.estadoSistema;
 		return (
 			{
-				entorno: e.categoriaEntorno,
 				base_datos: e.categoriaBaseDatos,
 				correo: e.categoriaCorreo,
 				integraciones: e.categoriaIntegraciones,
 				seguridad: e.categoriaSeguridad
 			} satisfies Record<GrupoChecks['categoria'], string>
 		)[categoria];
+	}
+
+	// Un check "no configurado" (SSO/Directory Sync opcionales) no es un
+	// error ni tampoco un "todo bien" real — verde ahí escondería lo único
+	// que esta página existe para mostrar. Punto neutro en vez del color de
+	// nivel para ese caso puntual, sin inventar un cuarto nivel en el
+	// backend (el nivel real sigue siendo `ok`, nada está roto).
+	function puntoClase(check: Check): string {
+		if ((check.id === 'sso_configurado' || check.id === 'directory_sync_configurado') && !check.configurado) {
+			return 'nivel-neutro';
+		}
+		return `nivel-${check.nivel}`;
 	}
 
 	function nivelLabel(nivel: NivelCheck): string {
@@ -48,8 +59,6 @@
 	function mensaje(check: Check): string {
 		const e = $t.admin.estadoSistema;
 		switch (check.id) {
-			case 'version_app':
-				return e.versionApp(check.version);
 			case 'db_ping':
 				return check.nivel === 'ok' ? e.dbPingOk : e.dbPingError;
 			case 'db_migraciones':
@@ -68,6 +77,8 @@
 				return `${e.directorySyncConfiguradoSi} ${e.ultimaSincronizacion(new Date(check.ultima_sincronizacion).toLocaleString())}`;
 			case 'metadata_key_rotacion':
 				return check.claves_activas > 1 ? e.metadataRotacionAdvertencia(check.claves_activas) : e.metadataRotacionOk;
+			case 'origen_seguro':
+				return check.nivel === 'ok' ? e.origenSeguroOk(check.origen) : e.origenSeguroAdvertencia(check.origen);
 		}
 	}
 
@@ -87,6 +98,8 @@
 				return e.directorySyncSugerencia;
 			case 'metadata_key_rotacion':
 				return e.metadataRotacionSugerencia;
+			case 'origen_seguro':
+				return e.origenSeguroSugerencia;
 			default:
 				return undefined;
 		}
@@ -107,7 +120,7 @@
 					{#each grupo.checks as check (check.id)}
 						<li>
 							<span class="fila">
-								<span class="punto nivel-{check.nivel}" title={nivelLabel(check.nivel)}></span>
+								<span class="punto {puntoClase(check)}" title={nivelLabel(check.nivel)}></span>
 								<span class="mensaje">{mensaje(check)}</span>
 							</span>
 							{#if sugerencia(check)}
@@ -171,6 +184,9 @@
 	}
 	.nivel-error {
 		background: var(--danger);
+	}
+	.nivel-neutro {
+		background: var(--text-muted);
 	}
 	.mensaje {
 		font-size: var(--text-sm);

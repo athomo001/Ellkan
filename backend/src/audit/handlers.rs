@@ -33,6 +33,7 @@ fn a_response(e: AuditLogEntry) -> AuditLogEntryResponse {
     AuditLogEntryResponse {
         id: e.id,
         actor_user_id: e.actor_user_id,
+        actor_email: e.actor_email,
         event_type: e.event_type,
         subject_type: e.subject_type,
         subject_id: e.subject_id,

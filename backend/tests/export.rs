@@ -192,7 +192,7 @@ async fn export_masivo_de_usuarios_y_grupos_excluye_todo_campo_criptografico() {
     let admin = common::registrar(&entorno, "adminmasivo@test.ellkan").await;
     common::promover_admin(&entorno.pool, admin.user_id).await;
     let sesion = common::login(&entorno, &admin).await;
-    let _otro = common::registrar(&entorno, "otromasivo@test.ellkan").await;
+    let otro = common::registrar(&entorno, "otromasivo@test.ellkan").await;
 
     let resp = entorno
         .cliente
@@ -205,7 +205,17 @@ async fn export_masivo_de_usuarios_y_grupos_excluye_todo_campo_criptografico() {
     assert_eq!(resp.headers().get("content-type").unwrap(), "application/x-ndjson; charset=utf-8");
     let cuerpo = resp.text().await.unwrap();
     let lineas: Vec<&str> = cuerpo.lines().collect();
-    assert_eq!(lineas.len(), 2, "los dos usuarios registrados en este test deben aparecer");
+    // No exactamente 2: el bootstrap de la instancia (`common::levantar()`)
+    // deja su propio usuario admin dummy, que este export sí incluye a
+    // propósito (auditoría, incluye hasta usuarios ya borrados) — se
+    // verifica contenido, no cantidad exacta, mismo criterio que el resto
+    // de la suite para este tipo de aserción.
+    let emails_exportados: Vec<String> = lineas
+        .iter()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap()["email"].as_str().unwrap().to_string())
+        .collect();
+    assert!(emails_exportados.contains(&admin.email), "el admin registrado en este test debe aparecer");
+    assert!(emails_exportados.contains(&otro.email), "el segundo usuario registrado en este test debe aparecer");
 
     for linea in &lineas {
         let fila: serde_json::Value = serde_json::from_str(linea).unwrap();

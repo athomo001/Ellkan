@@ -184,8 +184,12 @@
 		color: var(--text-primary);
 	}
 	.form-nueva {
+		/* Columna, no fila: este panel vive en una barra lateral angosta
+		   (14rem) — un TextField + Button lado a lado desborda el contenedor
+		   y se superpone con el panel de al lado. */
 		display: flex;
-		align-items: flex-end;
+		flex-direction: column;
+		align-items: stretch;
 		gap: var(--space-2);
 		margin: var(--space-2) 0;
 	}

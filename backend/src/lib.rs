@@ -322,6 +322,21 @@ pub fn construir_router(estado: AppState) -> Router {
     let me_preferences_router =
         Router::new().route("/", get(me::handlers::obtener).put(me::handlers::actualizar));
 
+    let me_router = Router::new().route("/", get(me::handlers::perfil));
+    // El límite de body por default de Axum es 2 MB — el avatar decodificado
+    // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
+    // en base64 dentro de un JSON (~33% más grande que los bytes crudos),
+    // así que el default se queda corto para este único endpoint. Se sube
+    // sólo acá, no globalmente — el resto de la API sigue con el límite
+    // general de 2 MB.
+    let me_avatar_router = Router::new()
+        .route(
+            "/",
+            get(me::handlers::avatar_obtener).put(me::handlers::avatar_actualizar).delete(me::handlers::avatar_eliminar),
+        )
+        .layer(axum::extract::DefaultBodyLimit::max(3 * 1024 * 1024));
+    let me_change_passphrase_router = Router::new().route("/", post(me::handlers::cambiar_passphrase));
+
     let me_mfa_totp_router = Router::new()
         .route("/setup", post(mfa::handlers::setup_totp))
         .route("/confirm", post(mfa::handlers::confirm_totp));
@@ -505,7 +520,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/metadata-keys", metadata_keys_router)
         .nest("/admin/metadata-keys", admin_metadata_keys_router)
         .nest("/groups", groups_router)
+        .nest("/me", me_router)
         .nest("/me/preferences", me_preferences_router)
+        .nest("/me/avatar", me_avatar_router)
+        .nest("/me/change-passphrase", me_change_passphrase_router)
         .nest("/me/devices", me_devices_router)
         .nest("/me/passkeys", me_passkeys_router)
         .nest("/me/mfa/totp", me_mfa_totp_router)

@@ -102,14 +102,26 @@ pub struct PgUserRepository {
 impl UserRepository for PgUserRepository {
     async fn crear(&self, nuevo: NuevoUsuario<'_>) -> Result<User, RepoError> {
         let mut tx = self.pool.begin().await?;
-        // El auto-registro (`POST /auth/register`) siempre nace con el rol
-        // `user` — promover a admin es una acción deliberada aparte (CLI
-        // `admin promote-to-admin`/`create-user --role admin`, F-41), nunca
-        // algo que el propio request de registro pueda elegir.
+        // Bootstrap: si todavía no existe ningún usuario en toda la
+        // instancia, el primer auto-registro (`POST /auth/register`) nace
+        // como `admin` en vez de `user` — decisión explícita del usuario,
+        // acepta el trade-off de que si F-24 (self-registration) está
+        // habilitada públicamente, quien gane la carrera a ser el primer
+        // registro de una instancia recién levantada se queda con admin.
+        // Para cualquier registro posterior (ya existe al menos un usuario)
+        // sigue naciendo `user` — promover a alguien más sigue siendo una
+        // acción deliberada aparte (CLI `admin promote-to-admin`, F-41).
+        // El `exists` corre dentro de la misma transacción que el insert,
+        // no elimina la ventana de carrera bajo concurrencia real pero
+        // alcanza para el caso que importa: nadie más registra en el mismo
+        // instante en que se levanta una instancia nueva.
         let fila = sqlx::query!(
             r#"
             insert into users (email, display_name, role_id)
-            values ($1, $2, (select id from roles where name = 'user'))
+            values ($1, $2, (
+                select id from roles where name =
+                    case when exists (select 1 from users) then 'user' else 'admin' end
+            ))
             returning id, security_stamp, created_at
             "#,
             nuevo.email,

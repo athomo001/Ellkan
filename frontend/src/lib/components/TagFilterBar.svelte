@@ -116,6 +116,12 @@
 		flex-wrap: wrap;
 		margin-bottom: var(--space-4);
 	}
+	/* TextField trae su propio margin-bottom para el uso vertical normal —
+	   en una fila con align-items:flex-end ese margen corre el botón hacia
+	   abajo respecto al input real. */
+	.form-nuevo-tag :global(.field) {
+		margin-bottom: 0;
+	}
 	.check {
 		display: flex;
 		align-items: center;

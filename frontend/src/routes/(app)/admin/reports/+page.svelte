@@ -126,6 +126,9 @@
 		flex-wrap: wrap;
 		margin-bottom: var(--space-4);
 	}
+	.controles :global(.field) {
+		margin-bottom: 0;
+	}
 	.field {
 		display: flex;
 		flex-direction: column;

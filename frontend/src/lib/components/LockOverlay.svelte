@@ -11,10 +11,12 @@
 	import { desbloquearConPassphrase } from '$lib/crypto/identity';
 	import { desbloquear as desbloquearLocal, estaActivo } from '$lib/crypto/totp-local';
 	import { clavesDesbloqueadas } from '$lib/state/session';
+	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
 	let { email, onDesbloqueado }: { email: string; onDesbloqueado: () => void } = $props();
+	const tokenSeguridad = $derived(email ? obtenerTokenSeguridad(email) : null);
 
 	let conCodigoLocal = $state(false);
 	let passphrase = $state('');
@@ -73,6 +75,12 @@
 				>
 			</p>
 		{:else}
+			{#if tokenSeguridad}
+				<p class="token-seguridad">
+					<span class="punto-token" style:background={COLOR_HEX[tokenSeguridad.color]}></span>
+					{$t.lockOverlay.tokenSeguridadHint} <strong>{tokenSeguridad.palabra}</strong>
+				</p>
+			{/if}
 			<form onsubmit={conPassphrase}>
 				<TextField
 					label={$t.lockOverlay.passphrase}
@@ -131,6 +139,22 @@
 	.error {
 		color: var(--danger);
 		font-size: var(--text-sm);
+	}
+	.token-seguridad {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		margin: 0 0 var(--space-2) 0;
+	}
+	.punto-token {
+		display: inline-block;
+		width: 0.9rem;
+		height: 0.9rem;
+		border-radius: 50%;
+		border: 1px solid var(--border-color);
+		flex: 0 0 auto;
 	}
 	.link {
 		background: none;

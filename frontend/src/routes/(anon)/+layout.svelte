@@ -24,7 +24,7 @@
 <div class="anon-shell">
 	<header class="topbar">
 		<div class="marca-anon">
-			<img src="/ellkan-icon-mark.png" alt="Ellkan" width="32" height="32" />
+			<img src="/ellkan-icon-mark.png" alt="Ellkan" width="48" height="48" />
 			<span>Ellkan</span>
 		</div>
 		<div class="controles">
@@ -79,7 +79,7 @@
 		border-radius: var(--radius-sm);
 	}
 	.marca-anon span {
-		font-size: var(--text-lg);
+		font-size: var(--text-2xl);
 		font-weight: 700;
 		background: var(--gradient-brand);
 		-webkit-background-clip: text;

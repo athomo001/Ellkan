@@ -43,7 +43,7 @@ async fn admin_ve_los_grupos_de_checks_con_la_db_en_ok() {
     let grupos = cuerpo.as_array().unwrap();
 
     let categorias: Vec<&str> = grupos.iter().map(|g| g["categoria"].as_str().unwrap()).collect();
-    assert_eq!(categorias, vec!["entorno", "base_datos", "correo", "integraciones", "seguridad"]);
+    assert_eq!(categorias, vec!["base_datos", "correo", "integraciones", "seguridad"]);
 
     let grupo_db = grupos.iter().find(|g| g["categoria"] == "base_datos").unwrap();
     let check_ping = grupo_db["checks"].as_array().unwrap().iter().find(|c| c["id"] == "db_ping").unwrap();

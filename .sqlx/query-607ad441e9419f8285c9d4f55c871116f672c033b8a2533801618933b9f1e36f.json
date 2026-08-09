@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into emergency_access_requests (emergency_access_id)\n            values ($1)\n            returning id, emergency_access_id, requested_at, status, resolved_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "emergency_access_requests",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "emergency_access_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "emergency_access_requests",
+            "name": "emergency_access_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "requested_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "emergency_access_requests",
+            "name": "requested_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emergency_access_requests",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "resolved_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "emergency_access_requests",
+            "name": "resolved_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "607ad441e9419f8285c9d4f55c871116f672c033b8a2533801618933b9f1e36f"
+}

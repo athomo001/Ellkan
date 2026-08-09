@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update user_totp_credentials set deleted_at = now()\n               where user_id = $1 and confirmed_at is null and deleted_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1acf5bd52e85a817b122390fcb7e2d7bd4dc77bd73e8303766f54ceee121067b"
+}

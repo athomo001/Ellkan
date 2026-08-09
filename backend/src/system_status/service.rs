@@ -39,7 +39,6 @@ where
 {
     pub async fn obtener_todo(&self) -> Vec<GrupoChecks> {
         vec![
-            GrupoChecks { categoria: "entorno", checks: vec![self.version_app()] },
             GrupoChecks { categoria: "base_datos", checks: vec![self.db_ping().await, self.db_migraciones().await] },
             GrupoChecks {
                 categoria: "correo",
@@ -49,12 +48,21 @@ where
                 categoria: "integraciones",
                 checks: vec![self.sso_configurado().await, self.directory_sync_configurado().await],
             },
-            GrupoChecks { categoria: "seguridad", checks: vec![self.metadata_key_rotacion().await] },
+            GrupoChecks {
+                categoria: "seguridad",
+                checks: vec![self.origen_seguro(), self.metadata_key_rotacion().await],
+            },
         ]
     }
 
-    fn version_app(&self) -> Check {
-        Check::VersionApp { nivel: NivelCheck::Ok, version: env!("CARGO_PKG_VERSION").to_string() }
+    /// `ELLKAN_RP_ORIGIN` — mismo default de desarrollo que `state.rs::
+    /// construir_webauthn` (`http://localhost:8080`), leído acá de forma
+    /// independiente porque `AppState` no guarda el valor crudo, sólo la
+    /// instancia ya construida de `Webauthn`.
+    fn origen_seguro(&self) -> Check {
+        let origen = std::env::var("ELLKAN_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let nivel = if origen.starts_with("https://") { NivelCheck::Ok } else { NivelCheck::Advertencia };
+        Check::OrigenSeguro { nivel, origen }
     }
 
     async fn db_ping(&self) -> Check {

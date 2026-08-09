@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update export_policy set export_enabled = $1, allowed_formats = $2, import_enabled = $3\n               where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa55e5c9ee4fb9eed91fa9aae8c89f9ab775df62c54f5f265b19a9dd0808b94e"
+}

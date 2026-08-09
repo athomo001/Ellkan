@@ -37,7 +37,8 @@
 	import { cifrarContenidoDeShare } from '$lib/crypto/externalShare';
 	import { desbloquearConPassphrase } from '$lib/crypto/identity';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+	import { copiarConLimpieza } from '$lib/clipboard';
+	import { sesion, clavesDesbloqueadas, preferencias } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
@@ -275,6 +276,16 @@
 
 	function cerrarPanel() {
 		seleccionado = undefined;
+	}
+
+	// Copiar usuario/URI del panel de detalle — no son secretos, pero
+	// respetan el mismo timer de limpieza automática que el resto de la app
+	// (`preferencias.clipboardClearMinutes`), mismo criterio que `SecretField`.
+	let campoCopiado = $state<'usuario' | 'uri' | undefined>();
+	async function copiarCampo(campo: 'usuario' | 'uri', valor: string) {
+		await copiarConLimpieza(valor, $preferencias.clipboardClearMinutes);
+		campoCopiado = campo;
+		setTimeout(() => (campoCopiado = undefined), 2000);
 	}
 
 	// --- ver secreto ---
@@ -519,10 +530,32 @@
 					{#if panelModo === 'detalle'}
 						<dl class="campos">
 							<dt>{$t.vault.usuario}</dt>
-							<dd>{seleccionado.usuario || '—'}</dd>
+							<dd>
+								{seleccionado.usuario || '—'}
+								{#if seleccionado.usuario}
+									<button
+										type="button"
+										class="icono-copiar"
+										onclick={() => copiarCampo('usuario', seleccionado!.usuario)}
+										aria-label={$t.secretField.copiar}
+									>
+										{campoCopiado === 'usuario' ? '✓' : '⧉'}
+									</button>
+								{/if}
+							</dd>
 							{#if seleccionado.uri}
 								<dt>{$t.vault.uri}</dt>
-								<dd><a href={seleccionado.uri} target="_blank" rel="noreferrer">{seleccionado.uri}</a></dd>
+								<dd>
+									<a href={seleccionado.uri} target="_blank" rel="noreferrer">{seleccionado.uri}</a>
+									<button
+										type="button"
+										class="icono-copiar"
+										onclick={() => copiarCampo('uri', seleccionado!.uri)}
+										aria-label={$t.secretField.copiar}
+									>
+										{campoCopiado === 'uri' ? '✓' : '⧉'}
+									</button>
+								</dd>
 							{/if}
 						</dl>
 
@@ -713,6 +746,19 @@
 		margin: 0;
 		color: var(--text-primary);
 		word-break: break-word;
+	}
+	.icono-copiar {
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: var(--text-sm);
+		line-height: 1;
+		padding: 0 0 0 var(--space-1);
+		color: var(--text-secondary);
+		vertical-align: middle;
+	}
+	.icono-copiar:hover {
+		color: var(--text-primary);
 	}
 	.panel-acciones {
 		display: flex;

@@ -37,7 +37,8 @@ const en: Diccionario = {
 		errorSetupMfa: 'Could not start MFA setup.',
 		errorVerificarDispositivo: 'Could not verify the device.',
 		errorPasskey: 'Could not sign in with the passkey.',
-		errorDesbloqueoLocal: 'Could not unlock.'
+		errorDesbloqueoLocal: 'Could not unlock.',
+		tokenSeguridadHint: 'You should recognize this color and word on this device:'
 	},
 	registro: {
 		titulo: 'Create account — Ellkan',
@@ -62,6 +63,7 @@ const en: Diccionario = {
 	},
 	appShell: {
 		vault: 'Vault',
+		miPerfil: 'My profile',
 		preferencias: 'Preferences',
 		seguridad: 'Security',
 		administracion: 'Administration',
@@ -79,7 +81,8 @@ const en: Diccionario = {
 		usarPassphrase: 'Use passphrase',
 		usarCodigoLocal: 'Use local code',
 		errorPassphrase: 'Incorrect passphrase.',
-		errorCodigo: 'Incorrect code.'
+		errorCodigo: 'Incorrect code.',
+		tokenSeguridadHint: 'You should recognize this color and word on this device:'
 	},
 	secretField: {
 		revelar: 'Reveal',
@@ -218,7 +221,7 @@ const en: Diccionario = {
 		titulo: 'Security',
 		passkeysTitulo: 'Passkeys',
 		passkeysHint:
-			'A passkey replaces your passphrase when signing in on this device (F-03). You still need your passphrase for operations on your resources.',
+			'A passkey replaces your passphrase when signing in on this device. You still need your passphrase for operations on your resources.',
 		nombreOpcional: 'Name (optional)',
 		nombreHint: 'E.g.: work laptop',
 		agregarPasskey: 'Add passkey',
@@ -231,7 +234,7 @@ const en: Diccionario = {
 		revocarPasskey: 'Revoke',
 		desbloqueoTitulo: 'Quick unlock (this device)',
 		desbloqueoHint:
-			'A local TOTP code replaces your passphrase when signing in on this device (F-38) — never sent to the server, independent from the login second factor. Revoking it here deletes the local code; it does not affect other devices.',
+			'A local TOTP code replaces your passphrase when signing in on this device — never sent to the server, independent from the login second factor. Revoking it here deletes the local code; it does not affect other devices.',
 		activoEnDispositivo: 'Active on this device.',
 		desactivar: 'Disable',
 		activarEnDispositivo: 'Activate on this device',
@@ -243,6 +246,47 @@ const en: Diccionario = {
 		sinCamaraHint: 'No camera? Enter this code manually:',
 		errorPassphraseIncorrecta: 'Incorrect passphrase.',
 		errorCodigoIncorrecto: 'Incorrect code.'
+	},
+	settingsProfile: {
+		titulo: 'My profile',
+		perfilTitulo: 'Profile',
+		email: 'Email',
+		nombre: 'Name',
+		rol: 'Role',
+		creado: 'Created',
+		modificado: 'Modified',
+		cargando: 'Loading…',
+		error: 'Could not load the profile.',
+		avatarTitulo: 'Avatar',
+		avatarHint: 'PNG, JPEG or WEBP, up to 2 MB.',
+		avatarSubir: 'Upload avatar',
+		avatarQuitar: 'Remove avatar',
+		avatarSubiendo: 'Uploading…',
+		avatarErrorSubir: 'Could not upload the avatar.',
+		avatarErrorQuitar: 'Could not remove the avatar.',
+		avatarSinImagen: 'No avatar yet.',
+		clavesTitulo: 'Key inspector',
+		clavesHint: 'This account\'s public keys — the private key never leaves your device.',
+		clavesFingerprintX25519: 'X25519 fingerprint (encryption)',
+		clavesFingerprintEd25519: 'Ed25519 fingerprint (signing)',
+		clavesCreadas: 'Keys created',
+		clavesBloqueadas: 'Unlock your account (Vault) to see this section.',
+		passphraseTitulo: 'Passphrase',
+		passphraseHint: 'Changing your passphrase signs out every active session, including this one — you will need to sign in again.',
+		passphraseActual: 'Current passphrase',
+		passphraseNueva: 'New passphrase',
+		passphraseConfirmar: 'Confirm new passphrase',
+		passphraseCambiar: 'Change passphrase',
+		passphraseCambiando: 'Changing…',
+		passphraseErrorActual: 'The current passphrase is incorrect.',
+		passphraseErrorNoCoinciden: 'The new passphrases do not match.',
+		passphraseErrorDebil: 'The new passphrase is too weak.',
+		passphraseErrorGenerico: 'Could not change the passphrase.',
+		passphraseListo: 'Passphrase changed — sign in again with your new passphrase.',
+		tokenTitulo: 'Security token',
+		tokenHint: 'A color and a word you should recognize on this device before typing your passphrase — if they are ever missing or wrong, do not enter your passphrase there.',
+		tokenAleatorizar: 'Randomize',
+		tokenSinToken: 'You have not generated one on this device yet.'
 	},
 	admin: {
 		landing: {
@@ -363,7 +407,7 @@ const en: Diccionario = {
 			resourcesNeverRotated: 'Never-rotated resources',
 			umbralDias: 'Threshold (days)',
 			hintPasswordsExpired:
-				'Passphrase rotation is not implemented yet (F-15): uses the account creation date as the only real reference available.',
+				'Passphrase rotation is not implemented yet: uses the account creation date as the only real reference available.',
 			sinResultados: 'No results.',
 			colEmail: 'Email',
 			colPassphraseDesde: 'Passphrase since',
@@ -396,7 +440,7 @@ const en: Diccionario = {
 			titulo: 'SMTP',
 			estadoConfigurado: 'SMTP configured.',
 			estadoNoConfigurado:
-				'SMTP not configured — email device verification (F-02) is disabled until configured. Any login from a new device is accepted without asking for a code.',
+				'SMTP not configured — email device verification is disabled until configured. Any login from a new device is accepted without asking for a code.',
 			host: 'Host',
 			puerto: 'Port',
 			remitente: 'From address',
@@ -418,7 +462,10 @@ const en: Diccionario = {
 		politicaRetencion: {
 			titulo: 'Data retention',
 			datosDias: 'Data retention (days)',
-			auditoriaDias: 'Audit log retention (days)'
+			datosDiasHint:
+				"Doesn't delete anything active. Only applies to resources, folders, tags and groups someone already deleted from the app — that content gets permanently purged only after this many days.",
+			auditoriaDias: 'Audit log retention (days)',
+			auditoriaDiasHint: 'Separate from the above: how long audit log entries are kept before being purged.'
 		},
 		politicaRecovery: {
 			titulo: 'Account recovery',
@@ -501,16 +548,14 @@ const en: Diccionario = {
 			nivelOk: 'OK',
 			nivelAdvertencia: 'Warning',
 			nivelError: 'Error',
-			categoriaEntorno: 'Environment',
 			categoriaBaseDatos: 'Database',
 			categoriaCorreo: 'Outbound email',
 			categoriaIntegraciones: 'Integrations',
 			categoriaSeguridad: 'Security',
-			versionApp: (version: string) => `Application version: ${version}`,
 			dbPingOk: 'Connected to the database.',
 			dbPingError: 'Could not connect to the database.',
 			dbPingSugerencia: 'Check that Postgres is running and DATABASE_URL is correct.',
-			dbMigracionesOk: (aplicadas: number) => `${aplicadas} ${aplicadas === 1 ? 'migration' : 'migrations'} applied.`,
+			dbMigracionesOk: (aplicadas: number) => `Migrations up to date (${aplicadas} applied).`,
 			dbMigracionesError: (fallidas: number) => `${fallidas} ${fallidas === 1 ? 'migration' : 'migrations'} failed to apply.`,
 			dbMigracionesSugerencia: 'Check the backend startup logs.',
 			smtpConfiguradoOk: 'SMTP configured.',
@@ -529,7 +574,11 @@ const en: Diccionario = {
 			ultimaSincronizacion: (fecha: string) => `Last sync: ${fecha}.`,
 			metadataRotacionOk: 'No metadata key rotation in progress.',
 			metadataRotacionAdvertencia: (claves: number) => `Metadata key rotation in progress (${claves} active keys).`,
-			metadataRotacionSugerencia: 'Check the progress in Metadata keys.'
+			metadataRotacionSugerencia: 'Check the progress in Metadata keys.',
+			origenSeguroOk: (origen: string) => `Origin configured for HTTPS (${origen}).`,
+			origenSeguroAdvertencia: (origen: string) => `The configured origin is not HTTPS (${origen}).`,
+			origenSeguroSugerencia:
+				'Set ELLKAN_RP_ORIGIN to your real origin over https:// — with the development default, the anti-phishing protection of passkeys is weakened.'
 		}
 	}
 };

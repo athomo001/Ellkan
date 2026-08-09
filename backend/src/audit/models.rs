@@ -109,6 +109,9 @@ pub enum AuditEventType {
     /// cambiados desde `PUT /admin/smtp-config` — nunca incluye la
     /// contraseña en sí en `metadata`.
     SmtpConfigUpdated,
+    /// F-01: `POST /me/change-passphrase` — nunca contiene la passphrase ni
+    /// la clave privada en `metadata`, sólo el hecho de que ocurrió.
+    PassphraseChanged,
 }
 
 impl AuditEventType {
@@ -188,6 +191,7 @@ impl AuditEventType {
             AuditEventType::CliUserPromoted => "cli.user_promoted",
             AuditEventType::CliRecoverySetupIssued => "cli.recovery_setup_issued",
             AuditEventType::SmtpConfigUpdated => "smtp_config.updated",
+            AuditEventType::PassphraseChanged => "user.passphrase_changed",
         }
     }
 
@@ -270,6 +274,7 @@ impl AuditEventType {
             "cli.user_promoted" => AuditEventType::CliUserPromoted,
             "cli.recovery_setup_issued" => AuditEventType::CliRecoverySetupIssued,
             "smtp_config.updated" => AuditEventType::SmtpConfigUpdated,
+            "user.passphrase_changed" => AuditEventType::PassphraseChanged,
             _ => return None,
         })
     }
@@ -312,6 +317,10 @@ impl EventoAuditoria {
 pub struct AuditLogEntry {
     pub id: Uuid,
     pub actor_user_id: Option<Uuid>,
+    /// Email del actor al momento de leer el log — no se guarda una copia en
+    /// `audit_log_entries` (se resuelve por join en cada lectura), así que
+    /// puede quedar `None` si el usuario ya fue purgado del todo.
+    pub actor_email: Option<String>,
     pub event_type: String,
     pub subject_type: Option<String>,
     pub subject_id: Option<Uuid>,

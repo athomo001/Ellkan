@@ -38,6 +38,7 @@ pub struct AuditLogExportQuery {
 pub struct AuditLogEntryResponse {
     pub id: Uuid,
     pub actor_user_id: Option<Uuid>,
+    pub actor_email: Option<String>,
     pub event_type: String,
     pub subject_type: Option<String>,
     pub subject_id: Option<Uuid>,

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update groups set parent_group_id = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "775cd3e1cdbf3c6cb57b4a32c273c713a2ed4a47fa2f31ad859042e6e66a74ff"
+}

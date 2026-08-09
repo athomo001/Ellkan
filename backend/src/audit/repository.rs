@@ -53,6 +53,7 @@ pub struct PgAuditLogRepository {
 struct FilaAuditLog {
     id: Uuid,
     actor_user_id: Option<Uuid>,
+    actor_email: Option<String>,
     event_type: String,
     subject_type: Option<String>,
     subject_id: Option<Uuid>,
@@ -65,6 +66,7 @@ impl From<FilaAuditLog> for AuditLogEntry {
         AuditLogEntry {
             id: f.id,
             actor_user_id: f.actor_user_id,
+            actor_email: f.actor_email,
             event_type: f.event_type,
             subject_type: f.subject_type,
             subject_id: f.subject_id,
@@ -100,14 +102,16 @@ impl AuditLogRepository for PgAuditLogRepository {
         let filas = sqlx::query_as!(
             FilaAuditLog,
             r#"
-            select id, actor_user_id, event_type, subject_type, subject_id, metadata, created_at
-            from audit_log_entries
-            where ($1::uuid is null or id < $1)
-              and ($2::uuid is null or actor_user_id = $2)
-              and ($3::text is null or event_type = $3)
-              and ($4::timestamptz is null or created_at >= $4)
-              and ($5::timestamptz is null or created_at <= $5)
-            order by id desc
+            select ael.id, ael.actor_user_id, u.email as "actor_email?", ael.event_type,
+                   ael.subject_type, ael.subject_id, ael.metadata, ael.created_at
+            from audit_log_entries ael
+            left join users u on u.id = ael.actor_user_id
+            where ($1::uuid is null or ael.id < $1)
+              and ($2::uuid is null or ael.actor_user_id = $2)
+              and ($3::text is null or ael.event_type = $3)
+              and ($4::timestamptz is null or ael.created_at >= $4)
+              and ($5::timestamptz is null or ael.created_at <= $5)
+            order by ael.id desc
             limit $6
             "#,
             cursor,
@@ -128,13 +132,15 @@ impl AuditLogRepository for PgAuditLogRepository {
         let filas = sqlx::query_as!(
             FilaAuditLog,
             r#"
-            select id, actor_user_id, event_type, subject_type, subject_id, metadata, created_at
-            from audit_log_entries
-            where ($1::uuid is null or actor_user_id = $1)
-              and ($2::text is null or event_type = $2)
-              and ($3::timestamptz is null or created_at >= $3)
-              and ($4::timestamptz is null or created_at <= $4)
-            order by id asc
+            select ael.id, ael.actor_user_id, u.email as "actor_email?", ael.event_type,
+                   ael.subject_type, ael.subject_id, ael.metadata, ael.created_at
+            from audit_log_entries ael
+            left join users u on u.id = ael.actor_user_id
+            where ($1::uuid is null or ael.actor_user_id = $1)
+              and ($2::text is null or ael.event_type = $2)
+              and ($3::timestamptz is null or ael.created_at >= $3)
+              and ($4::timestamptz is null or ael.created_at <= $4)
+            order by ael.id asc
             limit $5
             "#,
             filtro.actor_user_id,

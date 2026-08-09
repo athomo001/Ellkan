@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into user_keys (\n                user_id, public_key_x25519, public_key_ed25519,\n                encrypted_private_key_blob, private_key_nonce, kdf_salt\n            )\n            values ($1, $2, $2, $3, $4, $4)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "864e6494dc24147b887acc26ae3def523863c9acdf21fce2d205ee3a2d5cbedb"
+}

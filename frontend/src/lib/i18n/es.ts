@@ -36,7 +36,8 @@ const es = {
 		errorSetupMfa: 'No se pudo iniciar la configuración de MFA.',
 		errorVerificarDispositivo: 'No se pudo verificar el dispositivo.',
 		errorPasskey: 'No se pudo iniciar sesión con la passkey.',
-		errorDesbloqueoLocal: 'No se pudo desbloquear.'
+		errorDesbloqueoLocal: 'No se pudo desbloquear.',
+		tokenSeguridadHint: 'Deberías reconocer este color y esta palabra en este dispositivo:'
 	},
 	registro: {
 		titulo: 'Crear cuenta — Ellkan',
@@ -61,6 +62,7 @@ const es = {
 	},
 	appShell: {
 		vault: 'Vault',
+		miPerfil: 'Mi perfil',
 		preferencias: 'Preferencias',
 		seguridad: 'Seguridad',
 		administracion: 'Administración',
@@ -78,7 +80,8 @@ const es = {
 		usarPassphrase: 'Usar contraseña',
 		usarCodigoLocal: 'Usar código local',
 		errorPassphrase: 'Contraseña incorrecta.',
-		errorCodigo: 'Código incorrecto.'
+		errorCodigo: 'Código incorrecto.',
+		tokenSeguridadHint: 'Deberías reconocer este color y esta palabra en este dispositivo:'
 	},
 	secretField: {
 		revelar: 'Revelar',
@@ -218,7 +221,7 @@ const es = {
 		titulo: 'Seguridad',
 		passkeysTitulo: 'Passkeys',
 		passkeysHint:
-			'Una passkey reemplaza tu contraseña al iniciar sesión en este dispositivo (F-03). Todavía seguís necesitando la contraseña para operaciones sobre tus recursos.',
+			'Una passkey reemplaza tu contraseña al iniciar sesión en este dispositivo. Todavía seguís necesitando la contraseña para operaciones sobre tus recursos.',
 		nombreOpcional: 'Nombre (opcional)',
 		nombreHint: 'Ej: laptop de trabajo',
 		agregarPasskey: 'Agregar passkey',
@@ -231,7 +234,7 @@ const es = {
 		revocarPasskey: 'Revocar',
 		desbloqueoTitulo: 'Desbloqueo rápido (este dispositivo)',
 		desbloqueoHint:
-			'Un código TOTP local reemplaza tu contraseña al iniciar sesión en este dispositivo (F-38) — nunca se transmite al servidor, es independiente del segundo factor de login. Revocarlo acá borra el código local; no afecta otros dispositivos.',
+			'Un código TOTP local reemplaza tu contraseña al iniciar sesión en este dispositivo — nunca se transmite al servidor, es independiente del segundo factor de login. Revocarlo acá borra el código local; no afecta otros dispositivos.',
 		activoEnDispositivo: 'Activo en este dispositivo.',
 		desactivar: 'Desactivar',
 		activarEnDispositivo: 'Activar en este dispositivo',
@@ -243,6 +246,49 @@ const es = {
 		sinCamaraHint: '¿Sin cámara? Ingresá este código a mano:',
 		errorPassphraseIncorrecta: 'Contraseña incorrecta.',
 		errorCodigoIncorrecto: 'Código incorrecto.'
+	},
+	settingsProfile: {
+		titulo: 'Mi perfil',
+		perfilTitulo: 'Perfil',
+		email: 'Correo electrónico',
+		nombre: 'Nombre',
+		rol: 'Rol',
+		creado: 'Creado',
+		modificado: 'Modificado',
+		cargando: 'Cargando…',
+		error: 'No se pudo cargar el perfil.',
+		avatarTitulo: 'Avatar',
+		avatarHint: 'PNG, JPEG o WEBP, hasta 2 MB.',
+		avatarSubir: 'Subir avatar',
+		avatarQuitar: 'Quitar avatar',
+		avatarSubiendo: 'Subiendo…',
+		avatarErrorSubir: 'No se pudo subir el avatar.',
+		avatarErrorQuitar: 'No se pudo quitar el avatar.',
+		avatarSinImagen: 'Sin avatar todavía.',
+		clavesTitulo: 'Inspector de claves',
+		clavesHint: 'Las claves públicas de esta cuenta — la clave privada nunca sale de tu dispositivo.',
+		clavesFingerprintX25519: 'Fingerprint X25519 (cifrado)',
+		clavesFingerprintEd25519: 'Fingerprint Ed25519 (firma)',
+		clavesCreadas: 'Claves creadas',
+		clavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para ver esta sección.',
+		passphraseTitulo: 'Frase de contraseña',
+		passphraseHint:
+			'Cambiar tu contraseña cierra todas tus sesiones activas, incluida ésta — vas a tener que iniciar sesión de nuevo.',
+		passphraseActual: 'Contraseña actual',
+		passphraseNueva: 'Contraseña nueva',
+		passphraseConfirmar: 'Confirmar contraseña nueva',
+		passphraseCambiar: 'Cambiar contraseña',
+		passphraseCambiando: 'Cambiando…',
+		passphraseErrorActual: 'La contraseña actual es incorrecta.',
+		passphraseErrorNoCoinciden: 'Las contraseñas nuevas no coinciden.',
+		passphraseErrorDebil: 'La contraseña nueva es demasiado débil.',
+		passphraseErrorGenerico: 'No se pudo cambiar la contraseña.',
+		passphraseListo: 'Contraseña cambiada — iniciá sesión de nuevo con tu nueva contraseña.',
+		tokenTitulo: 'Token de seguridad',
+		tokenHint:
+			'Un color y una palabra que vas a reconocer en este dispositivo antes de escribir tu contraseña — si alguna vez no aparecen o no coinciden, no ingreses tu contraseña ahí.',
+		tokenAleatorizar: 'Aleatorizar',
+		tokenSinToken: 'Todavía no generaste uno en este dispositivo.'
 	},
 	admin: {
 		landing: {
@@ -364,7 +410,7 @@ const es = {
 			resourcesNeverRotated: 'Recursos sin rotar',
 			umbralDias: 'Umbral (días)',
 			hintPasswordsExpired:
-				'Sin rotación de contraseña implementada todavía (F-15): usa la fecha de alta de la cuenta como única referencia real disponible.',
+				'Sin rotación de contraseña implementada todavía: usa la fecha de alta de la cuenta como única referencia real disponible.',
 			sinResultados: 'Sin resultados.',
 			colEmail: 'Email',
 			colPassphraseDesde: 'Contraseña desde',
@@ -397,7 +443,7 @@ const es = {
 			titulo: 'SMTP',
 			estadoConfigurado: 'SMTP configurado.',
 			estadoNoConfigurado:
-				'SMTP no configurado — la verificación de dispositivo por email (F-02) está desactivada hasta que se configure. Cualquier login desde un dispositivo nuevo se acepta sin pedir código.',
+				'SMTP no configurado — la verificación de dispositivo por email está desactivada hasta que se configure. Cualquier login desde un dispositivo nuevo se acepta sin pedir código.',
 			host: 'Host',
 			puerto: 'Puerto',
 			remitente: 'Remitente (From)',
@@ -419,7 +465,10 @@ const es = {
 		politicaRetencion: {
 			titulo: 'Retención de datos',
 			datosDias: 'Retención de datos (días)',
-			auditoriaDias: 'Retención de auditoría (días)'
+			datosDiasHint:
+				'No borra nada que esté activo. Sólo aplica a recursos, carpetas, tags y grupos que alguien ya eliminó desde la aplicación — ese contenido se purga en forma definitiva recién después de esta cantidad de días.',
+			auditoriaDias: 'Retención de auditoría (días)',
+			auditoriaDiasHint: 'Aparte de lo anterior: cuánto tiempo se conservan las entradas del registro de auditoría antes de purgarse.'
 		},
 		politicaRecovery: {
 			titulo: 'Recuperación de cuenta',
@@ -502,16 +551,14 @@ const es = {
 			nivelOk: 'OK',
 			nivelAdvertencia: 'Advertencia',
 			nivelError: 'Error',
-			categoriaEntorno: 'Entorno',
 			categoriaBaseDatos: 'Base de datos',
 			categoriaCorreo: 'Correo saliente',
 			categoriaIntegraciones: 'Integraciones',
 			categoriaSeguridad: 'Seguridad',
-			versionApp: (version: string) => `Versión de la aplicación: ${version}`,
 			dbPingOk: 'Conectado a la base de datos.',
 			dbPingError: 'No se pudo conectar a la base de datos.',
 			dbPingSugerencia: 'Verificá que Postgres esté corriendo y que DATABASE_URL sea correcto.',
-			dbMigracionesOk: (aplicadas: number) => `${aplicadas} ${aplicadas === 1 ? 'migración aplicada' : 'migraciones aplicadas'}.`,
+			dbMigracionesOk: (aplicadas: number) => `Migraciones al día (${aplicadas} aplicadas).`,
 			dbMigracionesError: (fallidas: number) =>
 				`${fallidas} ${fallidas === 1 ? 'migración falló' : 'migraciones fallaron'} al aplicarse.`,
 			dbMigracionesSugerencia: 'Revisá los logs de arranque del backend.',
@@ -531,7 +578,11 @@ const es = {
 			ultimaSincronizacion: (fecha: string) => `Última sincronización: ${fecha}.`,
 			metadataRotacionOk: 'Sin rotación de clave de metadata en curso.',
 			metadataRotacionAdvertencia: (claves: number) => `Rotación de clave de metadata en curso (${claves} claves activas).`,
-			metadataRotacionSugerencia: 'Revisá el progreso en Claves de metadata.'
+			metadataRotacionSugerencia: 'Revisá el progreso en Claves de metadata.',
+			origenSeguroOk: (origen: string) => `Origen configurado en HTTPS (${origen}).`,
+			origenSeguroAdvertencia: (origen: string) => `El origen configurado no es HTTPS (${origen}).`,
+			origenSeguroSugerencia:
+				'Fijá ELLKAN_RP_ORIGIN a tu origen real en https:// — con el valor por defecto de desarrollo, la protección anti-phishing de las passkeys queda debilitada.'
 		}
 	}
 };

@@ -121,6 +121,8 @@
 	// mostrar salvo texto cortado ilegible.
 	const ICONOS = {
 		vault: 'M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z',
+		perfil:
+			'M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
 		preferencias:
 			'M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75',
 		seguridad:
@@ -134,6 +136,7 @@
 
 	const enlaces = $derived([
 		{ href: '/vault', label: $t.appShell.vault, icono: ICONOS.vault },
+		{ href: '/settings/profile', label: $t.appShell.miPerfil, icono: ICONOS.perfil },
 		{ href: '/settings/preferences', label: $t.appShell.preferencias, icono: ICONOS.preferencias },
 		{ href: '/settings/security', label: $t.appShell.seguridad, icono: ICONOS.seguridad },
 		{ href: '/settings/export-import', label: $t.exportImport.titulo, icono: ICONOS.exportar },

@@ -181,6 +181,50 @@ export async function desbloquearConPassphrase(email: string, passphrase: string
 	};
 }
 
+/**
+ * F-01 (cambio de passphrase): abre el blob viejo con la passphrase actual
+ * (mismo material que `verificarPassphrase`) y lo re-sella con la nueva —
+ * el servidor nunca ve ninguna de las dos, sólo el blob ya re-sellado.
+ * `POST /me/change-passphrase` rota `security_stamp` server-side, así que
+ * **esta misma sesión queda invalidada al terminar** — el caller debe
+ * tratar eso como éxito y redirigir a login, nunca como error.
+ */
+export async function cambiarPassphrase(
+	email: string,
+	passphraseActual: string,
+	passphraseNueva: string
+): Promise<void> {
+	const wasm = await cargarCrypto();
+	const material = await api.post<{
+		encrypted_private_key_blob_b64: string;
+		private_key_nonce_b64: string;
+		kdf_salt_b64: string;
+	}>('/auth/key-material', { email });
+
+	const abierta = wasm.abrir_clave_privada(
+		passphraseActual,
+		base64ABytes(material.kdf_salt_b64),
+		base64ABytes(material.private_key_nonce_b64),
+		base64ABytes(material.encrypted_private_key_blob_b64),
+		aadClavePrivada(email)
+	);
+
+	const nuevaSalt = wasm.generar_salt_kdf();
+	const nuevoBlob = wasm.sellar_clave_privada(
+		passphraseNueva,
+		nuevaSalt,
+		abierta.x25519_private,
+		abierta.ed25519_private,
+		aadClavePrivada(email)
+	);
+
+	await api.post('/me/change-passphrase', {
+		encrypted_private_key_blob_b64: bytesABase64(nuevoBlob.ciphertext),
+		private_key_nonce_b64: bytesABase64(nuevoBlob.nonce),
+		kdf_salt_b64: bytesABase64(nuevaSalt)
+	});
+}
+
 export async function verificarDispositivo(
 	deviceChallengeId: string,
 	codigo: string

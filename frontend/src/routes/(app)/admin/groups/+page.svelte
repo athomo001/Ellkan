@@ -231,6 +231,10 @@
 		max-width: 28rem;
 		margin-bottom: var(--space-4);
 	}
+	.form :global(.field),
+	.form-inline :global(.field) {
+		margin-bottom: 0;
+	}
 	.secundario {
 		color: var(--text-muted);
 		font-size: var(--text-sm);

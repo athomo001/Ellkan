@@ -93,9 +93,9 @@
 			vacio={$t.admin.auditoria.sinResultados}
 		>
 			{#snippet fila(it)}
-				<td>{it.actor_user_id ?? '—'}</td>
+				<td>{it.actor_email ?? it.actor_user_id ?? '—'}</td>
 				<td>{it.event_type}</td>
-				<td>{it.created_at}</td>
+				<td>{new Date(it.created_at).toLocaleString()}</td>
 			{/snippet}
 		</Table>
 		{#if items.length > 0 && nextCursor}
@@ -116,6 +116,9 @@
 		align-items: flex-end;
 		gap: var(--space-3);
 		margin-bottom: var(--space-3);
+	}
+	.filtros :global(.field) {
+		margin-bottom: 0;
 	}
 	.export {
 		display: flex;

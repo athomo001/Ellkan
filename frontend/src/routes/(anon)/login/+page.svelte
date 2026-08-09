@@ -19,11 +19,15 @@
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
 	import { desbloquear as desbloquearLocal } from '$lib/crypto/totp-local';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
 	let email = $state('');
 	let passphrase = $state('');
+	// F-01: token de seguridad — nada si nunca se generó uno para este email
+	// en este navegador (dispositivo nuevo, estado esperado, no un error).
+	const tokenSeguridad = $derived(email ? obtenerTokenSeguridad(email) : null);
 	let cargando = $state(false);
 	let error = $state<string | undefined>();
 
@@ -269,6 +273,12 @@
 		<p class="subtitulo">{$t.login.subtitulo}</p>
 		<form onsubmit={enviar}>
 			<TextField label={$t.login.email} type="email" bind:value={email} autocomplete="email" required />
+			{#if tokenSeguridad}
+				<p class="token-seguridad">
+					<span class="punto-token" style:background={COLOR_HEX[tokenSeguridad.color]}></span>
+					{$t.login.tokenSeguridadHint} <strong>{tokenSeguridad.palabra}</strong>
+				</p>
+			{/if}
 			<TextField
 				label={$t.login.passphrase}
 				type="password"
@@ -322,6 +332,22 @@
 		color: var(--danger);
 		font-size: var(--text-sm);
 		margin: 0 0 var(--space-4) 0;
+	}
+	.token-seguridad {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		margin: 0 0 var(--space-4) 0;
+	}
+	.punto-token {
+		display: inline-block;
+		width: 0.9rem;
+		height: 0.9rem;
+		border-radius: 50%;
+		border: 1px solid var(--border-color);
+		flex: 0 0 auto;
 	}
 	.link {
 		background: none;

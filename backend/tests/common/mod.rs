@@ -29,7 +29,21 @@ pub struct Entorno {
     _contenedor: ContainerAsync<Postgres>,
 }
 
+#[allow(dead_code)]
 pub async fn levantar() -> Entorno {
+    levantar_interna(true).await
+}
+
+/// Como `levantar()`, pero **sin** el usuario bootstrap admin — sólo para
+/// probar el bootstrap en sí (`primer_usuario_admin.rs`): ahí el primer
+/// `registrar(...)` real del test necesita caer en una instancia
+/// genuinamente vacía para ejercitar la rama que nace `admin`.
+#[allow(dead_code)]
+pub async fn levantar_sin_usuarios() -> Entorno {
+    levantar_interna(false).await
+}
+
+async fn levantar_interna(seedear_bootstrap_admin: bool) -> Entorno {
     let contenedor = Postgres::default()
         .with_db_name("ellkan")
         .with_user("postgres")
@@ -63,6 +77,31 @@ pub async fn levantar() -> Entorno {
     .execute(&pool)
     .await
     .expect("seedear smtp_config para los tests");
+
+    // Bootstrap: ocupa la posición de "primer usuario de la instancia" con
+    // una fila admin dummy — sin esto, el primer `registrar(...)` real de
+    // cada test heredaría admin (`auth/repository.rs::crear`, el primer
+    // usuario de una instancia nueva nace admin) y rompería todos los tests
+    // que asumen "un usuario recién registrado es `user`" para probar el
+    // camino negativo (403 sin admin). Nunca se loguea como esta fila, sólo
+    // ocupa el lugar — no necesita `user_keys` ni ninguna otra tabla.
+    // `deleted_at` seteado a propósito, en el mismo insert: `exists(select 1
+    // from users)` de `crear()` no filtra por `deleted_at` (una instancia
+    // real nunca arranca con usuarios borrados), así que sigue contando para
+    // el bootstrap, pero queda invisible para cualquier listado/conteo/
+    // export real de la app (convención `deleted_at is null` ya usada en
+    // ~44 queries del backend) — sin esto, tests que aseguran una cantidad
+    // exacta de usuarios (ej. `export.rs`) se rompían por una fila que no
+    // tiene nada que ver con lo que cada test arma a propósito.
+    if seedear_bootstrap_admin {
+        sqlx::query!(
+            r#"insert into users (email, display_name, role_id, deleted_at)
+               values ('bootstrap-admin@test.ellkan', 'Bootstrap', (select id from roles where name = 'admin'), now())"#
+        )
+        .execute(&pool)
+        .await
+        .expect("seedear usuario bootstrap admin para los tests");
+    }
 
     let app = ellkan_backend::construir_router(estado);
 
@@ -137,6 +176,7 @@ pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
 /// carga (muchos tests con Postgres en paralelo) puede no haber escrito la
 /// fila todavía en el instante exacto en que el test la busca, así que se
 /// reintenta brevemente en vez de fallar al primer miss.
+#[allow(dead_code)]
 async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> String {
     let mut ultimo_error = None;
     for _ in 0..20 {
@@ -157,6 +197,7 @@ async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> St
     panic!("debería haber un email encolado para este usuario tras reintentar: {ultimo_error:?}");
 }
 
+#[allow(dead_code)]
 fn extraer_codigo(cuerpo: &str) -> String {
     cuerpo
         .lines()
@@ -169,6 +210,7 @@ fn extraer_codigo(cuerpo: &str) -> String {
 /// Login completo: primer login desde un `device_token` nuevo siempre queda
 /// `pendiente_dispositivo` — el helper "lee el email" (stub, F-02) y cierra
 /// con `verify-device`, igual que haría un cliente real.
+#[allow(dead_code)]
 pub async fn login(entorno: &Entorno, usuario: &Usuario) -> Uuid {
     let resp = entorno
         .cliente

@@ -4,18 +4,48 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.8] - 2026-08-09
+
+### Primera ronda de correcciones tras uso real
+
+#### Fixed
+
+- Recargar la página (F5) ya no cierra la sesión — antes forzaba a iniciar sesión de nuevo por completo; ahora se comporta como el bloqueo automático (sólo hay que reingresar la contraseña).
+- Varios botones que quedaban desalineados respecto al campo de texto de al lado (carpetas, tags, reportes, auditoría, grupos, usuarios).
+- El botón para crear una carpeta nueva quedaba tapado por el panel de al lado.
+- El registro de auditoría mostraba un identificador interno en vez del nombre/correo de quien hizo cada acción, y la fecha en un formato poco legible.
+- Subir el límite de tamaño del avatar a 2 MB no funcionaba correctamente sin un ajuste adicional en el servidor — ya corregido.
+
+#### Changed
+
+- "Estado del sistema": se sacó la versión de la aplicación y la cantidad de migraciones como datos destacados (no aportaban nada útil) y se agregó una verificación real y nueva sobre si el sistema está configurado para HTTPS. Las integraciones opcionales sin configurar ya no aparecen en verde como si todo estuviera bien — aparecen en un color neutro, distinto de "todo en orden".
+- Ya no aparecen referencias a códigos internos de desarrollo (como "F-03") en los textos que ve cualquier usuario.
+- "Retención de datos" ahora explica qué se borra exactamente (sólo contenido ya eliminado por el propio usuario, nunca datos activos).
+- El logo en la pantalla de inicio de sesión es más grande y visible.
+- Se puede copiar el usuario y la URL de una contraseña directo desde su panel de detalle, no sólo la contraseña en sí.
+
 ## [0.1.7] - 2026-08-09
 
-### Autodiagnóstico del sistema y panel de administración reorganizado
+### Panel de administración reorganizado, autodiagnóstico, y "Mi perfil"
 
 #### Added
 
 - Nueva sección en el panel de administración que muestra el estado general del sistema (base de datos, correo saliente, integraciones, seguridad) con un semáforo por cada verificación y una sugerencia de cómo resolverlo si algo no está del todo bien.
 - El menú del panel de administración ahora agrupa sus secciones por categoría en vez de mostrar una única lista plana, para ubicarlas más rápido.
+- El primer usuario que se registra en una instancia sin ningún usuario todavía queda como administrador automáticamente, sin pasos adicionales.
+- Nueva sección "Mi perfil": ver tu información de cuenta (nombre, email, rol, fechas), subir o quitar una foto de perfil, ver la huella digital de tus claves de cifrado, y cambiar tu contraseña maestra de verdad (antes no existía forma de hacerlo desde la aplicación).
+- Nuevo "token de seguridad" personal (un color y una palabra que elegís vos) que se muestra antes de pedirte la contraseña en este dispositivo — si alguna vez no aparece o no coincide, es señal de que algo no está bien.
+
+#### Fixed
+
+- La imagen de Docker no compilaba (`docker compose up` fallaba en el paso de build del backend) por un caché interno desactualizado, sin relación con ninguna funcionalidad visible — corregido.
 
 #### Known limitations
 
-- Igual que el resto del panel de administración, esta sección no se probó todavía con interacción real de mouse/teclado en un navegador.
+- Igual que el resto de la aplicación, ninguna de las secciones nuevas se probó todavía con interacción real de mouse/teclado en un navegador.
+- El primer-usuario-administrador sólo aplica al próximo registro en una instancia sin usuarios — una cuenta ya registrada no se vuelve administrador retroactivamente sólo por reconstruir la aplicación.
+- Cambiar la contraseña cierra todas las sesiones activas, incluida la que hizo el cambio — es intencional (misma lógica que un cambio de contraseña en cualquier otra aplicación), pero significa que hay que iniciar sesión de nuevo enseguida.
+- El token de seguridad se guarda sólo en este navegador/dispositivo — un dispositivo nuevo no lo va a mostrar hasta que lo generes ahí también.
 
 ## [0.1.6] - 2026-08-08
 

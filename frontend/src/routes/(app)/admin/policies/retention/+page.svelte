@@ -55,10 +55,12 @@
 			<div class="field">
 				<label for="data">{$t.admin.politicaRetencion.datosDias}</label>
 				<input id="data" type="number" min="1" bind:value={dataDays} />
+				<p class="hint">{$t.admin.politicaRetencion.datosDiasHint}</p>
 			</div>
 			<div class="field">
 				<label for="audit">{$t.admin.politicaRetencion.auditoriaDias}</label>
 				<input id="audit" type="number" min="1" bind:value={auditDays} />
+				<p class="hint">{$t.admin.politicaRetencion.auditoriaDiasHint}</p>
 			</div>
 			{#if error}<p class="error">{error}</p>{/if}
 			{#if guardado}<p class="ok">{$t.admin.comun.guardado}</p>{/if}
@@ -95,6 +97,11 @@
 		border-radius: var(--radius-sm);
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
+	}
+	.hint {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: var(--text-xs);
 	}
 	.error {
 		color: var(--danger);

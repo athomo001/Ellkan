@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into sso_login_state (state, nonce, pkce_verifier, expires_at) values ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa88618d23ec054c0443b1ab4d8a948dbd9d33b6d55f084d8e0bb1bf8cf8101e"
+}

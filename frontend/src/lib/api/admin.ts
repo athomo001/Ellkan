@@ -28,6 +28,7 @@ export const rolesApi = {
 export interface AuditLogEntry {
 	id: string;
 	actor_user_id: string | null;
+	actor_email: string | null;
 	event_type: string;
 	subject_type: string | null;
 	subject_id: string | null;
@@ -341,7 +342,6 @@ export const groupsApi = {
 // por variante, nunca texto libre (la traducción vive en `$t`, F-31). ---
 export type NivelCheck = 'ok' | 'advertencia' | 'error';
 export type Check =
-	| { id: 'version_app'; nivel: NivelCheck; version: string }
 	| { id: 'db_ping'; nivel: NivelCheck }
 	| { id: 'db_migraciones'; nivel: NivelCheck; aplicadas: number; fallidas: number }
 	| { id: 'smtp_configurado'; nivel: NivelCheck; configurado: boolean }
@@ -353,9 +353,10 @@ export type Check =
 			configurado: boolean;
 			ultima_sincronizacion: string | null;
 	  }
-	| { id: 'metadata_key_rotacion'; nivel: NivelCheck; claves_activas: number };
+	| { id: 'metadata_key_rotacion'; nivel: NivelCheck; claves_activas: number }
+	| { id: 'origen_seguro'; nivel: NivelCheck; origen: string };
 export interface GrupoChecks {
-	categoria: 'entorno' | 'base_datos' | 'correo' | 'integraciones' | 'seguridad';
+	categoria: 'base_datos' | 'correo' | 'integraciones' | 'seguridad';
 	checks: Check[];
 }
 export const systemStatusApi = {

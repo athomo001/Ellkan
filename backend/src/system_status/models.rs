@@ -19,7 +19,6 @@ pub enum NivelCheck {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "id", rename_all = "snake_case")]
 pub enum Check {
-    VersionApp { nivel: NivelCheck, version: String },
     DbPing { nivel: NivelCheck },
     DbMigraciones { nivel: NivelCheck, aplicadas: i64, fallidas: i64 },
     SmtpConfigurado { nivel: NivelCheck, configurado: bool },
@@ -32,6 +31,16 @@ pub enum Check {
         ultima_sincronizacion: Option<OffsetDateTime>,
     },
     MetadataKeyRotacion { nivel: NivelCheck, claves_activas: i64 },
+    /// F-03: `ELLKAN_RP_ORIGIN` sigue en el default de desarrollo
+    /// (`http://localhost:8080`) o no es `https://` — mismo chequeo que ya
+    /// documenta `state.rs::construir_webauthn` como obligatorio en
+    /// producción (con el default, cualquier origin se acepta como
+    /// "localhost", WebAuthn pierde su propiedad anti-phishing). No hay
+    /// certificado propio que inspeccionar: Ellkan nunca termina TLS él
+    /// mismo (`docker-compose.yml` sólo expone HTTP plano), así que esto es
+    /// lo más cerca que se puede estar de "TLS configurado" sin acceso al
+    /// reverse proxy real.
+    OrigenSeguro { nivel: NivelCheck, origen: String },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

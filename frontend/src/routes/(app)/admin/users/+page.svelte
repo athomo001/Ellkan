@@ -361,6 +361,10 @@
 		flex-wrap: wrap;
 		max-width: 34rem;
 	}
+	.form :global(.field),
+	.form-crear :global(.field) {
+		margin-bottom: 0;
+	}
 	.passphrase-creada {
 		margin-top: var(--space-3);
 		border-top: 1px solid var(--border-color);

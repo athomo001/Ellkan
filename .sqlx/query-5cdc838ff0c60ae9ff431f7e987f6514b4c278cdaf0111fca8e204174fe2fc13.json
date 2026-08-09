@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into metadata_keys (id, public_key_x25519, fingerprint)\n            values ($1, $2, $3)\n            returning id, public_key_x25519, fingerprint, expired_at, resources_pendientes_al_iniciar\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "metadata_keys",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "metadata_keys",
+            "name": "public_key_x25519"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "metadata_keys",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "expired_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "metadata_keys",
+            "name": "expired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "resources_pendientes_al_iniciar",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "metadata_keys",
+            "name": "resources_pendientes_al_iniciar"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "5cdc838ff0c60ae9ff431f7e987f6514b4c278cdaf0111fca8e204174fe2fc13"
+}

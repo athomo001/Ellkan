@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update smtp_config set host = $1, port = $2, from_address = $3, tls = $4,\n               username = $5, password_ciphertext = $6, password_nonce = $7, updated_at = now()\n               where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Bool",
+        "Text",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a99d01771c34205ce47e314461297e6faa3888011d1cc1b18cc770aab5d3f120"
+}
