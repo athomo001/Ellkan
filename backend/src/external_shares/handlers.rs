@@ -11,7 +11,7 @@ use crate::state::AppState;
 
 use super::dto::{
     ActualizarExternalSharePolicyRequest, CrearExternalShareRequest, ExternalShareContenidoResponse,
-    ExternalShareCreadoResponse, ExternalSharePolicyResponse,
+    ExternalShareCreadoResponse, ExternalSharePolicyResponse, ExternalShareResumenResponse,
 };
 use super::repository::{PgExternalSharePolicyRepository, PgExternalShareRepository};
 use super::service::ExternalShareService;
@@ -45,6 +45,28 @@ pub async fn crear(
         .await?;
 
     Ok(Json(ExternalShareCreadoResponse { id: fila.id, max_views: fila.max_views, expires_at: fila.expires_at }))
+}
+
+pub async fn listar(
+    State(state): State<AppState>,
+    usuario: AuthenticatedUser,
+) -> Result<Json<Vec<ExternalShareResumenResponse>>, ApiError> {
+    let filas = servicio(&state).listar(usuario.user_id).await?;
+    Ok(Json(
+        filas
+            .into_iter()
+            .map(|f| ExternalShareResumenResponse {
+                id: f.id,
+                password_protected: f.password_protected,
+                max_views: f.max_views,
+                view_count: f.view_count,
+                expires_at: f.expires_at,
+                revoked_at: f.revoked_at,
+                burned_at: f.burned_at,
+                created_at: f.created_at,
+            })
+            .collect(),
+    ))
 }
 
 pub async fn revocar(

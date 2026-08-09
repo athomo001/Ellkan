@@ -169,6 +169,24 @@ pub async fn promote_to_admin(pool: &PgPool, email: &str) -> anyhow::Result<Uuid
     Ok(actualizado.id)
 }
 
+/// F-21: usada sólo por `admin create-user --role admin` — marca el
+/// dispositivo de ESTE bootstrap (el perfil que `registrar()` acaba de
+/// guardar en `~/.ellkan/`) como conocido, para que el primer `login` de
+/// la cuenta recién creada no dependa de F-02 (código de verificación por
+/// email) — exactamente lo que pide 01-requisitos-funcionales.md F-21:
+/// bootstrap "sin depender de... que el email ya esté funcionando".
+pub async fn marcar_dispositivo_conocido(pool: &PgPool, user_id: Uuid, device_token_hash: &[u8]) -> anyhow::Result<()> {
+    sqlx::query!(
+        "insert into known_devices (user_id, device_token_hash) values ($1, $2)
+         on conflict (user_id, device_token_hash) do nothing",
+        user_id,
+        device_token_hash,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------
 // recover-setup
 // ---------------------------------------------------------------------

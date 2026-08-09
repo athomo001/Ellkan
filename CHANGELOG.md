@@ -4,6 +4,19 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.7] - 2026-08-09
+
+### Autodiagnóstico del sistema y panel de administración reorganizado
+
+#### Added
+
+- Nueva sección en el panel de administración que muestra el estado general del sistema (base de datos, correo saliente, integraciones, seguridad) con un semáforo por cada verificación y una sugerencia de cómo resolverlo si algo no está del todo bien.
+- El menú del panel de administración ahora agrupa sus secciones por categoría en vez de mostrar una única lista plana, para ubicarlas más rápido.
+
+#### Known limitations
+
+- Igual que el resto del panel de administración, esta sección no se probó todavía con interacción real de mouse/teclado en un navegador.
+
 ## [0.1.6] - 2026-08-08
 
 ### Cierre de Fase 1 (backend + frontend web)

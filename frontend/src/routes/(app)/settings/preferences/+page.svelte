@@ -7,12 +7,14 @@
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import { preferencias } from '$lib/state/session';
-	import { guardarPreferencias, aplicarTema } from '$lib/api/preferences';
+	import { guardarPreferencias } from '$lib/api/preferences';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
-	let locale = $state($preferencias.locale);
-	let theme = $state($preferencias.theme);
+	// Idioma y tema se cambian con los toggles del nav (icono arriba) — no
+	// se duplican acá para no tener dos lugares para lo mismo. Este form
+	// sigue mandando el valor actual de los dos en el `PUT` (la API espera
+	// el objeto completo), sólo no deja editarlos desde acá.
 	let clipboardClearMinutes = $state(String($preferencias.clipboardClearMinutes));
 	let autoLockMinutes = $state(
 		$preferencias.autoLockMinutes === null ? '' : String($preferencias.autoLockMinutes)
@@ -28,13 +30,12 @@
 		guardado = false;
 		guardando = true;
 		try {
-			const nueva = await guardarPreferencias({
-				locale: locale as 'en' | 'es',
-				theme: theme as 'light' | 'dark',
+			await guardarPreferencias({
+				locale: $preferencias.locale,
+				theme: $preferencias.theme,
 				clipboardClearMinutes: Number(clipboardClearMinutes),
 				autoLockMinutes: autoLockMinutes === '' ? null : Number(autoLockMinutes)
 			});
-			aplicarTema(nueva.theme);
 			guardado = true;
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.settingsPreferences.error;
@@ -52,22 +53,6 @@
 
 <Card>
 	<form onsubmit={guardar}>
-		<div class="field">
-			<label for="locale">{$t.settingsPreferences.idioma}</label>
-			<select id="locale" bind:value={locale}>
-				<option value="es">{$t.settingsPreferences.espanol}</option>
-				<option value="en">{$t.settingsPreferences.ingles}</option>
-			</select>
-		</div>
-
-		<div class="field">
-			<label for="theme">{$t.settingsPreferences.tema}</label>
-			<select id="theme" bind:value={theme}>
-				<option value="dark">{$t.settingsPreferences.oscuro}</option>
-				<option value="light">{$t.settingsPreferences.claro}</option>
-			</select>
-		</div>
-
 		<div class="field">
 			<label for="clipboard">{$t.settingsPreferences.portapapeles}</label>
 			<input id="clipboard" type="number" min="0" bind:value={clipboardClearMinutes} />
@@ -106,7 +91,6 @@
 		color: var(--text-secondary);
 		font-weight: 500;
 	}
-	select,
 	input {
 		background: var(--bg-overlay);
 		border: 1px solid var(--border-color);

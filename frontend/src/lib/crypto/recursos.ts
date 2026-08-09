@@ -13,16 +13,11 @@
 //   creación) — el secreto SIEMPRE sigue su propia DEK por-recurso vía
 //   `secret_envelopes`, sin importar el tipo de metadata.
 //
-// **Editar un recurso ya creado no está implementado**: el backend no
-// expone ningún `PUT`/`PATCH /resources/{id}` (`backend/src/lib.rs` sólo
-// registra `GET`/`POST /resources`, `GET .../secret`, `POST .../share`,
-// `.../rekey-metadata`, `.../totp`) — y el modelo de compartición hace que
-// "editar" no sea un simple reemplazo: el secreto está re-cifrado con nonce
-// propio por cada destinatario en `secret_envelopes`, así que editarlo
-// exigiría re-sellar para todos los que ya tienen acceso, y hoy no hay
-// ningún endpoint que liste esos destinatarios para poder hacerlo. Gap real
-// de backend, documentado en `docs/pendientesVerificacionReal.md` — no se
-// inventa un mecanismo a medias acá.
+// `editarRecurso` (abajo) cubre los dos tipos: re-sella una DEK nueva para
+// el secreto en el `secret_envelope` de cada destinatario actual
+// (`GET .../recipients`), y re-cifra la metadata con la DEK nueva
+// (`user_key`) o con la `metadata_key` compartida ya resuelta
+// (`shared_key`) — nunca con la misma clave para las dos cosas.
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
@@ -84,6 +79,8 @@ export interface Recurso {
 	metadataKeyType: 'user_key' | 'shared_key';
 	/** Sólo poblado para `user_key` — ya se necesitó para descifrar la metadata, se reusa al revelar el secreto. */
 	dekPropia?: Uint8Array;
+	/** Sólo poblado para `shared_key` — necesaria para re-resolver esa clave al editar. */
+	metadataKeyId?: string;
 	/** F-30/F-07: refresco inteligente (`huboCambios`) y valor de `If-Match` al editar. */
 	updated_at: string;
 }
@@ -133,6 +130,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				uri: enCache.uri,
 				metadataKeyType: r.metadata_key_type,
 				dekPropia: enCache.dekPropiaB64 ? base64ABytes(enCache.dekPropiaB64) : undefined,
+				metadataKeyId: r.metadata_key_id ?? undefined,
 				updated_at: r.updated_at
 			});
 			continue;
@@ -173,6 +171,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				uri,
 				metadataKeyType: r.metadata_key_type,
 				dekPropia,
+				metadataKeyId: r.metadata_key_id ?? undefined,
 				updated_at: r.updated_at
 			});
 			await guardarEnCache(r.id, r.metadata_nonce_b64, {
@@ -258,31 +257,34 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
  * servidor responde `409` (mapeado a `ApiError`) sin aplicar nada, y el
  * caller decide si reintenta sobre el estado nuevo.
  *
- * **Sólo recursos `user_key` por ahora** — mismo alcance que `crearRecurso`
- * (que tampoco crea `shared_key` todavía): editar uno `shared_key` exige
- * re-cifrar la metadata con la clave simétrica de la `metadata_key`
- * compartida (no con la DEK nueva del recurso, que sólo cubre el secreto),
- * y `Recurso` hoy no lleva `metadata_key_id` para poder resolverla. Gap
- * real, documentado, no un mecanismo a medias.
+ * `shared_key`: la metadata se re-cifra con la clave simétrica de la
+ * `metadata_key` compartida (`recurso.metadataKeyId`, poblada por
+ * `listarRecursos`), nunca con la DEK nueva del recurso — esa DEK nueva
+ * sigue siendo sólo para el secreto, igual que en un recurso `user_key`.
  */
 export async function editarRecurso(
 	recurso: Recurso,
 	datos: NuevoRecurso,
 	claves: ClavesDesbloqueadas
 ): Promise<Recurso> {
-	if (recurso.metadataKeyType === 'shared_key') {
-		throw new Error('Editar un recurso compartido (shared_key) todavía no está implementado.');
-	}
-
 	const wasm = await cargarCrypto();
 	const aad = aadDeRecurso(recurso.id, recurso.createdBy);
 	const dek = wasm.generar_dek();
+
+	let claveMetadata = dek;
+	if (recurso.metadataKeyType === 'shared_key') {
+		if (!recurso.metadataKeyId) throw new Error('Falta la clave de metadata compartida de este recurso.');
+		const clavesMetadata = await cargarClavesMetadataCompartidas(claves);
+		const clave = clavesMetadata.get(recurso.metadataKeyId);
+		if (!clave) throw new Error('No tenés acceso a la clave de metadata compartida de este recurso.');
+		claveMetadata = clave;
+	}
 
 	const metadata = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
 	const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
 	if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
-	const metadataCifrada = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(metadata)), aad);
+	const metadataCifrada = wasm.cifrar_aead(claveMetadata, new TextEncoder().encode(JSON.stringify(metadata)), aad);
 	const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
 
 	const destinatarios = await api.get<{ user_id: string; public_key_x25519_b64: string }[]>(

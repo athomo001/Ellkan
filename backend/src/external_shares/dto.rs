@@ -32,6 +32,22 @@ pub struct ExternalShareContenidoResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ExternalShareResumenResponse {
+    pub id: Uuid,
+    pub password_protected: bool,
+    pub max_views: i32,
+    pub view_count: i32,
+    #[serde(with = "time::serde::rfc3339")]
+    pub expires_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub revoked_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub burned_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ExternalSharePolicyResponse {
     pub enabled: bool,
     pub max_expiration_hours: i32,

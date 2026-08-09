@@ -30,6 +30,7 @@ pub mod scim;
 pub mod smtp_config;
 pub mod sso;
 pub mod state;
+pub mod system_status;
 pub mod tags;
 pub mod users_admin;
 
@@ -446,6 +447,7 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_users_export_router = Router::new().route("/", get(export::handlers::exportar_usuarios));
     let admin_groups_export_router = Router::new().route("/", get(export::handlers::exportar_grupos));
     let admin_reports_router = Router::new().route("/{reportId}", get(reports::handlers::obtener));
+    let admin_system_status_router = Router::new().route("/", get(system_status::handlers::obtener));
 
     let admin_external_share_policy_router = Router::new().route(
         "/",
@@ -473,7 +475,7 @@ pub fn construir_router(estado: AppState) -> Router {
     });
 
     let external_shares_router = Router::new()
-        .route("/", post(external_shares::handlers::crear))
+        .route("/", post(external_shares::handlers::crear).get(external_shares::handlers::listar))
         .route("/{id}", delete(external_shares::handlers::revocar))
         .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_por_usuario))
         .merge(
@@ -530,6 +532,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/users/export", admin_users_export_router)
         .nest("/admin/groups/export", admin_groups_export_router)
         .nest("/admin/reports", admin_reports_router)
+        .nest("/admin/system-status", admin_system_status_router)
         .fallback(fallback_frontend)
         // `route_layer` (no `layer`): a diferencia de `layer`, no envuelve al
         // `fallback` — el rate limit general es para proteger la API contra

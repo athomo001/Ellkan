@@ -56,6 +56,11 @@ impl PgUserPurgeRepository {
     where
         E: sqlx::PgExecutor<'e>,
     {
+        // Sólo bloquea si el grupo tiene OTRO miembro (admin o no) que se
+        // quedaría sin nadie que lo administre — un grupo donde este
+        // usuario es el único miembro de punta a punta no bloquea nada
+        // (mismo criterio que se corrige abajo para recursos: bloquear sólo
+        // cuando dejar de existir este usuario afecta a alguien más).
         let grupos = sqlx::query!(
             r#"
             select g.id, g.name
@@ -65,6 +70,10 @@ impl PgUserPurgeRepository {
               and not exists (
                   select 1 from group_members gm2
                   where gm2.group_id = gm.group_id and gm2.is_admin and gm2.user_id <> $1
+              )
+              and exists (
+                  select 1 from group_members gm3
+                  where gm3.group_id = gm.group_id and gm3.user_id <> $1
               )
             "#,
             user_id,
@@ -80,6 +89,15 @@ impl PgUserPurgeRepository {
         })
     }
 
+    /// Un recurso sólo bloquea la purga si **alguien más** (otro usuario u
+    /// otro grupo) tiene algún acceso real sobre él — no simplemente "no
+    /// hay otro Owner". Antes bloqueaba con la segunda condición nada más,
+    /// así que cualquier recurso 100% personal (el caso normal de un vault
+    /// propio, sin compartir con nadie) quedaba marcado como bloqueante
+    /// aunque no hubiera nadie a quien transferírselo — en la práctica,
+    /// volvía imposible borrar a casi cualquier usuario real. Si nadie más
+    /// tiene acceso, el recurso queda huérfano y el paso de limpieza de
+    /// `purgar()` ya lo borra solo — no hace falta transferencia.
     async fn resources_bloqueados_en<'e, E>(&self, user_id: Uuid, ejecutor: E) -> Result<Vec<Uuid>, RepoError>
     where
         E: sqlx::PgExecutor<'e>,
@@ -90,10 +108,10 @@ impl PgUserPurgeRepository {
             from permissions p
             join resources r on r.id = p.subject_id and r.deleted_at is null
             where p.subject_type = 'resource' and p.grantee_type = 'user' and p.grantee_id = $1 and p.level = 'owner'
-              and not exists (
+              and exists (
                   select 1 from permissions p2
                   where p2.subject_type = 'resource' and p2.subject_id = p.subject_id
-                    and p2.level = 'owner' and p2.grantee_type = 'user' and p2.grantee_id <> $1
+                    and not (p2.grantee_type = 'user' and p2.grantee_id = $1)
               )
             "#,
             user_id,

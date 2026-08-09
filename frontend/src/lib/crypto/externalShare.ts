@@ -31,15 +31,29 @@ function desempaquetarCifrado(blob: Uint8Array): { nonce: Uint8Array; ciphertext
 
 /** Genera K (clave simétrica de un solo uso) y cifra el contenido — usado
  * al crear un share. Devuelve el blob listo para `ciphertext_b64` y la
- * clave K en base64url, lista para ir en el fragmento de la URL. */
+ * clave K en base64url, lista para ir en el fragmento de la URL. Si se pasa
+ * `passphrase` (capa opcional F-26, exigible por política de organización),
+ * la clave real de cifrado combina K con esa passphrase (mismo camino
+ * simétrico que `combinar_clave_de_share_con_passphrase` usa al descifrar),
+ * y también devuelve el salt que el destinatario va a necesitar. */
 export async function cifrarContenidoDeShare(
-	contenido: string
-): Promise<{ ciphertextB64: string; claveFragmentoB64Url: string }> {
+	contenido: string,
+	passphrase?: string
+): Promise<{ ciphertextB64: string; claveFragmentoB64Url: string; passwordSaltB64?: string }> {
 	const wasm = await cargarCrypto();
-	const clave = wasm.generar_dek();
-	const cifrado = wasm.cifrar_aead(clave, new TextEncoder().encode(contenido), AAD_EXTERNAL_SHARE);
+	const claveFragmento = wasm.generar_dek();
+
+	let claveReal = claveFragmento;
+	let passwordSaltB64: string | undefined;
+	if (passphrase) {
+		const salt = crypto.getRandomValues(new Uint8Array(16));
+		claveReal = wasm.combinar_clave_de_share_con_passphrase(claveFragmento, passphrase, salt);
+		passwordSaltB64 = bytesABase64(salt);
+	}
+
+	const cifrado = wasm.cifrar_aead(claveReal, new TextEncoder().encode(contenido), AAD_EXTERNAL_SHARE);
 	const blob = empaquetarCifrado(cifrado.nonce, cifrado.ciphertext);
-	return { ciphertextB64: bytesABase64(blob), claveFragmentoB64Url: bytesABase64Url(clave) };
+	return { ciphertextB64: bytesABase64(blob), claveFragmentoB64Url: bytesABase64Url(claveFragmento), passwordSaltB64 };
 }
 
 /** Descifra el contenido de un share ya obtenido de `GET

@@ -13,7 +13,9 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
-use super::models::{ExternalSharePolicy, FilaExternalShare, NuevoExternalShare, ResultadoAcceso};
+use super::models::{
+    ExternalSharePolicy, FilaExternalShare, FilaExternalShareResumen, NuevoExternalShare, ResultadoAcceso,
+};
 use super::repository::{ExternalSharePolicyRepository, ExternalShareRepository};
 
 pub struct ExternalShareService<'a, S, P> {
@@ -88,6 +90,10 @@ where
         ));
 
         Ok(fila)
+    }
+
+    pub async fn listar(&self, actor_id: Uuid) -> Result<Vec<FilaExternalShareResumen>, DomainError> {
+        Ok(self.shares.listar_por_creador(actor_id).await?)
     }
 
     pub async fn revocar(&self, actor_id: Uuid, id: Uuid) -> Result<(), DomainError> {

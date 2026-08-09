@@ -65,7 +65,10 @@ const en: Diccionario = {
 		preferencias: 'Preferences',
 		seguridad: 'Security',
 		administracion: 'Administration',
-		cerrarSesion: 'Sign out'
+		cerrarSesion: 'Sign out',
+		cambiarTema: 'Change theme',
+		colapsarNav: 'Collapse menu',
+		expandirNav: 'Expand menu'
 	},
 	lockOverlay: {
 		titulo: 'Session locked',
@@ -108,6 +111,7 @@ const en: Diccionario = {
 		usuario: 'Username',
 		uri: 'URI',
 		password: 'Password',
+		generarPassword: 'Generate',
 		notas: 'Notes',
 		totpOpcional: 'TOTP secret (optional, base32)',
 		crear: 'Create',
@@ -127,6 +131,14 @@ const en: Diccionario = {
 		errorCompartir: 'Could not share.',
 		errorEditar: 'Could not save the edit.',
 		buscar: 'Search by name, username, or URI…',
+		compartirExterno: 'External share',
+		cerrarPanel: 'Close panel',
+		externoPassphrase: 'Protect with an additional password (optional)',
+		externoExpiraHoras: 'Expires in (hours)',
+		externoMaxVistas: 'Maximum views',
+		externoCrear: 'Create link',
+		externoLinkListo: 'Link ready — copy it now, it will not be shown again:',
+		errorExterno: 'Could not create the external link.',
 		carpetas: {
 			titulo: 'Folders',
 			todas: 'All resources',
@@ -180,14 +192,22 @@ const en: Diccionario = {
 		errorImportar: 'Could not import.',
 		errorFormatoDesconocido: 'Could not determine the file format from its extension.'
 	},
+	settingsExternalShares: {
+		titulo: 'External sharing',
+		estado: 'Status',
+		protegido: 'Password-protected',
+		vistas: 'Views',
+		expira: 'Expires',
+		creado: 'Created',
+		activo: 'Active',
+		revocado: 'Revoked',
+		consumido: 'Consumed',
+		expirado: 'Expired',
+		revocar: 'Revoke',
+		sinShares: "You haven't created any external links yet — they're created from a specific Vault item."
+	},
 	settingsPreferences: {
 		titulo: 'Preferences',
-		idioma: 'Language',
-		espanol: 'Español',
-		ingles: 'English',
-		tema: 'Theme',
-		oscuro: 'Dark',
-		claro: 'Light',
 		portapapeles: 'Clear clipboard (minutes)',
 		autoBloqueo: 'Auto-lock (minutes, empty = disabled)',
 		guardar: 'Save',
@@ -225,12 +245,24 @@ const en: Diccionario = {
 		errorCodigoIncorrecto: 'Incorrect code.'
 	},
 	admin: {
+		landing: {
+			titulo: 'Administration',
+			hint: 'Pick a section to manage the organization.'
+		},
+		categorias: {
+			usuariosYGrupos: 'Users and groups',
+			seguridad: 'Security',
+			datosYComparticion: 'Data and sharing',
+			integraciones: 'Integrations',
+			supervision: 'Monitoring'
+		},
 		nav: {
 			usuarios: 'Users',
 			roles: 'Roles',
 			grupos: 'Groups',
 			auditoria: 'Audit log',
 			reportes: 'Reports',
+			estadoSistema: 'System status',
 			politicaMfa: 'MFA policy',
 			politicaPassword: 'Passphrase policy',
 			politicaRetencion: 'Data retention',
@@ -238,6 +270,7 @@ const en: Diccionario = {
 			politicaEmergencia: 'Emergency access',
 			politicaDispositivo: 'Device approval',
 			politicaExport: 'Export policy',
+			politicaExternalShare: 'External Sharing',
 			smtp: 'SMTP',
 			sso: 'SSO',
 			scim: 'SCIM',
@@ -277,6 +310,13 @@ const en: Diccionario = {
 			recursosBloqueados: 'Resources where they are the sole owner:',
 			sinBloqueos: 'No blockers — can be purged.',
 			errorBuscar: 'No user found with that email.',
+			seleccionarTodos: 'Select all',
+			deseleccionarTodos: 'Deselect all',
+			purgarSeleccionados: (n: number) => `Purge ${n} selected`,
+			purgaMasivaConfirmar: (n: number) => `Permanently purge ${n} ${n === 1 ? 'user' : 'users'}? This cannot be undone.`,
+			purgaMasivaOk: (n: number) => `${n} ${n === 1 ? 'user' : 'users'} purged.`,
+			purgaMasivaBloqueados: 'Blocked (have shared resources or groups not yet transferred)',
+			purgaMasivaErrores: 'Failed for another reason',
 			crearTitulo: 'Create user',
 			crearHint:
 				'Runs the same registration ceremony as the public signup screen — your browser generates the keys right here, the server never sees the passphrase. Creates a "user"-role account only; for admin, use the CLI (ellkan-cli admin promote-to-admin).',
@@ -395,6 +435,12 @@ const en: Diccionario = {
 			peer: 'Allow approval from another own device',
 			admin: 'Allow approval by an admin'
 		},
+		politicaExternalShare: {
+			titulo: 'External Sharing Policy',
+			enabled: 'External sharing enabled',
+			maxExpirationHours: 'Maximum allowed expiration (hours)',
+			requirePassword: 'Require an additional password on every new link'
+		},
 		politicaExport: {
 			titulo: 'Export policy',
 			exportEnabled: 'Export enabled (master switch)',
@@ -447,6 +493,43 @@ const en: Diccionario = {
 			rotacionActiva: 'Rotation in progress',
 			sinRotacion: 'No active rotation',
 			pendientes: 'Resources pending migration'
+		},
+		estadoSistema: {
+			titulo: 'System status',
+			hint: 'Organization self-diagnostic — each row checks itself and suggests a fix if something is off.',
+			error: 'Could not load the system status.',
+			nivelOk: 'OK',
+			nivelAdvertencia: 'Warning',
+			nivelError: 'Error',
+			categoriaEntorno: 'Environment',
+			categoriaBaseDatos: 'Database',
+			categoriaCorreo: 'Outbound email',
+			categoriaIntegraciones: 'Integrations',
+			categoriaSeguridad: 'Security',
+			versionApp: (version: string) => `Application version: ${version}`,
+			dbPingOk: 'Connected to the database.',
+			dbPingError: 'Could not connect to the database.',
+			dbPingSugerencia: 'Check that Postgres is running and DATABASE_URL is correct.',
+			dbMigracionesOk: (aplicadas: number) => `${aplicadas} ${aplicadas === 1 ? 'migration' : 'migrations'} applied.`,
+			dbMigracionesError: (fallidas: number) => `${fallidas} ${fallidas === 1 ? 'migration' : 'migrations'} failed to apply.`,
+			dbMigracionesSugerencia: 'Check the backend startup logs.',
+			smtpConfiguradoOk: 'SMTP configured.',
+			smtpConfiguradoAdvertencia: 'SMTP not configured — email notifications are not actually being sent.',
+			smtpConfiguradoSugerencia: 'Configure it in the SMTP section.',
+			correoBacklogOk: 'No outbound email backlog.',
+			correoBacklogAdvertencia: (pendientes: number) => `${pendientes} emails pending delivery.`,
+			correoBacklogError: (fallidos: number) => `${fallidos} ${fallidos === 1 ? 'email' : 'emails'} failed to send.`,
+			correoBacklogSugerencia: 'Check the SMTP configuration and the backend logs.',
+			ssoConfiguradoSi: 'SSO configured.',
+			ssoConfiguradoNo: 'SSO not configured.',
+			directorySyncConfiguradoSi: 'Directory Sync configured.',
+			directorySyncConfiguradoNo: 'Directory Sync not configured.',
+			directorySyncNuncaSincronizado: 'Configured but no sync has run yet.',
+			directorySyncSugerencia: 'Run a sync from Directory Sync.',
+			ultimaSincronizacion: (fecha: string) => `Last sync: ${fecha}.`,
+			metadataRotacionOk: 'No metadata key rotation in progress.',
+			metadataRotacionAdvertencia: (claves: number) => `Metadata key rotation in progress (${claves} active keys).`,
+			metadataRotacionSugerencia: 'Check the progress in Metadata keys.'
 		}
 	}
 };

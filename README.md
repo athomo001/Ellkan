@@ -48,6 +48,52 @@ Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servid
 | zeroize / secrecy | Borrado y redacción seguros de secretos en memoria |
 | subtle | Comparaciones en tiempo constante (mitiga timing attacks) |
 
+## Instalación rápida
+
+Requiere Docker y Docker Compose.
+
+```bash
+git clone https://github.com/athomo001/Ellkan.git
+cd Ellkan
+cp .env.example .env
+set -a && source .env && set +a
+
+# Secretos de despliegue — ver secrets/README.md para el detalle de cada uno.
+# Usa POSTGRES_USER/POSTGRES_DB del .env recién cargado — si los cambiaste
+# ahí arriba, esto arma el DATABASE_URL correcto solo, sin que haya que
+# tocarlo a mano en dos lugares.
+openssl rand -hex 24 > secrets/postgres_password.txt
+openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
+echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
+
+docker compose up -d
+```
+
+La app queda en `http://localhost:${ELLKAN_PORT:-8080}`. El primer admin se crea vía CLI (todavía no hay binarios pre-compilados — se compila desde el código):
+
+```bash
+cargo build --release -p ellkan-cli
+
+# DATABASE_URL acá es DISTINTO al de secrets/database_url.txt: ese usa el
+# hostname interno de Docker (ellkan-db), que sólo resuelve dentro de la
+# red de contenedores — este apunta al puerto que docker-compose expone
+# en 127.0.0.1 para que la CLI (corriendo en el host) pueda conectarse.
+DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
+  ./target/release/ellkan-cli admin create-user \
+  --email vos@ejemplo.com --display-name "Tu nombre" --role admin
+
+./target/release/ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email vos@ejemplo.com
+```
+
+`--role admin` promueve directo (por SQL, sin pasar por HTTP — ninguna ruta HTTP permite auto-asignarse admin) y marca este dispositivo como conocido, así que el `login` de arriba funciona ahí mismo sin esperar ningún email — no hace falta SMTP configurado para arrancar. Una vez adentro, para que las verificaciones de dispositivo de cualquier otro login/usuario lleguen por email de verdad, configurá un relay real en `/admin/smtp`.
+
+Ver [manual/cli.md](manual/cli.md#comandos) para el resto de los comandos.
+
+## Documentación
+
+- [manual/funcionalidades.md](manual/funcionalidades.md) — qué hace Ellkan, por área.
+- [manual/cli.md](manual/cli.md) — referencia completa de `ellkan-cli`.
+
 ## Preguntas frecuentes
 
 **¿El servidor puede ver mis contraseñas?**
@@ -61,7 +107,7 @@ La clave nunca queda "dando vueltas" guardada en la memoria, esperando a que alg
 
 ## Estado
 
-En desarrollo activo, etapa temprana.
+En desarrollo activo. Backend y frontend web funcionales de punta a punta (registro, login, vault, grupos, MFA, SSO/SCIM/LDAP, auditoría, panel de administración, exportación/backup) — la extensión de navegador todavía no arrancó.
 
 ## Licencia
 

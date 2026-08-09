@@ -18,44 +18,30 @@
 	import type { Snippet } from 'svelte';
 	import { esAdmin } from '$lib/state/session';
 	import { t } from '$lib/i18n';
+	import { categorias } from './secciones';
 
 	let { children }: { children: Snippet } = $props();
 
 	$effect(() => {
 		if ($esAdmin === false) goto('/vault');
 	});
-
-	const secciones = $derived([
-		{ href: '/admin/users', label: $t.admin.nav.usuarios },
-		{ href: '/admin/roles', label: $t.admin.nav.roles },
-		{ href: '/admin/groups', label: $t.admin.nav.grupos },
-		{ href: '/admin/audit-log', label: $t.admin.nav.auditoria },
-		{ href: '/admin/reports', label: $t.admin.nav.reportes },
-		{ href: '/admin/policies/mfa', label: $t.admin.nav.politicaMfa },
-		{ href: '/admin/policies/password', label: $t.admin.nav.politicaPassword },
-		{ href: '/admin/policies/retention', label: $t.admin.nav.politicaRetencion },
-		{ href: '/admin/policies/account-recovery', label: $t.admin.nav.politicaRecovery },
-		{ href: '/admin/policies/emergency-access', label: $t.admin.nav.politicaEmergencia },
-		{ href: '/admin/policies/device-approval', label: $t.admin.nav.politicaDispositivo },
-		{ href: '/admin/policies/export', label: $t.admin.nav.politicaExport },
-		{ href: '/admin/smtp', label: $t.admin.nav.smtp },
-		{ href: '/admin/sso', label: $t.admin.nav.sso },
-		{ href: '/admin/scim', label: $t.admin.nav.scim },
-		{ href: '/admin/directory-sync', label: $t.admin.nav.directorySync },
-		{ href: '/admin/metadata-keys', label: $t.admin.nav.metadataKeys }
-	]);
 </script>
 
 {#if $esAdmin === true}
 	<div class="admin">
 		<nav>
-			<ul>
-				{#each secciones as seccion (seccion.href)}
-					<li>
-						<a href={seccion.href} class:activo={page.url.pathname === seccion.href}>{seccion.label}</a>
-					</li>
-				{/each}
-			</ul>
+			{#each categorias as categoria (categoria.titulo($t))}
+				<div class="categoria">
+					<h6>{categoria.titulo($t)}</h6>
+					<ul>
+						{#each categoria.items as seccion (seccion.href)}
+							<li>
+								<a href={seccion.href} class:activo={page.url.pathname === seccion.href}>{seccion.label($t)}</a>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/each}
 		</nav>
 		<div class="contenido">
 			{@render children()}
@@ -72,6 +58,17 @@
 	nav {
 		border-right: 1px solid var(--border-color);
 		padding-right: var(--space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+	h6 {
+		margin: 0 0 var(--space-1) var(--space-3);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
 	}
 	ul {
 		list-style: none;

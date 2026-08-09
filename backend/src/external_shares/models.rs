@@ -44,6 +44,21 @@ pub enum ResultadoAcceso {
     Expirado,
 }
 
+/// Fila de `GET /external-shares` (listado propio, F-26 UI de gestión) —
+/// nunca incluye `ciphertext`: es sólo lo que el creador necesita para
+/// decidir si revocar algo, no una forma alternativa de leer el contenido.
+#[derive(Debug, Clone)]
+pub struct FilaExternalShareResumen {
+    pub id: Uuid,
+    pub password_protected: bool,
+    pub max_views: i32,
+    pub view_count: i32,
+    pub expires_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
+    pub burned_at: Option<OffsetDateTime>,
+    pub created_at: OffsetDateTime,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExternalSharePolicy {
     pub enabled: bool,

@@ -77,3 +77,18 @@ table {
 	background: var(--border-color);
 	border-radius: var(--radius-sm);
 }
+
+/* Toggle de tema con animación circular (`$lib/api/preferences.ts::alternarTema`)
+   — sin esto, la View Transitions API hace su cross-fade default por encima
+   del clip-path circular animado a mano, y se ven los dos efectos pisándose. */
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation: none;
+	mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+	z-index: 1;
+}
+::view-transition-new(root) {
+	z-index: 9999;
+}

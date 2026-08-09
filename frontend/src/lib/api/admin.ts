@@ -335,3 +335,29 @@ export const groupsApi = {
 		api.post<void>(`/groups/${groupId}/members/${userId}`, { is_admin: isAdmin, envelopes }),
 	quitarMiembro: (groupId: string, userId: string) => api.delete<void>(`/groups/${groupId}/members/${userId}`)
 };
+
+// --- Estado del sistema (F-43): unión discriminada por `id`, igual
+// criterio que `ReportResponse`/`report_id` en el backend — un `id` cerrado
+// por variante, nunca texto libre (la traducción vive en `$t`, F-31). ---
+export type NivelCheck = 'ok' | 'advertencia' | 'error';
+export type Check =
+	| { id: 'version_app'; nivel: NivelCheck; version: string }
+	| { id: 'db_ping'; nivel: NivelCheck }
+	| { id: 'db_migraciones'; nivel: NivelCheck; aplicadas: number; fallidas: number }
+	| { id: 'smtp_configurado'; nivel: NivelCheck; configurado: boolean }
+	| { id: 'correo_backlog'; nivel: NivelCheck; pendientes: number; fallidos: number }
+	| { id: 'sso_configurado'; nivel: NivelCheck; configurado: boolean }
+	| {
+			id: 'directory_sync_configurado';
+			nivel: NivelCheck;
+			configurado: boolean;
+			ultima_sincronizacion: string | null;
+	  }
+	| { id: 'metadata_key_rotacion'; nivel: NivelCheck; claves_activas: number };
+export interface GrupoChecks {
+	categoria: 'entorno' | 'base_datos' | 'correo' | 'integraciones' | 'seguridad';
+	checks: Check[];
+}
+export const systemStatusApi = {
+	obtener: () => api.get<GrupoChecks[]>('/admin/system-status')
+};

@@ -64,7 +64,10 @@ const es = {
 		preferencias: 'Preferencias',
 		seguridad: 'Seguridad',
 		administracion: 'Administración',
-		cerrarSesion: 'Cerrar sesión'
+		cerrarSesion: 'Cerrar sesión',
+		cambiarTema: 'Cambiar tema',
+		colapsarNav: 'Colapsar menú',
+		expandirNav: 'Expandir menú'
 	},
 	lockOverlay: {
 		titulo: 'Sesión bloqueada',
@@ -107,6 +110,7 @@ const es = {
 		usuario: 'Usuario',
 		uri: 'URI',
 		password: 'Contraseña',
+		generarPassword: 'Generar',
 		notas: 'Notas',
 		totpOpcional: 'Secreto TOTP (opcional, base32)',
 		crear: 'Crear',
@@ -126,6 +130,14 @@ const es = {
 		errorCompartir: 'No se pudo compartir.',
 		errorEditar: 'No se pudo guardar la edición.',
 		buscar: 'Buscar por nombre, usuario o URI…',
+		compartirExterno: 'Compartir externo',
+		cerrarPanel: 'Cerrar panel',
+		externoPassphrase: 'Proteger con contraseña adicional (opcional)',
+		externoExpiraHoras: 'Expira en (horas)',
+		externoMaxVistas: 'Máximo de vistas',
+		externoCrear: 'Crear link',
+		externoLinkListo: 'Link listo — copialo ahora, no se vuelve a mostrar:',
+		errorExterno: 'No se pudo crear el link externo.',
 		carpetas: {
 			titulo: 'Carpetas',
 			todas: 'Todos los recursos',
@@ -180,14 +192,22 @@ const es = {
 		errorImportar: 'No se pudo importar.',
 		errorFormatoDesconocido: 'No se pudo determinar el formato del archivo por su extensión.'
 	},
+	settingsExternalShares: {
+		titulo: 'Compartir externo',
+		estado: 'Estado',
+		protegido: 'Con contraseña',
+		vistas: 'Vistas',
+		expira: 'Expira',
+		creado: 'Creado',
+		activo: 'Activo',
+		revocado: 'Revocado',
+		consumido: 'Consumido',
+		expirado: 'Expirado',
+		revocar: 'Revocar',
+		sinShares: 'Todavía no creaste ningún link externo — se crean desde un recurso puntual en el Vault.'
+	},
 	settingsPreferences: {
 		titulo: 'Preferencias',
-		idioma: 'Idioma',
-		espanol: 'Español',
-		ingles: 'English',
-		tema: 'Tema',
-		oscuro: 'Oscuro',
-		claro: 'Claro',
 		portapapeles: 'Limpiar portapapeles (minutos)',
 		autoBloqueo: 'Auto-bloqueo (minutos, vacío = deshabilitado)',
 		guardar: 'Guardar',
@@ -225,12 +245,24 @@ const es = {
 		errorCodigoIncorrecto: 'Código incorrecto.'
 	},
 	admin: {
+		landing: {
+			titulo: 'Administración',
+			hint: 'Elegí una sección para gestionar la organización.'
+		},
+		categorias: {
+			usuariosYGrupos: 'Usuarios y grupos',
+			seguridad: 'Seguridad',
+			datosYComparticion: 'Datos y compartición',
+			integraciones: 'Integraciones',
+			supervision: 'Supervisión'
+		},
 		nav: {
 			usuarios: 'Usuarios',
 			roles: 'Roles',
 			grupos: 'Grupos',
 			auditoria: 'Auditoría',
 			reportes: 'Reportes',
+			estadoSistema: 'Estado del sistema',
 			politicaMfa: 'Política MFA',
 			politicaPassword: 'Política de contraseña',
 			politicaRetencion: 'Retención de datos',
@@ -238,6 +270,7 @@ const es = {
 			politicaEmergencia: 'Acceso de emergencia',
 			politicaDispositivo: 'Aprobación de dispositivo',
 			politicaExport: 'Política de exportación',
+			politicaExternalShare: 'Compartir Externo',
 			smtp: 'SMTP',
 			sso: 'SSO',
 			scim: 'SCIM',
@@ -277,6 +310,14 @@ const es = {
 			recursosBloqueados: 'Recursos donde es el único owner:',
 			sinBloqueos: 'Sin bloqueos — se puede purgar.',
 			errorBuscar: 'No se encontró un usuario con ese email.',
+			seleccionarTodos: 'Seleccionar todos',
+			deseleccionarTodos: 'Deseleccionar todos',
+			purgarSeleccionados: (n: number) => `Purgar ${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
+			purgaMasivaConfirmar: (n: number) =>
+				`¿Purgar definitivamente ${n} ${n === 1 ? 'usuario' : 'usuarios'}? No se puede deshacer.`,
+			purgaMasivaOk: (n: number) => `${n} ${n === 1 ? 'usuario purgado' : 'usuarios purgados'}.`,
+			purgaMasivaBloqueados: 'Bloqueados (tienen recursos o grupos compartidos sin transferir)',
+			purgaMasivaErrores: 'Fallaron por otro motivo',
 			crearTitulo: 'Crear usuario',
 			crearHint:
 				'Corre la misma ceremonia de registro que la pantalla pública — el navegador genera las claves acá mismo, el servidor nunca ve la passphrase. Crea sólo un usuario con rol "user"; para admin, usar la CLI (ellkan-cli admin promote-to-admin).',
@@ -395,6 +436,12 @@ const es = {
 			peer: 'Permitir aprobación por otro dispositivo propio',
 			admin: 'Permitir aprobación por un admin'
 		},
+		politicaExternalShare: {
+			titulo: 'Política de Compartir Externo',
+			enabled: 'Compartir externo habilitado',
+			maxExpirationHours: 'Expiración máxima permitida (horas)',
+			requirePassword: 'Exigir contraseña adicional en todo link nuevo'
+		},
 		politicaExport: {
 			titulo: 'Política de exportación',
 			exportEnabled: 'Exportación habilitada (interruptor maestro)',
@@ -447,6 +494,44 @@ const es = {
 			rotacionActiva: 'Rotación en curso',
 			sinRotacion: 'Sin rotación activa',
 			pendientes: 'Recursos pendientes de migrar'
+		},
+		estadoSistema: {
+			titulo: 'Estado del sistema',
+			hint: 'Autodiagnóstico de la organización — cada fila se revisa sola y sugiere cómo repararla si hace falta.',
+			error: 'No se pudo cargar el estado del sistema.',
+			nivelOk: 'OK',
+			nivelAdvertencia: 'Advertencia',
+			nivelError: 'Error',
+			categoriaEntorno: 'Entorno',
+			categoriaBaseDatos: 'Base de datos',
+			categoriaCorreo: 'Correo saliente',
+			categoriaIntegraciones: 'Integraciones',
+			categoriaSeguridad: 'Seguridad',
+			versionApp: (version: string) => `Versión de la aplicación: ${version}`,
+			dbPingOk: 'Conectado a la base de datos.',
+			dbPingError: 'No se pudo conectar a la base de datos.',
+			dbPingSugerencia: 'Verificá que Postgres esté corriendo y que DATABASE_URL sea correcto.',
+			dbMigracionesOk: (aplicadas: number) => `${aplicadas} ${aplicadas === 1 ? 'migración aplicada' : 'migraciones aplicadas'}.`,
+			dbMigracionesError: (fallidas: number) =>
+				`${fallidas} ${fallidas === 1 ? 'migración falló' : 'migraciones fallaron'} al aplicarse.`,
+			dbMigracionesSugerencia: 'Revisá los logs de arranque del backend.',
+			smtpConfiguradoOk: 'SMTP configurado.',
+			smtpConfiguradoAdvertencia: 'SMTP no configurado — las notificaciones por email no se envían realmente.',
+			smtpConfiguradoSugerencia: 'Configuralo en la sección SMTP.',
+			correoBacklogOk: 'Sin backlog de correo saliente.',
+			correoBacklogAdvertencia: (pendientes: number) => `${pendientes} correos pendientes de envío.`,
+			correoBacklogError: (fallidos: number) => `${fallidos} ${fallidos === 1 ? 'correo falló' : 'correos fallaron'} al enviarse.`,
+			correoBacklogSugerencia: 'Revisá la configuración SMTP y los logs del backend.',
+			ssoConfiguradoSi: 'SSO configurado.',
+			ssoConfiguradoNo: 'SSO no configurado.',
+			directorySyncConfiguradoSi: 'Directory Sync configurado.',
+			directorySyncConfiguradoNo: 'Directory Sync no configurado.',
+			directorySyncNuncaSincronizado: 'Configurado pero todavía no se ejecutó ninguna sincronización.',
+			directorySyncSugerencia: 'Corré una sincronización desde Directory Sync.',
+			ultimaSincronizacion: (fecha: string) => `Última sincronización: ${fecha}.`,
+			metadataRotacionOk: 'Sin rotación de clave de metadata en curso.',
+			metadataRotacionAdvertencia: (claves: number) => `Rotación de clave de metadata en curso (${claves} claves activas).`,
+			metadataRotacionSugerencia: 'Revisá el progreso en Claves de metadata.'
 		}
 	}
 };

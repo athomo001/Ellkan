@@ -77,6 +77,53 @@
 
 	onMount(() => cargarListado(true));
 
+	// --- Borrado masivo ---
+	let seleccionados = $state<Set<string>>(new Set());
+	let purgandoMasivo = $state(false);
+	let resultadoMasivo = $state<{ ok: number; bloqueados: string[]; errores: string[] } | undefined>();
+
+	function toggleSeleccion(id: string) {
+		const nuevo = new Set(seleccionados);
+		if (nuevo.has(id)) nuevo.delete(id);
+		else nuevo.add(id);
+		seleccionados = nuevo;
+	}
+
+	function toggleSeleccionTodos() {
+		seleccionados = seleccionados.size === listado.length ? new Set() : new Set(listado.map((u) => u.id));
+	}
+
+	async function purgarSeleccionados() {
+		if (seleccionados.size === 0) return;
+		if (!confirm($t.admin.usuarios.purgaMasivaConfirmar(seleccionados.size))) return;
+		purgandoMasivo = true;
+		resultadoMasivo = undefined;
+		const bloqueados: string[] = [];
+		const errores: string[] = [];
+		let ok = 0;
+		// Secuencial, no Promise.all: cada purga es una transacción propia en
+		// el servidor y así el rate limiter general (2/s) nunca se satura
+		// con una tanda grande — también deja reportar exactamente cuál
+		// usuario falló y por qué, no sólo "algo falló".
+		for (const id of seleccionados) {
+			const u = listado.find((x) => x.id === id);
+			try {
+				await usersAdminApi.purgar(id);
+				ok++;
+			} catch (err) {
+				if (err instanceof ApiError && err.status === 409) {
+					bloqueados.push(u?.email ?? id);
+				} else {
+					errores.push(u?.email ?? id);
+				}
+			}
+		}
+		resultadoMasivo = { ok, bloqueados, errores };
+		seleccionados = new Set();
+		purgandoMasivo = false;
+		await cargarListado(true);
+	}
+
 	let email = $state('');
 	let buscando = $state(false);
 	let error = $state<string | undefined>();
@@ -173,8 +220,32 @@
 <Card>
 	<h2>{$t.admin.usuarios.listadoTitulo}</h2>
 	{#if errorListado}<p class="error">{errorListado}</p>{/if}
+
+	<div class="barra-masiva">
+		<Button variant="ghost" onclick={toggleSeleccionTodos} disabled={listado.length === 0}>
+			{seleccionados.size === listado.length && listado.length > 0
+				? $t.admin.usuarios.deseleccionarTodos
+				: $t.admin.usuarios.seleccionarTodos}
+		</Button>
+		{#if seleccionados.size > 0}
+			<Button variant="danger" onclick={purgarSeleccionados} loading={purgandoMasivo}>
+				{$t.admin.usuarios.purgarSeleccionados(seleccionados.size)}
+			</Button>
+		{/if}
+	</div>
+	{#if resultadoMasivo}
+		<p class="ok">{$t.admin.usuarios.purgaMasivaOk(resultadoMasivo.ok)}</p>
+		{#if resultadoMasivo.bloqueados.length}
+			<p class="error">{$t.admin.usuarios.purgaMasivaBloqueados}: {resultadoMasivo.bloqueados.join(', ')}</p>
+		{/if}
+		{#if resultadoMasivo.errores.length}
+			<p class="error">{$t.admin.usuarios.purgaMasivaErrores}: {resultadoMasivo.errores.join(', ')}</p>
+		{/if}
+	{/if}
+
 	<Table
 		columnas={[
+			{ key: 'sel', header: '' },
 			{ key: 'nombre', header: $t.admin.usuarios.nombre },
 			{ key: 'email', header: $t.admin.usuarios.email },
 			{ key: 'estado', header: $t.admin.usuarios.estado }
@@ -188,6 +259,9 @@
 		onSeleccionar={seleccionarDeListado}
 	>
 		{#snippet fila(f)}
+			<td onclick={(e) => e.stopPropagation()}>
+				<input type="checkbox" checked={seleccionados.has(f.id)} onchange={() => toggleSeleccion(f.id)} />
+			</td>
 			<td>{f.display_name}</td>
 			<td>{f.email}</td>
 			<td>{f.active ? $t.admin.usuarios.activo : $t.admin.usuarios.inactivo}</td>
@@ -268,6 +342,11 @@
 		color: var(--text-muted);
 		font-size: var(--text-sm);
 		margin: 0 0 var(--space-4) 0;
+	}
+	.barra-masiva {
+		display: flex;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
 	}
 	.form {
 		display: flex;

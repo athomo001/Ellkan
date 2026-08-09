@@ -28,7 +28,7 @@ RUN wasm-pack build --target web --out-dir /wasm-out crates/ellkan-crypto
 FROM node:24-slim AS frontend-builder
 WORKDIR /build
 RUN corepack enable
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY frontend ./
 COPY --from=wasm-builder /wasm-out ./src/lib/wasm

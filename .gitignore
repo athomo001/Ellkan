@@ -16,10 +16,6 @@ CLAUDE.md
 # Rust
 /target/
 **/target/
-Cargo.lock
-# Nota: Cargo.lock normalmente SÍ se versiona para binarios (reproducibilidad) — se
-# excluye acá sólo hasta que exista el workspace real; sacar esta línea en Fase 0
-# apenas se cree el primer Cargo.toml.
 
 # Frontend (SvelteKit/pnpm), cuando exista
 node_modules/
@@ -34,7 +30,8 @@ node_modules/
 pkg/
 
 # Secretos de despliegue (convención *_FILE, sección 2.5 de spec/09-guia-de-codificacion-segura.md)
-/secrets/
+/secrets/*
+!/secrets/README.md
 .env
 .env.*
 !.env.example

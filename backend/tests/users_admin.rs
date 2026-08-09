@@ -198,6 +198,77 @@ async fn purgar_unico_owner_sin_transferencia_falla_y_con_transferencia_funciona
     assert_eq!(resp.status(), 200, "el recurso debe sobrevivir con el nuevo owner");
 }
 
+/// Regresión: un recurso 100% personal (`user_key`, nadie más tiene acceso)
+/// no debe bloquear la purga — antes bloqueaba con sólo "no hay otro Owner",
+/// sin importar si alguien más podía siquiera verlo, así que cualquier
+/// usuario con un solo recurso propio en su vault quedaba imposible de
+/// borrar. El recurso tiene que desaparecer junto con el usuario (huérfano),
+/// no quedar dando vueltas con un owner que ya no existe.
+#[tokio::test]
+async fn recurso_100_por_ciento_personal_no_bloquea_la_purga() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let owner = common::registrar(&entorno, "dueno-personal@test.ellkan").await;
+    let sesion_owner = common::login(&entorno, &owner).await;
+
+    let resource_id = uuid::Uuid::now_v7();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion_owner)
+        .json(&json!({
+            "id": resource_id,
+            "resource_type_slug": "login-password",
+            "metadata_ciphertext_b64": "AAAA",
+            "metadata_nonce_b64": "AAAA",
+            "sealed_dek_b64": "AAAA",
+            "secret_ciphertext_b64": "AAAA",
+            "secret_nonce_b64": "AAAA",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/users/{}/purge/dry-run", entorno.base, owner.user_id))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["blocks_purge"], false, "un recurso sin nadie más con acceso no debe bloquear");
+    assert!(cuerpo["blocked_resources"].as_array().unwrap().is_empty());
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/users/{}/purge", entorno.base, owner.user_id))
+        .bearer_auth(sesion_admin)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+
+    let existe_usuario: (bool,) = sqlx::query_as("select exists(select 1 from users where id = $1)")
+        .bind(owner.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert!(!existe_usuario.0);
+
+    let existe_recurso: (bool,) = sqlx::query_as("select exists(select 1 from resources where id = $1)")
+        .bind(resource_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert!(!existe_recurso.0, "el recurso huérfano tiene que borrarse junto con el usuario");
+}
+
 #[tokio::test]
 async fn desactivar_invalida_una_sesion_ya_abierta_de_inmediato() {
     let entorno = common::levantar().await;

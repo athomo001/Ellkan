@@ -99,12 +99,20 @@ enum Comando {
 
 #[derive(Subcommand)]
 enum AdminAccion {
-    /// Bootstrap del primer usuario — la asignación de rol admin (F-22) llega en Fase 1
+    /// Bootstrap del primer usuario/admin (01-requisitos-funcionales.md F-21) — sin
+    /// `--role admin`, crea un usuario normal (mismo comportamiento de siempre).
     CreateUser {
         #[arg(long)]
         email: String,
         #[arg(long)]
         display_name: String,
+        /// "user" (default) o "admin". Con "admin", promueve directo por SQL (necesita
+        /// `DATABASE_URL`) y marca este mismo dispositivo como conocido — así el
+        /// primer `login` de esta cuenta no depende de que el email ya funcione
+        /// (F-02 se saltea sólo para este dispositivo puntual, exactamente lo que
+        /// pide el spec: "sin depender de... que el email ya esté funcionando").
+        #[arg(long, default_value = "user")]
+        role: String,
     },
     Healthcheck,
     /// F-41: re-valida integridad de datos en modo sólo-lectura — reporta, no toca nada.
@@ -571,7 +579,10 @@ fn main() -> anyhow::Result<()> {
         Comando::List { filter } => listar(&cliente, filter.as_deref())?,
         Comando::Exec { resource_id, env_var, comando } => ejecutar(&cliente, *resource_id, env_var, comando)?,
         Comando::Admin { accion } => match accion {
-            AdminAccion::CreateUser { email, display_name } => {
+            AdminAccion::CreateUser { email, display_name, role } => {
+                if role != "user" && role != "admin" {
+                    anyhow::bail!("--role debe ser 'user' o 'admin', recibido '{role}'");
+                }
                 registrar(
                     &cliente,
                     email,
@@ -581,12 +592,31 @@ fn main() -> anyhow::Result<()> {
                     cli.client_key.clone(),
                     cli.ca_bundle.clone(),
                 )?;
-                // El modelo de roles (F-22) ya existe (Fase 1.1), pero
-                // ninguna ruta HTTP permite auto-asignarse admin —
-                // deliberado: la promoción real exige acceso directo a la
-                // base de datos, mismo nivel de confianza que el backup
-                // del sistema (F-41 `promote-to-admin`, ver abajo).
-                println!("Nota: este comando sólo hace bootstrap del usuario con rol 'user'. Para promoverlo a admin corré 'ellkan-cli admin promote-to-admin --user {email}' (F-41, acceso directo a la base de datos, no HTTP).");
+                if role == "admin" {
+                    // Ninguna ruta HTTP permite auto-asignarse admin — la
+                    // promoción real siempre exige acceso directo a la base
+                    // (mismo nivel de confianza que un backup del sistema),
+                    // así que esto pasa por SQL igual que `promote-to-admin`,
+                    // no por la API que `registrar()` acaba de usar.
+                    let perfil = config::cargar_perfil()?;
+                    let device_token_b64 = perfil
+                        .device_token_b64
+                        .clone()
+                        .ok_or_else(|| anyhow::anyhow!("perfil recién creado sin device token — no debería pasar"))?;
+                    let device_token = B64.decode(&device_token_b64)?;
+                    let device_token_hash = crypto_local::hash_device_token(&device_token);
+                    admin_db::bloquear(async {
+                        let pool = admin_db::conectar().await?;
+                        admin_db::promote_to_admin(&pool, email).await?;
+                        admin_db::marcar_dispositivo_conocido(&pool, perfil.user_id, &device_token_hash).await?;
+                        anyhow::Ok(())
+                    })?;
+                    println!(
+                        "Promovido a admin — 'ellkan-cli login --email {email}' ya funciona ahora mismo, sin esperar ningún email (este dispositivo quedó marcado como conocido)."
+                    );
+                } else {
+                    println!("Nota: usuario creado con rol 'user'. Para promoverlo a admin después, corré 'ellkan-cli admin promote-to-admin --user {email}'.");
+                }
             }
             AdminAccion::Healthcheck => println!("{}", cliente.healthz()?),
             AdminAccion::Datacheck => admin_db::bloquear(async {

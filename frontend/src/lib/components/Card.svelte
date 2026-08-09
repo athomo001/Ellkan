@@ -13,6 +13,7 @@
 		background: var(--bg-raised);
 		border: 1px solid var(--border-color);
 		border-radius: var(--radius-md);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 	}
 	.padded {
 		padding: var(--space-6);

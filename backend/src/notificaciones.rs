@@ -51,6 +51,9 @@ pub trait OutboundEmailRepository {
     /// Incrementa `attempts`; pasado `MAX_INTENTOS` la deja `fallido` en vez
     /// de reintentarla para siempre.
     fn marcar_intento_fallido(&self, id: Uuid) -> impl Future<Output = Result<(), RepoError>> + Send;
+    /// `(pendientes, fallidos)` — F-43, backlog para el panel de
+    /// autodiagnóstico admin. No cuenta `enviado`, no interesa acá.
+    fn contar_por_estado(&self) -> impl Future<Output = Result<(i64, i64), RepoError>> + Send;
 }
 
 #[derive(Clone)]
@@ -115,6 +118,18 @@ impl OutboundEmailRepository for PgOutboundEmailRepository {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    async fn contar_por_estado(&self) -> Result<(i64, i64), RepoError> {
+        let fila = sqlx::query!(
+            r#"select
+                 count(*) filter (where status = 'pendiente') as "pendientes!",
+                 count(*) filter (where status = 'fallido') as "fallidos!"
+               from outbound_emails"#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok((fila.pendientes, fila.fallidos))
     }
 }
 

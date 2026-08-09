@@ -7,11 +7,15 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{ExternalSharePolicy, FilaExternalShare, NuevoExternalShare, ResultadoAcceso};
+use super::models::{
+    ExternalSharePolicy, FilaExternalShare, FilaExternalShareResumen, NuevoExternalShare, ResultadoAcceso,
+};
 
 pub trait ExternalShareRepository {
     async fn crear(&self, nuevo: &NuevoExternalShare) -> Result<FilaExternalShare, RepoError>;
     async fn obtener(&self, id: Uuid) -> Result<Option<FilaExternalShare>, RepoError>;
+    /// F-26 UI de gestión: shares creados por `creado_por`, más nuevos primero.
+    async fn listar_por_creador(&self, creado_por: Uuid) -> Result<Vec<FilaExternalShareResumen>, RepoError>;
     async fn revocar(&self, id: Uuid) -> Result<bool, RepoError>;
     /// Único punto de lectura del contenido — atómico (transacción +
     /// `FOR UPDATE`) para que dos requests concurrentes sobre un share con
@@ -84,6 +88,31 @@ impl ExternalShareRepository for PgExternalShareRepository {
             revoked_at: fila.revoked_at,
             burned_at: fila.burned_at,
         }))
+    }
+
+    async fn listar_por_creador(&self, creado_por: Uuid) -> Result<Vec<FilaExternalShareResumen>, RepoError> {
+        let filas = sqlx::query!(
+            r#"select id, password_protected, max_views, view_count, expires_at,
+                      revoked_at, burned_at, created_at
+               from external_shares where created_by = $1 order by created_at desc"#,
+            creado_por,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| FilaExternalShareResumen {
+                id: f.id,
+                password_protected: f.password_protected,
+                max_views: f.max_views,
+                view_count: f.view_count,
+                expires_at: f.expires_at,
+                revoked_at: f.revoked_at,
+                burned_at: f.burned_at,
+                created_at: f.created_at,
+            })
+            .collect())
     }
 
     async fn revocar(&self, id: Uuid) -> Result<bool, RepoError> {

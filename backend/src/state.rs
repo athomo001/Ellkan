@@ -43,6 +43,7 @@ use crate::retention::repository::{PgPurgeRepository, PgRetentionPolicyRepositor
 use crate::scim::repository::{PgScimTokenRepository, PgScimUserRepository};
 use crate::smtp_config::repository::PgSmtpConfigRepository;
 use crate::sso::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIdentityRepository};
+use crate::system_status::repository::PgSystemStatusRepository;
 use crate::tags::repository::PgTagRepository;
 use crate::users_admin::repository::PgUserPurgeRepository;
 use ellkan_crypto::secretos::ClaveSecreta32;
@@ -137,6 +138,8 @@ pub struct AppState {
     // F-27/F-29
     pub export_policy: PgExportPolicyRepository,
     pub export_datos: PgExportRepository,
+    // F-43
+    pub system_status: PgSystemStatusRepository,
 }
 
 /// Lee `ELLKAN_RP_ID`/`ELLKAN_RP_ORIGIN` con default de desarrollo — ver el
@@ -221,6 +224,7 @@ impl AppState {
             external_share_policy: PgExternalSharePolicyRepository { pool: pool.clone() },
             export_policy: PgExportPolicyRepository { pool: pool.clone() },
             export_datos: PgExportRepository { pool: pool.clone() },
+            system_status: PgSystemStatusRepository { pool: pool.clone() },
             pool,
         }
     }
