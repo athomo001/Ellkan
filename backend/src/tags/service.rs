@@ -59,7 +59,7 @@ where
 
         if !self
             .permisos
-            .tiene_permiso(resource_id, actor_id, NivelPermiso::Update.as_db_str())
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Update.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);

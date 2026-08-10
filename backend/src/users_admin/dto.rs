@@ -11,11 +11,24 @@ pub struct UsuarioResponse {
     pub email: String,
     pub display_name: String,
     pub active: bool,
+    pub has_avatar: bool,
+    pub groups: Vec<String>,
+    pub owned_resources_count: i64,
+    pub shared_with_count: i64,
 }
 
 impl From<ResumenUsuario> for UsuarioResponse {
     fn from(r: ResumenUsuario) -> Self {
-        Self { id: r.id, email: r.email, display_name: r.display_name, active: r.active }
+        Self {
+            id: r.id,
+            email: r.email,
+            display_name: r.display_name,
+            active: r.active,
+            has_avatar: r.has_avatar,
+            groups: r.groups,
+            owned_resources_count: r.owned_resources_count,
+            shared_with_count: r.shared_with_count,
+        }
     }
 }
 

@@ -243,12 +243,39 @@ impl UserPurgeRepository for PgUserPurgeRepository {
 
     async fn obtener_resumen(&self, user_id: Uuid) -> Result<Option<ResumenUsuario>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, email, display_name, active from users where id = $1 and deleted_at is null"#,
+            r#"
+            select
+                u.id, u.email, u.display_name, u.active,
+                (u.avatar_content_type is not null) as "has_avatar!",
+                coalesce((
+                    select array_agg(g.name order by g.name)
+                    from group_members gm join groups g on g.id = gm.group_id
+                    where gm.user_id = u.id and g.deleted_at is null
+                ), '{}') as "groups!: Vec<String>",
+                (select count(*) from resources r where r.created_by = u.id) as "owned_resources_count!",
+                (
+                    select count(*) from permissions p
+                    join resources r on r.id = p.subject_id
+                    where p.subject_type = 'resource' and p.grantee_type = 'user' and p.grantee_id = u.id
+                      and r.created_by is distinct from u.id
+                ) as "shared_with_count!"
+            from users u
+            where u.id = $1 and u.deleted_at is null
+            "#,
             user_id,
         )
         .fetch_optional(&self.pool)
         .await?;
-        Ok(fila.map(|f| ResumenUsuario { id: f.id, email: f.email, display_name: f.display_name, active: f.active }))
+        Ok(fila.map(|f| ResumenUsuario {
+            id: f.id,
+            email: f.email,
+            display_name: f.display_name,
+            active: f.active,
+            has_avatar: f.has_avatar,
+            groups: f.groups,
+            owned_resources_count: f.owned_resources_count,
+            shared_with_count: f.shared_with_count,
+        }))
     }
 
     async fn desactivar(&self, user_id: Uuid) -> Result<bool, RepoError> {
@@ -273,14 +300,31 @@ impl UserPurgeRepository for PgUserPurgeRepository {
     }
 
     async fn listar(&self, active: Option<bool>, cursor: Option<Uuid>, limite: i64) -> Result<Vec<ResumenUsuario>, RepoError> {
+        // F-29/post-cierre bloque C: subqueries escalares en vez de JOIN+GROUP
+        // BY — más simple de mantener correcto junto al `limit`/`order by` de
+        // la paginación, y sigue siendo una sola query (no N+1 por usuario).
         let filas = sqlx::query!(
             r#"
-            select id, email, display_name, active
-            from users
-            where deleted_at is null
-              and ($1::uuid is null or id < $1)
-              and ($2::bool is null or active = $2)
-            order by id desc
+            select
+                u.id, u.email, u.display_name, u.active,
+                (u.avatar_content_type is not null) as "has_avatar!",
+                coalesce((
+                    select array_agg(g.name order by g.name)
+                    from group_members gm join groups g on g.id = gm.group_id
+                    where gm.user_id = u.id and g.deleted_at is null
+                ), '{}') as "groups!: Vec<String>",
+                (select count(*) from resources r where r.created_by = u.id) as "owned_resources_count!",
+                (
+                    select count(*) from permissions p
+                    join resources r on r.id = p.subject_id
+                    where p.subject_type = 'resource' and p.grantee_type = 'user' and p.grantee_id = u.id
+                      and r.created_by is distinct from u.id
+                ) as "shared_with_count!"
+            from users u
+            where u.deleted_at is null
+              and ($1::uuid is null or u.id < $1)
+              and ($2::bool is null or u.active = $2)
+            order by u.id desc
             limit $3
             "#,
             cursor,
@@ -292,7 +336,16 @@ impl UserPurgeRepository for PgUserPurgeRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| ResumenUsuario { id: f.id, email: f.email, display_name: f.display_name, active: f.active })
+            .map(|f| ResumenUsuario {
+                id: f.id,
+                email: f.email,
+                display_name: f.display_name,
+                active: f.active,
+                has_avatar: f.has_avatar,
+                groups: f.groups,
+                owned_resources_count: f.owned_resources_count,
+                shared_with_count: f.shared_with_count,
+            })
             .collect())
     }
 }

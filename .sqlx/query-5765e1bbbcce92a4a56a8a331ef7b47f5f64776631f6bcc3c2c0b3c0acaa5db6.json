@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)\n            values ($1, $2, 'user', $3, $4)\n            on conflict (subject_type, subject_id, grantee_type, grantee_id)\n            do update set level = excluded.level\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5765e1bbbcce92a4a56a8a331ef7b47f5f64776631f6bcc3c2c0b3c0acaa5db6"
+}

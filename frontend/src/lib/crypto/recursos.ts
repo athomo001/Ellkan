@@ -43,6 +43,9 @@ interface RecursoCrudo {
 	updated_at: string;
 	metadata_key_type: 'user_key' | 'shared_key';
 	metadata_key_id: string | null;
+	/** F-11: carpeta donde el usuario actual tiene posicionado este recurso
+	 * en su propio árbol — `null`/ausente = raíz. Nunca cifrado, plano. */
+	folder_id?: string | null;
 }
 
 interface MetadataKeyCruda {
@@ -83,6 +86,8 @@ export interface Recurso {
 	metadataKeyId?: string;
 	/** F-30/F-07: refresco inteligente (`huboCambios`) y valor de `If-Match` al editar. */
 	updated_at: string;
+	/** F-11: `null` = raíz. */
+	folderId: string | null;
 }
 
 /**
@@ -131,7 +136,8 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				metadataKeyType: r.metadata_key_type,
 				dekPropia: enCache.dekPropiaB64 ? base64ABytes(enCache.dekPropiaB64) : undefined,
 				metadataKeyId: r.metadata_key_id ?? undefined,
-				updated_at: r.updated_at
+				updated_at: r.updated_at,
+				folderId: r.folder_id ?? null
 			});
 			continue;
 		}
@@ -172,7 +178,8 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				metadataKeyType: r.metadata_key_type,
 				dekPropia,
 				metadataKeyId: r.metadata_key_id ?? undefined,
-				updated_at: r.updated_at
+				updated_at: r.updated_at,
+				folderId: r.folder_id ?? null
 			});
 			await guardarEnCache(r.id, r.metadata_nonce_b64, {
 				nombre,
@@ -208,7 +215,16 @@ export async function verSecreto(
 	return { password: json.password ?? '', notes: json.notes ?? '', totpSecret: json.totp_secret };
 }
 
+/** F-07: FTP/SSH/VNC reusan el mismo shape que login-password (host:puerto
+ * en `uri`) — sólo cambia el `resource_type_slug` para categorizar/mostrar
+ * un ícono distinto, sin autenticación por clave SSH todavía. */
+export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc';
+
 export interface NuevoRecurso {
+	/** Sólo relevante para `crearRecurso` — `editarRecurso` reusa este mismo
+	 * tipo pero nunca cambia el `resource_type_id` de un recurso existente,
+	 * así que ahí no hace falta pasarlo. */
+	tipo?: TipoRecurso;
 	nombre: string;
 	usuario: string;
 	uri: string;
@@ -239,7 +255,10 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 
 	await api.post('/resources', {
 		id: resourceId,
-		resource_type_slug: datos.totpSecretBase32 ? 'login-password-totp' : 'login-password',
+		resource_type_slug:
+			(datos.tipo ?? 'login-password') === 'login-password' && datos.totpSecretBase32
+				? 'login-password-totp'
+				: (datos.tipo ?? 'login-password'),
 		metadata_ciphertext_b64: bytesABase64(metadataCifrada.ciphertext),
 		metadata_nonce_b64: bytesABase64(metadataCifrada.nonce),
 		sealed_dek_b64: bytesABase64(sealedDek),

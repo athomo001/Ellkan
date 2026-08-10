@@ -289,6 +289,10 @@ export interface UsuarioAdmin {
 	email: string;
 	display_name: string;
 	active: boolean;
+	has_avatar: boolean;
+	groups: string[];
+	owned_resources_count: number;
+	shared_with_count: number;
 }
 export interface GrupoBloqueado {
 	group_id: string;
@@ -313,6 +317,20 @@ export const usersAdminApi = {
 	listar: (cursor?: string, active?: boolean) =>
 		api.get<UsuariosPage>(`/admin/users${queryString({ cursor, active: active === undefined ? undefined : String(active) })}`)
 };
+
+/** Post-cierre bloque C: avatar de un usuario ajeno (`GET /me/avatar` sólo
+ * sirve el propio) — mismo patrón que `obtenerAvatarUrl` en `profile.ts`
+ * (bytes crudos, no JSON, hay que pedirlo con el Bearer a mano). */
+export async function obtenerAvatarUrlAdmin(userId: string): Promise<string | null> {
+	const sessionId = get(sesion).sessionId;
+	const resp = await fetch(`/admin/users/${userId}/avatar`, {
+		headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {}
+	});
+	if (resp.status === 404) return null;
+	if (!resp.ok) throw new Error(`avatar: ${resp.status}`);
+	const blob = await resp.blob();
+	return URL.createObjectURL(blob);
+}
 
 // --- Reportes (F-23) ---
 export type ReportId = 'passwords_expired' | 'mfa_coverage' | 'inactive_users' | 'resources_never_rotated';

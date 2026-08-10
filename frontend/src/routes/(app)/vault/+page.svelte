@@ -27,9 +27,17 @@
 		crearRecurso,
 		editarRecurso,
 		compartirRecurso,
-		type Recurso
+		type Recurso,
+		type TipoRecurso
 	} from '$lib/crypto/recursos';
-	import { listarArbolCarpetas, crearCarpeta, moverCarpeta, type NodoCarpeta } from '$lib/crypto/carpetas';
+	import {
+		listarArbolCarpetas,
+		crearCarpeta,
+		moverCarpeta,
+		moverRecursoACarpeta,
+		compartirCarpeta,
+		type NodoCarpeta
+	} from '$lib/crypto/carpetas';
 	import { tagsApi, type Tag } from '$lib/api/tags';
 	import { passwordPolicyApi } from '$lib/api/admin';
 	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
@@ -111,6 +119,52 @@
 		}
 	}
 
+	// F-11: clic en una carpeta del árbol filtra la tabla — clic de nuevo la
+	// quita. `null` = sin filtro (todas).
+	let carpetaFiltro = $state<string | null>(null);
+	function onFiltrarCarpeta(folderId: string) {
+		carpetaFiltro = carpetaFiltro === folderId ? null : folderId;
+	}
+
+	async function onMoverRecurso(resourceId: string, folderId: string | null) {
+		try {
+			await moverRecursoACarpeta(resourceId, folderId);
+			recursos = recursos.map((r) => (r.id === resourceId ? { ...r, folderId } : r));
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.vault.carpetas.error;
+		}
+	}
+
+	// F-11: compartir una carpeta — mini-form inline, sin modal aparte (mismo
+	// criterio liviano que el resto del panel de detalle).
+	let compartiendoCarpeta = $state<{ folderId: string; nombre: string } | null>(null);
+	let emailCompartirCarpeta = $state('');
+	let nivelCompartirCarpeta = $state<'read' | 'update' | 'owner'>('update');
+	let compartiendoCarpetaEnCurso = $state(false);
+	let errorCompartirCarpeta = $state<string | undefined>();
+
+	function onCompartirCarpeta(folderId: string, nombre: string) {
+		compartiendoCarpeta = { folderId, nombre };
+		emailCompartirCarpeta = '';
+		nivelCompartirCarpeta = 'update';
+		errorCompartirCarpeta = undefined;
+	}
+
+	async function confirmarCompartirCarpeta(e: SubmitEvent) {
+		e.preventDefault();
+		if (!compartiendoCarpeta) return;
+		errorCompartirCarpeta = undefined;
+		compartiendoCarpetaEnCurso = true;
+		try {
+			await compartirCarpeta(compartiendoCarpeta.folderId, compartiendoCarpeta.nombre, emailCompartirCarpeta, nivelCompartirCarpeta);
+			compartiendoCarpeta = null;
+		} catch (err) {
+			errorCompartirCarpeta = err instanceof ApiError ? err.message : $t.vault.carpetas.error;
+		} finally {
+			compartiendoCarpetaEnCurso = false;
+		}
+	}
+
 	async function onCrearTag(nombreTag: string, isShared: boolean) {
 		try {
 			const nuevo = await tagsApi.crear(nombreTag, isShared);
@@ -143,6 +197,7 @@
 	const recursosFiltrados = $derived(
 		recursos.filter((r) => {
 			if (idsConTagsSeleccionados && !idsConTagsSeleccionados.has(r.id)) return false;
+			if (carpetaFiltro !== null && r.folderId !== carpetaFiltro) return false;
 			if (!busqueda.trim()) return true;
 			const q = busqueda.trim().toLowerCase();
 			return r.nombre.toLowerCase().includes(q) || r.usuario.toLowerCase().includes(q) || r.uri.toLowerCase().includes(q);
@@ -233,6 +288,7 @@
 
 	// --- crear ---
 	let mostrarCrear = $state(false);
+	let tipoNuevo = $state<TipoRecurso>('login-password');
 	let nombre = $state('');
 	let usuario = $state('');
 	let uri = $state('');
@@ -249,10 +305,11 @@
 		creando = true;
 		try {
 			await crearRecurso(
-				{ nombre, usuario, uri, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
+				{ tipo: tipoNuevo, nombre, usuario, uri, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
 				$clavesDesbloqueadas,
 				$sesion.userId
 			);
+			tipoNuevo = 'login-password';
 			nombre = usuario = uri = password = notas = totpSecretBase32 = '';
 			mostrarCrear = false;
 			await cargar();
@@ -284,6 +341,15 @@
 		externoMaxVistas = '1';
 		externoError = undefined;
 		externoLink = undefined;
+	}
+
+	// F-05/F-11: ícono de compartir directo en la fila (antes había que abrir
+	// el detalle primero) — selecciona el recurso y abre el panel ya en modo
+	// "compartir", nunca lo deselecciona si ya estaba abierto.
+	function compartirDesdeIcono(recurso: Recurso, e: MouseEvent) {
+		e.stopPropagation();
+		if (seleccionado?.id !== recurso.id) seleccionarFila(recurso);
+		panelModo = 'compartir';
 	}
 
 	function cerrarPanel() {
@@ -450,6 +516,48 @@
 			seleccionados.size === recursosFiltrados.length ? new Set() : new Set(recursosFiltrados.map((r) => r.id));
 	}
 
+	// F-11: edición masiva — no tiene sentido "editar el secreto de N
+	// recursos a la vez" en un gestor zero-knowledge (eso sería N ediciones
+	// con contenido propio cada una, no una acción masiva real). Lo que sí
+	// tiene sentido: mover varios a la vez a una carpeta, o taggearlos —
+	// ambas reusan los endpoints singulares ya existentes en un loop, el
+	// volumen típico no justifica un endpoint batch nuevo.
+	let carpetaMasiva = $state('');
+	let aplicandoMasivo = $state(false);
+	let errorMasivo = $state<string | undefined>();
+
+	async function moverSeleccionADeCarpeta() {
+		if (seleccionados.size === 0) return;
+		aplicandoMasivo = true;
+		errorMasivo = undefined;
+		try {
+			const destino = carpetaMasiva === '' ? null : carpetaMasiva;
+			await Promise.all([...seleccionados].map((id) => moverRecursoACarpeta(id, destino)));
+			recursos = recursos.map((r) => (seleccionados.has(r.id) ? { ...r, folderId: destino } : r));
+			seleccionados = new Set();
+		} catch (err) {
+			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			aplicandoMasivo = false;
+		}
+	}
+
+	let tagMasivo = $state('');
+
+	async function agregarTagASeleccion() {
+		if (seleccionados.size === 0 || !tagMasivo) return;
+		aplicandoMasivo = true;
+		errorMasivo = undefined;
+		try {
+			await Promise.all([...seleccionados].map((id) => tagsApi.aplicar(id, tagMasivo)));
+			seleccionados = new Set();
+		} catch (err) {
+			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			aplicandoMasivo = false;
+		}
+	}
+
 	// --- exportar/importar (F-27) — antes vivía en `/settings/export-import`,
 	// separado del propio Vault que exporta; movido acá para poder elegir
 	// "todos" o sólo lo seleccionado arriba, sin duplicar la carga/descifrado
@@ -609,10 +717,41 @@
 			<FolderTree
 				nodos={carpetas}
 				cargando={cargandoCarpetas}
+				filtroActivo={carpetaFiltro}
 				onCrear={onCrearCarpeta}
 				onMover={onMoverCarpeta}
+				onFiltrar={onFiltrarCarpeta}
+				onCompartir={onCompartirCarpeta}
 			/>
 			{#if errorCarpetas}<p class="error">{errorCarpetas}</p>{/if}
+			{#if compartiendoCarpeta}
+				<form class="form-compartir-carpeta" onsubmit={confirmarCompartirCarpeta}>
+					<p class="hint">{$t.vault.carpetas.compartirCon(compartiendoCarpeta.nombre)}</p>
+					<TextField
+						label={$t.vault.carpetas.emailDestinatario}
+						type="email"
+						bind:value={emailCompartirCarpeta}
+						required
+					/>
+					<label class="campo-nivel">
+						{$t.vault.carpetas.nivel}
+						<select bind:value={nivelCompartirCarpeta}>
+							<option value="read">{$t.vault.carpetas.nivelRead}</option>
+							<option value="update">{$t.vault.carpetas.nivelUpdate}</option>
+							<option value="owner">{$t.vault.carpetas.nivelOwner}</option>
+						</select>
+					</label>
+					{#if errorCompartirCarpeta}<p class="error">{errorCompartirCarpeta}</p>{/if}
+					<div class="botones-compartir-carpeta">
+						<Button type="submit" variant="primary" loading={compartiendoCarpetaEnCurso}>
+							{$t.vault.carpetas.compartir}
+						</Button>
+						<Button type="button" variant="ghost" onclick={() => (compartiendoCarpeta = null)}>
+							{$t.vault.cancelar}
+						</Button>
+					</div>
+				</form>
+			{/if}
 		</Card>
 
 		<Card>
@@ -712,15 +851,26 @@
 
 				{#if mostrarCrear}
 					<form onsubmit={crear} class="crear">
+						<label class="campo-tipo">
+							{$t.vault.tipo}
+							<select bind:value={tipoNuevo}>
+								<option value="login-password">{$t.vault.tipoLoginPassword}</option>
+								<option value="ftp">{$t.vault.tipoFtp}</option>
+								<option value="ssh">{$t.vault.tipoSsh}</option>
+								<option value="vnc">{$t.vault.tipoVnc}</option>
+							</select>
+						</label>
 						<TextField label={$t.vault.nombre} bind:value={nombre} required />
 						<TextField label={$t.vault.usuario} bind:value={usuario} />
-						<TextField label={$t.vault.uri} bind:value={uri} />
+						<TextField label={tipoNuevo === 'login-password' ? $t.vault.uri : $t.vault.uriHostPuerto} bind:value={uri} />
 						<div class="con-generar">
 							<TextField label={$t.vault.password} type="password" bind:value={password} required />
 							<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
 						</div>
 						<TextField label={$t.vault.notas} bind:value={notas} />
-						<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
+						{#if tipoNuevo === 'login-password'}
+							<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
+						{/if}
 						{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
 						<div class="botones">
 							<Button type="submit" variant="primary" loading={creando}>{$t.vault.crear}</Button>
@@ -740,6 +890,29 @@
 						</button>
 						{#if seleccionados.size > 0}<span class="hint">{$t.vault.conteoSeleccionados(seleccionados.size)}</span>{/if}
 					</div>
+					{#if seleccionados.size > 0}
+						<div class="acciones-masivas">
+							<select bind:value={carpetaMasiva}>
+								<option value="">{$t.vault.carpetas.raiz}</option>
+								{#each carpetas as c (c.id)}
+									<option value={c.id}>{c.nombre}</option>
+								{/each}
+							</select>
+							<Button variant="secondary" onclick={moverSeleccionADeCarpeta} loading={aplicandoMasivo}>
+								{$t.vault.moverSeleccion}
+							</Button>
+							<select bind:value={tagMasivo}>
+								<option value="">{$t.vault.tags.todos}</option>
+								{#each tags as tg (tg.id)}
+									<option value={tg.id}>{tg.name}</option>
+								{/each}
+							</select>
+							<Button variant="secondary" onclick={agregarTagASeleccion} loading={aplicandoMasivo} disabled={!tagMasivo}>
+								{$t.vault.taggearSeleccion}
+							</Button>
+						</div>
+						{#if errorMasivo}<p class="error">{errorMasivo}</p>{/if}
+					{/if}
 					<Table
 						columnas={[
 							{ key: 'sel', header: '' },
@@ -762,6 +935,16 @@
 							<td class="secundario">{r.uri}</td>
 							<td class="secundario">
 								{r.metadataKeyType === 'shared_key' ? $t.vault.compartir : $t.vault.personal}
+								{#if r.metadataKeyType === 'shared_key'}
+									<button
+										type="button"
+										class="icono-copiar"
+										onclick={(e) => compartirDesdeIcono(r, e)}
+										title={$t.vault.compartir}
+									>
+										⇄
+									</button>
+								{/if}
 							</td>
 						{/snippet}
 					</Table>
@@ -808,6 +991,19 @@
 								</dd>
 							{/if}
 						</dl>
+
+						<label class="campo-carpeta">
+							{$t.vault.carpetas.titulo}
+							<select
+								value={seleccionado.folderId ?? ''}
+								onchange={(e) => onMoverRecurso(seleccionado!.id, e.currentTarget.value === '' ? null : e.currentTarget.value)}
+							>
+								<option value="">{$t.vault.carpetas.raiz}</option>
+								{#each carpetas as c (c.id)}
+									<option value={c.id}>{c.nombre}</option>
+								{/each}
+							</select>
+						</label>
 
 						{#if !secretoAbierto}
 							<Button variant="secondary" onclick={verSecretoDelSeleccionado} loading={cargandoSecreto}>
@@ -934,6 +1130,23 @@
 		padding: var(--space-4);
 		margin-bottom: var(--space-4);
 	}
+	.campo-tipo {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		font-weight: 500;
+		margin-bottom: var(--space-4);
+	}
+	.campo-tipo select {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+		font-weight: normal;
+	}
 	.con-generar {
 		display: flex;
 		align-items: flex-end;
@@ -996,6 +1209,48 @@
 		margin: 0;
 		color: var(--text-primary);
 		word-break: break-word;
+	}
+	.campo-carpeta {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-muted);
+		margin: var(--space-3) 0;
+	}
+	.campo-carpeta select {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+	}
+	.form-compartir-carpeta {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
+		padding-top: var(--space-3);
+		border-top: 1px solid var(--border-color);
+	}
+	.campo-nivel {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-muted);
+	}
+	.campo-nivel select {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+	}
+	.botones-compartir-carpeta {
+		display: flex;
+		gap: var(--space-2);
 	}
 	.icono-copiar {
 		background: none;
@@ -1087,5 +1342,20 @@
 		font-size: var(--text-xs);
 		color: var(--accent-primary);
 		cursor: pointer;
+	}
+	.acciones-masivas {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
+		flex-wrap: wrap;
+	}
+	.acciones-masivas select {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
 	}
 </style>

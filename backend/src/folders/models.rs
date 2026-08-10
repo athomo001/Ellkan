@@ -2,11 +2,12 @@
 
 use uuid::Uuid;
 
+/// F-11: `folders` sólo guarda el `id` compartido — el nombre (cifrado) es
+/// por-usuario y vive en `folder_items` (una fila por destinatario, cada
+/// uno con su propio sellado), no acá.
 #[derive(Debug, Clone)]
 pub struct Folder {
     pub id: Uuid,
-    pub name_ciphertext: Vec<u8>,
-    pub name_nonce: Vec<u8>,
 }
 
 /// Una fila de `folder_items` ya resuelta contra `folders` — la vista de

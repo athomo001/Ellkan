@@ -53,7 +53,7 @@ where
             .await?;
 
         self.permisos
-            .otorgar(recurso.id, owner_id, NivelPermiso::Owner.as_db_str())
+            .otorgar("resource", recurso.id, owner_id, NivelPermiso::Owner.as_db_str())
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -72,7 +72,7 @@ where
     pub async fn obtener(&self, resource_id: Uuid, user_id: Uuid) -> Result<Resource, DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);
@@ -90,7 +90,7 @@ where
     ) -> Result<SecretEnvelope, DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);
@@ -117,7 +117,7 @@ where
     ) -> Result<(), DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, owner_id, NivelPermiso::Owner.as_db_str())
+            .tiene_permiso("resource", resource_id, owner_id, NivelPermiso::Owner.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);
@@ -141,7 +141,7 @@ where
             })?;
 
         self.permisos
-            .otorgar(resource_id, recipient_id, nivel.as_db_str())
+            .otorgar("resource", resource_id, recipient_id, nivel.as_db_str())
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -173,7 +173,7 @@ where
     ) -> Result<(), DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, actor_id, NivelPermiso::Update.as_db_str())
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Update.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);
@@ -202,7 +202,7 @@ where
     pub async fn listar_destinatarios(&self, resource_id: Uuid, user_id: Uuid) -> Result<Vec<Destinatario>, DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);
@@ -227,7 +227,7 @@ where
     ) -> Result<Resource, DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, actor_id, NivelPermiso::Update.as_db_str())
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Update.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);
@@ -256,7 +256,7 @@ where
     pub async fn tiene_totp(&self, resource_id: Uuid, user_id: Uuid) -> Result<bool, DomainError> {
         if !self
             .permisos
-            .tiene_permiso(resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str())
             .await?
         {
             return Err(DomainError::PermissionDenied);

@@ -142,6 +142,12 @@ const en: Diccionario = {
 		generarPassword: 'Generate',
 		notas: 'Notes',
 		totpOpcional: 'TOTP secret (optional, base32)',
+		tipo: 'Type',
+		tipoLoginPassword: 'Username and password',
+		tipoFtp: 'FTP',
+		tipoSsh: 'SSH',
+		tipoVnc: 'VNC',
+		uriHostPuerto: 'Host:port',
 		crear: 'Create',
 		cancelar: 'Cancel',
 		verSecreto: 'View secret',
@@ -170,6 +176,9 @@ const en: Diccionario = {
 		seleccionarTodos: 'Select all',
 		deseleccionarTodos: 'Deselect all',
 		conteoSeleccionados: (n: number) => `${n} selected`,
+		moverSeleccion: 'Move to folder',
+		taggearSeleccion: 'Add tag',
+		errorMasivo: 'Could not apply the action to all selected resources.',
 		carpetas: {
 			titulo: 'Folders',
 			todas: 'All resources',
@@ -182,7 +191,15 @@ const en: Diccionario = {
 			sinCarpetas: "You don't have any folders yet.",
 			error: 'Could not load folders.',
 			errorCrear: 'Could not create the folder.',
-			hintSinAsociarRecursos: "Resources can't be moved into a folder yet — this view only organizes folders for now."
+			hintSinAsociarRecursos: 'Click a folder to filter the list by its contents — click again to clear it.',
+			filtrar: 'Filter by this folder',
+			compartir: 'Share',
+			compartirCon: (nombre: string) => `Share "${nombre}" with:`,
+			emailDestinatario: 'Recipient email',
+			nivel: 'Access level',
+			nivelRead: 'Read',
+			nivelUpdate: 'Edit',
+			nivelOwner: 'Owner'
 		},
 		tags: {
 			todos: 'All',
@@ -284,7 +301,12 @@ const en: Diccionario = {
 		recoveryHabilitada: 'Enabled on this account.',
 		recoveryHabilitar: 'Enable account recovery',
 		recoveryErrorHabilitar: 'Could not enable account recovery.',
-		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.'
+		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.',
+		dispositivosTitulo: 'Trusted devices',
+		dispositivosHint: 'Devices marked as trusted (F-37) — revoking one here deletes the sealed key for that device only, others are unaffected.',
+		dispositivosSinDispositivos: "You don't have any active trusted devices.",
+		dispositivosRevocar: 'Revoke',
+		dispositivosError: 'Could not load the device list.'
 	},
 	settingsProfile: {
 		titulo: 'My profile',
@@ -397,6 +419,11 @@ const en: Diccionario = {
 			seleccionarTodos: 'Select all',
 			deseleccionarTodos: 'Deselect all',
 			purgarSeleccionados: (n: number) => `Purge ${n} selected`,
+			activarSeleccionados: 'Activate selected',
+			desactivarSeleccionados: 'Deactivate selected',
+			colGrupos: 'Groups',
+			colConteos: 'Passwords',
+			conteoRecursos: (propias: number, compartidas: number) => `${propias} owned, ${compartidas} shared`,
 			purgaMasivaConfirmar: (n: number) => `Permanently purge ${n} ${n === 1 ? 'user' : 'users'}? This cannot be undone.`,
 			purgaMasivaOk: (n: number) => `${n} ${n === 1 ? 'user' : 'users'} purged.`,
 			purgaMasivaBloqueados: 'Blocked (have shared resources or groups not yet transferred)',
@@ -436,7 +463,10 @@ const en: Diccionario = {
 			hintResellado:
 				"This group already has shared resources — adding a member re-seals the secret for them, but only for the ones you yourself have access to.",
 			errorSinDesbloquear: 'Your passphrase is needed to re-seal the group\'s resources.',
-			errorEnvelopes: "Could not add the member — you might not have access to one of the group's resources."
+			errorEnvelopes: "Could not add the member — you might not have access to one of the group's resources.",
+			cargarCsv: 'Upload CSV of emails',
+			resumenCsv: (agregados: number, fallidos: number) =>
+				fallidos === 0 ? `${agregados} member(s) added.` : `${agregados} member(s) added, ${fallidos} failed:`
 		},
 		reportes: {
 			titulo: 'Reports',

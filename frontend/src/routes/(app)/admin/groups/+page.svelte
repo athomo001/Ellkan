@@ -5,7 +5,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Table from '$lib/components/Table.svelte';
-	import { groupsApi, type Grupo, type EnvelopeParaGrupo } from '$lib/api/admin';
+	import { groupsApi, usersAdminApi, type Grupo, type EnvelopeParaGrupo, type UsuarioAdmin } from '$lib/api/admin';
 	import { resellarSecretoParaGrupo } from '$lib/crypto/recursos';
 	import { desbloquearConPassphrase } from '$lib/crypto/identity';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
@@ -15,6 +15,22 @@
 	let cargando = $state(true);
 	let error = $state<string | undefined>();
 	let grupos = $state<Grupo[]>([]);
+
+	// Selector de miembros (en vez de un campo de texto libre): se carga una
+	// sola vez, todas las páginas de `GET /admin/users` — alcanza para el
+	// tamaño típico de una organización que usa este panel, y evita tener
+	// que armar un combobox con búsqueda remota sólo para esto.
+	let usuarios = $state<UsuarioAdmin[]>([]);
+	async function cargarUsuarios() {
+		let cursor: string | undefined;
+		const todos: UsuarioAdmin[] = [];
+		do {
+			const pagina = await usersAdminApi.listar(cursor);
+			todos.push(...pagina.items);
+			cursor = pagina.next_cursor ?? undefined;
+		} while (cursor);
+		usuarios = todos;
+	}
 
 	async function cargar() {
 		cargando = true;
@@ -27,7 +43,10 @@
 			cargando = false;
 		}
 	}
-	onMount(cargar);
+	onMount(() => {
+		cargar();
+		cargarUsuarios();
+	});
 
 	let mostrarNuevo = $state(false);
 	let nombreNuevo = $state('');
@@ -88,14 +107,14 @@
 		}
 	}
 
-	async function agregarMiembro(e: SubmitEvent) {
-		e.preventDefault();
-		if (!abiertoId) return;
-		agregandoMiembro = true;
-		error = undefined;
+	/** Usada por el alta individual y por la carga CSV — devuelve el error
+	 * como string en vez de lanzar, para que el loop del CSV no aborte todo
+	 * el batch por un solo email fallido. */
+	async function agregarMiembroPorEmail(email: string, isAdmin: boolean): Promise<string | undefined> {
+		if (!abiertoId) return undefined;
 		try {
 			const destinatario = await api.get<{ user_id: string; public_key_x25519_b64: string }>(
-				`/users/${encodeURIComponent(nuevoMiembroEmail)}/public-key`
+				`/users/${encodeURIComponent(email)}/public-key`
 			);
 
 			let envelopes: EnvelopeParaGrupo[] = [];
@@ -108,14 +127,57 @@
 				);
 			}
 
-			await groupsApi.agregarMiembro(abiertoId, destinatario.user_id, nuevoMiembroAdmin, envelopes);
+			await groupsApi.agregarMiembro(abiertoId, destinatario.user_id, isAdmin, envelopes);
+			return undefined;
+		} catch (err) {
+			return err instanceof ApiError || err instanceof Error ? err.message : $t.admin.grupos.errorEnvelopes;
+		}
+	}
+
+	async function agregarMiembro(e: SubmitEvent) {
+		e.preventDefault();
+		if (!abiertoId) return;
+		agregandoMiembro = true;
+		error = undefined;
+		const fallo = await agregarMiembroPorEmail(nuevoMiembroEmail, nuevoMiembroAdmin);
+		if (fallo) {
+			error = fallo;
+		} else {
 			nuevoMiembroEmail = '';
 			detalle = await groupsApi.obtener(abiertoId);
-		} catch (err) {
-			error = err instanceof ApiError || err instanceof Error ? err.message : $t.admin.grupos.errorEnvelopes;
-		} finally {
-			agregandoMiembro = false;
 		}
+		agregandoMiembro = false;
+	}
+
+	// Carga CSV: una columna de emails (separados por línea o coma) — no
+	// hace falta el parser RFC4180 completo de `exportCsv.ts` (eso es para
+	// campos con comillas/comas adentro, como notas; una lista de emails no
+	// las necesita).
+	let cargandoCsv = $state(false);
+	let resumenCsv = $state<{ agregados: number; fallidos: { email: string; motivo: string }[] } | undefined>();
+
+	async function cargarCsv(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const archivo = input.files?.[0];
+		if (!archivo || !abiertoId) return;
+
+		const texto = await archivo.text();
+		const emails = [...new Set(texto.split(/[\n,]/).map((s) => s.trim()).filter(Boolean))];
+
+		cargandoCsv = true;
+		resumenCsv = undefined;
+		error = undefined;
+		const fallidos: { email: string; motivo: string }[] = [];
+		let agregados = 0;
+		for (const email of emails) {
+			const fallo = await agregarMiembroPorEmail(email, false);
+			if (fallo) fallidos.push({ email, motivo: fallo });
+			else agregados++;
+		}
+		resumenCsv = { agregados, fallidos };
+		if (agregados > 0) detalle = await groupsApi.obtener(abiertoId);
+		cargandoCsv = false;
+		input.value = '';
 	}
 
 	async function quitarMiembro(userId: string) {
@@ -199,7 +261,21 @@
 					<p class="hint">{$t.admin.grupos.hintResellado}</p>
 				{:else}
 					<form onsubmit={agregarMiembro} class="form-inline">
-						<TextField label={$t.admin.grupos.agregarMiembro} type="email" bind:value={nuevoMiembroEmail} required />
+						<div class="field-con-datalist">
+							<label for="miembro-email">{$t.admin.grupos.agregarMiembro}</label>
+							<input
+								id="miembro-email"
+								type="email"
+								list="usuarios-existentes"
+								bind:value={nuevoMiembroEmail}
+								required
+							/>
+							<datalist id="usuarios-existentes">
+								{#each usuarios as u (u.id)}
+									<option value={u.email}>{u.display_name}</option>
+								{/each}
+							</datalist>
+						</div>
 						<label class="check">
 							<input type="checkbox" bind:checked={nuevoMiembroAdmin} /> {$t.admin.grupos.admin}
 						</label>
@@ -207,6 +283,24 @@
 					</form>
 					{#if recursosDelGrupo.length > 0}
 						<p class="hint">{$t.admin.grupos.hintResellado}</p>
+					{/if}
+
+					<div class="carga-csv">
+						<label for="csv-miembros" class="link">{$t.admin.grupos.cargarCsv}</label>
+						<input id="csv-miembros" type="file" accept=".csv,text/csv" onchange={cargarCsv} disabled={cargandoCsv} />
+						{#if cargandoCsv}<span class="hint">{$t.admin.comun.cargando}</span>{/if}
+					</div>
+					{#if resumenCsv}
+						<p class="hint">
+							{$t.admin.grupos.resumenCsv(resumenCsv.agregados, resumenCsv.fallidos.length)}
+						</p>
+						{#if resumenCsv.fallidos.length > 0}
+							<ul class="fallidos-csv">
+								{#each resumenCsv.fallidos as f (f.email)}
+									<li>{f.email}: {f.motivo}</li>
+								{/each}
+							</ul>
+						{/if}
 					{/if}
 				{/if}
 			</div>
@@ -234,6 +328,35 @@
 	.form :global(.field),
 	.form-inline :global(.field) {
 		margin-bottom: 0;
+	}
+	.field-con-datalist {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+	.field-con-datalist label {
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+	.field-con-datalist input {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+	}
+	.carga-csv {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-2) 0 var(--space-4) 0;
+	}
+	.fallidos-csv {
+		margin: 0 0 var(--space-4) 0;
+		padding-left: var(--space-4);
+		font-size: var(--text-sm);
+		color: var(--danger);
 	}
 	.secundario {
 		color: var(--text-muted);

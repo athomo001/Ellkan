@@ -8,12 +8,14 @@ use uuid::Uuid;
 use crate::auth::extractor::AuthenticatedUser;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
+use crate::folders::repository::FolderItemRepository;
+use crate::folders::service::FolderService;
 use crate::state::AppState;
 use crate::tags::service::TagService;
 
 use super::dto::{
     ActualizarRecursoRequest, CompartirRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery,
-    RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
+    MoverRecursoRequest, RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
 };
 use super::models::{EnvelopeInput, NivelPermiso};
 use super::repository::ResourceTypeRepository;
@@ -48,6 +50,7 @@ fn a_response(recurso: super::models::Resource) -> RecursoResponse {
         updated_at: recurso.updated_at,
         metadata_key_type: recurso.metadata_key_type,
         metadata_key_id: recurso.metadata_key_id,
+        folder_id: None,
     }
 }
 
@@ -125,7 +128,26 @@ pub async fn listar(
         }
     };
 
-    Ok(Json(recursos.into_iter().map(a_response).collect()))
+    // F-11: siempre se calcula (no sólo cuando `folder_id` filtra) — la UI
+    // necesita saber en qué carpeta está cada recurso para mostrarlo/mover
+    // sin una consulta aparte por fila.
+    let posiciones = state.items_de_carpeta.posiciones_de_recursos(auth.user_id).await.map_err(DomainError::from)?;
+
+    let recursos: Vec<RecursoResponse> = recursos
+        .into_iter()
+        .map(|r| {
+            let mut resp = a_response(r);
+            resp.folder_id = posiciones.get(&resp.id).copied();
+            resp
+        })
+        .collect();
+
+    let recursos = match q.folder_id {
+        None => recursos,
+        Some(folder_id) => recursos.into_iter().filter(|r| r.folder_id == Some(folder_id)).collect(),
+    };
+
+    Ok(Json(recursos))
 }
 
 pub async fn obtener(
@@ -274,4 +296,19 @@ pub async fn actualizar(
         .await?;
 
     Ok(Json(a_response(recurso)))
+}
+
+/// `PUT /resources/{id}/move` (F-11) — la lógica vive en `FolderService`
+/// (misma que mueve carpetas y comparte, ver `folders/service.rs`), este
+/// handler sólo la construye con los repos de `AppState`.
+pub async fn mover(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+    Json(req): Json<MoverRecursoRequest>,
+) -> Result<(), ApiError> {
+    FolderService { carpetas: &state.carpetas, items: &state.items_de_carpeta, permisos: &state.permisos }
+        .mover_recurso(auth.user_id, resource_id, req.folder_id)
+        .await?;
+    Ok(())
 }

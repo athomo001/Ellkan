@@ -25,5 +25,7 @@ export const tagsApi = {
 	async idsConTag(tagId: string): Promise<string[]> {
 		const recursos = await api.get<{ id: string }[]>(`/resources?tag_id=${tagId}`);
 		return recursos.map((r) => r.id);
-	}
+	},
+	aplicar: (resourceId: string, tagId: string) => api.post<void>(`/resources/${resourceId}/tags/${tagId}`),
+	quitar: (resourceId: string, tagId: string) => api.delete<void>(`/resources/${resourceId}/tags/${tagId}`)
 };

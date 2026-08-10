@@ -365,6 +365,7 @@ pub fn construir_router(estado: AppState) -> Router {
         )
         .route("/{id}/rekey-metadata", post(resources::handlers::rekey_metadata))
         .route("/{id}/totp", get(resources::handlers::totp))
+        .route("/{id}/move", put(resources::handlers::mover))
         .route_layer(axum::middleware::from_fn_with_state(
             estado.clone(),
             rate_limit::limitar_por_usuario,
@@ -402,7 +403,8 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let folders_router = Router::new()
         .route("/", get(folders::handlers::listar).post(folders::handlers::crear))
-        .route("/{id}/move", put(folders::handlers::mover));
+        .route("/{id}/move", put(folders::handlers::mover))
+        .route("/{id}/share", post(folders::handlers::compartir));
 
     let admin_password_policy_router = Router::new()
         .route("/", get(password_policy::handlers::politica).put(password_policy::handlers::actualizar_politica));
@@ -516,7 +518,8 @@ pub fn construir_router(estado: AppState) -> Router {
             get(users_admin::handlers::obtener).put(users_admin::handlers::actualizar_activo),
         )
         .route("/{id}/purge/dry-run", get(users_admin::handlers::purge_dry_run))
-        .route("/{id}/purge", post(users_admin::handlers::purgar));
+        .route("/{id}/purge", post(users_admin::handlers::purgar))
+        .route("/{id}/avatar", get(users_admin::handlers::avatar));
 
     let router = Router::new()
         .route("/healthz", get(healthz))

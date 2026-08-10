@@ -16,6 +16,14 @@ pub struct MoverCarpetaRequest {
     pub new_parent_folder_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CompartirCarpetaRequest {
+    pub grantee_user_id: Uuid,
+    pub level: String,
+    pub name_ciphertext_b64: String,
+    pub name_nonce_b64: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct NodoArbolResponse {
     pub folder_id: Uuid,

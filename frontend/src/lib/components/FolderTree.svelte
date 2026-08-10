@@ -8,18 +8,25 @@
 	let {
 		nodos,
 		cargando = false,
+		filtroActivo = undefined,
 		onCrear,
-		onMover
+		onMover,
+		onFiltrar,
+		onCompartir
 	}: {
 		nodos: NodoCarpeta[];
 		cargando?: boolean;
+		/** F-11: carpeta actualmente filtrando el Vault, si hay alguna. */
+		filtroActivo?: string | null;
 		onCrear?: (nombre: string, parentId: string | null) => void | Promise<void>;
 		onMover?: (folderId: string, newParentId: string | null) => void | Promise<void>;
+		/** F-11: clic en el nombre — filtra el Vault por esta carpeta (o la
+		 * quita si ya era el filtro activo). */
+		onFiltrar?: (folderId: string) => void;
+		/** F-11: exige `owner`, el backend lo rechaza si no lo es. */
+		onCompartir?: (folderId: string, nombre: string) => void | Promise<void>;
 	} = $props();
 
-	// F-09: sin endpoint para asignar recursos a una carpeta todavía
-	// (`backend/src/folders/mod.rs`, gap real documentado) — este árbol es
-	// puramente organizativo por ahora, no filtra el listado de recursos.
 	let creandoEn = $state<string | null | undefined>(undefined);
 	let nombreNuevo = $state('');
 	let creando = $state(false);
@@ -57,7 +64,29 @@
 		{#each hijosDe(parentId) as nodo (nodo.id)}
 			<li>
 				<div class="fila">
-					<span class="nombre">{nodo.nombre}</span>
+					{#if onFiltrar}
+						<button
+							type="button"
+							class="nombre nombre-clickeable"
+							class:activo={filtroActivo === nodo.id}
+							onclick={() => onFiltrar?.(nodo.id)}
+							title={$t.vault.carpetas.filtrar}
+						>
+							{nodo.nombre}
+						</button>
+					{:else}
+						<span class="nombre">{nodo.nombre}</span>
+					{/if}
+					{#if onCompartir}
+						<button
+							type="button"
+							class="agregar"
+							onclick={() => onCompartir?.(nodo.id, nodo.nombre)}
+							title={$t.vault.carpetas.compartir}
+						>
+							⇄
+						</button>
+					{/if}
 					{#if onMover}
 						<select
 							class="mover"
@@ -159,6 +188,18 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.nombre-clickeable {
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.nombre-clickeable.activo {
+		color: var(--accent-primary);
+		font-weight: 600;
 	}
 	.mover {
 		max-width: 8rem;

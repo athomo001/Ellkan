@@ -10,7 +10,7 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import SecretField from '$lib/components/SecretField.svelte';
 	import Table from '$lib/components/Table.svelte';
-	import { usersAdminApi, type UsuarioAdmin, type PurgeDryRun } from '$lib/api/admin';
+	import { usersAdminApi, obtenerAvatarUrlAdmin, type UsuarioAdmin, type PurgeDryRun } from '$lib/api/admin';
 	import { registrar } from '$lib/crypto/identity';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -124,6 +124,37 @@
 		await cargarListado(true);
 	}
 
+	// Post-cierre bloque C: activar/desactivar en batch — reusa el mismo
+	// endpoint singular que ya usaba `toggleActivo` para un usuario puntual,
+	// en loop; la purga masiva de arriba ya tiene su propio flujo dedicado,
+	// no se toca.
+	let aplicandoActivoMasivo = $state(false);
+	async function aplicarActivoMasivo(active: boolean) {
+		if (seleccionados.size === 0) return;
+		aplicandoActivoMasivo = true;
+		for (const id of seleccionados) {
+			try {
+				await usersAdminApi.actualizarActivo(id, active);
+			} catch {
+				/* sigue con el resto — el usuario ve el resultado final al recargar la lista */
+			}
+		}
+		seleccionados = new Set();
+		aplicandoActivoMasivo = false;
+		await cargarListado(true);
+	}
+
+	// Avatares por fila — lazy y cacheado (`Map`), no todos de una vez: sólo
+	// se pide el de una fila que declara `has_avatar` (la mayoría no tiene).
+	let avatares = $state<Map<string, string>>(new Map());
+	async function avatarDe(u: UsuarioAdmin): Promise<string | undefined> {
+		if (!u.has_avatar) return undefined;
+		if (avatares.has(u.id)) return avatares.get(u.id);
+		const url = await obtenerAvatarUrlAdmin(u.id);
+		if (url) avatares = new Map(avatares).set(u.id, url);
+		return url ?? undefined;
+	}
+
 	let email = $state('');
 	let buscando = $state(false);
 	let error = $state<string | undefined>();
@@ -228,6 +259,12 @@
 				: $t.admin.usuarios.seleccionarTodos}
 		</Button>
 		{#if seleccionados.size > 0}
+			<Button variant="secondary" onclick={() => aplicarActivoMasivo(true)} loading={aplicandoActivoMasivo}>
+				{$t.admin.usuarios.activarSeleccionados}
+			</Button>
+			<Button variant="secondary" onclick={() => aplicarActivoMasivo(false)} loading={aplicandoActivoMasivo}>
+				{$t.admin.usuarios.desactivarSeleccionados}
+			</Button>
 			<Button variant="danger" onclick={purgarSeleccionados} loading={purgandoMasivo}>
 				{$t.admin.usuarios.purgarSeleccionados(seleccionados.size)}
 			</Button>
@@ -246,8 +283,11 @@
 	<Table
 		columnas={[
 			{ key: 'sel', header: '' },
+			{ key: 'avatar', header: '' },
 			{ key: 'nombre', header: $t.admin.usuarios.nombre },
 			{ key: 'email', header: $t.admin.usuarios.email },
+			{ key: 'grupos', header: $t.admin.usuarios.colGrupos },
+			{ key: 'conteos', header: $t.admin.usuarios.colConteos },
 			{ key: 'estado', header: $t.admin.usuarios.estado }
 		]}
 		filas={listado}
@@ -262,8 +302,19 @@
 			<td onclick={(e) => e.stopPropagation()}>
 				<input type="checkbox" checked={seleccionados.has(f.id)} onchange={() => toggleSeleccion(f.id)} />
 			</td>
+			<td class="celda-avatar">
+				{#if f.has_avatar}
+					{#await avatarDe(f) then url}
+						{#if url}<img class="avatar-fila" src={url} alt="" />{/if}
+					{/await}
+				{:else}
+					<span class="avatar-inicial">{(f.display_name || f.email)[0]?.toUpperCase()}</span>
+				{/if}
+			</td>
 			<td>{f.display_name}</td>
 			<td>{f.email}</td>
+			<td class="secundario">{f.groups.length > 0 ? f.groups.join(', ') : '—'}</td>
+			<td class="secundario">{$t.admin.usuarios.conteoRecursos(f.owned_resources_count, f.shared_with_count)}</td>
 			<td>{f.active ? $t.admin.usuarios.activo : $t.admin.usuarios.inactivo}</td>
 		{/snippet}
 	</Table>
@@ -346,7 +397,30 @@
 	.barra-masiva {
 		display: flex;
 		gap: var(--space-2);
+		flex-wrap: wrap;
 		margin-bottom: var(--space-3);
+	}
+	.celda-avatar {
+		width: 2rem;
+	}
+	.avatar-fila {
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 50%;
+		object-fit: cover;
+		display: block;
+	}
+	.avatar-inicial {
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 50%;
+		background: var(--bg-overlay);
+		color: var(--text-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: var(--text-xs);
+		font-weight: 600;
 	}
 	.form {
 		display: flex;

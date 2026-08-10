@@ -97,20 +97,25 @@ pub trait SecretEnvelopeRepository {
 }
 
 pub trait PermissionRepository {
+    /// `subject_type` ∈ {`resource`, `folder`} — mismo `permissions.subject_type`
+    /// que ya soporta el schema desde Fase 1.1, generalizado acá (Carpetas,
+    /// F-09/F-11) para no duplicar esta lógica una segunda vez.
     async fn otorgar(
         &self,
-        resource_id: Uuid,
+        subject_type: &str,
+        subject_id: Uuid,
         user_id: Uuid,
         nivel: &str,
     ) -> Result<(), RepoError>;
 
     /// `true` si `user_id` tiene exactamente `nivel` o uno más alto
-    /// (`owner` > `update` > `read`) sobre el recurso — directo (`grantee_type
-    /// = 'user'`) o vía membresía de un grupo con acceso (F-12: `grantee_type
-    /// = 'group'`, resuelto contra `group_members`).
+    /// (`owner` > `update` > `read`) sobre `subject_type`/`subject_id` —
+    /// directo (`grantee_type = 'user'`) o vía membresía de un grupo con
+    /// acceso (F-12: `grantee_type = 'group'`, resuelto contra `group_members`).
     async fn tiene_permiso(
         &self,
-        resource_id: Uuid,
+        subject_type: &str,
+        subject_id: Uuid,
         user_id: Uuid,
         nivel_minimo: &str,
     ) -> Result<bool, RepoError>;
@@ -140,6 +145,15 @@ pub trait PermissionRepository {
         grantee_type: &str,
         grantee_id: Uuid,
     ) -> Result<Vec<(String, Uuid)>, RepoError>;
+
+    /// `true` si `subject_type`/`subject_id` tiene AL MENOS una fila en
+    /// `permissions` (de cualquier grantee) — F-11 lo usa para distinguir
+    /// una carpeta ya compartida (exige `update` mínimo para operar) de una
+    /// todavía sin compartir (personal, sin restricción — mismo bypass que
+    /// Passbolt hace para carpetas 100% personales, y necesario además para
+    /// no bloquear carpetas creadas antes de que F-11 existiera, que nunca
+    /// tuvieron ninguna fila de permiso).
+    async fn existe_algun_permiso(&self, subject_type: &str, subject_id: Uuid) -> Result<bool, RepoError>;
 }
 
 #[derive(Clone)]
@@ -455,15 +469,16 @@ pub struct PgPermissionRepository {
 }
 
 impl PermissionRepository for PgPermissionRepository {
-    async fn otorgar(&self, resource_id: Uuid, user_id: Uuid, nivel: &str) -> Result<(), RepoError> {
+    async fn otorgar(&self, subject_type: &str, subject_id: Uuid, user_id: Uuid, nivel: &str) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
             insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)
-            values ('resource', $1, 'user', $2, $3)
+            values ($1, $2, 'user', $3, $4)
             on conflict (subject_type, subject_id, grantee_type, grantee_id)
             do update set level = excluded.level
             "#,
-            resource_id,
+            subject_type,
+            subject_id,
             user_id,
             nivel,
         )
@@ -474,22 +489,24 @@ impl PermissionRepository for PgPermissionRepository {
 
     async fn tiene_permiso(
         &self,
-        resource_id: Uuid,
+        subject_type: &str,
+        subject_id: Uuid,
         user_id: Uuid,
         nivel_minimo: &str,
     ) -> Result<bool, RepoError> {
         let filas = sqlx::query!(
             r#"
             select level from permissions
-            where subject_type = 'resource' and subject_id = $1
+            where subject_type = $1 and subject_id = $2
               and (
-                (grantee_type = 'user' and grantee_id = $2)
+                (grantee_type = 'user' and grantee_id = $3)
                 or (grantee_type = 'group' and grantee_id in (
-                    select group_id from group_members where user_id = $2
+                    select group_id from group_members where user_id = $3
                 ))
               )
             "#,
-            resource_id,
+            subject_type,
+            subject_id,
             user_id,
         )
         .fetch_all(&self.pool)
@@ -559,5 +576,16 @@ impl PermissionRepository for PgPermissionRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(filas.into_iter().map(|f| (f.subject_type, f.subject_id)).collect())
+    }
+
+    async fn existe_algun_permiso(&self, subject_type: &str, subject_id: Uuid) -> Result<bool, RepoError> {
+        let fila = sqlx::query!(
+            r#"select 1 as "existe!" from permissions where subject_type = $1 and subject_id = $2 limit 1"#,
+            subject_type,
+            subject_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.is_some())
     }
 }

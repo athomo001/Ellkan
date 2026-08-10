@@ -2,6 +2,8 @@
 
 #![allow(async_fn_in_trait)]
 
+use std::collections::HashMap;
+
 use uuid::Uuid;
 
 use crate::error::RepoError;
@@ -9,16 +11,28 @@ use crate::error::RepoError;
 use super::models::{Folder, NodoDeArbol};
 
 pub trait FolderRepository {
-    async fn crear(&self, id: Uuid, name_ciphertext: &[u8], name_nonce: &[u8]) -> Result<Folder, RepoError>;
+    async fn crear(&self, id: Uuid) -> Result<Folder, RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Folder>, RepoError>;
 }
 
 pub trait FolderItemRepository {
-    /// Posiciona (o reposiciona) `child_folder_id` bajo `parent_folder_id`
-    /// (`None` = raíz) en el árbol de `user_id` — upsert sobre
-    /// `unique(user_id, child_folder_id)`.
-    async fn posicionar(
+    /// Alta de una carpeta en el árbol de `user_id` — usado al crearla
+    /// (nombre propio) y al compartirla con alguien más (nombre resellado
+    /// para esa persona, client-side). Upsert sobre `unique(user_id,
+    /// child_folder_id)`, por si ya estaba (re-compartir/re-sellar).
+    async fn insertar_carpeta(
+        &self,
+        user_id: Uuid,
+        child_folder_id: Uuid,
+        parent_folder_id: Option<Uuid>,
+        name_ciphertext: &[u8],
+        name_nonce: &[u8],
+    ) -> Result<(), RepoError>;
+
+    /// Reposiciona (sólo el padre) una carpeta ya existente en el árbol de
+    /// `user_id` — nunca toca el nombre ni la vista de otro usuario.
+    async fn reposicionar_carpeta(
         &self,
         user_id: Uuid,
         child_folder_id: Uuid,
@@ -31,6 +45,23 @@ pub trait FolderItemRepository {
     async fn tiene_en_su_arbol(&self, user_id: Uuid, child_folder_id: Uuid) -> Result<bool, RepoError>;
 
     async fn arbol_de(&self, user_id: Uuid) -> Result<Vec<NodoDeArbol>, RepoError>;
+
+    /// F-11: posiciona (o reposiciona) un RECURSO dentro de una carpeta (o
+    /// `None` = raíz) para `user_id` — a diferencia de una carpeta, un
+    /// recurso no lleva nombre propio acá (su metadata ya vive cifrada en
+    /// `resources`), sólo la posición. Upsert sobre `unique(user_id,
+    /// resource_id)`.
+    async fn posicionar_recurso(
+        &self,
+        user_id: Uuid,
+        resource_id: Uuid,
+        parent_folder_id: Option<Uuid>,
+    ) -> Result<(), RepoError>;
+
+    /// Mapa recurso→carpeta del árbol de `user_id` — usado para filtrar
+    /// `GET /resources?folder_id=`. Un recurso ausente del mapa está en la
+    /// raíz (nunca posicionado, o repuesto a `None` explícitamente).
+    async fn posiciones_de_recursos(&self, user_id: Uuid) -> Result<HashMap<Uuid, Uuid>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -39,32 +70,19 @@ pub struct PgFolderRepository {
 }
 
 impl FolderRepository for PgFolderRepository {
-    async fn crear(&self, id: Uuid, name_ciphertext: &[u8], name_nonce: &[u8]) -> Result<Folder, RepoError> {
-        let fila = sqlx::query!(
-            r#"
-            insert into folders (id, name_ciphertext, name_nonce)
-            values ($1, $2, $3)
-            returning id, name_ciphertext, name_nonce
-            "#,
-            id,
-            name_ciphertext,
-            name_nonce,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(Folder { id: fila.id, name_ciphertext: fila.name_ciphertext, name_nonce: fila.name_nonce })
+    async fn crear(&self, id: Uuid) -> Result<Folder, RepoError> {
+        let fila = sqlx::query!(r#"insert into folders (id) values ($1) returning id"#, id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(Folder { id: fila.id })
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Folder>, RepoError> {
-        let fila = sqlx::query!(
-            r#"select id, name_ciphertext, name_nonce from folders where id = $1 and deleted_at is null"#,
-            id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select id from folders where id = $1 and deleted_at is null"#, id,)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(fila.map(|f| Folder { id: f.id, name_ciphertext: f.name_ciphertext, name_nonce: f.name_nonce }))
+        Ok(fila.map(|f| Folder { id: f.id }))
     }
 }
 
@@ -74,21 +92,45 @@ pub struct PgFolderItemRepository {
 }
 
 impl FolderItemRepository for PgFolderItemRepository {
-    async fn posicionar(
+    async fn insertar_carpeta(
+        &self,
+        user_id: Uuid,
+        child_folder_id: Uuid,
+        parent_folder_id: Option<Uuid>,
+        name_ciphertext: &[u8],
+        name_nonce: &[u8],
+    ) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"
+            insert into folder_items (folder_id, child_folder_id, user_id, name_ciphertext, name_nonce)
+            values ($1, $2, $3, $4, $5)
+            on conflict (user_id, child_folder_id) do update set
+                folder_id = excluded.folder_id,
+                name_ciphertext = excluded.name_ciphertext,
+                name_nonce = excluded.name_nonce
+            "#,
+            parent_folder_id,
+            child_folder_id,
+            user_id,
+            name_ciphertext,
+            name_nonce,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn reposicionar_carpeta(
         &self,
         user_id: Uuid,
         child_folder_id: Uuid,
         parent_folder_id: Option<Uuid>,
     ) -> Result<(), RepoError> {
         sqlx::query!(
-            r#"
-            insert into folder_items (folder_id, child_folder_id, user_id)
-            values ($1, $2, $3)
-            on conflict (user_id, child_folder_id) do update set folder_id = excluded.folder_id
-            "#,
+            r#"update folder_items set folder_id = $1 where user_id = $2 and child_folder_id = $3"#,
             parent_folder_id,
-            child_folder_id,
             user_id,
+            child_folder_id,
         )
         .execute(&self.pool)
         .await?;
@@ -110,7 +152,7 @@ impl FolderItemRepository for PgFolderItemRepository {
         let filas = sqlx::query!(
             r#"
             select fi.child_folder_id as "folder_id!", fi.folder_id as parent_folder_id,
-                   f.name_ciphertext, f.name_nonce
+                   fi.name_ciphertext as "name_ciphertext!", fi.name_nonce as "name_nonce!"
             from folder_items fi
             join folders f on f.id = fi.child_folder_id
             where fi.user_id = $1 and f.deleted_at is null
@@ -130,5 +172,41 @@ impl FolderItemRepository for PgFolderItemRepository {
                 name_nonce: f.name_nonce,
             })
             .collect())
+    }
+
+    async fn posicionar_recurso(
+        &self,
+        user_id: Uuid,
+        resource_id: Uuid,
+        parent_folder_id: Option<Uuid>,
+    ) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"
+            insert into folder_items (folder_id, resource_id, user_id)
+            values ($1, $2, $3)
+            on conflict (user_id, resource_id) do update set folder_id = excluded.folder_id
+            "#,
+            parent_folder_id,
+            resource_id,
+            user_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn posiciones_de_recursos(&self, user_id: Uuid) -> Result<HashMap<Uuid, Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select resource_id as "resource_id!", folder_id as "folder_id!"
+            from folder_items
+            where user_id = $1 and resource_id is not null and folder_id is not null
+            "#,
+            user_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas.into_iter().map(|f| (f.resource_id, f.folder_id)).collect())
     }
 }

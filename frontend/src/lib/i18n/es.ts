@@ -142,6 +142,12 @@ const es = {
 		generarPassword: 'Generar',
 		notas: 'Notas',
 		totpOpcional: 'Secreto TOTP (opcional, base32)',
+		tipo: 'Tipo',
+		tipoLoginPassword: 'Usuario y contraseña',
+		tipoFtp: 'FTP',
+		tipoSsh: 'SSH',
+		tipoVnc: 'VNC',
+		uriHostPuerto: 'Host:puerto',
 		crear: 'Crear',
 		cancelar: 'Cancelar',
 		verSecreto: 'Ver secreto',
@@ -170,6 +176,9 @@ const es = {
 		seleccionarTodos: 'Seleccionar todos',
 		deseleccionarTodos: 'Deseleccionar todos',
 		conteoSeleccionados: (n: number) => `${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
+		moverSeleccion: 'Mover a carpeta',
+		taggearSeleccion: 'Agregar tag',
+		errorMasivo: 'No se pudo aplicar la acción a todos los recursos seleccionados.',
 		carpetas: {
 			titulo: 'Carpetas',
 			todas: 'Todos los recursos',
@@ -182,8 +191,15 @@ const es = {
 			sinCarpetas: 'Todavía no tenés carpetas.',
 			error: 'No se pudieron cargar las carpetas.',
 			errorCrear: 'No se pudo crear la carpeta.',
-			hintSinAsociarRecursos:
-				'Todavía no se pueden mover recursos a una carpeta — esta vista sólo organiza carpetas por ahora.'
+			hintSinAsociarRecursos: 'Clic en una carpeta filtra la lista por su contenido — clic de nuevo lo quita.',
+			filtrar: 'Filtrar por esta carpeta',
+			compartir: 'Compartir',
+			compartirCon: (nombre: string) => `Compartir "${nombre}" con:`,
+			emailDestinatario: 'Email del destinatario',
+			nivel: 'Nivel de acceso',
+			nivelRead: 'Lectura',
+			nivelUpdate: 'Edición',
+			nivelOwner: 'Propietario'
 		},
 		tags: {
 			todos: 'Todos',
@@ -285,7 +301,12 @@ const es = {
 		recoveryHabilitada: 'Habilitada en esta cuenta.',
 		recoveryHabilitar: 'Habilitar recuperación de cuenta',
 		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',
-		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.'
+		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.',
+		dispositivosTitulo: 'Dispositivos de confianza',
+		dispositivosHint: 'Dispositivos marcados como confiables (F-37) — revocar uno acá borra la clave sellada para ese dispositivo, no afecta a los demás.',
+		dispositivosSinDispositivos: 'No tenés dispositivos de confianza activos.',
+		dispositivosRevocar: 'Revocar',
+		dispositivosError: 'No se pudo cargar la lista de dispositivos.'
 	},
 	settingsProfile: {
 		titulo: 'Mi perfil',
@@ -400,6 +421,11 @@ const es = {
 			seleccionarTodos: 'Seleccionar todos',
 			deseleccionarTodos: 'Deseleccionar todos',
 			purgarSeleccionados: (n: number) => `Purgar ${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
+			activarSeleccionados: 'Activar seleccionados',
+			desactivarSeleccionados: 'Desactivar seleccionados',
+			colGrupos: 'Grupos',
+			colConteos: 'Contraseñas',
+			conteoRecursos: (propias: number, compartidas: number) => `${propias} propias, ${compartidas} compartidas`,
 			purgaMasivaConfirmar: (n: number) =>
 				`¿Purgar definitivamente ${n} ${n === 1 ? 'usuario' : 'usuarios'}? No se puede deshacer.`,
 			purgaMasivaOk: (n: number) => `${n} ${n === 1 ? 'usuario purgado' : 'usuarios purgados'}.`,
@@ -440,7 +466,12 @@ const es = {
 			hintResellado:
 				'Este grupo ya tiene recursos compartidos — al agregar un miembro se re-sella el secreto para esa persona, sólo si vos mismo tenés acceso a todos ellos.',
 			errorSinDesbloquear: 'Hace falta tu contraseña para re-sellar los recursos del grupo.',
-			errorEnvelopes: 'No se pudo agregar el miembro — puede que no tengas acceso a alguno de los recursos del grupo.'
+			errorEnvelopes: 'No se pudo agregar el miembro — puede que no tengas acceso a alguno de los recursos del grupo.',
+			cargarCsv: 'Cargar CSV de emails',
+			resumenCsv: (agregados: number, fallidos: number) =>
+				fallidos === 0
+					? `${agregados} miembro(s) agregado(s).`
+					: `${agregados} miembro(s) agregado(s), ${fallidos} fallido(s):`
 		},
 		reportes: {
 			titulo: 'Reportes',

@@ -4,6 +4,20 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.11] - 2026-08-10
+
+### Carpetas con permisos reales, grupos por CSV, dispositivos de confianza, y más
+
+#### Added
+
+- **Carpetas**: ahora se pueden mover contraseñas dentro de una carpeta (antes las carpetas sólo servían para organizar otras carpetas). Las carpetas también se pueden compartir con otra persona con un nivel de acceso (lectura, edición o propietario) — como en cualquier gestor de contraseñas serio, mover algo a una carpeta compartida no le da acceso automático a nadie: compartir el contenido en sí sigue siendo un paso aparte, explícito. Clic en una carpeta ahora filtra la lista de contraseñas por su contenido.
+- **Grupos**: agregar un miembro ahora tiene un buscador con autocompletado en vez de tener que escribir el email de memoria, y se puede cargar una lista completa desde un archivo CSV en vez de agregar de a uno.
+- **Dispositivos de confianza**: nueva pantalla en "Mi cuenta → Seguridad" para ver y revocar los dispositivos marcados como confiables (esto ya existía por dentro, pero no había ninguna forma de gestionarlo).
+- **Tipos de contraseña nuevos**: FTP, SSH y VNC, además del tipo usuario/contraseña de siempre.
+- **Compartir más visible**: ahora hay un ícono de compartir directo en cada fila de la lista, no hace falta abrir el detalle de la contraseña primero.
+- **Selección múltiple en el Vault**: además de exportar, ahora se puede mover varias contraseñas seleccionadas a una carpeta o agregarles un tag, todo de una vez.
+- **Panel de usuarios más completo**: la lista de usuarios ahora muestra el avatar, a qué grupos pertenece cada uno, y cuántas contraseñas propias y compartidas tiene. También se puede activar/desactivar varios usuarios a la vez.
+
 ## [0.1.10] - 2026-08-10
 
 ### Recuperación de cuenta con pantallas reales, y auto-registro configurable

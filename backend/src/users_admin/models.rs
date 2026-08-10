@@ -37,4 +37,15 @@ pub struct ResumenUsuario {
     pub email: String,
     pub display_name: String,
     pub active: bool,
+    pub has_avatar: bool,
+    pub groups: Vec<String>,
+    /// Recursos que este usuario creó (`resources.created_by`), sin filtrar
+    /// por `deleted_at` — mismo criterio que el resto de "cuántos tiene",
+    /// no cuánto le queda vigente.
+    pub owned_resources_count: i64,
+    /// Grants directos (`permissions.grantee_type = 'user'`) sobre recursos
+    /// que este usuario NO creó — no cuenta acceso heredado por grupo,
+    /// simplificación documentada (igual criterio que otras cuentas
+    /// aproximadas de este módulo, ej. `calcular_bloqueos`).
+    pub shared_with_count: i64,
 }

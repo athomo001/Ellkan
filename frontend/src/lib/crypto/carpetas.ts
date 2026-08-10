@@ -92,3 +92,37 @@ export function descendientesDe(folderId: string, nodos: NodoCarpeta[]): Set<str
 export async function moverCarpeta(folderId: string, newParentFolderId: string | null): Promise<void> {
 	await api.put(`/folders/${folderId}/move`, { new_parent_folder_id: newParentFolderId });
 }
+
+/** F-11: mueve un RECURSO a una carpeta (o `null` = raíz). Nunca comparte el
+ * recurso — moverlo a una carpeta ya compartida no le da acceso a nadie más,
+ * eso sigue siendo `compartirRecurso` aparte (zero-knowledge: el servidor no
+ * puede otorgar acceso a un secreto cifrado). */
+export async function moverRecursoACarpeta(resourceId: string, folderId: string | null): Promise<void> {
+	await api.put(`/resources/${resourceId}/move`, { folder_id: folderId });
+}
+
+/**
+ * F-11: comparte una carpeta con otro usuario (por email) — exige `owner`
+ * sobre ella server-side. Resella el nombre ya descifrado (`nombre`, mismo
+ * texto que `listarArbolCarpetas` ya devuelve) contra la clave pública del
+ * destinatario, mismo patrón que `compartirRecurso` en `recursos.ts`.
+ */
+export async function compartirCarpeta(
+	folderId: string,
+	nombre: string,
+	emailDestinatario: string,
+	nivel: 'read' | 'update' | 'owner'
+): Promise<void> {
+	const wasm = await cargarCrypto();
+	const destinatario = await api.get<{ user_id: string; public_key_x25519_b64: string }>(
+		`/users/${encodeURIComponent(emailDestinatario)}/public-key`
+	);
+	const sellado = wasm.sellar_para(base64ABytes(destinatario.public_key_x25519_b64), new TextEncoder().encode(nombre));
+
+	await api.post(`/folders/${folderId}/share`, {
+		grantee_user_id: destinatario.user_id,
+		level: nivel,
+		name_ciphertext_b64: bytesABase64(sellado),
+		name_nonce_b64: ''
+	});
+}

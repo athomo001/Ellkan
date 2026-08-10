@@ -1,11 +1,14 @@
 // Autor: Athan Espinoza
 
 use axum::extract::{Path, Query, State};
+use axum::http::header;
+use axum::response::IntoResponse;
 use axum::Json;
 use uuid::Uuid;
 
 use crate::auth::extractor::AdminUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, DomainError};
+use crate::me::service::AvatarService;
 use crate::state::AppState;
 
 use super::dto::{
@@ -75,4 +78,19 @@ pub async fn listar(
 ) -> Result<Json<UsuariosPageResponse>, ApiError> {
     let (usuarios, next_cursor) = servicio(&state).listar(q.active, q.cursor, q.limit).await?;
     Ok(Json(UsuariosPageResponse { items: usuarios.into_iter().map(UsuarioResponse::from).collect(), next_cursor }))
+}
+
+/// `GET /admin/users/{id}/avatar` — post-cierre bloque C, mismo servicio
+/// que `GET /me/avatar` (`me::service::AvatarService`, ya genérico en
+/// `user_id`), sólo con `AdminUser` en vez del propio usuario.
+pub async fn avatar(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let avatar = AvatarService { avatar: &state.preferencias_usuario }.obtener(id).await?;
+    match avatar {
+        Some(a) => Ok(([(header::CONTENT_TYPE, a.content_type)], a.bytes).into_response()),
+        None => Err(ApiError::from(DomainError::NotFound)),
+    }
 }

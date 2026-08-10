@@ -38,6 +38,13 @@ pub struct RecursoResponse {
     pub updated_at: OffsetDateTime,
     pub metadata_key_type: String,
     pub metadata_key_id: Option<Uuid>,
+    /// F-11: carpeta donde `auth.user_id` tiene posicionado este recurso en
+    /// su propio árbol — `None` = raíz. Sólo se completa en `listar`
+    /// (`GET /resources`, que ya calcula el mapa completo para el filtro
+    /// `?folder_id=`); en el resto de los handlers queda `None` a propósito,
+    /// no vale la pena la consulta extra para un solo recurso.
+    #[serde(default)]
+    pub folder_id: Option<Uuid>,
 }
 
 /// `GET /resources/{id}/recipients` (F-07).
@@ -77,11 +84,19 @@ pub struct SecretoResponse {
     pub secret_nonce_b64: String,
 }
 
-/// `GET /resources?tag_id=...` — extensión de F-10 sobre el listado ya
-/// existente (`03-api-contrato.md`: "filtros por carpeta/tag").
+/// `GET /resources?tag_id=...&folder_id=...` — extensión de F-10/F-11 sobre
+/// el listado ya existente (`03-api-contrato.md`: "filtros por carpeta/tag").
 #[derive(Debug, Deserialize, Default)]
 pub struct ListarQuery {
     pub tag_id: Option<Uuid>,
+    pub folder_id: Option<Uuid>,
+}
+
+/// `PUT /resources/{id}/move` (F-11) — `folder_id: None` saca el recurso de
+/// cualquier carpeta (vuelve a la raíz del árbol propio).
+#[derive(Debug, Deserialize)]
+pub struct MoverRecursoRequest {
+    pub folder_id: Option<Uuid>,
 }
 
 /// `POST /resources/{id}/rekey-metadata` — F-33, endpoint nuevo no listado

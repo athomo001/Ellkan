@@ -23,6 +23,7 @@
 	import { generarSetup, confirmarYActivar, estaActivo, desactivar } from '$lib/crypto/totp-local';
 	import { accountRecoveryApi } from '$lib/api/accountRecovery';
 	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
+	import { devicesApi, type TrustedDevice } from '$lib/api/devices';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -176,6 +177,39 @@
 		activo = false;
 		pasoSetup = 'inicial';
 	}
+
+	// F-37: dispositivos de confianza propios — backend completo desde
+	// Fase 1.2, sin ninguna pantalla hasta ahora.
+	let dispositivos = $state<TrustedDevice[]>([]);
+	let cargandoDispositivos = $state(true);
+	let errorDispositivos = $state<string | undefined>();
+	let revocandoDispositivoId = $state<string | undefined>();
+
+	async function cargarDispositivos() {
+		cargandoDispositivos = true;
+		try {
+			dispositivos = await devicesApi.listar();
+		} catch (err) {
+			errorDispositivos = err instanceof ApiError ? err.message : get(t).settingsSecurity.dispositivosError;
+		} finally {
+			cargandoDispositivos = false;
+		}
+	}
+	onMount(cargarDispositivos);
+
+	async function revocarDispositivo(id: string) {
+		revocandoDispositivoId = id;
+		try {
+			await devicesApi.revocar(id);
+			await cargarDispositivos();
+		} catch (err) {
+			errorDispositivos = err instanceof ApiError ? err.message : get(t).settingsSecurity.dispositivosError;
+		} finally {
+			revocandoDispositivoId = undefined;
+		}
+	}
+
+	const dispositivosActivos = $derived(dispositivos.filter((d) => !d.revoked_at));
 </script>
 
 <svelte:head>
@@ -278,6 +312,33 @@
 	{/if}
 </Card>
 
+<Card>
+	<h2>{$t.settingsSecurity.dispositivosTitulo}</h2>
+	<p class="hint">{$t.settingsSecurity.dispositivosHint}</p>
+
+	{#if cargandoDispositivos}
+		<p class="hint">{$t.settingsSecurity.cargando}</p>
+	{:else if errorDispositivos}
+		<p class="error">{errorDispositivos}</p>
+	{:else if dispositivosActivos.length === 0}
+		<p class="hint">{$t.settingsSecurity.dispositivosSinDispositivos}</p>
+	{:else}
+		<ul class="lista-passkeys">
+			{#each dispositivosActivos as d (d.id)}
+				<li class="item-passkey">
+					<div class="info">
+						<strong>{d.label || $t.settingsSecurity.sinNombre}</strong>
+						<span class="secundario-dispositivo">{new Date(d.created_at).toLocaleString()}</span>
+					</div>
+					<Button variant="danger" onclick={() => revocarDispositivo(d.id)} loading={revocandoDispositivoId === d.id}>
+						{$t.settingsSecurity.dispositivosRevocar}
+					</Button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+</Card>
+
 <style>
 	h1 {
 		margin: 0 0 var(--space-6) 0;
@@ -339,6 +400,10 @@
 		border: 1px solid var(--success);
 		border-radius: var(--radius-sm);
 		padding: 0 var(--space-2);
+	}
+	.secundario-dispositivo {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 	.qr {
 		display: block;
