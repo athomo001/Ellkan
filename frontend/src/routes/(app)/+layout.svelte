@@ -3,9 +3,10 @@
 	// AppShell (07-frontend-web.md §3): guard de sesión válida + nav lateral
 	// + contenido a ancho completo — layout compartido por todas las rutas
 	// autenticadas (`/vault`, `/settings/*`). El guard es client-side puro
-	// (la sesión vive sólo en memoria, F-04, nunca en una cookie que un
-	// `+layout.server.ts` pudiera leer) — un refresh de página pierde la
-	// sesión por diseño, igual que ya pasa hoy sin AppShell.
+	// (el id de sesión vive en `sessionStorage`, F-04 — sobrevive un F5 de
+	// la misma pestaña, se pierde al cerrarla; la clave privada en sí sigue
+	// sólo en memoria, nunca sobrevive un reload).
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
@@ -14,6 +15,7 @@
 	import { cerrarSesion } from '$lib/crypto/identity';
 	import { limpiarStoresEn } from '$lib/state/declarative-store';
 	import { rolesApi } from '$lib/api/admin';
+	import { perfilApi, obtenerAvatarUrl, type Perfil } from '$lib/api/profile';
 	import { ApiError } from '$lib/api/client';
 	import Button from '$lib/components/Button.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
@@ -51,6 +53,17 @@
 				.then(() => esAdmin.set(true))
 				.catch((err) => esAdmin.set(!(err instanceof ApiError && err.status === 403)));
 		}
+	});
+
+	// Nombre/avatar para el pie del nav — antes sólo mostraba el email.
+	// `perfil`/`avatarUrl` viven sólo en memoria de este layout (nunca en
+	// un store persistente): un dato de refresco barato, no vale la pena
+	// declararlo como store compartido para un solo consumidor.
+	let perfil = $state<Perfil | undefined>();
+	let avatarUrl = $state<string | null>(null);
+	onMount(() => {
+		perfilApi.obtener().then((p) => (perfil = p)).catch(() => {});
+		obtenerAvatarUrl().then((u) => (avatarUrl = u)).catch(() => {});
 	});
 
 	// F-39: auto-bloqueo por inactividad. `bloqueado` sólo tapa el
@@ -123,23 +136,35 @@
 		vault: 'M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z',
 		perfil:
 			'M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
-		preferencias:
-			'M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75',
-		seguridad:
-			'M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.286Z',
-		exportar: 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3',
 		compartir:
 			'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z',
 		admin:
 			'M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z'
 	};
 
+	// "Mi cuenta" agrupa Perfil/Avatar/Claves/Contraseña/Token/Preferencias/
+	// Seguridad — antes eran 3 entradas de nav separadas (Mi perfil,
+	// Preferencias, Seguridad) para configuración que es, en el fondo, de
+	// la misma persona (`(app)/settings/+layout.svelte` tiene la nav
+	// secundaria real). Exportar/Importar se sacó del todo de acá — ahora
+	// vive dentro de Vault, donde están los recursos que exporta.
+	const RUTAS_MI_CUENTA = [
+		'/settings/profile',
+		'/settings/avatar',
+		'/settings/keys',
+		'/settings/passphrase',
+		'/settings/token',
+		'/settings/preferences',
+		'/settings/security'
+	];
+	function esRutaActiva(enlace: { href: string }, pathname: string): boolean {
+		if (enlace.href === '/settings/profile') return RUTAS_MI_CUENTA.some((r) => pathname.startsWith(r));
+		return pathname.startsWith(enlace.href);
+	}
+
 	const enlaces = $derived([
 		{ href: '/vault', label: $t.appShell.vault, icono: ICONOS.vault },
-		{ href: '/settings/profile', label: $t.appShell.miPerfil, icono: ICONOS.perfil },
-		{ href: '/settings/preferences', label: $t.appShell.preferencias, icono: ICONOS.preferencias },
-		{ href: '/settings/security', label: $t.appShell.seguridad, icono: ICONOS.seguridad },
-		{ href: '/settings/export-import', label: $t.exportImport.titulo, icono: ICONOS.exportar },
+		{ href: '/settings/profile', label: $t.appShell.miCuenta, icono: ICONOS.perfil },
 		{ href: '/settings/external-shares', label: $t.settingsExternalShares.titulo, icono: ICONOS.compartir },
 		...($esAdmin ? [{ href: '/admin', label: $t.appShell.administracion, icono: ICONOS.admin }] : [])
 	]);
@@ -182,7 +207,7 @@
 			<ul>
 				{#each enlaces as enlace (enlace.href)}
 					<li>
-						<a href={enlace.href} class:activo={page.url.pathname.startsWith(enlace.href)} title={colapsado ? enlace.label : ''}>
+						<a href={enlace.href} class:activo={esRutaActiva(enlace, page.url.pathname)} title={colapsado ? enlace.label : ''}>
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18">
 								<path stroke-linecap="round" stroke-linejoin="round" d={enlace.icono} />
 							</svg>
@@ -213,7 +238,19 @@
 						{$preferencias.locale}
 					</button>
 				</div>
-				{#if !colapsado}<span class="email" title={$sesion.email ?? ''}>{$sesion.email}</span>{/if}
+				<a class="cuenta" href="/settings/profile" title={$sesion.email ?? ''}>
+					{#if avatarUrl}
+						<img class="avatar" src={avatarUrl} alt="" />
+					{:else}
+						<span class="avatar avatar-vacio">{(perfil?.display_name ?? $sesion.email ?? '?').charAt(0).toUpperCase()}</span>
+					{/if}
+					{#if !colapsado}
+						<span class="cuenta-texto">
+							<span class="nombre">{perfil?.display_name ?? $sesion.email}</span>
+							{#if perfil}<span class="correo">{perfil.email}</span>{/if}
+						</span>
+					{/if}
+				</a>
 				<Button variant="ghost" onclick={salir}>{colapsado ? '⏻' : $t.appShell.cerrarSesion}</Button>
 			</div>
 		</nav>
@@ -376,7 +413,48 @@
 	.colapsado .pie {
 		align-items: center;
 	}
-	.email {
+	.cuenta {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+		color: var(--text-primary);
+		text-decoration: none;
+		border-radius: var(--radius-sm);
+		padding: var(--space-1);
+	}
+	.cuenta:hover {
+		background: var(--bg-overlay);
+	}
+	.avatar {
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 50%;
+		object-fit: cover;
+		flex-shrink: 0;
+	}
+	.avatar-vacio {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--bg-overlay);
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		font-weight: 600;
+	}
+	.cuenta-texto {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.nombre {
+		font-size: var(--text-sm);
+		color: var(--text-primary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.correo {
 		font-size: var(--text-xs);
 		color: var(--text-muted);
 		overflow: hidden;

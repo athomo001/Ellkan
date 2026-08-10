@@ -23,7 +23,7 @@
 	// F-01: sin medidor client-side hasta ahora — F-27 lo exige para la
 	// contraseña de un export KDBX "vía el mismo medidor que la passphrase
 	// de cuenta", así que se agrega acá primero (única fuente) y F-27 lo
-	// reusa (`settings/export-import`). No bloquea el submit — el backend
+	// reusa (panel de exportar dentro de Vault). No bloquea el submit — el backend
 	// sigue siendo quien aplica `min_passphrase_entropy_bits` (F-24).
 	const fortaleza = $derived(evaluarFortaleza(passphrase));
 	const labelFortaleza = $derived(

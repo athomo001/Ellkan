@@ -11,7 +11,7 @@
 // error explícito en vez de colgar el cliente (PBL-13-003, hallazgo real
 // de Passbolt con una librería de parseo CSV de terceros).
 
-import { listarRecursos, verSecreto, crearRecurso, type Recurso } from './recursos';
+import { verSecreto, crearRecurso, type Recurso } from './recursos';
 import { exportEventsApi } from '$lib/api/exportPolicy';
 import { generarCsv, parsearCsv, type FilaExport } from './exportCsv';
 import { generarKdbx, parsearKdbx } from './exportKdbx';
@@ -35,9 +35,16 @@ function conTimeout<T>(promesa: Promise<T>, ms: number): Promise<T> {
 	]);
 }
 
-/** Descifra todos los recursos accesibles al usuario a filas planas listas para exportar. */
-export async function construirFilasExport(claves: ClavesDesbloqueadas): Promise<{ filas: FilaExport[]; recursos: Recurso[] }> {
-	const recursos = await listarRecursos(claves);
+/**
+ * Descifra los recursos dados a filas planas listas para exportar — recibe
+ * la lista ya resuelta (Vault, F-30, la mantiene en memoria) en vez de
+ * volver a pedirla, así el caller decide si exporta todo o sólo una
+ * selección sin duplicar la carga/descifrado de metadata.
+ */
+export async function construirFilasExport(
+	recursos: Recurso[],
+	claves: ClavesDesbloqueadas
+): Promise<{ filas: FilaExport[]; recursos: Recurso[] }> {
 	const filas: FilaExport[] = [];
 	for (const r of recursos) {
 		const secreto = await verSecreto(r, claves);

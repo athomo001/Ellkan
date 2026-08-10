@@ -62,7 +62,7 @@ const es = {
 	},
 	appShell: {
 		vault: 'Vault',
-		miPerfil: 'Mi perfil',
+		miCuenta: 'Mi cuenta',
 		preferencias: 'Preferencias',
 		seguridad: 'Seguridad',
 		administracion: 'Administración',
@@ -141,6 +141,9 @@ const es = {
 		externoCrear: 'Crear link',
 		externoLinkListo: 'Link listo — copialo ahora, no se vuelve a mostrar:',
 		errorExterno: 'No se pudo crear el link externo.',
+		seleccionarTodos: 'Seleccionar todos',
+		deseleccionarTodos: 'Deseleccionar todos',
+		conteoSeleccionados: (n: number) => `${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
 		carpetas: {
 			titulo: 'Carpetas',
 			todas: 'Todos los recursos',
@@ -176,6 +179,9 @@ const es = {
 		viaExcepcionAdmin: 'La política está desactivada para el resto de la organización — podés exportar tu cuenta igual, como admin.',
 		exportarTitulo: 'Exportar mis recursos',
 		exportarHint: 'Se genera 100% en tu navegador — el servidor nunca ve el contenido en claro.',
+		alcance: 'Qué exportar',
+		alcanceTodos: (n: number) => `Todos los recursos (${n})`,
+		alcanceSeleccionados: (n: number) => `Sólo los seleccionados (${n})`,
 		formato: 'Formato',
 		passwordArchivo: 'Contraseña del archivo',
 		passwordArchivoHint: 'Protege el archivo KDBX — usá una contraseña fuerte, es la única defensa si el archivo se filtra.',

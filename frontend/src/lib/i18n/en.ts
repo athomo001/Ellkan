@@ -63,7 +63,7 @@ const en: Diccionario = {
 	},
 	appShell: {
 		vault: 'Vault',
-		miPerfil: 'My profile',
+		miCuenta: 'My account',
 		preferencias: 'Preferences',
 		seguridad: 'Security',
 		administracion: 'Administration',
@@ -142,6 +142,9 @@ const en: Diccionario = {
 		externoCrear: 'Create link',
 		externoLinkListo: 'Link ready — copy it now, it will not be shown again:',
 		errorExterno: 'Could not create the external link.',
+		seleccionarTodos: 'Select all',
+		deseleccionarTodos: 'Deselect all',
+		conteoSeleccionados: (n: number) => `${n} selected`,
 		carpetas: {
 			titulo: 'Folders',
 			todas: 'All resources',
@@ -175,6 +178,9 @@ const en: Diccionario = {
 		sinFormatosHabilitados: 'Export and import are disabled by organization policy.',
 		viaExcepcionAdmin: 'The policy is disabled for the rest of the organization — you can still export your own account as an admin.',
 		exportarTitulo: 'Export my resources',
+		alcance: 'What to export',
+		alcanceTodos: (n: number) => `All resources (${n})`,
+		alcanceSeleccionados: (n: number) => `Only the selected ones (${n})`,
 		exportarHint: 'Generated 100% in your browser — the server never sees the plaintext content.',
 		formato: 'Format',
 		passwordArchivo: 'File password',

@@ -38,6 +38,18 @@
 	import { desbloquearConPassphrase } from '$lib/crypto/identity';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
 	import { copiarConLimpieza } from '$lib/clipboard';
+	import { exportPolicyApi, adminExportPolicyApi, type ExportPolicy } from '$lib/api/exportPolicy';
+	import {
+		construirFilasExport,
+		exportar,
+		descargarArchivo,
+		parsearArchivoImport,
+		importar,
+		detectarFormatoPorNombre,
+		type FormatoExport,
+		type FilaExport
+	} from '$lib/crypto/exportImport';
+	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
 	import { sesion, clavesDesbloqueadas, preferencias } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -423,6 +435,152 @@
 			externoCreando = false;
 		}
 	}
+
+	// --- selección masiva (F-27, export selectivo) — mismo patrón que
+	// `(app)/admin/users/+page.svelte` ---
+	let seleccionados = $state<Set<string>>(new Set());
+	function toggleSeleccion(id: string) {
+		const nuevo = new Set(seleccionados);
+		if (nuevo.has(id)) nuevo.delete(id);
+		else nuevo.add(id);
+		seleccionados = nuevo;
+	}
+	function toggleSeleccionTodos() {
+		seleccionados =
+			seleccionados.size === recursosFiltrados.length ? new Set() : new Set(recursosFiltrados.map((r) => r.id));
+	}
+
+	// --- exportar/importar (F-27) — antes vivía en `/settings/export-import`,
+	// separado del propio Vault que exporta; movido acá para poder elegir
+	// "todos" o sólo lo seleccionado arriba, sin duplicar la carga/descifrado
+	// de recursos que `cargar()` ya hizo.
+	let mostrarExportar = $state(false);
+	let cargandoPolitica = $state(true);
+	let politica = $state<ExportPolicy | undefined>();
+	let excepcionAdmin = $state(false);
+
+	async function abrirExportar() {
+		mostrarExportar = !mostrarExportar;
+		if (!mostrarExportar || politica) return;
+		cargandoPolitica = true;
+		try {
+			politica = await exportPolicyApi.obtener();
+		} catch {
+			/* sin política, el panel queda oculto (puedeExportar/puedeImportar dan false) */
+		}
+		if (politica && !politica.export_enabled) {
+			try {
+				await adminExportPolicyApi.obtener();
+				excepcionAdmin = true;
+			} catch {
+				excepcionAdmin = false;
+			}
+		}
+		cargandoPolitica = false;
+	}
+
+	const puedeExportar = $derived(!!politica && (politica.export_enabled || excepcionAdmin));
+	const puedeImportar = $derived(!!politica && politica.import_enabled);
+	const formatosDisponibles = $derived((politica?.allowed_formats ?? []) as FormatoExport[]);
+
+	let alcanceExport = $state<'todos' | 'seleccionados'>('todos');
+	let formatoExport = $state<FormatoExport>('kdbx');
+	let passwordExport = $state('');
+	let exportando = $state(false);
+	let errorExport = $state<string | undefined>();
+	let okExport = $state<number | undefined>();
+	const fortalezaExport = $derived(evaluarFortaleza(passwordExport));
+	const labelFortalezaExport = $derived(
+		[
+			$t.fortalezaPassword.muyDebil,
+			$t.fortalezaPassword.debil,
+			$t.fortalezaPassword.aceptable,
+			$t.fortalezaPassword.fuerte,
+			$t.fortalezaPassword.muyFuerte
+		][fortalezaExport.score]
+	);
+
+	async function hacerExport(e: SubmitEvent) {
+		e.preventDefault();
+		if (!$clavesDesbloqueadas) return;
+		errorExport = undefined;
+		okExport = undefined;
+		exportando = true;
+		try {
+			const aExportar =
+				alcanceExport === 'seleccionados' ? recursos.filter((r) => seleccionados.has(r.id)) : recursos;
+			const { filas } = await construirFilasExport(aExportar, $clavesDesbloqueadas);
+			const archivo = await exportar(formatoExport, filas, {
+				password: formatoExport === 'kdbx' ? passwordExport : undefined,
+				cuentaEmail: $sesion.email ?? ''
+			});
+			descargarArchivo(archivo);
+			okExport = filas.length;
+			passwordExport = '';
+		} catch (err) {
+			errorExport = err instanceof ApiError ? err.message : err instanceof Error ? err.message : $t.exportImport.errorExportar;
+		} finally {
+			exportando = false;
+		}
+	}
+
+	let archivoImport = $state<File | undefined>();
+	let passwordImport = $state('');
+	let filasPreview = $state<FilaExport[] | undefined>();
+	let previsualizando = $state(false);
+	let importando = $state(false);
+	let errorImport = $state<string | undefined>();
+	let okImport = $state<number | undefined>();
+
+	function alElegirArchivo(e: Event) {
+		archivoImport = (e.target as HTMLInputElement).files?.[0];
+		filasPreview = undefined;
+		errorImport = undefined;
+		okImport = undefined;
+	}
+
+	async function previsualizar() {
+		if (!archivoImport) return;
+		errorImport = undefined;
+		okImport = undefined;
+		const formato = detectarFormatoPorNombre(archivoImport.name);
+		if (!formato) {
+			errorImport = $t.exportImport.errorFormatoDesconocido;
+			return;
+		}
+		previsualizando = true;
+		try {
+			const bytes = await archivoImport.arrayBuffer();
+			filasPreview = await parsearArchivoImport(formato, bytes, {
+				password: formato === 'kdbx' ? passwordImport : undefined
+			});
+		} catch (err) {
+			errorImport = err instanceof ApiError ? err.message : err instanceof Error ? err.message : $t.exportImport.errorImportar;
+			filasPreview = undefined;
+		} finally {
+			previsualizando = false;
+		}
+	}
+
+	async function confirmarImport() {
+		if (!filasPreview || !archivoImport || !$clavesDesbloqueadas || !$sesion.userId) return;
+		const formato = detectarFormatoPorNombre(archivoImport.name);
+		if (!formato) return;
+		errorImport = undefined;
+		importando = true;
+		try {
+			const creados = await importar(formato, filasPreview, $clavesDesbloqueadas, $sesion.userId);
+			okImport = creados;
+			filasPreview = undefined;
+			archivoImport = undefined;
+			passwordImport = '';
+			await cargar();
+		} catch (err) {
+			errorImport = err instanceof ApiError ? err.message : err instanceof Error ? err.message : $t.exportImport.errorImportar;
+		} finally {
+			importando = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -465,8 +623,88 @@
 			{:else}
 				<div class="cabecera">
 					<p class="conteo">{$t.vault.conteo(recursosFiltrados.length)}</p>
-					<Button variant="primary" onclick={() => (mostrarCrear = !mostrarCrear)}>{$t.vault.nuevoRecurso}</Button>
+					<div class="botones">
+						<Button variant="secondary" onclick={abrirExportar}>{$t.exportImport.titulo}</Button>
+						<Button variant="primary" onclick={() => (mostrarCrear = !mostrarCrear)}>{$t.vault.nuevoRecurso}</Button>
+					</div>
 				</div>
+
+				{#if mostrarExportar}
+					<div class="panel-exportar">
+						{#if cargandoPolitica}
+							<p class="hint">{$t.exportImport.cargandoPolitica}</p>
+						{:else if !puedeExportar && !puedeImportar}
+							<p class="hint">{$t.exportImport.sinFormatosHabilitados}</p>
+						{:else}
+							{#if politica && !politica.export_enabled && excepcionAdmin}
+								<p class="hint">{$t.exportImport.viaExcepcionAdmin}</p>
+							{/if}
+
+							{#if puedeExportar}
+								<h3>{$t.exportImport.exportarTitulo}</h3>
+								<p class="hint">{$t.exportImport.exportarHint}</p>
+								<form onsubmit={hacerExport}>
+									<div class="field">
+										<label for="alcance-export">{$t.exportImport.alcance}</label>
+										<select id="alcance-export" bind:value={alcanceExport}>
+											<option value="todos">{$t.exportImport.alcanceTodos(recursosFiltrados.length)}</option>
+											<option value="seleccionados" disabled={seleccionados.size === 0}>
+												{$t.exportImport.alcanceSeleccionados(seleccionados.size)}
+											</option>
+										</select>
+									</div>
+									<div class="field">
+										<label for="formato-export">{$t.exportImport.formato}</label>
+										<select id="formato-export" bind:value={formatoExport}>
+											{#each formatosDisponibles as f (f)}
+												<option value={f}>{f.toUpperCase()}</option>
+											{/each}
+										</select>
+									</div>
+									{#if formatoExport === 'kdbx'}
+										<TextField
+											label={$t.exportImport.passwordArchivo}
+											type="password"
+											bind:value={passwordExport}
+											hint={$t.exportImport.passwordArchivoHint}
+											required
+										/>
+										{#if passwordExport}
+											<p class="fortaleza fortaleza-{fortalezaExport.score}">{labelFortalezaExport}</p>
+										{/if}
+									{/if}
+									{#if errorExport}<p class="error">{errorExport}</p>{/if}
+									{#if okExport !== undefined}<p class="ok">{$t.exportImport.exportadoOk(okExport)}</p>{/if}
+									<Button type="submit" variant="primary" loading={exportando}>{$t.exportImport.exportar}</Button>
+								</form>
+							{/if}
+
+							{#if puedeImportar}
+								<h3>{$t.exportImport.importarTitulo}</h3>
+								<p class="hint">{$t.exportImport.importarHint}</p>
+								<div class="field">
+									<label for="archivo-import">{$t.exportImport.archivo}</label>
+									<input id="archivo-import" type="file" accept=".kdbx,.csv,.json" onchange={alElegirArchivo} />
+								</div>
+								{#if archivoImport && detectarFormatoPorNombre(archivoImport.name) === 'kdbx'}
+									<TextField label={$t.exportImport.passwordArchivoImport} type="password" bind:value={passwordImport} />
+								{/if}
+								{#if errorImport}<p class="error">{errorImport}</p>{/if}
+								{#if !filasPreview}
+									<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
+										{$t.exportImport.previsualizar}
+									</Button>
+								{:else}
+									<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
+									<Button variant="primary" onclick={confirmarImport} loading={importando}>
+										{$t.exportImport.confirmarImportar}
+									</Button>
+								{/if}
+								{#if okImport !== undefined}<p class="ok">{$t.exportImport.importadoOk(okImport)}</p>{/if}
+							{/if}
+						{/if}
+					</div>
+				{/if}
 
 				<TextField label={$t.vault.buscar} bind:value={busqueda} />
 				<TagFilterBar tags={tags} bind:seleccionados={tagsSeleccionados} cargando={cargandoTags} onCrear={onCrearTag} />
@@ -494,8 +732,17 @@
 				{#if recursosFiltrados.length === 0 && !mostrarCrear}
 					<p class="hint">{$t.vault.sinRecursos}</p>
 				{:else}
+					<div class="barra-seleccion">
+						<button type="button" class="link" onclick={toggleSeleccionTodos}>
+							{seleccionados.size === recursosFiltrados.length && recursosFiltrados.length > 0
+								? $t.vault.deseleccionarTodos
+								: $t.vault.seleccionarTodos}
+						</button>
+						{#if seleccionados.size > 0}<span class="hint">{$t.vault.conteoSeleccionados(seleccionados.size)}</span>{/if}
+					</div>
 					<Table
 						columnas={[
+							{ key: 'sel', header: '' },
 							{ key: 'nombre', header: $t.vault.nombre },
 							{ key: 'usuario', header: $t.vault.usuario },
 							{ key: 'uri', header: $t.vault.uri },
@@ -507,6 +754,9 @@
 						onSeleccionar={seleccionarFila}
 					>
 						{#snippet fila(r)}
+							<td onclick={(e) => e.stopPropagation()}>
+								<input type="checkbox" checked={seleccionados.has(r.id)} onchange={() => toggleSeleccion(r.id)} />
+							</td>
 							<td>{r.nombre}</td>
 							<td class="secundario">{r.usuario}</td>
 							<td class="secundario">{r.uri}</td>
@@ -771,5 +1021,71 @@
 		color: var(--text-secondary);
 		font-size: var(--text-sm);
 		white-space: pre-wrap;
+	}
+	h3 {
+		margin: 0 0 var(--space-1) 0;
+		font-size: var(--text-base);
+		color: var(--text-primary);
+	}
+	.panel-exportar {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-4);
+		margin-bottom: var(--space-4);
+	}
+	.panel-exportar form {
+		display: flex;
+		flex-direction: column;
+		max-width: 24rem;
+		margin-bottom: var(--space-4);
+	}
+	.panel-exportar .field {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		margin-bottom: var(--space-4);
+	}
+	.panel-exportar label {
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+	.panel-exportar select,
+	.panel-exportar input[type='file'] {
+		background: var(--bg-raised);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+	}
+	.fortaleza {
+		font-size: var(--text-xs);
+		margin: calc(-1 * var(--space-3)) 0 var(--space-4) 0;
+	}
+	.fortaleza-0,
+	.fortaleza-1 {
+		color: var(--danger);
+	}
+	.fortaleza-2 {
+		color: var(--warning);
+	}
+	.fortaleza-3,
+	.fortaleza-4 {
+		color: var(--success);
+	}
+	.barra-seleccion {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		margin-bottom: var(--space-2);
+	}
+	.barra-seleccion .link {
+		background: none;
+		border: none;
+		padding: 0;
+		font-size: var(--text-xs);
+		color: var(--accent-primary);
+		cursor: pointer;
 	}
 </style>

@@ -4,8 +4,8 @@
 // (ni acá ni en el registro de cuenta, F-01). F-27 exige que la contraseña
 // de un archivo exportado (KDBX) pase "por el mismo medidor que la
 // passphrase de cuenta" — como F-01 tampoco lo tenía, se agrega acá una
-// sola vez y se conecta a ambos lugares (`(anon)/register` y
-// `(app)/settings/export-import`). Wrapper fino sobre `zxcvbn`, sin lógica
+// sola vez y se conecta a ambos lugares (`(anon)/register` y el panel de
+// exportar dentro de `(app)/vault`). Wrapper fino sobre `zxcvbn`, sin lógica
 // de scoring propia.
 
 import zxcvbn from 'zxcvbn';

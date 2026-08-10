@@ -4,6 +4,16 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.9] - 2026-08-10
+
+### Reorganización de la cuenta personal y exportación
+
+#### Changed
+
+- "Mi perfil", "Preferencias" y "Seguridad" se unificaron en una sola sección "Mi cuenta" con su propio menú interno, en vez de tres accesos sueltos en el menú principal — y de paso, "Mi perfil" dejó de obligar a hacer scroll largo para llegar a una opción puntual.
+- El pie del menú ahora muestra tu avatar, tu nombre y tu correo (antes sólo el correo).
+- Exportar/Importar se sacó de "Configuración" y ahora vive directamente en el Vault, junto a las contraseñas que exporta. Se puede elegir exportar todos los recursos o sólo los que selecciones con los nuevos casilleros de la tabla.
+
 ## [0.1.8] - 2026-08-09
 
 ### Primera ronda de correcciones tras uso real
