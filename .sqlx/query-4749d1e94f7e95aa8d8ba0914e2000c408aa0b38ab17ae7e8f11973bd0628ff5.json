@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt\n            from user_keys uk\n            join users u on u.id = uk.user_id\n            where u.email = $1 and u.active and u.deleted_at is null\n            ",
+  "query": "\n            select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt\n            from user_keys uk\n            join users u on u.id = uk.user_id\n            where u.email = $1 and u.active and u.deleted_at is null and u.email_verified_at is not null\n            ",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       false
     ]
   },
-  "hash": "5f168c9eee7f9e7c1bf89b333e4fc3f053c15dd8fc91523a9636ad87bdbf4727"
+  "hash": "4749d1e94f7e95aa8d8ba0914e2000c408aa0b38ab17ae7e8f11973bd0628ff5"
 }

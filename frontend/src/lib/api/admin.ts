@@ -128,6 +128,16 @@ export const passwordPolicyApi = {
 	actualizar: (p: PasswordPolicy) => api.put<PasswordPolicy>('/admin/password-policy', p)
 };
 
+// --- políticas: auto-registro (F-24) ---
+export interface SelfRegistrationPolicy {
+	enabled: boolean;
+	allowed_domains: string[];
+}
+export const selfRegistrationPolicyApi = {
+	obtener: () => api.get<SelfRegistrationPolicy>('/admin/self-registration-policy'),
+	actualizar: (p: SelfRegistrationPolicy) => api.put<SelfRegistrationPolicy>('/admin/self-registration-policy', p)
+};
+
 // --- políticas: retención ---
 export interface RetentionPolicy {
 	data_retention_days: number;
@@ -147,6 +157,28 @@ export interface AccountRecoveryPolicy {
 export const accountRecoveryPolicyApi = {
 	obtener: () => api.get<AccountRecoveryPolicy>('/admin/account-recovery-policy'),
 	actualizar: (p: AccountRecoveryPolicy) => api.put<AccountRecoveryPolicy>('/admin/account-recovery-policy', p)
+};
+
+// F-16: descubribilidad de solicitudes de recuperación — el id de una
+// solicitud sólo lo conoce quien la creó, este listado es la única forma
+// de que un admin se entere de que hay algo pendiente de aprobar.
+export interface SolicitudRecoveryAdmin {
+	id: string;
+	target_email: string;
+	status: string;
+	approvals_count: number;
+	approval_threshold: number;
+	created_at: string;
+}
+interface SolicitudRecoveryTrasAprobar {
+	id: string;
+	status: string;
+	approvals_count: number;
+	sealed_private_key_for_requester_b64: string | null;
+}
+export const accountRecoveryAdminApi = {
+	listarPendientes: () => api.get<SolicitudRecoveryAdmin[]>('/admin/account-recovery/requests'),
+	aprobar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/approve`)
 };
 
 // --- políticas: emergency access ---

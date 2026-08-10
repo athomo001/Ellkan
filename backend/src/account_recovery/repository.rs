@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{AccountRecoveryPolicy, Escrow, OrgRecoveryKey, RecoveryRequest};
+use super::models::{AccountRecoveryPolicy, Escrow, OrgRecoveryKey, RecoveryRequest, SolicitudPendiente};
 
 pub trait AccountRecoveryPolicyRepository {
     async fn obtener(&self) -> Result<AccountRecoveryPolicy, RepoError>;
@@ -73,6 +73,11 @@ pub trait RecoveryRequestRepository {
     ) -> Result<(), RepoError>;
 
     async fn marcar_completada(&self, id: Uuid) -> Result<bool, RepoError>;
+
+    /// `GET /admin/account-recovery/requests` — único modo de que un admin
+    /// descubra que existe una solicitud pendiente (el id sólo lo conoce
+    /// quien la creó).
+    async fn listar_pendientes(&self) -> Result<Vec<SolicitudPendiente>, RepoError>;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -411,5 +416,33 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
         .execute(&self.pool)
         .await?;
         Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn listar_pendientes(&self) -> Result<Vec<SolicitudPendiente>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select r.id, u.email as target_email, r.status, r.approvals,
+                   e.approval_threshold, r.created_at
+            from account_recovery_requests r
+            join account_recovery_escrow e on e.id = r.escrow_id
+            join users u on u.id = e.user_id
+            where r.status = 'pending'
+            order by r.created_at asc
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| SolicitudPendiente {
+                id: f.id,
+                target_email: f.target_email,
+                status: f.status,
+                approvals: f.approvals,
+                approval_threshold: f.approval_threshold,
+                created_at: f.created_at,
+            })
+            .collect())
     }
 }

@@ -78,12 +78,17 @@ async fn intentar_login(entorno: &common::Entorno, usuario: &common::Usuario) ->
     resp.json().await.unwrap()
 }
 
+// F-24: filtra por `subject` — `registrar()` ahora también encola un email
+// de verificación de cuenta para cualquier usuario no-bootstrap, así que
+// puede haber más de una fila para el mismo `recipient` (ver el comentario
+// equivalente en `common/mod.rs`).
 async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> String {
     for _ in 0..20 {
         if let Ok(fila) = sqlx::query_as::<_, (String,)>(
-            "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
+            "select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1",
         )
         .bind(email)
+        .bind("Ellkan: verificá este dispositivo nuevo")
         .fetch_one(pool)
         .await
         {

@@ -27,6 +27,7 @@ pub mod reports;
 pub mod resources;
 pub mod retention;
 pub mod scim;
+pub mod self_registration;
 pub mod smtp_config;
 pub mod sso;
 pub mod state;
@@ -297,6 +298,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/key-material", post(auth::handlers::key_material))
         .route("/verify", post(auth::handlers::verify))
         .route("/verify-device", post(auth::handlers::verify_device))
+        .route("/verify-email", post(auth::handlers::verify_email))
+        .route("/verify-email/resend", post(auth::handlers::resend_verification))
         .route("/logout", post(auth::handlers::logout))
         .nest("/webauthn", webauthn_router)
         .nest("/device-approval", device_approval_router)
@@ -404,6 +407,11 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_password_policy_router = Router::new()
         .route("/", get(password_policy::handlers::politica).put(password_policy::handlers::actualizar_politica));
 
+    let admin_self_registration_policy_router = Router::new().route(
+        "/",
+        get(self_registration::handlers::politica).put(self_registration::handlers::actualizar_politica),
+    );
+
     let admin_retention_policy_router = Router::new()
         .route("/", get(retention::handlers::politica).put(retention::handlers::actualizar_politica));
 
@@ -413,6 +421,7 @@ pub fn construir_router(estado: AppState) -> Router {
     );
 
     let account_recovery_router = Router::new()
+        .route("/status", get(account_recovery::handlers::mi_estado))
         .route("/org-public-key", get(account_recovery::handlers::org_public_key))
         .route("/enroll", post(account_recovery::handlers::enrolar))
         .route("/requests", post(account_recovery::handlers::crear_solicitud))
@@ -420,6 +429,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/requests/{id}/complete", post(account_recovery::handlers::completar));
 
     let admin_account_recovery_requests_router = Router::new()
+        .route("/", get(account_recovery::handlers::listar_solicitudes_pendientes))
         .route("/{id}/approve", post(account_recovery::handlers::aprobar));
 
     let me_emergency_access_router = Router::new()
@@ -531,6 +541,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/mfa-policy", admin_mfa_policy_router)
         .nest("/admin/smtp-config", admin_smtp_config_router)
         .nest("/admin/password-policy", admin_password_policy_router)
+        .nest("/admin/self-registration-policy", admin_self_registration_policy_router)
         .nest("/admin/data-retention-policy", admin_retention_policy_router)
         .nest("/admin/account-recovery-policy", admin_account_recovery_policy_router)
         .nest("/account-recovery", account_recovery_router)

@@ -13,18 +13,23 @@ use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::mfa::models::DecisionMfa;
 use crate::mfa::repository::{MfaChallengeRepository, MfaPolicyRepository, TotpCredentialRepository};
+use crate::self_registration::repository::SelfRegistrationPolicyRepository;
 use crate::smtp_config::repository::SmtpConfigRepository;
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
 
-use super::models::{DeviceChallengeRow, NuevoUsuario, ResultadoVerify, User};
+use super::models::{DeviceChallengeRow, NuevoUsuario, ResultadoRegistro, ResultadoVerify, User};
 use super::repository::{
-    AuthChallengeRepository, DeviceChallengeRepository, KnownDeviceRepository, SessionRepository,
-    UserRepository,
+    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository,
+    SessionRepository, UserRepository,
 };
 
 const TTL_CHALLENGE_SEGUNDOS: i64 = 120;
 const TTL_DEVICE_CHALLENGE_SEGUNDOS: i64 = 600;
+/// F-24: a diferencia de los TTL de arriba, éste vive en el email del
+/// usuario, no en una sesión activa — 24h le da margen razonable a alguien
+/// que no revisa el correo de inmediato.
+const TTL_EMAIL_VERIFICATION_SEGUNDOS: i64 = 24 * 3600;
 
 fn hash_de_codigo(codigo: &str) -> Vec<u8> {
     Sha256::digest(codigo.as_bytes()).to_vec()
@@ -37,7 +42,7 @@ fn generar_codigo_device() -> String {
     format!("{n:06}")
 }
 
-pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC> {
+pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV> {
     pub usuarios: &'a U,
     pub challenges: &'a C,
     pub sesiones: &'a S,
@@ -51,12 +56,17 @@ pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC> {
     pub mfa_challenges: &'a MC,
     /// Parte A/B: si no está configurado, F-02 no puede pedir un código que
     /// nunca va a llegar — se relee en cada intento de login (nunca
-    /// cacheado), así que un cambio del admin aplica de inmediato.
+    /// cacheado), así que un cambio del admin aplica de inmediato. F-24
+    /// también lo relee para el mismo motivo: si SMTP se cae, el
+    /// auto-registro se cierra en vez de emitir códigos que nunca llegan.
     pub smtp_config: &'a SC,
+    /// F-24: allowlist de dominios — el toggle `enabled` también vive acá.
+    pub self_registration: &'a SR,
+    pub email_verification: &'a EV,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, U, C, S, KD, DC, MP, MT, MC, SC> AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC>
+impl<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV> AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV>
 where
     U: UserRepository,
     C: AuthChallengeRepository,
@@ -67,17 +77,99 @@ where
     MT: TotpCredentialRepository,
     MC: MfaChallengeRepository,
     SC: SmtpConfigRepository,
+    SR: SelfRegistrationPolicyRepository,
+    EV: EmailVerificationRepository,
 {
-    pub async fn registrar(&self, nuevo: NuevoUsuario<'_>) -> Result<User, DomainError> {
+    /// F-24: el bootstrap (primer usuario de la instancia) nace verificado
+    /// y no pasa por la política/SMTP — sin esto, una instancia recién
+    /// levantada nunca podría crear su primer admin (no hay nadie todavía
+    /// para configurar SMTP). Cualquier registro posterior sí las exige:
+    /// política habilitada + dominio permitido + SMTP configurado (el
+    /// código de verificación tiene que poder llegar), y queda
+    /// `pending_verification` hasta confirmar el email.
+    pub async fn registrar(&self, nuevo: NuevoUsuario<'_>) -> Result<ResultadoRegistro, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
             return Err(DomainError::ValidacionInvalida(
                 "las claves públicas deben ser de 32 bytes".to_string(),
             ));
         }
-        self.usuarios.crear(nuevo).await.map_err(|e| match e {
+
+        let bootstrap = !self.usuarios.existe_alguno().await?;
+        if !bootstrap {
+            let politica = self.self_registration.obtener().await?;
+            if !politica.enabled {
+                return Err(DomainError::ValidacionInvalida("auto-registro desactivado".into()));
+            }
+            crate::self_registration::service::verificar_dominio_permitido(&politica, nuevo.email)?;
+            if !self.smtp_config.obtener().await?.esta_configurado() {
+                return Err(DomainError::ValidacionInvalida(
+                    "auto-registro no disponible: SMTP no configurado".into(),
+                ));
+            }
+        }
+
+        let email = nuevo.email.to_string();
+        let user = self.usuarios.crear(nuevo, false).await.map_err(|e| match e {
             crate::error::RepoError::Conflict => DomainError::Conflict,
             otro => DomainError::Interno(otro),
-        })
+        })?;
+
+        if bootstrap {
+            return Ok(ResultadoRegistro::Completo(user));
+        }
+
+        let codigo = generar_codigo_device();
+        let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_EMAIL_VERIFICATION_SEGUNDOS);
+        self.email_verification.crear(user.id, &hash_de_codigo(&codigo), expires_at).await?;
+        let _ =
+            self.eventos.send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email, codigo });
+
+        Ok(ResultadoRegistro::PendienteVerificacion { user_id: user.id })
+    }
+
+    /// Anti user-enumeration: misma forma exista o no la cuenta, ya esté
+    /// verificada o no — `buscar_no_verificado_por_email` sólo encuentra
+    /// cuentas todavía pendientes, así que una ya verificada cae en el
+    /// mismo `InvalidCredentials` genérico que una inexistente.
+    pub async fn verificar_email(&self, email: &str, codigo: &str) -> Result<(), DomainError> {
+        let user = self.usuarios.buscar_no_verificado_por_email(email).await?.ok_or(DomainError::InvalidCredentials)?;
+        let desafio =
+            self.email_verification.buscar_pendiente_por_usuario(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
+
+        if !secreto_coincide(&desafio.code_hash, &hash_de_codigo(codigo)) {
+            return Err(DomainError::InvalidCredentials);
+        }
+
+        self.email_verification.consumir(desafio.id).await?;
+        self.email_verification.marcar_verificado(user.id).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::EmailVerified, Some(user.id)).con_sujeto("user", user.id),
+        ));
+
+        Ok(())
+    }
+
+    /// Sin esto, un email perdido o un código vencido dejarían la cuenta
+    /// bloqueada para siempre sin ninguna salida — misma forma de respuesta
+    /// exista o no la cuenta, ya esté verificada o no (anti-enumeration).
+    pub async fn reenviar_verificacion(&self, email: &str) -> Result<(), DomainError> {
+        let Some(user) = self.usuarios.buscar_no_verificado_por_email(email).await? else {
+            return Ok(());
+        };
+
+        self.email_verification.invalidar_pendientes_de_usuario(user.id).await?;
+
+        let codigo = generar_codigo_device();
+        let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_EMAIL_VERIFICATION_SEGUNDOS);
+        self.email_verification.crear(user.id, &hash_de_codigo(&codigo), expires_at).await?;
+        let _ = self.eventos.send(DomainEvent::RegistroPendienteVerificacion {
+            user_id: user.id,
+            email: email.to_string(),
+            codigo,
+        });
+
+        Ok(())
     }
 
     /// Anti user-enumeration: misma forma y mismo costo de respuesta exista o

@@ -33,6 +33,7 @@ export const categorias: Categoria[] = [
 			{ href: '/admin/policies/mfa', label: (t) => t.admin.nav.politicaMfa },
 			{ href: '/admin/policies/password', label: (t) => t.admin.nav.politicaPassword },
 			{ href: '/admin/policies/account-recovery', label: (t) => t.admin.nav.politicaRecovery },
+			{ href: '/admin/policies/self-registration', label: (t) => t.admin.nav.politicaSelfRegistration },
 			{ href: '/admin/policies/emergency-access', label: (t) => t.admin.nav.politicaEmergencia },
 			{ href: '/admin/policies/device-approval', label: (t) => t.admin.nav.politicaDispositivo },
 			{ href: '/admin/policies/retention', label: (t) => t.admin.nav.politicaRetencion }

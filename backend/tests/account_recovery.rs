@@ -9,7 +9,10 @@ mod common;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use ellkan_crypto::claves::KeypairAcuerdo;
+use ellkan_crypto::clave_privada;
 use ellkan_crypto::sellado;
+use ellkan_crypto::secretos::PassphraseSecreta;
+use secrecy::SecretBox;
 use serde_json::{json, Value};
 
 #[tokio::test]
@@ -169,9 +172,22 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
     let abierto = sellado::abrir_bytes(efimera.privada(), &sellado_para_requester).unwrap();
     assert_eq!(abierto, clave_privada_original);
 
+    // El cliente ya desselló `abierto` con su clave efímera arriba — ahora
+    // fija una passphrase nueva y re-sella ese material antes de completar,
+    // mismo flujo que `/me/change-passphrase` (tests/perfil.rs).
+    let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("otra-passphrase-nueva-bien-larga".to_string()));
+    let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+    let nuevo_blob =
+        clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
+
     let resp = entorno
         .cliente
         .post(format!("{}/account-recovery/requests/{request_id}/complete", entorno.base))
+        .json(&json!({
+            "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
+            "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
+            "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+        }))
         .send()
         .await
         .unwrap();
@@ -185,6 +201,22 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
         .unwrap();
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(cuerpo["status"], "completed");
+
+    // La sesión vieja de la víctima quedó invalidada (rotación de
+    // `security_stamp` dentro de `CambiarPassphraseService::actualizar`).
+    let resp =
+        entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion_victima).send().await.unwrap();
+    assert_eq!(resp.status(), 401, "completar la recuperación invalida cualquier sesión vieja de la víctima");
+
+    // El blob nuevo quedó persistido de verdad.
+    let fila: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "select encrypted_private_key_blob, private_key_nonce, kdf_salt from user_keys where user_id = $1",
+    )
+    .bind(victima.user_id)
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(fila.0, nuevo_blob.envoltura.ciphertext);
 }
 
 #[tokio::test]
@@ -201,4 +233,56 @@ async fn no_admin_no_puede_leer_ni_cambiar_la_politica() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn admin_descubre_solicitudes_pendientes_por_el_listado() {
+    let entorno = common::levantar().await;
+
+    let victima = common::registrar(&entorno, "descubrible@test.ellkan").await;
+    let sesion_victima = common::login(&entorno, &victima).await;
+    let admin = common::registrar(&entorno, "admin-listado@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    enrolar(&entorno, sesion_victima).await;
+
+    let efimera = KeypairAcuerdo::generar();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/account-recovery/requests", entorno.base))
+        .json(&json!({
+            "email": victima.email,
+            "requester_public_key_x25519_b64": B64.encode(efimera.publica().as_bytes()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    let request_id = cuerpo["id"].as_str().unwrap();
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/account-recovery/requests", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    let solicitudes = cuerpo.as_array().unwrap();
+    let encontrada = solicitudes.iter().find(|s| s["id"] == request_id).expect("la solicitud debe aparecer en el listado");
+    assert_eq!(encontrada["target_email"], victima.email);
+    assert_eq!(encontrada["status"], "pending");
+    assert_eq!(encontrada["approvals_count"], 0);
+    assert_eq!(encontrada["approval_threshold"], 1);
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/account-recovery/requests", entorno.base))
+        .bearer_auth(sesion_victima)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "un usuario no-admin no puede ver el listado");
 }

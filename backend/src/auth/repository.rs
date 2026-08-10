@@ -13,10 +13,17 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{DeviceChallengeRow, NuevoUsuario, Session, User, UserKeysRow};
+use super::models::{DeviceChallengeRow, EmailVerificationRow, NuevoUsuario, Session, User, UserKeysRow};
 
 pub trait UserRepository {
-    async fn crear(&self, nuevo: NuevoUsuario<'_>) -> Result<User, RepoError>;
+    /// F-24: `ya_verificado` lo decide el caller, nunca esta capa — el
+    /// bootstrap (primer usuario de la instancia) nace verificado sin
+    /// importar el valor pasado (ver `PgUserRepository::crear`); un
+    /// auto-registro normal pasa `false` (`AuthService::registrar`, tiene
+    /// que verificar el email); un JIT provisioning de SSO pasa `true`
+    /// (`sso::service`, el IdP ya vouched por el email — `email_verified`
+    /// del token, no puede pasar de nuevo por la verificación de F-24).
+    async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError>;
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError>;
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError>;
     async fn buscar_keys(&self, user_id: Uuid) -> Result<Option<UserKeysRow>, RepoError>;
@@ -29,6 +36,35 @@ pub trait UserRepository {
     /// F-01 (frontend web): material de desbloqueo por email — nunca la
     /// clave privada en claro, sólo lo que ya vive en `user_keys`.
     async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError>;
+
+    /// F-24: ¿ya existe algún usuario en la instancia? Decide si un
+    /// registro es el bootstrap (nace ya verificado, sin pasar por
+    /// self-registration-policy/SMTP) o uno normal.
+    async fn existe_alguno(&self) -> Result<bool, RepoError>;
+
+    /// F-24: como `buscar_por_email`, pero exige `email_verified_at is
+    /// null` en vez de `is not null` — lo usa el flujo de verificación
+    /// (verificar/reenviar), que por definición sólo tiene sentido para una
+    /// cuenta que todavía no está verificada; ya verificada, se comporta
+    /// como si no existiera (anti-enumeration en `reenviar_verificacion`).
+    async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError>;
+}
+
+/// F-24: mismo patrón que `DeviceChallengeRepository` — token de un solo
+/// uso, hasheado, con TTL y `consumed_at`.
+pub trait EmailVerificationRepository {
+    async fn crear(&self, user_id: Uuid, code_hash: &[u8], expires_at: OffsetDateTime) -> Result<Uuid, RepoError>;
+
+    async fn buscar_pendiente_por_usuario(&self, user_id: Uuid) -> Result<Option<EmailVerificationRow>, RepoError>;
+
+    async fn consumir(&self, id: Uuid) -> Result<(), RepoError>;
+
+    /// Invalida cualquier desafío pendiente de `user_id` — usado antes de
+    /// emitir uno nuevo (reenvío), para que sólo el último código emitido
+    /// sea válido.
+    async fn invalidar_pendientes_de_usuario(&self, user_id: Uuid) -> Result<(), RepoError>;
+
+    async fn marcar_verificado(&self, user_id: Uuid) -> Result<(), RepoError>;
 }
 
 pub trait AuthChallengeRepository {
@@ -100,7 +136,7 @@ pub struct PgUserRepository {
 }
 
 impl UserRepository for PgUserRepository {
-    async fn crear(&self, nuevo: NuevoUsuario<'_>) -> Result<User, RepoError> {
+    async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError> {
         let mut tx = self.pool.begin().await?;
         // Bootstrap: si todavía no existe ningún usuario en toda la
         // instancia, el primer auto-registro (`POST /auth/register`) nace
@@ -115,17 +151,24 @@ impl UserRepository for PgUserRepository {
         // no elimina la ventana de carrera bajo concurrencia real pero
         // alcanza para el caso que importa: nadie más registra en el mismo
         // instante en que se levanta una instancia nueva.
+        // F-24: el mismo bootstrap nace también con `email_verified_at` ya
+        // fijado (nadie más existe todavía para aprobar/enviar un código) —
+        // sin importar `ya_verificado`. Para cualquier registro posterior,
+        // `ya_verificado` es quien decide (`false` en auto-registro normal,
+        // `true` en JIT de SSO, que el IdP ya vouched).
         let fila = sqlx::query!(
             r#"
-            insert into users (email, display_name, role_id)
-            values ($1, $2, (
-                select id from roles where name =
-                    case when exists (select 1 from users) then 'user' else 'admin' end
-            ))
+            insert into users (email, display_name, role_id, email_verified_at)
+            values ($1, $2,
+                (select id from roles where name =
+                    case when exists (select 1 from users) then 'user' else 'admin' end),
+                case when (not exists (select 1 from users)) or $3 then now() else null end
+            )
             returning id, security_stamp, created_at
             "#,
             nuevo.email,
             nuevo.display_name,
+            ya_verificado,
         )
         .fetch_one(&mut *tx)
         .await
@@ -160,7 +203,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, security_stamp, created_at from users
-               where email = $1 and active and deleted_at is null"#,
+               where email = $1 and active and deleted_at is null and email_verified_at is not null"#,
             email,
         )
         .fetch_optional(&self.pool)
@@ -172,7 +215,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, security_stamp, created_at from users
-               where id = $1 and active and deleted_at is null"#,
+               where id = $1 and active and deleted_at is null and email_verified_at is not null"#,
             user_id,
         )
         .fetch_optional(&self.pool)
@@ -197,7 +240,8 @@ impl UserRepository for PgUserRepository {
 
     async fn email_y_nombre(&self, user_id: Uuid) -> Result<Option<(String, String)>, RepoError> {
         let fila = sqlx::query!(
-            r#"select email, display_name from users where id = $1 and active and deleted_at is null"#,
+            r#"select email, display_name from users
+               where id = $1 and active and deleted_at is null and email_verified_at is not null"#,
             user_id,
         )
         .fetch_optional(&self.pool)
@@ -214,7 +258,7 @@ impl UserRepository for PgUserRepository {
             select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
             from user_keys uk
             join users u on u.id = uk.user_id
-            where u.email = $1 and u.active and u.deleted_at is null
+            where u.email = $1 and u.active and u.deleted_at is null and u.email_verified_at is not null
             "#,
             email,
         )
@@ -225,6 +269,78 @@ impl UserRepository for PgUserRepository {
             private_key_nonce: f.private_key_nonce,
             kdf_salt: f.kdf_salt,
         }))
+    }
+
+    async fn existe_alguno(&self) -> Result<bool, RepoError> {
+        let fila = sqlx::query!(r#"select exists(select 1 from users) as "existe!""#).fetch_one(&self.pool).await?;
+        Ok(fila.existe)
+    }
+
+    async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
+        let fila = sqlx::query!(
+            r#"select id, security_stamp, created_at from users
+               where email = $1 and active and deleted_at is null and email_verified_at is null"#,
+            email,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
+    }
+}
+
+impl EmailVerificationRepository for PgUserRepository {
+    async fn crear(&self, user_id: Uuid, code_hash: &[u8], expires_at: OffsetDateTime) -> Result<Uuid, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            insert into email_verification_challenges (user_id, code_hash, expires_at)
+            values ($1, $2, $3)
+            returning id
+            "#,
+            user_id,
+            code_hash,
+            expires_at,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fila.id)
+    }
+
+    async fn buscar_pendiente_por_usuario(&self, user_id: Uuid) -> Result<Option<EmailVerificationRow>, RepoError> {
+        let fila = sqlx::query!(
+            r#"select id, user_id, code_hash from email_verification_challenges
+               where user_id = $1 and consumed_at is null and expires_at > now()
+               order by id desc limit 1"#,
+            user_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| EmailVerificationRow { id: f.id, user_id: f.user_id, code_hash: f.code_hash }))
+    }
+
+    async fn consumir(&self, id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"update email_verification_challenges set consumed_at = now() where id = $1"#, id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn invalidar_pendientes_de_usuario(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"update email_verification_challenges set consumed_at = now()
+               where user_id = $1 and consumed_at is null"#,
+            user_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn marcar_verificado(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"update users set email_verified_at = now() where id = $1"#, user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 
@@ -316,7 +432,7 @@ impl SessionRepository for PgSessionRepository {
               and s.expires_at > now()
               and s.security_stamp = u.security_stamp
               and s.mfa_verified_at is not null
-              and u.active and u.deleted_at is null
+              and u.active and u.deleted_at is null and u.email_verified_at is not null
             "#,
             session_id,
         )
@@ -336,7 +452,7 @@ impl SessionRepository for PgSessionRepository {
               and s.revoked_at is null
               and s.expires_at > now()
               and s.security_stamp = u.security_stamp
-              and u.active and u.deleted_at is null
+              and u.active and u.deleted_at is null and u.email_verified_at is not null
             "#,
             session_id,
         )

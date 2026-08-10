@@ -11,16 +11,19 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarAccountRecoveryPolicyRequest, AccountRecoveryPolicyResponse, CrearSolicitudRequest,
-    EnrolarRequest, EscrowResponse, OrgPublicKeyResponse, SolicitudResponse,
+    ActualizarAccountRecoveryPolicyRequest, AccountRecoveryPolicyResponse, CompletarSolicitudRequest,
+    CrearSolicitudRequest, EnrolarRequest, EscrowResponse, MiEstadoResponse, OrgPublicKeyResponse,
+    SolicitudAdminResponse, SolicitudResponse,
 };
-use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest};
+use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
 use super::repository::{
     PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository,
     PgRecoveryRequestRepository,
 };
 use super::service::AccountRecoveryService;
 use crate::auth::repository::PgUserRepository;
+use crate::me::models::NuevaClavePrivada;
+use crate::me::repository::PgPreferenciasRepository;
 
 type Servicio<'a> = AccountRecoveryService<
     'a,
@@ -29,6 +32,7 @@ type Servicio<'a> = AccountRecoveryService<
     PgEscrowRepository,
     PgRecoveryRequestRepository,
     PgUserRepository,
+    PgPreferenciasRepository,
 >;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
@@ -38,6 +42,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         escrow: &state.account_recovery_escrow,
         requests: &state.account_recovery_requests,
         usuarios: &state.usuarios,
+        claves: &state.preferencias_usuario,
         secrets_key: &state.secrets_key,
         pool: &state.pool,
         eventos: state.eventos.clone(),
@@ -89,6 +94,14 @@ pub async fn actualizar_politica(
     Ok(Json(politica_a_response(p)))
 }
 
+pub async fn mi_estado(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+) -> Result<Json<MiEstadoResponse>, ApiError> {
+    let enrolled = servicio(&state).mi_estado(auth.user_id).await?;
+    Ok(Json(MiEstadoResponse { enrolled }))
+}
+
 pub async fn org_public_key(
     State(state): State<AppState>,
     _auth: AuthenticatedUser,
@@ -138,7 +151,37 @@ pub async fn aprobar(
     Ok(Json(solicitud_a_response(solicitud)))
 }
 
-pub async fn completar(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<(), ApiError> {
-    servicio(&state).completar(id).await?;
+pub async fn completar(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CompletarSolicitudRequest>,
+) -> Result<(), ApiError> {
+    let blob = decodificar_b64("encrypted_private_key_blob_b64", &req.encrypted_private_key_blob_b64)?;
+    let nonce = decodificar_b64("private_key_nonce_b64", &req.private_key_nonce_b64)?;
+    let salt = decodificar_b64("kdf_salt_b64", &req.kdf_salt_b64)?;
+    let nueva = NuevaClavePrivada { encrypted_private_key_blob: blob, private_key_nonce: nonce, kdf_salt: salt };
+
+    servicio(&state).completar(id, nueva).await?;
     Ok(())
+}
+
+fn solicitud_admin_a_response(s: SolicitudPendiente) -> SolicitudAdminResponse {
+    SolicitudAdminResponse {
+        id: s.id,
+        target_email: s.target_email,
+        status: s.status,
+        approvals_count: s.approvals.as_array().map(|a| a.len()).unwrap_or(0),
+        approval_threshold: s.approval_threshold,
+        created_at: s.created_at,
+    }
+}
+
+/// `GET /admin/account-recovery/requests` — descubribilidad para el admin,
+/// ver `AccountRecoveryService::listar_pendientes`.
+pub async fn listar_solicitudes_pendientes(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Json<Vec<SolicitudAdminResponse>>, ApiError> {
+    let solicitudes = servicio(&state).listar_pendientes().await?;
+    Ok(Json(solicitudes.into_iter().map(solicitud_admin_a_response).collect()))
 }

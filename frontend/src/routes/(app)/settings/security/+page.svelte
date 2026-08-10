@@ -21,7 +21,9 @@
 	import { registrarPasskey, listarPasskeys, revocarPasskey, type Passkey } from '$lib/crypto/passkeys';
 	import { verificarPassphrase } from '$lib/crypto/identity';
 	import { generarSetup, confirmarYActivar, estaActivo, desactivar } from '$lib/crypto/totp-local';
-	import { sesion } from '$lib/state/session';
+	import { accountRecoveryApi } from '$lib/api/accountRecovery';
+	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
+	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
@@ -40,6 +42,42 @@
 		}
 	}
 	onMount(cargarPasskeys);
+
+	// F-16: estado de enrolamiento en Account Recovery — sin esto no hay
+	// forma de saber si "Habilitar" ya se hizo antes en otro dispositivo.
+	let recoveryEnrolada = $state(false);
+	let cargandoRecovery = $state(true);
+	let habilitandoRecovery = $state(false);
+	let errorRecovery = $state<string | undefined>();
+	onMount(async () => {
+		try {
+			recoveryEnrolada = (await accountRecoveryApi.miEstado()).enrolled;
+		} catch {
+			/* la sección simplemente no ofrece el botón si esto falla */
+		} finally {
+			cargandoRecovery = false;
+		}
+	});
+
+	async function habilitarRecovery() {
+		errorRecovery = undefined;
+		const claves = get(clavesDesbloqueadas);
+		if (!claves) {
+			errorRecovery = get(t).settingsSecurity.recoveryClavesBloqueadas;
+			return;
+		}
+		habilitandoRecovery = true;
+		try {
+			const org = await accountRecoveryApi.orgPublicKey();
+			const sellado = await sellarMaterialParaOrg(org.public_key_x25519_b64, claves);
+			await accountRecoveryApi.enrolar(sellado);
+			recoveryEnrolada = true;
+		} catch (err) {
+			errorRecovery = err instanceof ApiError ? err.message : get(t).settingsSecurity.recoveryErrorHabilitar;
+		} finally {
+			habilitandoRecovery = false;
+		}
+	}
 
 	async function agregar(e: SubmitEvent) {
 		e.preventDefault();
@@ -221,6 +259,22 @@
 			{#if errorSetup}<p class="error">{errorSetup}</p>{/if}
 			<Button type="submit" variant="primary" loading={cargandoSetup}>{$t.settingsSecurity.activar}</Button>
 		</form>
+	{/if}
+</Card>
+
+<Card>
+	<h2>{$t.settingsSecurity.recoveryTitulo}</h2>
+	<p class="hint">{$t.settingsSecurity.recoveryHint}</p>
+
+	{#if cargandoRecovery}
+		<p class="hint">{$t.settingsSecurity.cargando}</p>
+	{:else if recoveryEnrolada}
+		<p class="ok">{$t.settingsSecurity.recoveryHabilitada}</p>
+	{:else}
+		{#if errorRecovery}<p class="error">{errorRecovery}</p>{/if}
+		<Button variant="secondary" onclick={habilitarRecovery} loading={habilitandoRecovery}>
+			{$t.settingsSecurity.recoveryHabilitar}
+		</Button>
 	{/if}
 </Card>
 

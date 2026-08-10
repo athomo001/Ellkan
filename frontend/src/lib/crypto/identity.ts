@@ -20,7 +20,15 @@ function aadClavePrivada(email: string): Uint8Array {
 	return new TextEncoder().encode(email);
 }
 
-export async function registrar(email: string, displayName: string, passphrase: string): Promise<string> {
+interface ResultadoRegistro {
+	userId: string;
+	/** F-24: `true` en cualquier auto-registro normal — la cuenta no puede
+	 * loguear todavía, hay que verificar el email con `verificarEmail`
+	 * antes. `false` sólo en el bootstrap (primer usuario de la instancia). */
+	pendingVerification: boolean;
+}
+
+export async function registrar(email: string, displayName: string, passphrase: string): Promise<ResultadoRegistro> {
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
 	const salt = wasm.generar_salt_kdf();
@@ -32,7 +40,7 @@ export async function registrar(email: string, displayName: string, passphrase: 
 		aadClavePrivada(email)
 	);
 
-	const resp = await api.post<{ user_id: string }>('/auth/register', {
+	const resp = await api.post<{ user_id: string; pending_verification: boolean }>('/auth/register', {
 		email,
 		display_name: displayName,
 		public_key_x25519_b64: bytesABase64(identidad.x25519_public),
@@ -41,7 +49,18 @@ export async function registrar(email: string, displayName: string, passphrase: 
 		private_key_nonce_b64: bytesABase64(blob.nonce),
 		kdf_salt_b64: bytesABase64(salt)
 	});
-	return resp.user_id;
+	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
+}
+
+/** F-24: código de 6 dígitos enviado por email tras un auto-registro normal. */
+export async function verificarEmail(email: string, code: string): Promise<void> {
+	await api.post('/auth/verify-email', { email, code });
+}
+
+/** Anti-enumeration: la misma respuesta exista o no la cuenta, ya esté
+ * verificada o no — nunca lanza por esas razones. */
+export async function reenviarVerificacionEmail(email: string): Promise<void> {
+	await api.post('/auth/verify-email/resend', { email });
 }
 
 interface ResultadoLogin {

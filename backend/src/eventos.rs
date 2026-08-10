@@ -16,6 +16,10 @@ use crate::audit::models::EventoAuditoria;
 #[derive(Clone)]
 pub enum DomainEvent {
     DispositivoNoReconocido { user_id: Uuid, email: String, codigo: String },
+    /// F-24: auto-registro (no bootstrap) recién creado, código de
+    /// verificación de email — mismo criterio de `codigo` en claro sólo
+    /// mientras vive en memoria que `DispositivoNoReconocido`.
+    RegistroPendienteVerificacion { user_id: Uuid, email: String, codigo: String },
     /// F-33: dispara el consumidor de `metadata::rotacion`, que vigila
     /// `saliente_id` hasta que ningún recurso lo referencie más y recién
     /// entonces la expira — nunca antes.

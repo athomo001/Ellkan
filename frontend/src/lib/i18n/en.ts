@@ -38,7 +38,23 @@ const en: Diccionario = {
 		errorVerificarDispositivo: 'Could not verify the device.',
 		errorPasskey: 'Could not sign in with the passkey.',
 		errorDesbloqueoLocal: 'Could not unlock.',
-		tokenSeguridadHint: 'You should recognize this color and word on this device:'
+		tokenSeguridadHint: 'You should recognize this color and word on this device:',
+		olvidasteTuPassphrase: 'Forgot your passphrase?'
+	},
+	recuperacionCuenta: {
+		titulo: 'Recover account — Ellkan',
+		subtitulo: 'If you enabled account recovery before losing your passphrase, an admin can approve your request.',
+		email: 'Email',
+		solicitar: 'Request recovery',
+		esperandoAprobacion: 'Waiting for an administrator to approve your request… you can leave this screen open.',
+		aprobadaHint: 'Your request was approved. Set a new passphrase for your account.',
+		passphraseNueva: 'New passphrase',
+		passphraseConfirmar: 'Confirm new passphrase',
+		fijarPassphrase: 'Set passphrase',
+		completaHint: 'Done — you can now sign in with your new passphrase.',
+		irALogin: 'Go to sign in',
+		errorNoCoinciden: 'Passphrases do not match.',
+		errorGenerico: 'Could not complete the recovery.'
 	},
 	registro: {
 		titulo: 'Create account — Ellkan',
@@ -52,7 +68,16 @@ const en: Diccionario = {
 		yaTenesCuenta: 'Already have an account?',
 		iniciaSesion: 'Sign in',
 		errorNoCoinciden: 'Passphrases do not match.',
-		errorGenerico: 'Could not complete registration.'
+		errorGenerico: 'Could not complete registration.',
+		verificacion: {
+			titulo: 'Verify your email',
+			hint: 'We sent a 6-digit code by email. Enter it to be able to sign in.',
+			codigo: 'Verification code',
+			confirmar: 'Confirm',
+			reenviar: 'Resend code',
+			reenviado: 'If the account exists, a new code was sent.',
+			errorCodigo: 'Incorrect or expired code.'
+		}
 	},
 	fortalezaPassword: {
 		muyDebil: 'Very weak',
@@ -251,7 +276,15 @@ const en: Diccionario = {
 		qrAlt: 'QR code to set up quick unlock',
 		sinCamaraHint: 'No camera? Enter this code manually:',
 		errorPassphraseIncorrecta: 'Incorrect passphrase.',
-		errorCodigoIncorrecto: 'Incorrect code.'
+		errorCodigoIncorrecto: 'Incorrect code.',
+		cargando: 'Loading…',
+		recoveryTitulo: 'Account recovery',
+		recoveryHint:
+			'Enable this to be able to recover access to your account if you lose your passphrase — an administrator has to approve the request.',
+		recoveryHabilitada: 'Enabled on this account.',
+		recoveryHabilitar: 'Enable account recovery',
+		recoveryErrorHabilitar: 'Could not enable account recovery.',
+		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.'
 	},
 	settingsProfile: {
 		titulo: 'My profile',
@@ -317,6 +350,7 @@ const en: Diccionario = {
 			politicaPassword: 'Passphrase policy',
 			politicaRetencion: 'Data retention',
 			politicaRecovery: 'Account recovery',
+			politicaSelfRegistration: 'Self-registration',
 			politicaEmergencia: 'Emergency access',
 			politicaDispositivo: 'Device approval',
 			politicaExport: 'Export policy',
@@ -477,7 +511,20 @@ const en: Diccionario = {
 			titulo: 'Account recovery',
 			requerido: 'Required for all users',
 			diasGracia: 'Grace period (days)',
-			umbralAprobacion: 'Approval threshold (number of admins)'
+			umbralAprobacion: 'Approval threshold (number of admins)',
+			solicitudesTitulo: 'Pending requests',
+			colEmail: 'Email',
+			colEstado: 'Status',
+			colAprobaciones: 'Approvals',
+			colFecha: 'Requested',
+			aprobar: 'Approve',
+			sinSolicitudes: 'No pending requests.'
+		},
+		politicaSelfRegistration: {
+			titulo: 'Self-registration',
+			habilitado: 'Self-registration enabled',
+			dominiosPermitidos: 'Allowed domains (one per line, empty = any domain)',
+			avisoSmtp: 'SMTP is not configured — self-registration stays blocked until you configure it (the verification code could not be delivered).'
 		},
 		politicaEmergencia: {
 			titulo: 'Emergency access',

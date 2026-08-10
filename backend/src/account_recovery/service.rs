@@ -22,18 +22,22 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::auth::repository::UserRepository;
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::me::models::NuevaClavePrivada;
+use crate::me::repository::ClavePrivadaRepository;
+use crate::me::service::CambiarPassphraseService;
 
-use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest};
+use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
 use super::repository::{
     AccountRecoveryPolicyRepository, EscrowRepository, OrgRecoveryKeyRepository, RecoveryRequestRepository,
 };
 
-pub struct AccountRecoveryService<'a, P, K, E, R, U> {
+pub struct AccountRecoveryService<'a, P, K, E, R, U, C> {
     pub policy: &'a P,
     pub org_key: &'a K,
     pub escrow: &'a E,
     pub requests: &'a R,
     pub usuarios: &'a U,
+    pub claves: &'a C,
     pub secrets_key: &'a ClaveSecreta32,
     pub pool: &'a sqlx::PgPool,
     pub eventos: EmisorDeEventos,
@@ -46,13 +50,14 @@ fn parsear_public_key_x25519(bytes: &[u8]) -> Result<X25519PublicKey, DomainErro
     Ok(X25519PublicKey::from(arreglo))
 }
 
-impl<'a, P, K, E, R, U> AccountRecoveryService<'a, P, K, E, R, U>
+impl<'a, P, K, E, R, U, C> AccountRecoveryService<'a, P, K, E, R, U, C>
 where
     P: AccountRecoveryPolicyRepository,
     K: OrgRecoveryKeyRepository,
     E: EscrowRepository,
     R: RecoveryRequestRepository,
     U: UserRepository,
+    C: ClavePrivadaRepository,
 {
     pub async fn politica(&self) -> Result<AccountRecoveryPolicy, DomainError> {
         Ok(self.policy.obtener().await?)
@@ -103,6 +108,12 @@ where
             })
             .await?;
         Ok(clave.public_key_x25519)
+    }
+
+    /// `GET /account-recovery/status` — la UI de "Mi cuenta" necesita saber
+    /// si ya hay un escrow antes de mostrar "Habilitar" vs. el estado actual.
+    pub async fn mi_estado(&self, user_id: Uuid) -> Result<bool, DomainError> {
+        Ok(self.escrow.buscar_por_usuario(user_id).await?.is_some())
     }
 
     /// `POST /account-recovery/enroll` (F-16) — el cliente ya selló su clave
@@ -249,21 +260,35 @@ where
 
     /// `POST /account-recovery/requests/{id}/complete` — el cliente ya
     /// desselló localmente el material con la privada de su clave efímera y
-    /// fijó una passphrase nueva; el servidor sólo cierra el ciclo de
-    /// estado, distinto de `approved` (F-16: una solicitud aprobada pero
-    /// nunca completada tiene que poder distinguirse de una ya resuelta).
-    pub async fn completar(&self, request_id: Uuid) -> Result<(), DomainError> {
+    /// fijó una passphrase nueva; acá se persiste esa clave nueva (reusando
+    /// `me::service::CambiarPassphraseService`, misma validación de
+    /// longitudes y misma rotación de `security_stamp` que
+    /// `/me/change-passphrase`) y se cierra el ciclo de estado, distinto de
+    /// `approved` (F-16: una solicitud aprobada pero nunca completada tiene
+    /// que poder distinguirse de una ya resuelta).
+    pub async fn completar(&self, request_id: Uuid, nueva: NuevaClavePrivada) -> Result<(), DomainError> {
         let solicitud = self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)?;
+        let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
+
         if !self.requests.marcar_completada(request_id).await? {
             return Err(DomainError::Conflict);
         }
 
-        let escrow = self.escrow.buscar(solicitud.escrow_id).await?;
+        let cambio = CambiarPassphraseService { claves: self.claves, eventos: self.eventos.clone() };
+        cambio.actualizar(escrow.user_id, nueva).await?;
+
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryCompleted, escrow.map(|e| e.user_id))
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryCompleted, Some(escrow.user_id))
                 .con_sujeto("account_recovery_request", request_id),
         ));
 
         Ok(())
+    }
+
+    /// `GET /admin/account-recovery/requests` — el id de una solicitud sólo
+    /// lo conoce quien la creó; sin este listado un admin no tiene forma de
+    /// enterarse de que hay algo para aprobar.
+    pub async fn listar_pendientes(&self) -> Result<Vec<SolicitudPendiente>, DomainError> {
+        Ok(self.requests.listar_pendientes().await?)
     }
 }

@@ -155,6 +155,17 @@ where
                         tracing::error!(error = %e, "no se pudo encolar el email de verificación de dispositivo");
                     }
                 }
+                DomainEvent::RegistroPendienteVerificacion { email, codigo, .. } => {
+                    let asunto = "Ellkan: verificá tu cuenta";
+                    let cuerpo = format!(
+                        "Creaste una cuenta en Ellkan.\n\
+                         Código de verificación: {codigo}\n\
+                         Ingresalo para poder iniciar sesión. Si no fuiste vos, ignorá este email."
+                    );
+                    if let Err(e) = emails.encolar(&email, asunto, &cuerpo).await {
+                        tracing::error!(error = %e, "no se pudo encolar el email de verificación de registro");
+                    }
+                }
                 // F-33: consumidor dedicado en `metadata::rotacion`, no
                 // genera ninguna notificación por email.
                 DomainEvent::MetadataKeyRotationStarted { .. } => {}

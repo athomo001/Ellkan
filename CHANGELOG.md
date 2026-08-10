@@ -4,6 +4,15 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.10] - 2026-08-10
+
+### Recuperación de cuenta con pantallas reales, y auto-registro configurable
+
+#### Added
+
+- **Recuperación de cuenta**: ahora hay una pantalla real para recuperar el acceso si perdés tu contraseña (antes sólo existía la configuración, sin ninguna forma de usarla). Desde "Mi cuenta → Seguridad" podés habilitarla; si más adelante perdés tu contraseña, un enlace nuevo en la pantalla de inicio de sesión ("¿Olvidaste tu contraseña?") te lleva al flujo de recuperación, que queda pendiente de que un administrador lo apruebe. Los administradores ahora ven un listado de solicitudes pendientes con botón de aprobar, en la misma pantalla donde ya se configuraba la política.
+- **Auto-registro configurable**: nueva sección de administración para decidir si cualquiera puede crear una cuenta sola, restringirlo a ciertos dominios de correo (por ejemplo, sólo `@netics.cl`), o desactivarlo por completo. Si está activado, cualquier cuenta nueva (salvo la primera de la instancia) tiene que verificar su correo con un código de 6 dígitos antes de poder iniciar sesión — si el correo saliente no está configurado, el auto-registro queda bloqueado en vez de emitir códigos que nunca llegarían.
+
 ## [0.1.9] - 2026-08-10
 
 ### Reorganización de la cuenta personal y exportación

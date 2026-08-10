@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select email, display_name from users where id = $1 and active and deleted_at is null",
+  "query": "select email, display_name from users\n               where id = $1 and active and deleted_at is null and email_verified_at is not null",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       false
     ]
   },
-  "hash": "65329227aa493dbfa428774bc27b6beb740b4a458b11c0c2b09cec44bc529f8e"
+  "hash": "e285f0f2fbc636ec50d804b0cce696ad79e37f0ae68138989c57537ba2c24843"
 }

@@ -290,6 +290,7 @@
 			<Button type="submit" variant="primary" loading={cargando}>{$t.login.iniciarSesion}</Button>
 		</form>
 		<p class="hint centrado">{$t.login.sinCuenta} <a href="/register">{$t.login.registrate}</a></p>
+		<p class="hint centrado"><a href="/recover">{$t.login.olvidasteTuPassphrase}</a></p>
 		<hr />
 		<p class="hint centrado">
 			<button type="button" class="link" onclick={() => (conPasskey = true)}>{$t.login.usarPasskey}</button>

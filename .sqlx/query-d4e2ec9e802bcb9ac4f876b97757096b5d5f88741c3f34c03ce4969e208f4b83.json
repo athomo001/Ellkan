@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update users set role_id = $1 where email = $2 and deleted_at is null returning id",
+  "query": "\n            insert into email_verification_challenges (user_id, code_hash, expires_at)\n            values ($1, $2, $3)\n            returning id\n            ",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "users",
+            "table": "email_verification_challenges",
             "name": "id"
           }
         }
@@ -18,12 +18,13 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text"
+        "Bytea",
+        "Timestamptz"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "b75afad498f367beab9eb2d7bc291a0629eb4d09feb0aedc92101ac16003f565"
+  "hash": "d4e2ec9e802bcb9ac4f876b97757096b5d5f88741c3f34c03ce4969e208f4b83"
 }

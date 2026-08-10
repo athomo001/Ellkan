@@ -167,6 +167,18 @@ pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
     let cuerpo: Value = serde_json::from_str(&texto).unwrap();
     let user_id: Uuid = cuerpo["user_id"].as_str().unwrap().parse().unwrap();
 
+    // F-24: este helper registra decenas de usuarios en toda la suite y
+    // casi ninguna de esas pruebas ejercita el flujo de verificación de
+    // email en sí — sólo necesita una cuenta ya usable, igual que antes de
+    // F-24. Se auto-verifica acá (equivalente al bootstrap real, que nace
+    // ya verificado) en vez de forzar a cada test existente a pasar por
+    // `/auth/verify-email`; `self_registration.rs` sí ejercita el flujo
+    // real end-to-end, sin este atajo.
+    sqlx::query!("update users set email_verified_at = now() where id = $1", user_id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+
     let device_token: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     Usuario { email: email.to_string(), user_id, x25519, ed25519, passphrase, device_token }
 }
@@ -176,14 +188,22 @@ pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
 /// carga (muchos tests con Postgres en paralelo) puede no haber escrito la
 /// fila todavía en el instante exacto en que el test la busca, así que se
 /// reintenta brevemente en vez de fallar al primer miss.
+///
+/// F-24: desde que `registrar()` también encola un email de verificación de
+/// cuenta para cualquier usuario no-bootstrap, puede haber más de una fila
+/// para el mismo `recipient` (la de registro + la de dispositivo) — filtrar
+/// por `subject` exacto evita que un `fetch_one` "de suerte" agarre la fila
+/// vieja (de registro) en vez de esperar a que aparezca la real, mismo bug
+/// que hubiera producido un código equivocado sin romper el `Ok(...)`.
 #[allow(dead_code)]
-async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> String {
+async fn codigo_verificacion_dispositivo_encolado(pool: &sqlx::PgPool, email: &str) -> String {
     let mut ultimo_error = None;
     for _ in 0..20 {
         match sqlx::query_as::<_, (String,)>(
-            "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
+            "select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1",
         )
         .bind(email)
+        .bind("Ellkan: verificá este dispositivo nuevo")
         .fetch_one(pool)
         .await
         {
@@ -194,7 +214,31 @@ async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> St
             }
         }
     }
-    panic!("debería haber un email encolado para este usuario tras reintentar: {ultimo_error:?}");
+    panic!("debería haber un email de dispositivo encolado para este usuario tras reintentar: {ultimo_error:?}");
+}
+
+/// Como la de arriba, pero para el código de verificación de registro
+/// (F-24) — usado por `self_registration.rs`, no por `login()`.
+#[allow(dead_code)]
+pub async fn codigo_verificacion_registro_encolado(pool: &sqlx::PgPool, email: &str) -> String {
+    let mut ultimo_error = None;
+    for _ in 0..20 {
+        match sqlx::query_as::<_, (String,)>(
+            "select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1",
+        )
+        .bind(email)
+        .bind("Ellkan: verificá tu cuenta")
+        .fetch_one(pool)
+        .await
+        {
+            Ok(fila) => return extraer_codigo(&fila.0),
+            Err(e) => {
+                ultimo_error = Some(e);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+    panic!("debería haber un email de registro encolado para este usuario tras reintentar: {ultimo_error:?}");
 }
 
 #[allow(dead_code)]
@@ -246,7 +290,7 @@ pub async fn login(entorno: &Entorno, usuario: &Usuario) -> Uuid {
     );
     let device_challenge_id = cuerpo["device_challenge_id"].as_str().unwrap();
 
-    let codigo = codigo_de_verificacion_encolado(&entorno.pool, &usuario.email).await;
+    let codigo = codigo_verificacion_dispositivo_encolado(&entorno.pool, &usuario.email).await;
 
     let resp = entorno
         .cliente

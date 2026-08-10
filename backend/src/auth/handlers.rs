@@ -9,10 +9,11 @@ use crate::state::AppState;
 
 use super::dto::{
     ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PublicKeyResponse,
-    RegisterRequest, RegisterResponse, ServerKeyResponse, VerifyDeviceRequest, VerifyRequest, VerifyResponse,
+    RegisterRequest, RegisterResponse, ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest,
+    VerifyEmailRequest, VerifyRequest, VerifyResponse,
 };
 use super::extractor::AuthenticatedUser;
-use super::models::{NuevoUsuario, ResultadoVerify};
+use super::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
 use super::repository::UserRepository;
 use super::service::AuthService;
 
@@ -30,6 +31,8 @@ fn servicio(
     crate::mfa::repository::PgTotpCredentialRepository,
     crate::mfa::repository::PgMfaChallengeRepository,
     crate::smtp_config::repository::PgSmtpConfigRepository,
+    crate::self_registration::repository::PgSelfRegistrationPolicyRepository,
+    super::repository::PgUserRepository,
 > {
     AuthService {
         usuarios: &state.usuarios,
@@ -41,6 +44,8 @@ fn servicio(
         mfa_totp: &state.mfa_totp,
         mfa_challenges: &state.mfa_challenges,
         smtp_config: &state.smtp_config,
+        self_registration: &state.self_registration_policy,
+        email_verification: &state.usuarios,
         eventos: state.eventos.clone(),
     }
 }
@@ -101,8 +106,25 @@ pub async fn register(
         kdf_salt: &salt,
     };
 
-    let usuario = servicio(&state).registrar(nuevo).await?;
-    Ok(Json(RegisterResponse { user_id: usuario.id }))
+    let resultado = servicio(&state).registrar(nuevo).await?;
+    let (user_id, pending_verification) = match resultado {
+        ResultadoRegistro::Completo(usuario) => (usuario.id, false),
+        ResultadoRegistro::PendienteVerificacion { user_id } => (user_id, true),
+    };
+    Ok(Json(RegisterResponse { user_id, pending_verification }))
+}
+
+pub async fn verify_email(State(state): State<AppState>, Json(req): Json<VerifyEmailRequest>) -> Result<(), ApiError> {
+    servicio(&state).verificar_email(&req.email, &req.code).await?;
+    Ok(())
+}
+
+pub async fn resend_verification(
+    State(state): State<AppState>,
+    Json(req): Json<ResendVerificationRequest>,
+) -> Result<(), ApiError> {
+    servicio(&state).reenviar_verificacion(&req.email).await?;
+    Ok(())
 }
 
 pub async fn server_key(State(state): State<AppState>) -> Json<ServerKeyResponse> {

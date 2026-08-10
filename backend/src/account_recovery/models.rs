@@ -40,3 +40,16 @@ pub struct RecoveryRequest {
     pub sealed_private_key_for_requester: Option<Vec<u8>>,
     pub created_at: OffsetDateTime,
 }
+
+/// Sólo para `GET /admin/account-recovery/requests` — el admin no tiene
+/// forma de descubrir un `request_id` de otro modo (el id sólo lo conoce
+/// quien creó la solicitud), así que esta vista trae el email objetivo.
+#[derive(Debug, Clone)]
+pub struct SolicitudPendiente {
+    pub id: Uuid,
+    pub target_email: String,
+    pub status: String,
+    pub approvals: Value,
+    pub approval_threshold: i32,
+    pub created_at: OffsetDateTime,
+}

@@ -37,7 +37,24 @@ const es = {
 		errorVerificarDispositivo: 'No se pudo verificar el dispositivo.',
 		errorPasskey: 'No se pudo iniciar sesión con la passkey.',
 		errorDesbloqueoLocal: 'No se pudo desbloquear.',
-		tokenSeguridadHint: 'Deberías reconocer este color y esta palabra en este dispositivo:'
+		tokenSeguridadHint: 'Deberías reconocer este color y esta palabra en este dispositivo:',
+		olvidasteTuPassphrase: '¿Olvidaste tu contraseña?'
+	},
+	recuperacionCuenta: {
+		titulo: 'Recuperar cuenta — Ellkan',
+		subtitulo:
+			'Si habilitaste la recuperación de cuenta antes de perder tu contraseña, un admin puede aprobar tu solicitud.',
+		email: 'Email',
+		solicitar: 'Solicitar recuperación',
+		esperandoAprobacion: 'Esperando que un administrador apruebe tu solicitud… podés dejar esta pantalla abierta.',
+		aprobadaHint: 'Tu solicitud fue aprobada. Fijá una contraseña nueva para tu cuenta.',
+		passphraseNueva: 'Contraseña nueva',
+		passphraseConfirmar: 'Confirmar contraseña nueva',
+		fijarPassphrase: 'Fijar contraseña',
+		completaHint: 'Listo — ya podés iniciar sesión con tu contraseña nueva.',
+		irALogin: 'Ir a iniciar sesión',
+		errorNoCoinciden: 'Las contraseñas no coinciden.',
+		errorGenerico: 'No se pudo completar la recuperación.'
 	},
 	registro: {
 		titulo: 'Crear cuenta — Ellkan',
@@ -51,7 +68,16 @@ const es = {
 		yaTenesCuenta: '¿Ya tenés cuenta?',
 		iniciaSesion: 'Iniciá sesión',
 		errorNoCoinciden: 'Las contraseñas no coinciden.',
-		errorGenerico: 'No se pudo completar el registro.'
+		errorGenerico: 'No se pudo completar el registro.',
+		verificacion: {
+			titulo: 'Verificá tu email',
+			hint: 'Te enviamos un código de 6 dígitos por email. Ingresalo para poder iniciar sesión.',
+			codigo: 'Código de verificación',
+			confirmar: 'Confirmar',
+			reenviar: 'Reenviar código',
+			reenviado: 'Si la cuenta existe, se reenvió un código nuevo.',
+			errorCodigo: 'Código incorrecto o vencido.'
+		}
 	},
 	fortalezaPassword: {
 		muyDebil: 'Muy débil',
@@ -251,7 +277,15 @@ const es = {
 		qrAlt: 'Código QR para configurar el desbloqueo rápido',
 		sinCamaraHint: '¿Sin cámara? Ingresá este código a mano:',
 		errorPassphraseIncorrecta: 'Contraseña incorrecta.',
-		errorCodigoIncorrecto: 'Código incorrecto.'
+		errorCodigoIncorrecto: 'Código incorrecto.',
+		cargando: 'Cargando…',
+		recoveryTitulo: 'Recuperación de cuenta',
+		recoveryHint:
+			'Habilitá esto para poder recuperar el acceso a tu cuenta si perdés tu contraseña — un administrador tiene que aprobar la solicitud.',
+		recoveryHabilitada: 'Habilitada en esta cuenta.',
+		recoveryHabilitar: 'Habilitar recuperación de cuenta',
+		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',
+		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.'
 	},
 	settingsProfile: {
 		titulo: 'Mi perfil',
@@ -319,6 +353,7 @@ const es = {
 			politicaPassword: 'Política de contraseña',
 			politicaRetencion: 'Retención de datos',
 			politicaRecovery: 'Recuperación de cuenta',
+			politicaSelfRegistration: 'Auto-registro',
 			politicaEmergencia: 'Acceso de emergencia',
 			politicaDispositivo: 'Aprobación de dispositivo',
 			politicaExport: 'Política de exportación',
@@ -480,7 +515,21 @@ const es = {
 			titulo: 'Recuperación de cuenta',
 			requerido: 'Obligatorio para todos los usuarios',
 			diasGracia: 'Días de gracia',
-			umbralAprobacion: 'Umbral de aprobación (cantidad de admins)'
+			umbralAprobacion: 'Umbral de aprobación (cantidad de admins)',
+			solicitudesTitulo: 'Solicitudes pendientes',
+			colEmail: 'Email',
+			colEstado: 'Estado',
+			colAprobaciones: 'Aprobaciones',
+			colFecha: 'Solicitada',
+			aprobar: 'Aprobar',
+			sinSolicitudes: 'No hay solicitudes pendientes.'
+		},
+		politicaSelfRegistration: {
+			titulo: 'Auto-registro',
+			habilitado: 'Auto-registro habilitado',
+			dominiosPermitidos: 'Dominios permitidos (uno por línea, vacío = cualquier dominio)',
+			avisoSmtp:
+				'SMTP no está configurado — el auto-registro queda bloqueado hasta que lo configures (el código de verificación no podría llegar).'
 		},
 		politicaEmergencia: {
 			titulo: 'Acceso de emergencia',

@@ -72,3 +72,23 @@ pub struct DeviceChallengeRow {
     pub device_token_hash: Vec<u8>,
     pub code_hash: Vec<u8>,
 }
+
+/// F-24: fila de `email_verification_challenges` pendiente — mismo criterio
+/// que `DeviceChallengeRow` (comparación de `code_hash` en tiempo
+/// constante, nunca en SQL), sin el campo de dispositivo que no aplica acá.
+#[derive(Debug, Clone)]
+pub struct EmailVerificationRow {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub code_hash: Vec<u8>,
+}
+
+/// F-24: resultado de `AuthService::registrar` — el bootstrap (primer
+/// usuario de la instancia) nace ya verificado y devuelve la sesión
+/// utilizable de siempre; cualquier registro posterior queda pendiente de
+/// verificación de email, sin `user_id` expuesto todavía como "logueable".
+#[derive(Debug, Clone)]
+pub enum ResultadoRegistro {
+    Completo(User),
+    PendienteVerificacion { user_id: Uuid },
+}

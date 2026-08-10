@@ -248,17 +248,23 @@ where
         // propia todavía — el usuario completa el enrolamiento
         // (Argon2id/keypair, F-01) en su primer acceso real, mismo criterio
         // que una invitación normal, nunca con acceso implícito a nada.
+        // F-24: `ya_verificado: true` — el IdP ya vouched por este email
+        // (`email_verified` del token, chequeado arriba); no vuelve a pasar
+        // por la verificación de auto-registro público.
         let nuevo = self
             .usuarios
-            .crear(NuevoUsuario {
-                email,
-                display_name: email,
-                public_key_x25519: &[0u8; 32],
-                public_key_ed25519: &[0u8; 32],
-                encrypted_private_key_blob: &[],
-                private_key_nonce: &bytes_aleatorios::<24>(),
-                kdf_salt: &bytes_aleatorios::<16>(),
-            })
+            .crear(
+                NuevoUsuario {
+                    email,
+                    display_name: email,
+                    public_key_x25519: &[0u8; 32],
+                    public_key_ed25519: &[0u8; 32],
+                    encrypted_private_key_blob: &[],
+                    private_key_nonce: &bytes_aleatorios::<24>(),
+                    kdf_salt: &bytes_aleatorios::<16>(),
+                },
+                true,
+            )
             .await
             .map_err(crate::error::DomainError::Interno)?;
 

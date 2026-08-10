@@ -103,10 +103,13 @@ impl ScimUserRepository for PgScimUserRepository {
 
     async fn crear(&self, external_id: &str, email: &str, display_name: &str) -> Result<ScimUser, RepoError> {
         let mut tx = self.pool.begin().await?;
+        // F-24: provisioning vía SCIM/directory sync es una fuente confiable
+        // aparte (el directorio ya validó el email) — nunca pasa por la
+        // verificación de email de auto-registro público.
         let fila = sqlx::query!(
             r#"
-            insert into users (email, display_name, external_id, role_id)
-            values ($1, $2, $3, (select id from roles where name = 'user'))
+            insert into users (email, display_name, external_id, role_id, email_verified_at)
+            values ($1, $2, $3, (select id from roles where name = 'user'), now())
             returning id, external_id, email, display_name, active
             "#,
             email,

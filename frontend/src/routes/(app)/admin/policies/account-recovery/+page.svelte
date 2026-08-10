@@ -3,7 +3,8 @@
 	import { onMount } from 'svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
-	import { accountRecoveryPolicyApi } from '$lib/api/admin';
+	import Table from '$lib/components/Table.svelte';
+	import { accountRecoveryPolicyApi, accountRecoveryAdminApi, type SolicitudRecoveryAdmin } from '$lib/api/admin';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
@@ -28,6 +29,39 @@
 			cargando = false;
 		}
 	});
+
+	// Solicitudes pendientes — el id de una solicitud sólo lo conoce quien
+	// la creó, este listado es la única forma de que un admin se entere de
+	// que hay algo para aprobar.
+	let solicitudes = $state<SolicitudRecoveryAdmin[]>([]);
+	let cargandoSolicitudes = $state(true);
+	let aprobandoId = $state<string | undefined>();
+	let errorSolicitudes = $state<string | undefined>();
+
+	async function cargarSolicitudes() {
+		cargandoSolicitudes = true;
+		try {
+			solicitudes = await accountRecoveryAdminApi.listarPendientes();
+		} catch (err) {
+			errorSolicitudes = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			cargandoSolicitudes = false;
+		}
+	}
+	onMount(cargarSolicitudes);
+
+	async function aprobar(id: string) {
+		aprobandoId = id;
+		errorSolicitudes = undefined;
+		try {
+			await accountRecoveryAdminApi.aprobar(id);
+			await cargarSolicitudes();
+		} catch (err) {
+			errorSolicitudes = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			aprobandoId = undefined;
+		}
+	}
 
 	async function guardar(e: SubmitEvent) {
 		e.preventDefault();
@@ -71,11 +105,53 @@
 	{/if}
 </Card>
 
+<Card>
+	<h2>{$t.admin.politicaRecovery.solicitudesTitulo}</h2>
+	{#if errorSolicitudes}<p class="error">{errorSolicitudes}</p>{/if}
+	<Table
+		columnas={[
+			{ key: 'email', header: $t.admin.politicaRecovery.colEmail },
+			{ key: 'estado', header: $t.admin.politicaRecovery.colEstado },
+			{ key: 'aprobaciones', header: $t.admin.politicaRecovery.colAprobaciones },
+			{ key: 'fecha', header: $t.admin.politicaRecovery.colFecha },
+			{ key: 'acciones', header: '' }
+		]}
+		filas={solicitudes}
+		claveFila={(f) => f.id}
+		cargando={cargandoSolicitudes}
+		textoCargando={$t.admin.comun.cargando}
+		vacio={$t.admin.politicaRecovery.sinSolicitudes}
+	>
+		{#snippet fila(s)}
+			<td>{s.target_email}</td>
+			<td>{s.status}</td>
+			<td>{s.approvals_count}/{s.approval_threshold}</td>
+			<td class="secundario">{new Date(s.created_at).toLocaleString()}</td>
+			<td>
+				<Button variant="primary" onclick={() => aprobar(s.id)} loading={aprobandoId === s.id}>
+					{$t.admin.politicaRecovery.aprobar}
+				</Button>
+			</td>
+		{/snippet}
+	</Table>
+</Card>
+
 <style>
 	h1 {
 		margin: 0 0 var(--space-6) 0;
 		font-size: var(--text-2xl);
 		color: var(--text-primary);
+	}
+	h2 {
+		margin: 0 0 var(--space-4) 0;
+		font-size: var(--text-lg);
+		color: var(--text-primary);
+	}
+	.secundario {
+		color: var(--text-secondary);
+	}
+	:global(.card) + :global(.card) {
+		margin-top: var(--space-4);
 	}
 	form {
 		display: flex;

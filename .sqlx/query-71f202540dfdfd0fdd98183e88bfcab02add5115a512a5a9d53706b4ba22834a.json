@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            insert into users (email, display_name, external_id, role_id)\n            values ($1, $2, $3, (select id from roles where name = 'user'))\n            returning id, external_id, email, display_name, active\n            ",
+  "query": "\n            insert into users (email, display_name, external_id, role_id, email_verified_at)\n            values ($1, $2, $3, (select id from roles where name = 'user'), now())\n            returning id, external_id, email, display_name, active\n            ",
   "describe": {
     "columns": [
       {
@@ -74,5 +74,5 @@
       false
     ]
   },
-  "hash": "9e19c4c100c83b6dd930311e9d2e3592dd7885c4d4cde289aeb269fba1a708d5"
+  "hash": "71f202540dfdfd0fdd98183e88bfcab02add5115a512a5a9d53706b4ba22834a"
 }

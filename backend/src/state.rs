@@ -34,6 +34,7 @@ use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, Pg
 use crate::notificaciones::PgOutboundEmailRepository;
 use crate::passkeys::repository::{PgCeremonyStateRepository, PgPasskeyRepository};
 use crate::password_policy::repository::PgPasswordPolicyRepository;
+use crate::self_registration::repository::PgSelfRegistrationPolicyRepository;
 use crate::reports::repository::PgReportsRepository;
 use crate::resources::repository::{
     PgPermissionRepository, PgResourceRepository, PgResourceTypeRepository,
@@ -107,6 +108,7 @@ pub struct AppState {
     pub limitador_por_usuario: Arc<DefaultKeyedRateLimiter<Uuid>>,
     // F-15
     pub password_policy: PgPasswordPolicyRepository,
+    pub self_registration_policy: PgSelfRegistrationPolicyRepository,
     pub reportes: PgReportsRepository,
     // F-16 (account recovery, admin-driven)
     pub account_recovery_policy: PgAccountRecoveryPolicyRepository,
@@ -202,6 +204,7 @@ impl AppState {
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),
             password_policy: PgPasswordPolicyRepository { pool: pool.clone() },
+            self_registration_policy: PgSelfRegistrationPolicyRepository { pool: pool.clone() },
             reportes: PgReportsRepository { pool: pool.clone() },
             account_recovery_policy: PgAccountRecoveryPolicyRepository { pool: pool.clone() },
             org_recovery_key: PgOrgRecoveryKeyRepository { pool: pool.clone() },

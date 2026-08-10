@@ -14,9 +14,25 @@ pub struct RegisterRequest {
     pub kdf_salt_b64: String,
 }
 
+/// F-24: `pending_verification` distingue el bootstrap (sesión ya
+/// utilizable, `false`) de cualquier registro posterior (`true` — la cuenta
+/// no puede loguear todavía, el cliente debe pedir el código que se mandó
+/// por email vía `POST /auth/verify-email`).
 #[derive(Debug, Serialize)]
 pub struct RegisterResponse {
     pub user_id: Uuid,
+    pub pending_verification: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyEmailRequest {
+    pub email: String,
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResendVerificationRequest {
+    pub email: String,
 }
 
 #[derive(Debug, Serialize)]

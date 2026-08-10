@@ -30,7 +30,13 @@ struct Usuario {
     device_token: [u8; 32],
 }
 
-async fn registrar(cliente: &reqwest::Client, base: &str, email: &str, passphrase_valor: &str) -> Usuario {
+async fn registrar(
+    cliente: &reqwest::Client,
+    base: &str,
+    pool: &sqlx::PgPool,
+    email: &str,
+    passphrase_valor: &str,
+) -> Usuario {
     let x25519 = KeypairAcuerdo::generar();
     let ed25519 = KeypairFirma::generar();
     let passphrase: PassphraseSecreta = SecretBox::new(Box::new(passphrase_valor.to_string()));
@@ -61,6 +67,16 @@ async fn registrar(cliente: &reqwest::Client, base: &str, email: &str, passphras
     let cuerpo: Value = serde_json::from_str(&texto).unwrap();
     let user_id: Uuid = cuerpo["user_id"].as_str().unwrap().parse().unwrap();
 
+    // F-24: sólo el primer registro de este contenedor nace bootstrap (ya
+    // verificado); el segundo (bob, en el test de compartición) queda
+    // pendiente de verificación de email — este helper simula "ya revisó
+    // su casilla" en vez de forzar a este test a ejercitar ese flujo, que
+    // ya cubre `self_registration.rs`.
+    sqlx::query!("update users set email_verified_at = now() where id = $1", user_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
     let device_token: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     Usuario { email: email.to_string(), user_id, x25519, ed25519, passphrase, device_token }
 }
@@ -72,13 +88,18 @@ async fn registrar(cliente: &reqwest::Client, base: &str, email: &str, passphras
 /// dispara — bajo carga (varios tests con Postgres en paralelo) puede no
 /// haber escrito la fila todavía en el instante exacto en que se la busca,
 /// así que se reintenta brevemente en vez de fallar al primer miss.
+// F-24: filtra por `subject` — `registrar()` ahora también encola un email
+// de verificación de cuenta para bob (no es el bootstrap de este
+// contenedor, alice ya existe), así que puede haber más de una fila para
+// el mismo `recipient` (ver el comentario equivalente en `common/mod.rs`).
 async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> String {
     let mut cuerpo = None;
     for _ in 0..20 {
         if let Ok(fila) = sqlx::query_as::<_, (String,)>(
-            "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
+            "select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1",
         )
         .bind(email)
+        .bind("Ellkan: verificá este dispositivo nuevo")
         .fetch_one(pool)
         .await
         {
@@ -201,8 +222,8 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
     let cliente = reqwest::Client::new();
 
     // --- Registro ---
-    let alice = registrar(&cliente, &base, "alice@test.ellkan", "alice-passphrase-larga-1").await;
-    let bob = registrar(&cliente, &base, "bob@test.ellkan", "bob-passphrase-larga-1").await;
+    let alice = registrar(&cliente, &base, &pool, "alice@test.ellkan", "alice-passphrase-larga-1").await;
+    let bob = registrar(&cliente, &base, &pool, "bob@test.ellkan", "bob-passphrase-larga-1").await;
 
     // --- Login (firma de nonce, F-02) ---
     let sesion_alice = login(&cliente, &base, &pool, &alice).await;

@@ -112,6 +112,11 @@ pub enum AuditEventType {
     /// F-01: `POST /me/change-passphrase` — nunca contiene la passphrase ni
     /// la clave privada en `metadata`, sólo el hecho de que ocurrió.
     PassphraseChanged,
+    /// F-24: `PUT /admin/self-registration-policy`.
+    SelfRegistrationPolicyUpdated,
+    /// F-24: código de verificación de email confirmado — habilita el
+    /// login de una cuenta recién auto-registrada.
+    EmailVerified,
 }
 
 impl AuditEventType {
@@ -192,6 +197,8 @@ impl AuditEventType {
             AuditEventType::CliRecoverySetupIssued => "cli.recovery_setup_issued",
             AuditEventType::SmtpConfigUpdated => "smtp_config.updated",
             AuditEventType::PassphraseChanged => "user.passphrase_changed",
+            AuditEventType::SelfRegistrationPolicyUpdated => "self_registration_policy.updated",
+            AuditEventType::EmailVerified => "user.email_verified",
         }
     }
 
@@ -275,6 +282,8 @@ impl AuditEventType {
             "cli.recovery_setup_issued" => AuditEventType::CliRecoverySetupIssued,
             "smtp_config.updated" => AuditEventType::SmtpConfigUpdated,
             "user.passphrase_changed" => AuditEventType::PassphraseChanged,
+            "self_registration_policy.updated" => AuditEventType::SelfRegistrationPolicyUpdated,
+            "user.email_verified" => AuditEventType::EmailVerified,
             _ => return None,
         })
     }
