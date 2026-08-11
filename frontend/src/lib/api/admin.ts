@@ -369,6 +369,8 @@ export const reportsApi = {
 export interface Miembro {
 	user_id: string;
 	is_admin: boolean;
+	email: string;
+	display_name: string;
 }
 export interface Grupo {
 	id: string;

@@ -36,6 +36,8 @@
 		buscarUsuarios,
 		compartirRecursoConDestinatario,
 		comandoDeConexion,
+		infoConexion,
+		eliminarRecurso,
 		type Recurso,
 		type TipoRecurso,
 		type UsuarioBusqueda
@@ -46,10 +48,14 @@
 		moverCarpeta,
 		moverRecursoACarpeta,
 		compartirCarpeta,
+		compartirCarpetaConGrupo,
+		resolverMiembrosConClave,
+		descendientesDe,
 		type NodoCarpeta
 	} from '$lib/crypto/carpetas';
 	import { tagsApi, type Tag } from '$lib/api/tags';
-	import { passwordPolicyApi } from '$lib/api/admin';
+	import { passwordPolicyApi, groupsApi } from '$lib/api/admin';
+	import { misGruposApi, type GrupoDeUsuario } from '$lib/api/profile';
 	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
 	import { externalSharesApi } from '$lib/api/externalShares';
 	import { cifrarContenidoDeShare } from '$lib/crypto/externalShare';
@@ -67,7 +73,7 @@
 		type FilaExport
 	} from '$lib/crypto/exportImport';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
-	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso } from '$lib/state/session';
+	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso, esAdmin } from '$lib/state/session';
 	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -147,28 +153,85 @@
 	let carpetaFiltro = $state<string | null>(null);
 	function onFiltrarCarpeta(folderId: string) {
 		carpetaFiltro = carpetaFiltro === folderId ? null : folderId;
+		verTodoSubcarpetas = false;
 	}
+
+	// 2026-08-11 — "Ver todo": clic en una carpeta sigue mostrando sólo lo
+	// directo por default (sin sorpresas); este toggle también incluye el
+	// contenido de las subcarpetas. Todo client-side — `recursos` ya trae
+	// TODO lo visible descifrado, `descendientesDe` (ya usado por
+	// FolderTree para excluir destinos de mover) alcanza sin pedirle nada
+	// nuevo al backend.
+	let verTodoSubcarpetas = $state(false);
+
+	// 2026-08-11: grupos del usuario actual (`GET /me/groups`, ya existente)
+	// — los que administra habilitan "Compartir" de carpetas (regular queda
+	// 100% personal) y pueblan el selector "compartir con mi grupo".
+	let misGrupos = $state<GrupoDeUsuario[]>([]);
+	const misGruposDondeAdmin = $derived(misGrupos.filter((g) => g.is_admin));
+	const puedeCompartirCarpetas = $derived($esAdmin || misGruposDondeAdmin.length > 0);
+
+	// 2026-08-11: al mover un recurso a una carpeta de grupo, preguntar si
+	// se cede la propiedad al grupo (cualquier miembro lo edita) o se
+	// mantiene personal (sólo quien lo agregó) — "ceder" resella el DEK
+	// para cada miembro actual, mismo mecanismo que compartir en lote
+	// (`compartirRecursosEnLote`, ya existente); "mantener" no hace nada
+	// más, el move solo ya deja el recurso visible al grupo con `read`.
+	let cediendoRecurso = $state<{ resourceId: string; nombre: string; groupId: string } | null>(null);
+	let cediendoEnCurso = $state(false);
+	let errorCeder = $state<string | undefined>();
 
 	async function onMoverRecurso(resourceId: string, folderId: string | null) {
 		try {
 			await moverRecursoACarpeta(resourceId, folderId);
 			recursos = recursos.map((r) => (r.id === resourceId ? { ...r, folderId } : r));
+
+			const destino = folderId ? carpetas.find((c) => c.id === folderId) : undefined;
+			if (destino?.groupId) {
+				const recurso = recursos.find((r) => r.id === resourceId);
+				cediendoRecurso = { resourceId, nombre: recurso?.nombre ?? '', groupId: destino.groupId };
+				errorCeder = undefined;
+			}
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.vault.carpetas.error;
+		}
+	}
+
+	function mantenerPersonal() {
+		cediendoRecurso = null;
+	}
+
+	async function cederAlGrupo() {
+		if (!cediendoRecurso || !$clavesDesbloqueadas) return;
+		errorCeder = undefined;
+		cediendoEnCurso = true;
+		try {
+			const detalle = await groupsApi.obtener(cediendoRecurso.groupId);
+			const destinatarios = await resolverMiembrosConClave(detalle.members.map((m) => ({ userId: m.user_id, email: m.email })));
+			await compartirRecursosEnLote([cediendoRecurso.resourceId], destinatarios, $clavesDesbloqueadas, 'update');
+			cediendoRecurso = null;
+		} catch (err) {
+			errorCeder = err instanceof ApiError ? err.message : $t.vault.carpetas.errorCeder;
+		} finally {
+			cediendoEnCurso = false;
 		}
 	}
 
 	// F-11: compartir una carpeta — mini-form inline, sin modal aparte (mismo
 	// criterio liviano que el resto del panel de detalle).
 	let compartiendoCarpeta = $state<{ folderId: string; nombre: string } | null>(null);
+	let tipoDestinoCarpeta = $state<'user' | 'group'>('user');
 	let emailCompartirCarpeta = $state('');
+	let grupoCompartirCarpeta = $state('');
 	let nivelCompartirCarpeta = $state<'read' | 'update' | 'owner'>('update');
 	let compartiendoCarpetaEnCurso = $state(false);
 	let errorCompartirCarpeta = $state<string | undefined>();
 
 	function onCompartirCarpeta(folderId: string, nombre: string) {
 		compartiendoCarpeta = { folderId, nombre };
+		tipoDestinoCarpeta = 'user';
 		emailCompartirCarpeta = '';
+		grupoCompartirCarpeta = misGruposDondeAdmin[0]?.group_id ?? '';
 		nivelCompartirCarpeta = 'update';
 		errorCompartirCarpeta = undefined;
 	}
@@ -179,7 +242,19 @@
 		errorCompartirCarpeta = undefined;
 		compartiendoCarpetaEnCurso = true;
 		try {
-			await compartirCarpeta(compartiendoCarpeta.folderId, compartiendoCarpeta.nombre, emailCompartirCarpeta, nivelCompartirCarpeta);
+			if (tipoDestinoCarpeta === 'group') {
+				const detalle = await groupsApi.obtener(grupoCompartirCarpeta);
+				const miembros = detalle.members.map((m) => ({ userId: m.user_id, email: m.email }));
+				await compartirCarpetaConGrupo(
+					compartiendoCarpeta.folderId,
+					compartiendoCarpeta.nombre,
+					grupoCompartirCarpeta,
+					miembros,
+					nivelCompartirCarpeta
+				);
+			} else {
+				await compartirCarpeta(compartiendoCarpeta.folderId, compartiendoCarpeta.nombre, emailCompartirCarpeta, nivelCompartirCarpeta);
+			}
 			compartiendoCarpeta = null;
 		} catch (err) {
 			errorCompartirCarpeta = err instanceof ApiError ? err.message : $t.vault.carpetas.error;
@@ -217,10 +292,21 @@
 		};
 	});
 
+	const carpetasValidasParaFiltro = $derived(
+		carpetaFiltro !== null && verTodoSubcarpetas
+			? new Set([carpetaFiltro, ...descendientesDe(carpetaFiltro, carpetas)])
+			: null
+	);
 	const recursosFiltrados = $derived(
 		recursos.filter((r) => {
 			if (idsConTagsSeleccionados && !idsConTagsSeleccionados.has(r.id)) return false;
-			if (carpetaFiltro !== null && r.folderId !== carpetaFiltro) return false;
+			if (carpetaFiltro !== null) {
+				if (carpetasValidasParaFiltro) {
+					if (!r.folderId || !carpetasValidasParaFiltro.has(r.folderId)) return false;
+				} else if (r.folderId !== carpetaFiltro) {
+					return false;
+				}
+			}
 			if (!busqueda.trim()) return true;
 			const q = busqueda.trim().toLowerCase();
 			return r.nombre.toLowerCase().includes(q) || r.usuario.toLowerCase().includes(q) || r.uri.toLowerCase().includes(q);
@@ -278,6 +364,9 @@
 	onMount(() => {
 		cargar();
 		cargarOrganizacion();
+		misGruposApi.listar().then((g) => (misGrupos = g)).catch(() => {
+			/* sin grupos no rompe nada, sólo queda sin poder compartir carpetas */
+		});
 		passwordPolicyApi
 			.obtener()
 			.then((p) => {
@@ -364,6 +453,29 @@
 
 	function cerrarPanel() {
 		seleccionado = undefined;
+	}
+
+	// 2026-08-11: `DELETE /resources/{id}` nuevo — el botón sólo aparece si
+	// `puedeBorrar` vino en `true` (ver `ResourceService::puede_borrar`), así
+	// que si esto falla igual es un 403 real, no un botón mal mostrado.
+	let confirmandoEliminar = $state<string | undefined>();
+	let eliminando = $state(false);
+	let errorEliminar = $state<string | undefined>();
+
+	async function confirmarEliminarRecurso() {
+		if (!seleccionado) return;
+		eliminando = true;
+		errorEliminar = undefined;
+		try {
+			await eliminarRecurso(seleccionado.id);
+			recursos = recursos.filter((r) => r.id !== seleccionado!.id);
+			confirmandoEliminar = undefined;
+			seleccionado = undefined;
+		} catch (err) {
+			errorEliminar = err instanceof ApiError ? err.message : $t.vault.errorEliminar;
+		} finally {
+			eliminando = false;
+		}
 	}
 
 	// Copiar usuario/URI del panel de detalle — no son secretos, pero
@@ -941,18 +1053,38 @@
 				onCrear={onCrearCarpeta}
 				onMover={onMoverCarpeta}
 				onFiltrar={onFiltrarCarpeta}
-				onCompartir={tienePermiso($permisos, 'folder.share') ? onCompartirCarpeta : undefined}
+				onCompartir={tienePermiso($permisos, 'folder.share') && puedeCompartirCarpetas ? onCompartirCarpeta : undefined}
 			/>
 			{#if errorCarpetas}<p class="error">{errorCarpetas}</p>{/if}
 			{#if compartiendoCarpeta}
 				<form class="form-compartir-carpeta" onsubmit={confirmarCompartirCarpeta}>
 					<p class="hint">{$t.vault.carpetas.compartirCon(compartiendoCarpeta.nombre)}</p>
-					<TextField
-						label={$t.vault.carpetas.emailDestinatario}
-						type="email"
-						bind:value={emailCompartirCarpeta}
-						required
-					/>
+					{#if misGruposDondeAdmin.length > 0}
+						<label class="campo-nivel">
+							{$t.vault.carpetas.tipoDestino}
+							<select bind:value={tipoDestinoCarpeta}>
+								<option value="user">{$t.vault.carpetas.tipoDestinoPersona}</option>
+								<option value="group">{$t.vault.carpetas.tipoDestinoGrupo}</option>
+							</select>
+						</label>
+					{/if}
+					{#if tipoDestinoCarpeta === 'group'}
+						<label class="campo-nivel">
+							{$t.vault.carpetas.seleccionarGrupo}
+							<select bind:value={grupoCompartirCarpeta}>
+								{#each misGruposDondeAdmin as g (g.group_id)}
+									<option value={g.group_id}>{g.name}</option>
+								{/each}
+							</select>
+						</label>
+					{:else}
+						<TextField
+							label={$t.vault.carpetas.emailDestinatario}
+							type="email"
+							bind:value={emailCompartirCarpeta}
+							required
+						/>
+					{/if}
 					<label class="campo-nivel">
 						{$t.vault.carpetas.nivel}
 						<select bind:value={nivelCompartirCarpeta}>
@@ -983,6 +1115,12 @@
 			{:else}
 				<div class="cabecera">
 					<p class="conteo">{$t.vault.conteo(recursosFiltrados.length)}</p>
+					{#if carpetaFiltro !== null}
+						<label class="ver-todo">
+							<input type="checkbox" bind:checked={verTodoSubcarpetas} />
+							{$t.vault.carpetas.verTodo}
+						</label>
+					{/if}
 					<div class="botones">
 						<Button variant="secondary" onclick={abrirExportar}>
 							<Icon path={ICONO_EXPORTAR} size={14} />
@@ -1089,6 +1227,13 @@
 					</div>
 
 					{#if panelModo === 'detalle'}
+						{#if infoConexion(seleccionado)}
+							{@const info = infoConexion(seleccionado)!}
+							<div class="conexion-header">
+								<span class="conexion-protocolo">{info.protocolo}</span>
+								<span class="conexion-puerto">{$t.vault.puerto} {info.puerto}</span>
+							</div>
+						{/if}
 						<dl class="campos">
 							<dt>{$t.vault.usuario}</dt>
 							<dd>
@@ -1118,22 +1263,19 @@
 									</button>
 								</dd>
 							{/if}
-							{#if comandoDeConexion(seleccionado)}
-								{@const comando = comandoDeConexion(seleccionado)!}
-								<dt>{$t.vault.comandoConexion}</dt>
-								<dd>
-									<code class="comando">{comando}</code>
-									<button
-										type="button"
-										class="icono-copiar"
-										onclick={() => copiarCampo('comando', comando)}
-										aria-label={$t.secretField.copiar}
-									>
-										{campoCopiado === 'comando' ? '✓' : '⧉'}
-									</button>
-								</dd>
-							{/if}
 						</dl>
+						{#if comandoDeConexion(seleccionado)}
+							{@const comando = comandoDeConexion(seleccionado)!}
+							<div class="conexion-comando">
+								<span class="conexion-comando-label">{$t.vault.comandoConexion}</span>
+								<div class="conexion-comando-linea">
+									<code>{comando}</code>
+									<Button variant="secondary" onclick={() => copiarCampo('comando', comando)}>
+										{campoCopiado === 'comando' ? $t.secretField.copiado : $t.secretField.copiar}
+									</Button>
+								</div>
+							</div>
+						{/if}
 
 						{#if tienePermiso($permisos, 'folders.use')}
 						<label class="campo-carpeta">
@@ -1174,7 +1316,18 @@
 							<Button variant="ghost" onclick={empezarEditar}>{$t.vault.editar}</Button>
 							<Button variant="ghost" onclick={() => abrirModalCompartir(seleccionado!)}>{$t.vault.compartir}</Button>
 							<Button variant="ghost" onclick={() => (panelModo = 'externo')}>{$t.vault.compartirExterno}</Button>
+							{#if seleccionado.puedeBorrar}
+								{#if confirmandoEliminar === seleccionado.id}
+									<Button variant="ghost" onclick={confirmarEliminarRecurso} loading={eliminando}>
+										{$t.vault.confirmarEliminar}
+									</Button>
+									<Button variant="ghost" onclick={() => (confirmandoEliminar = undefined)}>{$t.vault.cancelar}</Button>
+								{:else}
+									<Button variant="ghost" onclick={() => (confirmandoEliminar = seleccionado!.id)}>{$t.vault.eliminar}</Button>
+								{/if}
+							{/if}
 						</div>
+						{#if errorEliminar}<p class="error">{errorEliminar}</p>{/if}
 					{:else if panelModo === 'editar'}
 						{#if cargandoParaEditar}
 							<p>{$t.vault.cargando}</p>
@@ -1290,6 +1443,21 @@
 				<Button variant="ghost" onclick={cerrarModalCompartir}>{$t.vault.cancelar}</Button>
 			</div>
 		{/if}
+	</Modal>
+{/if}
+
+{#if cediendoRecurso}
+	<Modal titulo={$t.vault.carpetas.cederTitulo} onCerrar={mantenerPersonal}>
+		<p class="hint">{$t.vault.carpetas.cederPregunta(cediendoRecurso.nombre)}</p>
+		{#if errorCeder}<p class="error">{errorCeder}</p>{/if}
+		<div class="botones-compartir-carpeta">
+			<Button type="button" variant="primary" onclick={cederAlGrupo} loading={cediendoEnCurso}>
+				{$t.vault.carpetas.cederAlGrupo}
+			</Button>
+			<Button type="button" variant="ghost" onclick={mantenerPersonal} disabled={cediendoEnCurso}>
+				{$t.vault.carpetas.cederMantener}
+			</Button>
+		</div>
 	</Modal>
 {/if}
 
@@ -1509,6 +1677,14 @@
 		font-size: var(--text-sm);
 		margin: 0;
 	}
+	.ver-todo {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
 	.hint {
 		color: var(--text-muted);
 		font-size: var(--text-sm);
@@ -1611,13 +1787,57 @@
 		color: var(--text-primary);
 		word-break: break-word;
 	}
-	.comando {
-		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	/* Estilo inspirado en Termius (referencia del usuario, 2026-08-11): un
+	 * header propio para protocolo+puerto en vez de perderse como una fila
+	 * más del dl, y el comando en un bloque tipo terminal con su propio
+	 * botón de copiar en vez de un ícono chico. */
+	.conexion-header {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		padding-bottom: var(--space-2);
+		margin-bottom: var(--space-2);
+		border-bottom: 1px solid var(--border-color);
+	}
+	.conexion-protocolo {
+		font-size: var(--text-lg);
+		font-weight: 700;
+		color: var(--text-primary);
+		letter-spacing: 0.02em;
+	}
+	.conexion-puerto {
 		font-size: var(--text-xs);
+		color: var(--text-secondary);
 		background: var(--bg-overlay);
 		border: 1px solid var(--border-color);
+		border-radius: 999px;
+		padding: 0.1rem var(--space-2);
+	}
+	.conexion-comando {
+		margin-top: var(--space-4);
+	}
+	.conexion-comando-label {
+		display: block;
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		font-weight: 500;
+		margin-bottom: var(--space-1);
+	}
+	.conexion-comando-linea {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		background: var(--bg-base);
+		border: 1px solid var(--border-color);
 		border-radius: var(--radius-sm);
-		padding: var(--space-1) var(--space-2);
+		padding: var(--space-2) var(--space-3);
+	}
+	.conexion-comando-linea code {
+		flex: 1;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		font-size: var(--text-sm);
+		color: var(--accent-primary);
+		word-break: break-all;
 	}
 	.campo-carpeta {
 		display: flex;

@@ -224,11 +224,11 @@ pub async fn logout(
 pub async fn public_key(
     State(state): State<AppState>,
     Path(email): Path<String>,
-    _auth: AuthenticatedUser,
+    auth: AuthenticatedUser,
 ) -> Result<Json<PublicKeyResponse>, ApiError> {
     let usuario = state
         .usuarios
-        .buscar_por_email(&email)
+        .buscar_por_email_visible(auth.user_id, &email)
         .await
         .map_err(DomainError::from)?
         .ok_or(DomainError::NotFound)?;
@@ -274,12 +274,16 @@ const LIMITE_BUSQUEDA: i64 = 10;
 pub async fn buscar(
     State(state): State<AppState>,
     Query(query): Query<super::dto::BuscarUsuariosQuery>,
-    _auth: AuthenticatedUser,
+    auth: AuthenticatedUser,
 ) -> Result<Json<Vec<super::dto::UsuarioBusquedaResponse>>, ApiError> {
     if query.q.trim().len() < 2 {
         return Ok(Json(Vec::new()));
     }
-    let resultados = state.usuarios.buscar_por_prefijo(query.q.trim(), LIMITE_BUSQUEDA).await.map_err(DomainError::from)?;
+    let resultados = state
+        .usuarios
+        .buscar_por_prefijo(auth.user_id, query.q.trim(), LIMITE_BUSQUEDA)
+        .await
+        .map_err(DomainError::from)?;
     Ok(Json(
         resultados
             .into_iter()

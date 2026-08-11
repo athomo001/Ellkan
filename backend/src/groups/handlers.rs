@@ -41,7 +41,7 @@ fn a_response(grupo: Group) -> GrupoResponse {
 }
 
 fn miembro_a_response(m: Miembro) -> MiembroResponse {
-    MiembroResponse { user_id: m.user_id, is_admin: m.is_admin }
+    MiembroResponse { user_id: m.user_id, is_admin: m.is_admin, email: m.email, display_name: m.display_name }
 }
 
 /// `GET /groups/{id}/resources` (F-12).

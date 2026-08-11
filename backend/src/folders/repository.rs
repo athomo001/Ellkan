@@ -14,6 +14,23 @@ pub trait FolderRepository {
     async fn crear(&self, id: Uuid) -> Result<Folder, RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Folder>, RepoError>;
+
+    /// `folder_id` y todos sus ancestros hasta la raíz, inclusive, EN EL
+    /// ÁRBOL DE `user_id` — a diferencia de `groups` (árbol único global),
+    /// `folder_items` es por-usuario (F-09: cada usuario puede tener la
+    /// misma carpeta en una posición distinta), así que "ancestro" sólo
+    /// tiene sentido relativo a la vista de un usuario puntual. Mismo
+    /// patrón que `GroupRepository::ancestros_inclusive` (CTE recursivo),
+    /// adaptado para caminar `folder_items.folder_id` en vez de
+    /// `groups.parent_group_id`.
+    async fn ancestros_inclusive(&self, user_id: Uuid, folder_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
+
+    /// Profundidad de `folder_id` en el árbol de `user_id` — raíz = 1.
+    async fn profundidad(&self, user_id: Uuid, folder_id: Uuid) -> Result<i32, RepoError>;
+
+    /// Todos los descendientes de `folder_id` (sin incluirlo) en el árbol de
+    /// `user_id` — usado por `?incluir_subcarpetas=true`.
+    async fn descendientes_de(&self, user_id: Uuid, folder_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
 }
 
 pub trait FolderItemRepository {
@@ -62,6 +79,13 @@ pub trait FolderItemRepository {
     /// `GET /resources?folder_id=`. Un recurso ausente del mapa está en la
     /// raíz (nunca posicionado, o repuesto a `None` explícitamente).
     async fn posiciones_de_recursos(&self, user_id: Uuid) -> Result<HashMap<Uuid, Uuid>, RepoError>;
+
+    /// 2026-08-11: todas las carpetas (de cualquier usuario) donde
+    /// `resource_id` está posicionado — usado por `DELETE /resources/{id}`
+    /// para saber si el recurso vive en alguna carpeta de grupo (borrado
+    /// restringido a admin de ese grupo) o no (borrado con el criterio de
+    /// `owner` de siempre).
+    async fn carpetas_de_recurso(&self, resource_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -83,6 +107,54 @@ impl FolderRepository for PgFolderRepository {
             .await?;
 
         Ok(fila.map(|f| Folder { id: f.id }))
+    }
+
+    async fn ancestros_inclusive(&self, user_id: Uuid, folder_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            with recursive ancestros as (
+                select child_folder_id as id, folder_id as parent
+                from folder_items
+                where user_id = $1 and child_folder_id = $2
+                union all
+                select fi.child_folder_id, fi.folder_id
+                from folder_items fi
+                join ancestros a on fi.child_folder_id = a.parent and fi.user_id = $1
+            )
+            select id as "id!" from ancestros
+            "#,
+            user_id,
+            folder_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.id).collect())
+    }
+
+    async fn profundidad(&self, user_id: Uuid, folder_id: Uuid) -> Result<i32, RepoError> {
+        Ok(self.ancestros_inclusive(user_id, folder_id).await?.len() as i32)
+    }
+
+    async fn descendientes_de(&self, user_id: Uuid, folder_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            with recursive descendientes as (
+                select child_folder_id as id from folder_items
+                where user_id = $1 and folder_id = $2 and child_folder_id is not null
+                union all
+                select fi.child_folder_id
+                from folder_items fi
+                join descendientes d on fi.folder_id = d.id
+                where fi.user_id = $1 and fi.child_folder_id is not null
+            )
+            select id as "id!" from descendientes
+            "#,
+            user_id,
+            folder_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.id).collect())
     }
 }
 
@@ -208,5 +280,16 @@ impl FolderItemRepository for PgFolderItemRepository {
         .await?;
 
         Ok(filas.into_iter().map(|f| (f.resource_id, f.folder_id)).collect())
+    }
+
+    async fn carpetas_de_recurso(&self, resource_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"select distinct folder_id as "folder_id!" from folder_items
+               where resource_id = $1 and folder_id is not null"#,
+            resource_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.folder_id).collect())
     }
 }

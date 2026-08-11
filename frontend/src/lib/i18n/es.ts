@@ -112,7 +112,8 @@ const es = {
 	secretField: {
 		revelar: 'Revelar',
 		ocultar: 'Ocultar',
-		copiar: 'Copiar'
+		copiar: 'Copiar',
+		copiado: 'Copiado'
 	},
 	externalShare: {
 		titulo: 'Contenido compartido',
@@ -139,6 +140,7 @@ const es = {
 		usuario: 'Usuario',
 		uri: 'URI',
 		comandoConexion: 'Comando de conexión',
+		puerto: 'Puerto',
 		password: 'Contraseña',
 		generarPassword: 'Generar',
 		notas: 'Notas',
@@ -155,6 +157,9 @@ const es = {
 		verSecreto: 'Ver secreto',
 		ocultarSecreto: 'Ocultar',
 		editar: 'Editar',
+		eliminar: 'Eliminar',
+		confirmarEliminar: '¿Eliminar este recurso? No se puede deshacer.',
+		errorEliminar: 'No se pudo eliminar el recurso.',
 		guardarEdicion: 'Guardar cambios',
 		compartir: 'Compartir',
 		compartirTitulo: 'Compartir recurso',
@@ -205,13 +210,24 @@ const es = {
 			errorCrear: 'No se pudo crear la carpeta.',
 			hintSinAsociarRecursos: 'Clic en una carpeta filtra la lista por su contenido — clic de nuevo lo quita.',
 			filtrar: 'Filtrar por esta carpeta',
+			verTodo: 'Ver todo (incluye subcarpetas)',
 			compartir: 'Compartir',
 			compartirCon: (nombre: string) => `Compartir "${nombre}" con:`,
 			emailDestinatario: 'Email del destinatario',
 			nivel: 'Nivel de acceso',
 			nivelRead: 'Lectura',
 			nivelUpdate: 'Edición',
-			nivelOwner: 'Propietario'
+			nivelOwner: 'Propietario',
+			tipoDestino: 'Compartir con',
+			tipoDestinoPersona: 'Una persona',
+			tipoDestinoGrupo: 'Mi grupo',
+			seleccionarGrupo: 'Grupo',
+			sinGruposParaCompartir: 'No administrás ningún grupo.',
+			cederTitulo: '¿De quién es esta contraseña?',
+			cederPregunta: (nombre: string) => `Agregaste "${nombre}" a una carpeta de grupo.`,
+			cederMantener: 'La mantengo yo — sólo la puedo editar yo',
+			cederAlGrupo: 'Se la cedo al grupo — cualquier miembro la puede editar',
+			errorCeder: 'No se pudo compartir con el grupo.'
 		},
 		tags: {
 			todos: 'Todos',
@@ -330,6 +346,9 @@ const es = {
 		modificado: 'Modificado',
 		cargando: 'Cargando…',
 		error: 'No se pudo cargar el perfil.',
+		gruposTitulo: 'Grupos',
+		sinGrupos: 'No pertenecés a ningún grupo.',
+		adminDeGrupo: 'Admin de grupo',
 		avatarTitulo: 'Avatar',
 		avatarHint: 'PNG, JPEG o WEBP, hasta 2 MB.',
 		avatarSubir: 'Subir avatar',

@@ -25,6 +25,12 @@ pub trait ResourceRepository {
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Resource>, RepoError>;
 
+    /// `DELETE /resources/{id}` (2026-08-11, antes no existía ningún camino
+    /// para esto) — soft-delete real, la columna existe desde Fase 0 pero
+    /// nunca se escribía. `false` si el recurso ya no existe/ya estaba
+    /// borrado.
+    async fn marcar_eliminado(&self, id: Uuid) -> Result<bool, RepoError>;
+
     /// Recursos donde `user_id` tiene al menos permiso `read` — join contra
     /// `permissions` (sin grupos todavía, F-11 básico).
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError>;
@@ -105,11 +111,14 @@ pub trait PermissionRepository {
     /// `subject_type` ∈ {`resource`, `folder`} — mismo `permissions.subject_type`
     /// que ya soporta el schema desde Fase 1.1, generalizado acá (Carpetas,
     /// F-09/F-11) para no duplicar esta lógica una segunda vez.
+    /// `grantee_type`: `"user"` o `"group"` (2026-08-11 — antes hardcodeado
+    /// a `"user"`, ninguna fila `grantee_type='group'` se insertaba nunca).
     async fn otorgar(
         &self,
         subject_type: &str,
         subject_id: Uuid,
-        user_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
         nivel: &str,
     ) -> Result<(), RepoError>;
 
@@ -159,6 +168,13 @@ pub trait PermissionRepository {
     /// no bloquear carpetas creadas antes de que F-11 existiera, que nunca
     /// tuvieron ninguna fila de permiso).
     async fn existe_algun_permiso(&self, subject_type: &str, subject_id: Uuid) -> Result<bool, RepoError>;
+
+    /// 2026-08-11: `group_id` si `subject` tiene un grantee de tipo `group`
+    /// (una carpeta compartida al grupo entero, o un recurso cedido a él) —
+    /// `None` si no. Se asume a lo sumo un grupo grantee por subject en este
+    /// diseño (la UI de esta pasada sólo arma uno); si hubiera más de uno,
+    /// devuelve cualquiera.
+    async fn grupo_grantee_de(&self, subject_type: &str, subject_id: Uuid) -> Result<Option<Uuid>, RepoError>;
 
     /// Todos los grantees (usuario o grupo) con acceso a `subject`, con su
     /// nivel — `GET /resources/{id}/permissions`, panel de "compartir".
@@ -249,6 +265,16 @@ impl ResourceRepository for PgResourceRepository {
             metadata_key_type: f.metadata_key_type,
             metadata_key_id: f.metadata_key_id,
         }))
+    }
+
+    async fn marcar_eliminado(&self, id: Uuid) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update resources set deleted_at = now() where id = $1 and deleted_at is null"#,
+            id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() > 0)
     }
 
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError> {
@@ -496,17 +522,25 @@ pub struct PgPermissionRepository {
 }
 
 impl PermissionRepository for PgPermissionRepository {
-    async fn otorgar(&self, subject_type: &str, subject_id: Uuid, user_id: Uuid, nivel: &str) -> Result<(), RepoError> {
+    async fn otorgar(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+        nivel: &str,
+    ) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
             insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)
-            values ($1, $2, 'user', $3, $4)
+            values ($1, $2, $3, $4, $5)
             on conflict (subject_type, subject_id, grantee_type, grantee_id)
             do update set level = excluded.level
             "#,
             subject_type,
             subject_id,
-            user_id,
+            grantee_type,
+            grantee_id,
             nivel,
         )
         .execute(&self.pool)
@@ -614,6 +648,18 @@ impl PermissionRepository for PgPermissionRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.is_some())
+    }
+
+    async fn grupo_grantee_de(&self, subject_type: &str, subject_id: Uuid) -> Result<Option<Uuid>, RepoError> {
+        let fila = sqlx::query!(
+            r#"select grantee_id from permissions
+               where subject_type = $1 and subject_id = $2 and grantee_type = 'group' limit 1"#,
+            subject_type,
+            subject_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| f.grantee_id))
     }
 
     async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<super::models::PermisoGrantee>, RepoError> {

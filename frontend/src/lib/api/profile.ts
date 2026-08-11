@@ -19,6 +19,17 @@ export const perfilApi = {
 	obtener: () => api.get<Perfil>('/me')
 };
 
+/** Hallazgo real de uso 2026-08-11: "Mi perfil" no mostraba a qué grupos
+ * pertenece el usuario ni si es admin de alguno. */
+export interface GrupoDeUsuario {
+	group_id: string;
+	name: string;
+	is_admin: boolean;
+}
+export const misGruposApi = {
+	listar: () => api.get<GrupoDeUsuario[]>('/me/groups')
+};
+
 /** Módulo 1 (RBAC granular) — `GET /me/permissions`, conjunto crudo (puede traer `"*"`). */
 export const permisosApi = {
 	mias: () => api.get<string[]>('/me/permissions')

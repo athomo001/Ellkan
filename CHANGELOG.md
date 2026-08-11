@@ -4,6 +4,22 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.25] - 2026-08-11
+
+### Agregado: los grupos ahora son una unidad de trabajo real
+
+- Un usuario sin grupo ya no ve al resto de la organización al buscar con quién compartir; con grupo, sólo ve a su propio grupo (los admins de grupo ven además a otros admins de grupo y al admin general).
+- Un admin de grupo puede armar una jerarquía de carpetas propia del grupo (hasta 3 niveles) y compartirla con el grupo entero — cualquier miembro puede agregar contraseñas ahí. Un usuario regular sigue teniendo carpetas planas y 100% personales.
+- Al agregar una contraseña a una carpeta de grupo, se puede elegir: mantenerla personal (sólo quien la agregó la edita) o cederla al grupo (cualquier miembro la edita).
+- Nuevo: se puede borrar una contraseña de verdad (antes sólo se podía revocar el acceso de alguien, nunca eliminarla). En una carpeta de grupo, sólo puede borrarla el admin de ese grupo o el admin general.
+- "Ver todo" en una carpeta ahora también muestra el contenido de sus subcarpetas, con un botón aparte.
+
+### Arreglado
+
+- `/admin/groups` mostraba el ID interno de cada miembro en vez de su nombre.
+- El panel de detalle de un recurso SSH/FTP/VNC/Telnet ahora sí sigue el diseño de referencia (Termius) que se había pedido — antes sólo se había agregado el texto del comando, sin el rediseño visual.
+- Se puede ver, desde "Mi perfil", a qué grupos pertenece uno y si es admin de alguno.
+
 ## [0.1.24] - 2026-08-11
 
 ### Agregado: MFA por correo electrónico

@@ -51,7 +51,17 @@ pub trait UserRepository {
 
     /// `GET /users/search?q=` — coincidencia parcial sobre email/display_name,
     /// para el buscador en vivo del modal de compartir (módulo 3/UX real).
-    async fn buscar_por_prefijo(&self, prefijo: &str, limite: i64) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError>;
+    /// 2026-08-11: acotado a quién puede ver `actor_id` (F-11 — ver
+    /// `visibilidad_de_usuarios` en `service.rs` para el criterio exacto).
+    async fn buscar_por_prefijo(&self, actor_id: Uuid, prefijo: &str, limite: i64) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError>;
+
+    /// `GET /users/{email}/public-key` — como `buscar_por_email`, pero
+    /// acotado a quién puede ver `actor_id` (2026-08-11). A propósito una
+    /// función DISTINTA de `buscar_por_email` (usada por login/SSO/SCIM/
+    /// passkeys/account-recovery, que nunca deben restringirse por
+    /// visibilidad de grupo — ahí el caller busca SU PROPIA cuenta, no a
+    /// otro usuario para compartir).
+    async fn buscar_por_email_visible(&self, actor_id: Uuid, email: &str) -> Result<Option<User>, RepoError>;
 }
 
 /// F-24: mismo patrón que `DeviceChallengeRepository` — token de un solo
@@ -292,7 +302,12 @@ impl UserRepository for PgUserRepository {
         Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
     }
 
-    async fn buscar_por_prefijo(&self, prefijo: &str, limite: i64) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError> {
+    async fn buscar_por_prefijo(
+        &self,
+        actor_id: Uuid,
+        prefijo: &str,
+        limite: i64,
+    ) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError> {
         let patron = format!("%{prefijo}%");
         let filas = sqlx::query!(
             r#"
@@ -301,10 +316,26 @@ impl UserRepository for PgUserRepository {
             from users u
             join user_keys uk on uk.user_id = u.id
             where u.active and u.deleted_at is null and u.email_verified_at is not null
-              and (u.email ilike $1 or u.display_name ilike $1)
+              and (u.email ilike $2 or u.display_name ilike $2)
+              and (
+                    u.id = $1
+                    or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id
+                            where a.id = $1 and rp.permission = '*')
+                    or exists (select 1 from group_members gm1 join group_members gm2 on gm1.group_id = gm2.group_id
+                               where gm1.user_id = $1 and gm2.user_id = u.id)
+                    or (
+                        exists (select 1 from group_members gma where gma.user_id = $1 and gma.is_admin)
+                        and (
+                            exists (select 1 from group_members gmt where gmt.user_id = u.id and gmt.is_admin)
+                            or exists (select 1 from users b join role_permissions rp2 on rp2.role_id = b.role_id
+                                       where b.id = u.id and rp2.permission = '*')
+                        )
+                    )
+                  )
             order by u.email
-            limit $2
+            limit $3
             "#,
+            actor_id,
             patron,
             limite,
         )
@@ -320,6 +351,35 @@ impl UserRepository for PgUserRepository {
                 has_avatar: f.has_avatar,
             })
             .collect())
+    }
+
+    async fn buscar_por_email_visible(&self, actor_id: Uuid, email: &str) -> Result<Option<User>, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select u.id, u.security_stamp, u.created_at from users u
+            where u.email = $2 and u.active and u.deleted_at is null and u.email_verified_at is not null
+              and (
+                    u.id = $1
+                    or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id
+                            where a.id = $1 and rp.permission = '*')
+                    or exists (select 1 from group_members gm1 join group_members gm2 on gm1.group_id = gm2.group_id
+                               where gm1.user_id = $1 and gm2.user_id = u.id)
+                    or (
+                        exists (select 1 from group_members gma where gma.user_id = $1 and gma.is_admin)
+                        and (
+                            exists (select 1 from group_members gmt where gmt.user_id = u.id and gmt.is_admin)
+                            or exists (select 1 from users b join role_permissions rp2 on rp2.role_id = b.role_id
+                                       where b.id = u.id and rp2.permission = '*')
+                        )
+                    )
+                  )
+            "#,
+            actor_id,
+            email,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
     }
 }
 

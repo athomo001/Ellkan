@@ -47,6 +47,9 @@ interface RecursoCrudo {
 	/** F-11: carpeta donde el usuario actual tiene posicionado este recurso
 	 * en su propio árbol — `null`/ausente = raíz. Nunca cifrado, plano. */
 	folder_id?: string | null;
+	/** 2026-08-11: si el caller puede `DELETE` este recurso — ver
+	 * `ResourceService::puede_borrar`. */
+	puede_borrar?: boolean;
 }
 
 interface MetadataKeyCruda {
@@ -104,6 +107,10 @@ export interface Recurso {
 	updated_at: string;
 	/** F-11: `null` = raíz. */
 	folderId: string | null;
+	/** 2026-08-11: si el caller puede `DELETE /resources/{id}` — ver
+	 * `ResourceService::puede_borrar` (admin del grupo dueño de la carpeta,
+	 * o `owner` fuera de una carpeta de grupo). */
+	puedeBorrar: boolean;
 }
 
 /**
@@ -154,7 +161,8 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				dekPropia: enCache.dekPropiaB64 ? base64ABytes(enCache.dekPropiaB64) : undefined,
 				metadataKeyId: r.metadata_key_id ?? undefined,
 				updated_at: r.updated_at,
-				folderId: r.folder_id ?? null
+				folderId: r.folder_id ?? null,
+				puedeBorrar: r.puede_borrar ?? false
 			});
 			continue;
 		}
@@ -197,7 +205,8 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				dekPropia,
 				metadataKeyId: r.metadata_key_id ?? undefined,
 				updated_at: r.updated_at,
-				folderId: r.folder_id ?? null
+				folderId: r.folder_id ?? null,
+				puedeBorrar: r.puede_borrar ?? false
 			});
 			await guardarEnCache(r.id, r.metadata_nonce_b64, {
 				nombre,
@@ -229,6 +238,18 @@ function parsearHostPuerto(uri: string): { host: string; puerto?: number } {
 	const puerto = Number(resto);
 	if (!resto || !Number.isInteger(puerto)) return { host: sinEsquema };
 	return { host: sinEsquema.slice(0, idx), puerto };
+}
+
+/** Protocolo + puerto resuelto (con el default aplicado) para el header de
+ * conexión estilo Termius en el panel de detalle — `null` para tipos sin
+ * comando de conexión asociado. */
+export function infoConexion(
+	recurso: Pick<Recurso, 'resourceTypeSlug' | 'uri'>
+): { protocolo: string; puerto: number } | null {
+	const slug = recurso.resourceTypeSlug;
+	if (!recurso.uri || !(slug in PUERTOS_DEFAULT)) return null;
+	const { puerto } = parsearHostPuerto(recurso.uri);
+	return { protocolo: slug.toUpperCase(), puerto: puerto ?? PUERTOS_DEFAULT[slug] };
 }
 
 /** Comando/URI listo para copiar y pegar en una terminal o cliente real —
@@ -274,6 +295,13 @@ export async function verSecreto(
 	);
 	const json: SecretoJson = JSON.parse(new TextDecoder().decode(bytes));
 	return { password: json.password ?? '', notes: json.notes ?? '', totpSecret: json.totp_secret };
+}
+
+/** `DELETE /resources/{id}` (2026-08-11, endpoint nuevo) — ver
+ * `ResourceService::eliminar` para la regla de autorización real; el
+ * frontend sólo muestra el botón cuando `recurso.puedeBorrar` es `true`. */
+export async function eliminarRecurso(resourceId: string): Promise<void> {
+	await api.delete(`/resources/${resourceId}`);
 }
 
 /** F-07: FTP/SSH/VNC/Telnet reusan el mismo shape que login-password

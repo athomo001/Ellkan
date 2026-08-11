@@ -375,7 +375,8 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let me_router = Router::new()
         .route("/", get(me::handlers::perfil))
-        .route("/permissions", get(me::handlers::permisos));
+        .route("/permissions", get(me::handlers::permisos))
+        .route("/groups", get(me::handlers::grupos));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
     // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
     // en base64 dentro de un JSON (~33% más grande que los bytes crudos),
@@ -405,7 +406,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", get(resources::handlers::listar).post(resources::handlers::crear))
         .route(
             "/{id}",
-            get(resources::handlers::obtener).put(resources::handlers::actualizar),
+            get(resources::handlers::obtener).put(resources::handlers::actualizar).delete(resources::handlers::eliminar),
         )
         .route("/{id}/recipients", get(resources::handlers::recipients))
         .route("/{id}/secret", get(resources::handlers::obtener_secreto))

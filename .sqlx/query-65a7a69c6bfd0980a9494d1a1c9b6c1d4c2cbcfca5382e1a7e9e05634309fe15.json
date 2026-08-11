@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct folder_id as \"folder_id!\" from folder_items\n               where resource_id = $1 and folder_id is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "folder_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "folder_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "65a7a69c6bfd0980a9494d1a1c9b6c1d4c2cbcfca5382e1a7e9e05634309fe15"
+}

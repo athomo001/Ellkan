@@ -6,17 +6,18 @@
 	// no obligar a hacer scroll para llegar a algo puntual.
 	import { onMount } from 'svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { perfilApi, type Perfil } from '$lib/api/profile';
+	import { perfilApi, misGruposApi, type Perfil, type GrupoDeUsuario } from '$lib/api/profile';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
 	let cargando = $state(true);
 	let perfil = $state<Perfil | undefined>();
+	let grupos = $state<GrupoDeUsuario[]>([]);
 	let error = $state<string | undefined>();
 
 	onMount(async () => {
 		try {
-			perfil = await perfilApi.obtener();
+			[perfil, grupos] = await Promise.all([perfilApi.obtener(), misGruposApi.listar()]);
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.settingsProfile.error;
 		} finally {
@@ -51,6 +52,24 @@
 	{/if}
 </Card>
 
+{#if !cargando && !error}
+	<Card>
+		<h2>{$t.settingsProfile.gruposTitulo}</h2>
+		{#if grupos.length === 0}
+			<p class="hint">{$t.settingsProfile.sinGrupos}</p>
+		{:else}
+			<ul class="grupos">
+				{#each grupos as g (g.group_id)}
+					<li>
+						{g.name}
+						{#if g.is_admin}<span class="badge">{$t.settingsProfile.adminDeGrupo}</span>{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</Card>
+{/if}
+
 <style>
 	h1 {
 		margin: 0 0 var(--space-6) 0;
@@ -79,5 +98,28 @@
 		margin: 0;
 		color: var(--text-primary);
 		font-size: var(--text-sm);
+	}
+	h2 {
+		margin: 0 0 var(--space-3) 0;
+		font-size: var(--text-lg);
+		color: var(--text-primary);
+	}
+	.grupos {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		color: var(--text-primary);
+	}
+	.badge {
+		margin-left: var(--space-2);
+		font-size: var(--text-xs);
+		color: var(--accent-primary);
+		background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-base));
+		border-radius: 999px;
+		padding: 0.1rem var(--space-2);
 	}
 </style>

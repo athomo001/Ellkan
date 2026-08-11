@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize)]
 pub struct PreferenciasResponse {
@@ -9,6 +10,13 @@ pub struct PreferenciasResponse {
     pub theme: String,
     pub clipboard_clear_minutes: i32,
     pub auto_lock_minutes: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GrupoDeUsuarioResponse {
+    pub group_id: Uuid,
+    pub name: String,
+    pub is_admin: bool,
 }
 
 #[derive(Debug, Deserialize)]

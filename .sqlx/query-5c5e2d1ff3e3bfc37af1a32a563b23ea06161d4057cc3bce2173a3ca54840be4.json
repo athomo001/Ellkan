@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select u.id, u.security_stamp, u.created_at from users u\n            where u.email = $2 and u.active and u.deleted_at is null and u.email_verified_at is not null\n              and (\n                    u.id = $1\n                    or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id\n                            where a.id = $1 and rp.permission = '*')\n                    or exists (select 1 from group_members gm1 join group_members gm2 on gm1.group_id = gm2.group_id\n                               where gm1.user_id = $1 and gm2.user_id = u.id)\n                    or (\n                        exists (select 1 from group_members gma where gma.user_id = $1 and gma.is_admin)\n                        and (\n                            exists (select 1 from group_members gmt where gmt.user_id = u.id and gmt.is_admin)\n                            or exists (select 1 from users b join role_permissions rp2 on rp2.role_id = b.role_id\n                                       where b.id = u.id and rp2.permission = '*')\n                        )\n                    )\n                  )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "security_stamp",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "security_stamp"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5c5e2d1ff3e3bfc37af1a32a563b23ea06161d4057cc3bce2173a3ca54840be4"
+}

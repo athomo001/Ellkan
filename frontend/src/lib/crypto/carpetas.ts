@@ -29,6 +29,11 @@ export interface NodoCarpeta {
 	id: string;
 	parentId: string | null;
 	nombre: string;
+	/** 2026-08-11: `group_id` si la carpeta está compartida con un grupo
+	 * entero — el Vault lo usa para ofrecer ceder/mantener al mover un
+	 * recurso acá, y para saber que cualquier miembro puede agregar sin
+	 * necesitar `update` individual. */
+	groupId: string | null;
 }
 
 interface NodoArbolCrudo {
@@ -36,6 +41,7 @@ interface NodoArbolCrudo {
 	parent_folder_id: string | null;
 	name_ciphertext_b64: string;
 	name_nonce_b64: string;
+	group_id?: string | null;
 }
 
 export async function listarArbolCarpetas(claves: ClavesDesbloqueadas): Promise<NodoCarpeta[]> {
@@ -43,7 +49,12 @@ export async function listarArbolCarpetas(claves: ClavesDesbloqueadas): Promise<
 	const crudos = await api.get<NodoArbolCrudo[]>('/folders');
 	return crudos.map((n) => {
 		const bytes = wasm.abrir_sellado(claves.x25519Private, base64ABytes(n.name_ciphertext_b64));
-		return { id: n.folder_id, parentId: n.parent_folder_id, nombre: new TextDecoder().decode(bytes) };
+		return {
+			id: n.folder_id,
+			parentId: n.parent_folder_id,
+			nombre: new TextDecoder().decode(bytes),
+			groupId: n.group_id ?? null
+		};
 	});
 }
 
@@ -61,7 +72,7 @@ export async function crearCarpeta(
 		name_nonce_b64: '',
 		parent_folder_id: parentFolderId
 	});
-	return { id, parentId: parentFolderId, nombre };
+	return { id, parentId: parentFolderId, nombre, groupId: null };
 }
 
 /**
@@ -120,9 +131,59 @@ export async function compartirCarpeta(
 	const sellado = wasm.sellar_para(base64ABytes(destinatario.public_key_x25519_b64), new TextEncoder().encode(nombre));
 
 	await api.post(`/folders/${folderId}/share`, {
-		grantee_user_id: destinatario.user_id,
+		grantee_type: 'user',
+		grantee_id: destinatario.user_id,
 		level: nivel,
 		name_ciphertext_b64: bytesABase64(sellado),
 		name_nonce_b64: ''
+	});
+}
+
+/** 2026-08-11: resuelve la clave pública X25519 actual de cada miembro de
+ * un grupo — usado tanto para compartir una carpeta con el grupo entero
+ * como para "ceder" un recurso ya movido a una carpeta de grupo
+ * (`compartirRecursosEnLote` en `recursos.ts`, que ya sabe sellar un DEK
+ * por-destinatario, sólo necesita esta lista). Grupos chicos, no vale la
+ * pena un endpoint bulk de public-keys sólo para esto. */
+export async function resolverMiembrosConClave(
+	miembros: { userId: string; email: string }[]
+): Promise<{ userId: string; publicKeyX25519B64: string }[]> {
+	return Promise.all(
+		miembros.map(async (m) => {
+			const destinatario = await api.get<{ public_key_x25519_b64: string }>(
+				`/users/${encodeURIComponent(m.email)}/public-key`
+			);
+			return { userId: m.userId, publicKeyX25519B64: destinatario.public_key_x25519_b64 };
+		})
+	);
+}
+
+/**
+ * 2026-08-11: comparte una carpeta con un GRUPO entero — exige ser admin de
+ * grupo/organización server-side (`FolderService::verificar_puede_compartir`).
+ * Resella el nombre para CADA miembro actual del grupo (mismo motivo
+ * zero-knowledge de siempre: el servidor no puede resellar algo que no
+ * puede leer) — grupos chicos, no vale la pena un endpoint bulk de
+ * public-keys para esto.
+ */
+export async function compartirCarpetaConGrupo(
+	folderId: string,
+	nombre: string,
+	groupId: string,
+	miembros: { userId: string; email: string }[],
+	nivel: 'read' | 'update' | 'owner'
+): Promise<void> {
+	const wasm = await cargarCrypto();
+	const conClave = await resolverMiembrosConClave(miembros);
+	const memberEnvelopes = conClave.map((m) => {
+		const sellado = wasm.sellar_para(base64ABytes(m.publicKeyX25519B64), new TextEncoder().encode(nombre));
+		return { user_id: m.userId, name_ciphertext_b64: bytesABase64(sellado), name_nonce_b64: '' };
+	});
+
+	await api.post(`/folders/${folderId}/share`, {
+		grantee_type: 'group',
+		grantee_id: groupId,
+		level: nivel,
+		member_envelopes: memberEnvelopes
 	});
 }

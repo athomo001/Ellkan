@@ -32,6 +32,10 @@ pub enum AuditEventType {
     /// F-07: edición de un recurso ya creado — nunca contiene metadata/secreto,
     /// sólo cuántos destinatarios se re-sellaron.
     ResourceUpdated,
+    /// 2026-08-11: borrado real de un recurso (`DELETE /resources/{id}`,
+    /// antes no existía). Restringido a admin de grupo (si vive en una
+    /// carpeta de grupo) o admin de organización.
+    ResourceDeleted,
     DeviceTrusted,
     DeviceRevoked,
     DeviceApprovalGranted,
@@ -140,6 +144,7 @@ impl AuditEventType {
             AuditEventType::GroupManagerChanged => "group.manager_changed",
             AuditEventType::ResourceCreated => "resource.created",
             AuditEventType::ResourceUpdated => "resource.updated",
+            AuditEventType::ResourceDeleted => "resource.deleted",
             AuditEventType::DeviceTrusted => "device.trusted",
             AuditEventType::DeviceRevoked => "device.revoked",
             AuditEventType::DeviceApprovalGranted => "device.approval_granted",
@@ -226,6 +231,7 @@ impl AuditEventType {
             "group.manager_changed" => AuditEventType::GroupManagerChanged,
             "resource.created" => AuditEventType::ResourceCreated,
             "resource.updated" => AuditEventType::ResourceUpdated,
+            "resource.deleted" => AuditEventType::ResourceDeleted,
             "device.trusted" => AuditEventType::DeviceTrusted,
             "device.revoked" => AuditEventType::DeviceRevoked,
             "device.approval_granted" => AuditEventType::DeviceApprovalGranted,

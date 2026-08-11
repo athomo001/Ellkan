@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            with recursive descendientes as (\n                select child_folder_id as id from folder_items\n                where user_id = $1 and folder_id = $2 and child_folder_id is not null\n                union all\n                select fi.child_folder_id\n                from folder_items fi\n                join descendientes d on fi.folder_id = d.id\n                where fi.user_id = $1 and fi.child_folder_id is not null\n            )\n            select id as \"id!\" from descendientes\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "132745fb468a8b299a04b8672cc731ed6a9a45e30b722428aa266150cb3571f5"
+}

@@ -57,6 +57,11 @@ async fn mover_carpeta_no_afecta_la_vista_de_otro_usuario() {
     let entorno = common::levantar().await;
     let alice = common::registrar(&entorno, "alice-folders@test.ellkan").await;
     let bob = common::registrar(&entorno, "bob-folders@test.ellkan").await;
+    // 2026-08-11: anidar carpetas ("Clientes" dentro de "Trabajo" más abajo)
+    // ahora exige admin de grupo/organización — Alice necesita ese
+    // privilegio para que este test siga probando lo que dice probar (mover
+    // una carpeta ya anidada), no la elegibilidad para anidar en sí.
+    common::promover_admin(&entorno.pool, alice.user_id).await;
     let sesion_alice = common::login(&entorno, &alice).await;
     let sesion_bob = common::login(&entorno, &bob).await;
 
@@ -237,18 +242,26 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
     let entorno = common::levantar().await;
     let alice = common::registrar(&entorno, "alice-folders-4@test.ellkan").await;
     let bob = common::registrar(&entorno, "bob-folders-4@test.ellkan").await;
+    // 2026-08-11: compartir CUALQUIER carpeta ahora exige admin de
+    // grupo/organización (hallazgo real de uso: un usuario regular no
+    // comparte carpetas, quedan 100% personales) — Alice necesita ese
+    // privilegio para que este test siga probando semántica de niveles
+    // (read vs update), no elegibilidad para compartir en sí.
+    common::promover_admin(&entorno.pool, alice.user_id).await;
     let sesion_alice = common::login(&entorno, &alice).await;
     let sesion_bob = common::login(&entorno, &bob).await;
 
     let folder_id = crear_carpeta(&entorno, sesion_alice, None).await;
 
-    // Bob (sin ningún permiso sobre la carpeta) no puede compartirla.
+    // Bob (regular, sin ningún permiso sobre la carpeta ni privilegio de
+    // grupo/organización) no puede compartirla.
     let resp = entorno
         .cliente
         .post(format!("{}/folders/{folder_id}/share", entorno.base))
         .bearer_auth(sesion_bob)
         .json(&json!({
-            "grantee_user_id": bob.user_id,
+            "grantee_type": "user",
+            "grantee_id": bob.user_id,
             "level": "read",
             "name_ciphertext_b64": "eA==",
             "name_nonce_b64": "eA==",
@@ -258,13 +271,14 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
         .unwrap();
     assert_eq!(resp.status(), 403);
 
-    // Alice (Owner por ser la creadora) comparte con Bob a nivel `read`.
+    // Alice (admin + Owner por ser la creadora) comparte con Bob a nivel `read`.
     let resp = entorno
         .cliente
         .post(format!("{}/folders/{folder_id}/share", entorno.base))
         .bearer_auth(sesion_alice)
         .json(&json!({
-            "grantee_user_id": bob.user_id,
+            "grantee_type": "user",
+            "grantee_id": bob.user_id,
             "level": "read",
             "name_ciphertext_b64": "eA==",
             "name_nonce_b64": "eA==",
@@ -297,7 +311,8 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
         .post(format!("{}/folders/{folder_id}/share", entorno.base))
         .bearer_auth(sesion_alice)
         .json(&json!({
-            "grantee_user_id": bob.user_id,
+            "grantee_type": "user",
+            "grantee_id": bob.user_id,
             "level": "update",
             "name_ciphertext_b64": "eA==",
             "name_nonce_b64": "eA==",

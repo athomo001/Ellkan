@@ -208,6 +208,62 @@ async fn manager_sin_admin_de_org_gestiona_su_grupo_y_promueve_otro_manager() {
     assert_eq!(resp.status(), 200, "un manager puede promover a otro manager");
 }
 
+/// Hallazgo real de uso 2026-08-11: `/admin/groups` mostraba el `user_id`
+/// crudo en vez del nombre/email — `GET /groups/{id}` debe traer ambos por
+/// miembro. De paso, `GET /me/groups` (nuevo) debe reflejar la membresía y
+/// el `is_admin` desde el propio punto de vista del miembro.
+#[tokio::test]
+async fn miembros_traen_nombre_y_email_y_me_groups_refleja_la_membresia() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin-grp-nombres@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let manager = common::registrar(&entorno, "manager-grp-nombres@test.ellkan").await;
+    let sesion_manager = common::login(&entorno, &manager).await;
+
+    let grupo_id = crear_grupo_raiz(&entorno, sesion_admin, "Soporte").await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/groups/{grupo_id}/members/{}", entorno.base, manager.user_id))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "is_admin": true, "envelopes": [] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let detalle: Value = entorno
+        .cliente
+        .get(format!("{}/groups/{grupo_id}", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let miembro = detalle["members"].as_array().unwrap().iter().find(|m| m["user_id"] == manager.user_id.to_string()).unwrap();
+    assert_eq!(miembro["email"], "manager-grp-nombres@test.ellkan");
+    assert_eq!(miembro["display_name"], "manager-grp-nombres@test.ellkan");
+    assert_eq!(miembro["is_admin"], true);
+
+    let mis_grupos: Value = entorno
+        .cliente
+        .get(format!("{}/me/groups", entorno.base))
+        .bearer_auth(sesion_manager)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mis_grupos = mis_grupos.as_array().unwrap();
+    assert_eq!(mis_grupos.len(), 1);
+    assert_eq!(mis_grupos[0]["name"], "Soporte");
+    assert_eq!(mis_grupos[0]["is_admin"], true);
+}
+
 #[tokio::test]
 async fn unico_manager_no_se_puede_quitar_ni_degradar() {
     let entorno = common::levantar().await;

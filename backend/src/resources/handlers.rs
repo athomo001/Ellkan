@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::auth::extractor::AuthenticatedUser;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
-use crate::folders::repository::FolderItemRepository;
+use crate::folders::repository::{FolderItemRepository, FolderRepository};
 use crate::folders::service::FolderService;
 use crate::state::AppState;
 use crate::tags::service::TagService;
@@ -28,6 +28,9 @@ type Servicio<'a> = ResourceService<
     super::repository::PgSecretEnvelopeRepository,
     super::repository::PgPermissionRepository,
     super::repository::PgResourceTypeRepository,
+    crate::folders::repository::PgFolderItemRepository,
+    crate::groups::repository::PgGroupMemberRepository,
+    crate::admin::repository::PgRoleRepository,
 >;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
@@ -36,11 +39,14 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         envolturas: &state.envolturas,
         permisos: &state.permisos,
         tipos_recurso: &state.tipos_recurso,
+        items: &state.items_de_carpeta,
+        grupos: &state.miembros_de_grupo,
+        roles: &state.roles,
         eventos: state.eventos.clone(),
     }
 }
 
-fn a_response(recurso: super::models::Resource, resource_type_slug: String) -> RecursoResponse {
+fn a_response(recurso: super::models::Resource, resource_type_slug: String, puede_borrar: bool) -> RecursoResponse {
     RecursoResponse {
         id: recurso.id,
         resource_type_id: recurso.resource_type_id,
@@ -53,6 +59,7 @@ fn a_response(recurso: super::models::Resource, resource_type_slug: String) -> R
         metadata_key_type: recurso.metadata_key_type,
         metadata_key_id: recurso.metadata_key_id,
         folder_id: None,
+        puede_borrar,
     }
 }
 
@@ -109,7 +116,7 @@ pub async fn crear(
         )
         .await?;
 
-    Ok(Json(a_response(recurso, req.resource_type_slug)))
+    Ok(Json(a_response(recurso, req.resource_type_slug, true)))
 }
 
 pub async fn listar(
@@ -136,19 +143,35 @@ pub async fn listar(
     let posiciones = state.items_de_carpeta.posiciones_de_recursos(auth.user_id).await.map_err(DomainError::from)?;
     let slugs = state.tipos_recurso.mapa_id_a_slug().await.map_err(DomainError::from)?;
 
-    let recursos: Vec<RecursoResponse> = recursos
-        .into_iter()
-        .map(|r| {
-            let slug = slugs.get(&r.resource_type_id).cloned().unwrap_or_default();
-            let mut resp = a_response(r, slug);
-            resp.folder_id = posiciones.get(&resp.id).copied();
-            resp
-        })
-        .collect();
+    let servicio_recursos = servicio(&state);
+    let mut respuesta = Vec::with_capacity(recursos.len());
+    for r in recursos {
+        let slug = slugs.get(&r.resource_type_id).cloned().unwrap_or_default();
+        let puede_borrar = servicio_recursos.puede_borrar(r.id, auth.user_id).await?;
+        let mut resp = a_response(r, slug, puede_borrar);
+        resp.folder_id = posiciones.get(&resp.id).copied();
+        respuesta.push(resp);
+    }
+    let recursos = respuesta;
 
     let recursos = match q.folder_id {
         None => recursos,
-        Some(folder_id) => recursos.into_iter().filter(|r| r.folder_id == Some(folder_id)).collect(),
+        Some(folder_id) => {
+            let carpetas_validas: std::collections::HashSet<Uuid> = if q.incluir_subcarpetas {
+                let mut set: std::collections::HashSet<Uuid> = state
+                    .carpetas
+                    .descendientes_de(auth.user_id, folder_id)
+                    .await
+                    .map_err(DomainError::from)?
+                    .into_iter()
+                    .collect();
+                set.insert(folder_id);
+                set
+            } else {
+                std::iter::once(folder_id).collect()
+            };
+            recursos.into_iter().filter(|r| r.folder_id.is_some_and(|f| carpetas_validas.contains(&f))).collect()
+        }
     };
 
     Ok(Json(recursos))
@@ -159,7 +182,8 @@ pub async fn obtener(
     auth: AuthenticatedUser,
     Path(resource_id): Path<Uuid>,
 ) -> Result<Json<RecursoResponse>, ApiError> {
-    let recurso = servicio(&state).obtener(resource_id, auth.user_id).await?;
+    let servicio_recursos = servicio(&state);
+    let recurso = servicio_recursos.obtener(resource_id, auth.user_id).await?;
     let slug = state
         .tipos_recurso
         .mapa_id_a_slug()
@@ -168,7 +192,8 @@ pub async fn obtener(
         .get(&recurso.resource_type_id)
         .cloned()
         .unwrap_or_default();
-    Ok(Json(a_response(recurso, slug)))
+    let puede_borrar = servicio_recursos.puede_borrar(recurso.id, auth.user_id).await?;
+    Ok(Json(a_response(recurso, slug, puede_borrar)))
 }
 
 pub async fn obtener_secreto(
@@ -401,7 +426,8 @@ pub async fn actualizar(
         });
     }
 
-    let recurso = servicio(&state)
+    let servicio_recursos = servicio(&state);
+    let recurso = servicio_recursos
         .editar(resource_id, auth.user_id, expected_updated_at, &metadata_ciphertext, &metadata_nonce, envelopes)
         .await?;
     let slug = state
@@ -412,8 +438,9 @@ pub async fn actualizar(
         .get(&recurso.resource_type_id)
         .cloned()
         .unwrap_or_default();
+    let puede_borrar = servicio_recursos.puede_borrar(recurso.id, auth.user_id).await?;
 
-    Ok(Json(a_response(recurso, slug)))
+    Ok(Json(a_response(recurso, slug, puede_borrar)))
 }
 
 /// `PUT /resources/{id}/move` (F-11) — la lógica vive en `FolderService`
@@ -425,8 +452,27 @@ pub async fn mover(
     Path(resource_id): Path<Uuid>,
     Json(req): Json<MoverRecursoRequest>,
 ) -> Result<(), ApiError> {
-    FolderService { carpetas: &state.carpetas, items: &state.items_de_carpeta, permisos: &state.permisos }
-        .mover_recurso(auth.user_id, resource_id, req.folder_id)
-        .await?;
+    FolderService {
+        carpetas: &state.carpetas,
+        items: &state.items_de_carpeta,
+        permisos: &state.permisos,
+        grupos: &state.miembros_de_grupo,
+        roles: &state.roles,
+    }
+    .mover_recurso(auth.user_id, resource_id, req.folder_id)
+    .await?;
+    Ok(())
+}
+
+/// `DELETE /resources/{id}` (2026-08-11, endpoint nuevo — antes no existía
+/// ninguna forma de borrar un recurso real). Ver
+/// `ResourceService::eliminar` para la regla de autorización (admin del
+/// grupo dueño de la carpeta, u `owner` fuera de una carpeta de grupo).
+pub async fn eliminar(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+) -> Result<(), ApiError> {
+    servicio(&state).eliminar(resource_id, auth.user_id).await?;
     Ok(())
 }

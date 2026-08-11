@@ -82,6 +82,23 @@ pub async fn permisos(State(state): State<AppState>, user: AuthenticatedUser) ->
     Ok(Json(state.roles.permisos_de_usuario(user.user_id).await.map_err(DomainError::from)?))
 }
 
+/// `GET /me/groups` — hallazgo real de uso 2026-08-11: no había forma de
+/// que un usuario viera en su propio perfil a qué grupos pertenece ni si
+/// es admin de alguno.
+pub async fn grupos(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+) -> Result<Json<Vec<super::dto::GrupoDeUsuarioResponse>>, ApiError> {
+    use crate::groups::repository::GroupMemberRepository;
+    let grupos = state.miembros_de_grupo.grupos_de(user.user_id).await.map_err(DomainError::from)?;
+    Ok(Json(
+        grupos
+            .into_iter()
+            .map(|g| super::dto::GrupoDeUsuarioResponse { group_id: g.group_id, name: g.name, is_admin: g.is_admin })
+            .collect(),
+    ))
+}
+
 /// `GET /me/avatar` — `404` si no tiene avatar cargado, nunca un `200` con
 /// body vacío (evita que el cliente tenga que distinguir "vacío" de "no
 /// existe" a partir del content-length).

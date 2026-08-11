@@ -48,6 +48,11 @@ pub struct RecursoResponse {
     /// no vale la pena la consulta extra para un solo recurso.
     #[serde(default)]
     pub folder_id: Option<Uuid>,
+    /// 2026-08-11: si el caller puede `DELETE` este recurso con la regla de
+    /// `ResourceService::eliminar` — evita que el frontend muestre un botón
+    /// que siempre va a devolver 403.
+    #[serde(default)]
+    pub puede_borrar: bool,
 }
 
 /// `GET /resources/{id}/recipients` (F-07).
@@ -93,6 +98,10 @@ pub struct SecretoResponse {
 pub struct ListarQuery {
     pub tag_id: Option<Uuid>,
     pub folder_id: Option<Uuid>,
+    /// 2026-08-11 — "Ver todo": con `folder_id` presente, incluye también
+    /// los recursos de sus subcarpetas (sin esto, el filtro es exacto).
+    #[serde(default)]
+    pub incluir_subcarpetas: bool,
 }
 
 /// `PUT /resources/{id}/move` (F-11) — `folder_id: None` saca el recurso de

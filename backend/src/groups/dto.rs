@@ -53,4 +53,6 @@ pub struct GrupoResponse {
 pub struct MiembroResponse {
     pub user_id: Uuid,
     pub is_admin: bool,
+    pub email: String,
+    pub display_name: String,
 }

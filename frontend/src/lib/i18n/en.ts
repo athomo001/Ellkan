@@ -112,7 +112,8 @@ const en: Diccionario = {
 	secretField: {
 		revelar: 'Reveal',
 		ocultar: 'Hide',
-		copiar: 'Copy'
+		copiar: 'Copy',
+		copiado: 'Copied'
 	},
 	externalShare: {
 		titulo: 'Shared content',
@@ -139,6 +140,7 @@ const en: Diccionario = {
 		usuario: 'Username',
 		uri: 'URI',
 		comandoConexion: 'Connection command',
+		puerto: 'Port',
 		password: 'Password',
 		generarPassword: 'Generate',
 		notas: 'Notes',
@@ -155,6 +157,9 @@ const en: Diccionario = {
 		verSecreto: 'View secret',
 		ocultarSecreto: 'Hide',
 		editar: 'Edit',
+		eliminar: 'Delete',
+		confirmarEliminar: 'Delete this resource? This cannot be undone.',
+		errorEliminar: 'Could not delete the resource.',
 		guardarEdicion: 'Save changes',
 		compartir: 'Share',
 		compartirTitulo: 'Share resource',
@@ -205,13 +210,24 @@ const en: Diccionario = {
 			errorCrear: 'Could not create the folder.',
 			hintSinAsociarRecursos: 'Click a folder to filter the list by its contents — click again to clear it.',
 			filtrar: 'Filter by this folder',
+			verTodo: 'View all (include subfolders)',
 			compartir: 'Share',
 			compartirCon: (nombre: string) => `Share "${nombre}" with:`,
 			emailDestinatario: 'Recipient email',
 			nivel: 'Access level',
 			nivelRead: 'Read',
 			nivelUpdate: 'Edit',
-			nivelOwner: 'Owner'
+			nivelOwner: 'Owner',
+			tipoDestino: 'Share with',
+			tipoDestinoPersona: 'A person',
+			tipoDestinoGrupo: 'My group',
+			seleccionarGrupo: 'Group',
+			sinGruposParaCompartir: "You don't manage any group.",
+			cederTitulo: 'Who owns this password?',
+			cederPregunta: (nombre: string) => `You added "${nombre}" to a group folder.`,
+			cederMantener: 'I keep it — only I can edit it',
+			cederAlGrupo: "I'm ceding it to the group — any member can edit it",
+			errorCeder: 'Could not share with the group.'
 		},
 		tags: {
 			todos: 'All',
@@ -330,6 +346,9 @@ const en: Diccionario = {
 		modificado: 'Modified',
 		cargando: 'Loading…',
 		error: 'Could not load the profile.',
+		gruposTitulo: 'Groups',
+		sinGrupos: "You don't belong to any group.",
+		adminDeGrupo: 'Group admin',
 		avatarTitulo: 'Avatar',
 		avatarHint: 'PNG, JPEG or WEBP, up to 2 MB.',
 		avatarSubir: 'Upload avatar',

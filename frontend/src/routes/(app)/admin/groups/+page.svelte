@@ -241,7 +241,7 @@
 				<ul>
 					{#each detalle.members as m (m.user_id)}
 						<li class="miembro">
-							<span>{m.user_id}{m.is_admin ? ` (${$t.admin.grupos.admin})` : ''}</span>
+							<span>{m.display_name || m.email}{m.is_admin ? ` (${$t.admin.grupos.admin})` : ''}</span>
 							<button type="button" class="link" onclick={() => quitarMiembro(m.user_id)}>{$t.admin.grupos.quitar}</button>
 						</li>
 					{/each}

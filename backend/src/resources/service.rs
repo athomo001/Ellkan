@@ -6,9 +6,12 @@
 
 use uuid::Uuid;
 
+use crate::admin::repository::RoleRepository;
 use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::folders::repository::FolderItemRepository;
+use crate::groups::repository::GroupMemberRepository;
 
 use super::models::{Destinatario, EnvelopeInput, NivelPermiso, PermisoGrantee, Resource, SecretEnvelope};
 use super::repository::{
@@ -26,22 +29,95 @@ pub struct ItemCompartirLote {
     pub nivel: NivelPermiso,
 }
 
-pub struct ResourceService<'a, R, E, P, T> {
+pub struct ResourceService<'a, R, E, P, T, FI, GM, RR> {
     pub recursos: &'a R,
     pub envolturas: &'a E,
     pub permisos: &'a P,
     pub tipos_recurso: &'a T,
+    pub items: &'a FI,
+    pub grupos: &'a GM,
+    pub roles: &'a RR,
     pub eventos: EmisorDeEventos,
 }
 
 #[allow(clippy::too_many_arguments)]
-impl<'a, R, E, P, T> ResourceService<'a, R, E, P, T>
+impl<'a, R, E, P, T, FI, GM, RR> ResourceService<'a, R, E, P, T, FI, GM, RR>
 where
     R: ResourceRepository,
     E: SecretEnvelopeRepository,
     P: PermissionRepository,
     T: ResourceTypeRepository,
+    FI: FolderItemRepository,
+    GM: GroupMemberRepository,
+    RR: RoleRepository,
 {
+    /// 2026-08-11: `Some(group_id)` si `resource_id` vive en alguna carpeta
+    /// compartida con un grupo (de cualquier usuario que lo tenga
+    /// posicionado ahí) — determina si el borrado exige ser admin de ESE
+    /// grupo en vez del criterio de `owner` de siempre.
+    async fn grupo_dueno_de_carpeta(&self, resource_id: Uuid) -> Result<Option<Uuid>, DomainError> {
+        for folder_id in self.items.carpetas_de_recurso(resource_id).await? {
+            if let Some(group_id) = self.permisos.grupo_grantee_de("folder", folder_id).await? {
+                return Ok(Some(group_id));
+            }
+        }
+        Ok(None)
+    }
+
+    /// `DELETE /resources/{id}` (2026-08-11, antes no existía ningún camino
+    /// para borrar un recurso real). Si vive en una carpeta de grupo, exige
+    /// admin de ESE grupo o de organización — el `owner` individual del
+    /// recurso NO alcanza ahí (hallazgo real de uso: "un user no puede
+    /// borrar contraseñas de una carpeta, sólo el admin de grupo y el admin
+    /// general"). Fuera de una carpeta de grupo, cae al criterio de
+    /// siempre: `owner`.
+    pub async fn eliminar(&self, resource_id: Uuid, actor_id: Uuid) -> Result<(), DomainError> {
+        self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
+
+        let es_admin_org = self.roles.usuario_tiene_permiso(actor_id, "*").await?;
+        if !es_admin_org {
+            match self.grupo_dueno_de_carpeta(resource_id).await? {
+                Some(group_id) => {
+                    if !self.grupos.grupos_administrados_por(actor_id).await?.contains(&group_id) {
+                        return Err(DomainError::PermissionDenied);
+                    }
+                }
+                None => {
+                    if !self
+                        .permisos
+                        .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str())
+                        .await?
+                    {
+                        return Err(DomainError::PermissionDenied);
+                    }
+                }
+            }
+        }
+
+        self.recursos.marcar_eliminado(resource_id).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::ResourceDeleted, Some(actor_id)).con_sujeto("resource", resource_id),
+        ));
+
+        Ok(())
+    }
+
+    /// 2026-08-11: `true` si `actor_id` podría borrar `resource_id` con la
+    /// misma regla de `eliminar` — usado para exponer `puede_borrar` en
+    /// `RecursoResponse` y así el frontend no muestre un botón que siempre
+    /// va a devolver 403.
+    pub async fn puede_borrar(&self, resource_id: Uuid, actor_id: Uuid) -> Result<bool, DomainError> {
+        if self.roles.usuario_tiene_permiso(actor_id, "*").await? {
+            return Ok(true);
+        }
+        match self.grupo_dueno_de_carpeta(resource_id).await? {
+            Some(group_id) => Ok(self.grupos.grupos_administrados_por(actor_id).await?.contains(&group_id)),
+            None => {
+                self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await.map_err(DomainError::from)
+            }
+        }
+    }
     pub async fn crear(
         &self,
         id: Uuid,
@@ -64,7 +140,7 @@ where
             .await?;
 
         self.permisos
-            .otorgar("resource", recurso.id, owner_id, NivelPermiso::Owner.as_db_str())
+            .otorgar("resource", recurso.id, "user", owner_id, NivelPermiso::Owner.as_db_str())
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -164,7 +240,7 @@ where
             })?;
 
         self.permisos
-            .otorgar("resource", resource_id, recipient_id, nivel.as_db_str())
+            .otorgar("resource", resource_id, "user", recipient_id, nivel.as_db_str())
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -244,7 +320,7 @@ where
         if grantee_type != "user" {
             return Err(DomainError::ValidacionInvalida("cambiar nivel sólo soportado para destinatarios usuario".into()));
         }
-        self.permisos.otorgar("resource", resource_id, grantee_id, nuevo_nivel.as_db_str()).await?;
+        self.permisos.otorgar("resource", resource_id, grantee_type, grantee_id, nuevo_nivel.as_db_str()).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
