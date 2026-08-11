@@ -1,10 +1,14 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+use axum::http::header;
+use axum::response::IntoResponse;
 use axum::Json;
+use uuid::Uuid;
 
 use crate::b64;
 use crate::error::{ApiError, DomainError};
+use crate::me::service::AvatarService;
 use crate::state::AppState;
 
 use super::dto::{
@@ -12,7 +16,7 @@ use super::dto::{
     RegisterRequest, RegisterResponse, ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest,
     VerifyEmailRequest, VerifyRequest, VerifyResponse,
 };
-use super::extractor::AuthenticatedUser;
+use super::extractor::{AdminUser, AuthenticatedUser};
 use super::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
 use super::repository::UserRepository;
 use super::service::AuthService;
@@ -114,6 +118,39 @@ pub async fn register(
     Ok(Json(RegisterResponse { user_id, pending_verification }))
 }
 
+/// `POST /admin/users` — ver `AuthService::crear_por_admin`. Mismo body que
+/// el registro público (`RegisterRequest`), la ceremonia de claves la sigue
+/// corriendo el navegador del admin.
+pub async fn crear_admin(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(req): Json<RegisterRequest>,
+) -> Result<Json<RegisterResponse>, ApiError> {
+    let publica_x25519 =
+        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
+    let publica_ed25519 = b64::decode(&req.public_key_ed25519_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
+    let blob = b64::decode(&req.encrypted_private_key_blob_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
+    let nonce = b64::decode(&req.private_key_nonce_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
+    let salt = b64::decode(&req.kdf_salt_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+
+    let nuevo = NuevoUsuario {
+        email: &req.email,
+        display_name: &req.display_name,
+        public_key_x25519: &publica_x25519,
+        public_key_ed25519: &publica_ed25519,
+        encrypted_private_key_blob: &blob,
+        private_key_nonce: &nonce,
+        kdf_salt: &salt,
+    };
+
+    let usuario = servicio(&state).crear_por_admin(nuevo).await?;
+    Ok(Json(RegisterResponse { user_id: usuario.id, pending_verification: false }))
+}
+
 pub async fn verify_email(State(state): State<AppState>, Json(req): Json<VerifyEmailRequest>) -> Result<(), ApiError> {
     servicio(&state).verificar_email(&req.email, &req.code).await?;
     Ok(())
@@ -206,4 +243,53 @@ pub async fn public_key(
         user_id: usuario.id,
         public_key_x25519_b64: b64::encode(&keys.public_key_x25519),
     }))
+}
+
+/// `GET /users/{id}/avatar` — hallazgo real de uso 2026-08-11: el buscador
+/// de destinatarios del modal de compartir (`GET /users/search`, cualquier
+/// miembro autenticado) sólo tenía un ícono genérico porque no había forma
+/// de pedir el avatar de OTRO usuario sin ser admin (`GET /admin/users/{id}/avatar`
+/// exige `AdminUser`). Mismo servicio (`AvatarService`, ya genérico en
+/// `user_id`), mismo nivel de exposición que `GET /users/search`/`GET
+/// /users/{email}/public-key` (cualquier miembro autenticado puede ver el
+/// directorio básico de la organización, el avatar no es más sensible que
+/// el email o el nombre ya expuestos ahí).
+pub async fn avatar(
+    State(state): State<AppState>,
+    _auth: AuthenticatedUser,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let avatar = AvatarService { avatar: &state.preferencias_usuario }.obtener(id).await?;
+    match avatar {
+        Some(a) => Ok(([(header::CONTENT_TYPE, a.content_type)], a.bytes).into_response()),
+        None => Err(ApiError::from(DomainError::NotFound)),
+    }
+}
+
+const LIMITE_BUSQUEDA: i64 = 10;
+
+/// `GET /users/search?q=` — buscador en vivo del modal de compartir, mismo
+/// criterio de "cualquier miembro de la org puede buscar a otro" que ya
+/// aplica `public_key` (email exacto) — sólo agrega coincidencia parcial.
+pub async fn buscar(
+    State(state): State<AppState>,
+    Query(query): Query<super::dto::BuscarUsuariosQuery>,
+    _auth: AuthenticatedUser,
+) -> Result<Json<Vec<super::dto::UsuarioBusquedaResponse>>, ApiError> {
+    if query.q.trim().len() < 2 {
+        return Ok(Json(Vec::new()));
+    }
+    let resultados = state.usuarios.buscar_por_prefijo(query.q.trim(), LIMITE_BUSQUEDA).await.map_err(DomainError::from)?;
+    Ok(Json(
+        resultados
+            .into_iter()
+            .map(|u| super::dto::UsuarioBusquedaResponse {
+                user_id: u.id,
+                email: u.email,
+                display_name: u.display_name,
+                public_key_x25519_b64: b64::encode(&u.public_key_x25519),
+                has_avatar: u.has_avatar,
+            })
+            .collect(),
+    ))
 }

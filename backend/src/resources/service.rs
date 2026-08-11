@@ -10,10 +10,21 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
-use super::models::{Destinatario, EnvelopeInput, NivelPermiso, Resource, SecretEnvelope};
+use super::models::{Destinatario, EnvelopeInput, NivelPermiso, PermisoGrantee, Resource, SecretEnvelope};
 use super::repository::{
     PermissionRepository, ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository,
 };
+
+/// Ítem ya decodificado (base64 aplicado, `level` resuelto) para
+/// `ResourceService::compartir_lote` — evita un tuple de 6 elementos.
+pub struct ItemCompartirLote {
+    pub resource_id: Uuid,
+    pub recipient_id: Uuid,
+    pub sealed_dek: Vec<u8>,
+    pub secret_ciphertext: Vec<u8>,
+    pub secret_nonce: Vec<u8>,
+    pub nivel: NivelPermiso,
+}
 
 pub struct ResourceService<'a, R, E, P, T> {
     pub recursos: &'a R,
@@ -123,20 +134,32 @@ where
             return Err(DomainError::PermissionDenied);
         }
 
-        // F-06 completo: sólo un recurso cifrado con la metadata key
-        // compartida puede compartirse — uno con metadata personal
-        // (`user_key`) fallaría en que el destinatario ni siquiera pueda
-        // descifrar el nombre/URI, así que se rechaza acá, explícito.
-        let recurso = self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
-        if recurso.metadata_key_type != "shared_key" {
-            return Err(DomainError::MetadataPersonalNoCompartible);
-        }
+        // F-06/hallazgo real 2026-08-11: esto rechazaba compartir un recurso
+        // `user_key` asumiendo que el destinatario no podría descifrar la
+        // metadata — falso con el mecanismo de envelopes actual: la DEK es
+        // la MISMA para metadata y secreto en `user_key` (ver comentario de
+        // cabecera del módulo), y `compartirRecursoConDestinatario` ya
+        // re-sella esa DEK exacta para el destinatario nuevo — igual que
+        // `editarRecurso` ya re-sella metadata+secreto para todos los
+        // destinatarios actuales de un `user_key` en cada edición. No hay
+        // ninguna limitación criptográfica real; `secret_envelopes` soporta
+        // múltiples filas por recurso desde Fase 0 (`unique(resource_id,
+        // user_id)`). Se mantiene el `buscar` sólo para el 404 explícito.
+        self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
 
         self.envolturas
             .insertar(resource_id, recipient_id, sealed_dek, secret_ciphertext, secret_nonce)
             .await
             .map_err(|e| match e {
-                crate::error::RepoError::Conflict => DomainError::Conflict,
+                // Hallazgo real de uso 2026-08-11: `DomainError::Conflict`
+                // generico ("conflicto de estado") no le decía nada al
+                // usuario sobre POR QUÉ falló — acá el único conflicto
+                // posible es `unique(resource_id, user_id)` de
+                // `secret_envelopes`, o sea que ese destinatario ya tiene
+                // acceso. Mensaje explícito en vez del genérico.
+                crate::error::RepoError::Conflict => {
+                    DomainError::ValidacionInvalida("esta persona ya tiene acceso a este recurso".into())
+                }
                 otro => DomainError::Interno(otro),
             })?;
 
@@ -153,6 +176,109 @@ where
                 })),
         ));
 
+        Ok(())
+    }
+
+    /// Módulo 3 (compartir en lote) — loop de `compartir()` ítem por ítem,
+    /// sin transacción envolvente: el share individual tampoco es atómico
+    /// entre el insert de envelope y el otorgamiento de permiso, así que
+    /// prometer atomicidad recién acá sería inconsistente con lo que ya
+    /// existe. Un ítem inválido no aborta el resto — mismo criterio
+    /// tolerante-a-fallos-parciales que la carga CSV de grupos (Bloque C).
+    pub async fn compartir_lote(&self, owner_id: Uuid, items: Vec<ItemCompartirLote>) -> Vec<(Uuid, Uuid, Option<String>)> {
+        let mut resultados = Vec::with_capacity(items.len());
+        for item in items {
+            let error = self
+                .compartir(
+                    item.resource_id,
+                    owner_id,
+                    item.recipient_id,
+                    &item.sealed_dek,
+                    &item.secret_ciphertext,
+                    &item.secret_nonce,
+                    item.nivel,
+                )
+                .await
+                .err()
+                .map(|e| e.to_string());
+            resultados.push((item.resource_id, item.recipient_id, error));
+        }
+        resultados
+    }
+
+    /// `GET /resources/{id}/permissions` — hallazgo real de uso: no había
+    /// forma de VER con quién estaba compartido un recurso ni en qué nivel,
+    /// más allá de agregar un destinatario nuevo a ciegas. Owner-only, mismo
+    /// criterio que "sólo un Owner puede tocar quién tiene acceso" (F-11).
+    pub async fn listar_permisos(&self, resource_id: Uuid, actor_id: Uuid) -> Result<Vec<PermisoGrantee>, DomainError> {
+        if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+            return Err(DomainError::PermissionDenied);
+        }
+        Ok(self.permisos.listar("resource", resource_id).await?)
+    }
+
+    /// `PUT /resources/{id}/permissions/{grantee_type}/{grantee_id}` — sólo
+    /// cambia el nivel, nunca la crypto (la DEK ya sellada para ese
+    /// destinatario no depende del nivel de permiso). Si el cambio bajaría
+    /// al único Owner actual, falla explícito — mismo criterio que F-11 ya
+    /// documenta para el lote atómico.
+    pub async fn cambiar_nivel(
+        &self,
+        resource_id: Uuid,
+        actor_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+        nuevo_nivel: NivelPermiso,
+    ) -> Result<(), DomainError> {
+        if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+            return Err(DomainError::PermissionDenied);
+        }
+        if nuevo_nivel != NivelPermiso::Owner
+            && !self.permisos.existe_otro_owner("resource", resource_id, grantee_type, grantee_id).await?
+        {
+            return Err(DomainError::ValidacionInvalida("el recurso se quedaría sin ningún Owner".into()));
+        }
+
+        // Sólo usuarios por ahora (compartir con grupos sigue siendo el
+        // mecanismo aparte de `GroupService`, F-12) — `otorgar` ya es upsert.
+        if grantee_type != "user" {
+            return Err(DomainError::ValidacionInvalida("cambiar nivel sólo soportado para destinatarios usuario".into()));
+        }
+        self.permisos.otorgar("resource", resource_id, grantee_id, nuevo_nivel.as_db_str()).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
+                .con_sujeto("resource", resource_id)
+                .con_metadata(serde_json::json!({ "grantee_type": grantee_type, "grantee_id": grantee_id, "level": nuevo_nivel.as_db_str() })),
+        ));
+        Ok(())
+    }
+
+    /// `DELETE /resources/{id}/permissions/{grantee_type}/{grantee_id}` —
+    /// revoca acceso; el `secret_envelope` que le quede al destinatario
+    /// borrado queda huérfano (inalcanzable, `obtener_secreto` chequea
+    /// `permissions` primero) — no hace falta borrarlo aparte para que deje
+    /// de tener efecto.
+    pub async fn revocar_permiso(
+        &self,
+        resource_id: Uuid,
+        actor_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+    ) -> Result<(), DomainError> {
+        if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+            return Err(DomainError::PermissionDenied);
+        }
+        if !self.permisos.existe_otro_owner("resource", resource_id, grantee_type, grantee_id).await? {
+            return Err(DomainError::ValidacionInvalida("el recurso se quedaría sin ningún Owner".into()));
+        }
+        self.permisos.revocar("resource", resource_id, grantee_type, grantee_id).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
+                .con_sujeto("resource", resource_id)
+                .con_metadata(serde_json::json!({ "grantee_type": grantee_type, "grantee_id": grantee_id, "revoked": true })),
+        ));
         Ok(())
     }
 

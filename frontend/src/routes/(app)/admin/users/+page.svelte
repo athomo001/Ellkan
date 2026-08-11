@@ -11,17 +11,18 @@
 	import SecretField from '$lib/components/SecretField.svelte';
 	import Table from '$lib/components/Table.svelte';
 	import { usersAdminApi, obtenerAvatarUrlAdmin, type UsuarioAdmin, type PurgeDryRun } from '$lib/api/admin';
-	import { registrar } from '$lib/crypto/identity';
+	import { crearUsuarioPorAdmin } from '$lib/crypto/identity';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
-	// Parte C: reusa la misma ceremonia de F-01 que la pantalla pública de
-	// registro (`(anon)/register/+page.svelte::enviar`) — corre en el propio
-	// navegador del admin, para la identidad del usuario nuevo. Cero cambios
-	// de backend: Ellkan es zero-knowledge, el servidor no puede generar la
-	// clave privada cifrada de otra persona. Crea sólo rol 'user' — promover
-	// a admin sigue exigiendo `ellkan-cli admin promote-to-admin`
-	// (frontera de seguridad deliberada, no se toca acá).
+	// Parte C: misma ceremonia de F-01 que la pantalla pública de registro
+	// (`(anon)/register/+page.svelte::enviar`), pero contra `POST /admin/users`
+	// — salta la política de auto-registro y el requisito de SMTP configurado,
+	// la cuenta queda verificada de una. Corre en el propio navegador del
+	// admin: Ellkan es zero-knowledge, el servidor no puede generar la clave
+	// privada cifrada de otra persona. Crea sólo rol 'user' — promover a admin
+	// sigue exigiendo `ellkan-cli admin promote-to-admin` (frontera de
+	// seguridad deliberada, no se toca acá).
 	let nuevoEmail = $state('');
 	let nuevoNombre = $state('');
 	let creandoUsuario = $state(false);
@@ -40,7 +41,7 @@
 		creandoUsuario = true;
 		try {
 			const passphrase = generarPassphraseTemporal();
-			await registrar(nuevoEmail, nuevoNombre, passphrase);
+			await crearUsuarioPorAdmin(nuevoEmail, nuevoNombre, passphrase);
 			passphraseCreada = passphrase;
 			nuevoEmail = '';
 			nuevoNombre = '';

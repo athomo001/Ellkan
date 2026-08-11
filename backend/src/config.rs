@@ -27,6 +27,16 @@ pub struct Config {
     /// del usuario. 32 bytes crudos, codificados en base64 en el archivo
     /// (mismo motivo que cualquier otro secreto binario de despliegue).
     pub secrets_key: ClaveSecreta32,
+    /// Operativa 1 (spec/11): TLS terminado por el propio binario vía
+    /// `axum-server`+`rustls`, alternativa liviana a levantar un reverse
+    /// proxy aparte sólo para eso — un cert/key PEM ya son naturalmente
+    /// archivos, así que estas dos variables son la ruta directa, sin el
+    /// nivel extra de indirección `_FILE` que sí aplica a secretos cuyo
+    /// valor normalmente viaja por variable de entorno. Ambas ausentes
+    /// (default) mantiene el comportamiento de siempre: HTTP plano, TLS
+    /// delegado a lo que el operador ponga adelante, si pone algo.
+    pub tls_cert_path: Option<String>,
+    pub tls_key_path: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -37,6 +47,8 @@ pub enum ErrorConfig {
     ArchivoIllegible(&'static str, std::io::Error),
     #[error("{0} debe ser base64 de exactamente 32 bytes")]
     ClaveInvalida(&'static str),
+    #[error("ELLKAN_TLS_CERT_FILE y ELLKAN_TLS_KEY_FILE tienen que estar las dos o ninguna, no sólo una")]
+    TlsIncompleto,
 }
 
 fn resolver_secreto(nombre: &'static str) -> Result<String, ErrorConfig> {
@@ -58,11 +70,19 @@ impl Config {
         let bytes: [u8; 32] =
             bytes.try_into().map_err(|_| ErrorConfig::ClaveInvalida("ELLKAN_SECRETS_KEY"))?;
 
+        let tls_cert_path = env::var("ELLKAN_TLS_CERT_FILE").ok();
+        let tls_key_path = env::var("ELLKAN_TLS_KEY_FILE").ok();
+        if tls_cert_path.is_some() != tls_key_path.is_some() {
+            return Err(ErrorConfig::TlsIncompleto);
+        }
+
         Ok(Self {
             database_url: resolver_secreto("DATABASE_URL")?,
             bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string()),
             otel_endpoint: env::var("ELLKAN_OTEL_ENDPOINT").ok(),
             secrets_key: SecretBox::new(Box::new(bytes)),
+            tls_cert_path,
+            tls_key_path,
         })
     }
 }

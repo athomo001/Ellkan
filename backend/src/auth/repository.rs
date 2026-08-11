@@ -48,6 +48,10 @@ pub trait UserRepository {
     /// cuenta que todavía no está verificada; ya verificada, se comporta
     /// como si no existiera (anti-enumeration en `reenviar_verificacion`).
     async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError>;
+
+    /// `GET /users/search?q=` — coincidencia parcial sobre email/display_name,
+    /// para el buscador en vivo del modal de compartir (módulo 3/UX real).
+    async fn buscar_por_prefijo(&self, prefijo: &str, limite: i64) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError>;
 }
 
 /// F-24: mismo patrón que `DeviceChallengeRepository` — token de un solo
@@ -286,6 +290,36 @@ impl UserRepository for PgUserRepository {
         .await?;
 
         Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
+    }
+
+    async fn buscar_por_prefijo(&self, prefijo: &str, limite: i64) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError> {
+        let patron = format!("%{prefijo}%");
+        let filas = sqlx::query!(
+            r#"
+            select u.id, u.email, u.display_name, uk.public_key_x25519,
+                   (u.avatar_content_type is not null) as "has_avatar!"
+            from users u
+            join user_keys uk on uk.user_id = u.id
+            where u.active and u.deleted_at is null and u.email_verified_at is not null
+              and (u.email ilike $1 or u.display_name ilike $1)
+            order by u.email
+            limit $2
+            "#,
+            patron,
+            limite,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas
+            .into_iter()
+            .map(|f| super::models::UsuarioBusqueda {
+                id: f.id,
+                email: f.email,
+                display_name: f.display_name,
+                public_key_x25519: f.public_key_x25519,
+                has_avatar: f.has_avatar,
+            })
+            .collect())
     }
 }
 

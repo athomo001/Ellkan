@@ -41,7 +41,13 @@ pub struct EmailPendiente {
 // `Send` explícito: los consumidores de este trait corren dentro de tareas
 // spawneadas, y `async fn` en un trait no garantiza `Send` por sí solo.
 pub trait OutboundEmailRepository {
-    fn encolar(&self, recipient: &str, subject: &str, body: &str) -> impl Future<Output = Result<(), RepoError>> + Send;
+    /// Devuelve el `id` de la fila insertada — usado por `SmtpConfigService::probar_envio`
+    /// (Parte C) para hacer polling puntual de esa fila sin ambigüedad de
+    /// `recipient` repetido; el consumidor de eventos ignora el valor.
+    fn encolar(&self, recipient: &str, subject: &str, body: &str) -> impl Future<Output = Result<Uuid, RepoError>> + Send;
+    /// Estado de una fila puntual por `id` — sólo para el polling de
+    /// `probar_envio`, el poller real de envío usa `tomar_pendientes`.
+    fn estado_de(&self, id: Uuid) -> impl Future<Output = Result<Option<String>, RepoError>> + Send;
     /// Stub de Fase 0/dev sin SMTP configurado: marca todo lo `pendiente`
     /// como `enviado` sin leer el cuerpo ni mandar nada.
     fn marcar_pendientes_como_enviadas(&self) -> impl Future<Output = Result<u64, RepoError>> + Send;
@@ -64,16 +70,23 @@ pub struct PgOutboundEmailRepository {
 const MAX_INTENTOS: i32 = 5;
 
 impl OutboundEmailRepository for PgOutboundEmailRepository {
-    async fn encolar(&self, recipient: &str, subject: &str, body: &str) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"insert into outbound_emails (recipient, subject, body) values ($1, $2, $3)"#,
+    async fn encolar(&self, recipient: &str, subject: &str, body: &str) -> Result<Uuid, RepoError> {
+        let fila = sqlx::query!(
+            r#"insert into outbound_emails (recipient, subject, body) values ($1, $2, $3) returning id"#,
             recipient,
             subject,
             body,
         )
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
-        Ok(())
+        Ok(fila.id)
+    }
+
+    async fn estado_de(&self, id: Uuid) -> Result<Option<String>, RepoError> {
+        let fila = sqlx::query!(r#"select status from outbound_emails where id = $1"#, id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(fila.map(|f| f.status))
     }
 
     async fn marcar_pendientes_como_enviadas(&self) -> Result<u64, RepoError> {
@@ -164,6 +177,17 @@ where
                     );
                     if let Err(e) = emails.encolar(&email, asunto, &cuerpo).await {
                         tracing::error!(error = %e, "no se pudo encolar el email de verificación de registro");
+                    }
+                }
+                DomainEvent::MfaCodigoPorCorreo { email, codigo, .. } => {
+                    let asunto = "Ellkan: tu código de verificación";
+                    let cuerpo = format!(
+                        "Alguien (con tu contraseña) está iniciando sesión en Ellkan.\n\
+                         Código de verificación: {codigo}\n\
+                         Ingresalo para completar el inicio de sesión. Si no fuiste vos, cambiá tu contraseña ahora."
+                    );
+                    if let Err(e) = emails.encolar(&email, asunto, &cuerpo).await {
+                        tracing::error!(error = %e, "no se pudo encolar el email de código MFA");
                     }
                 }
                 // F-33: consumidor dedicado en `metadata::rotacion`, no

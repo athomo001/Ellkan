@@ -1,8 +1,9 @@
 // Autor: Athan Espinoza
 
 //! F-06 completo: sólo admin crea la metadata key compartida, máximo 2
-//! activas simultáneas, y un recurso con metadata personal (`user_key`) no
-//! puede compartirse.
+//! activas simultáneas. Un recurso con metadata personal (`user_key`)
+//! también se puede compartir (F-11/2026-08-11) — la DEK resellada para el
+//! destinatario es la misma que ya cifra la metadata en ese tipo.
 
 mod common;
 
@@ -88,12 +89,12 @@ async fn una_tercera_metadata_key_activa_falla_explicito() {
 }
 
 #[tokio::test]
-async fn compartir_un_recurso_con_metadata_personal_falla_explicito() {
+async fn compartir_un_recurso_con_metadata_personal_funciona() {
     let entorno = common::levantar().await;
     let alice = common::registrar(&entorno, "alice-mk@test.ellkan").await;
     let bob = common::registrar(&entorno, "bob-mk@test.ellkan").await;
     let sesion_alice = common::login(&entorno, &alice).await;
-    common::login(&entorno, &bob).await;
+    let sesion_bob = common::login(&entorno, &bob).await;
 
     // Recurso creado SIN metadata_key_id -> queda `user_key` (default, mismo
     // comportamiento que Fase 0).
@@ -141,9 +142,52 @@ async fn compartir_un_recurso_con_metadata_personal_falla_explicito() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 400, "un recurso con metadata personal no debe poder compartirse");
-    let cuerpo: Value = resp.json().await.unwrap();
-    assert_eq!(cuerpo["error"]["code"], "METADATA_PERSONAL_NO_COMPARTIBLE");
+    assert_eq!(resp.status(), 200, "un recurso con metadata personal también debe poder compartirse");
+
+    // Bob ya tiene su propio envelope — puede pedir el secreto y, con la
+    // misma DEK (resellada para él), descifrarlo Y descifrar la metadata
+    // (mismo AAD, mismo ciphertext global en `resources`), sin que nadie
+    // haya tenido que re-cifrar nada para el nuevo destinatario.
+    let secreto_bob: Value = entorno
+        .cliente
+        .get(format!("{}/resources/{resource_id}/secret", entorno.base))
+        .bearer_auth(sesion_bob)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let dek_bob = sellado::abrir_dek(
+        bob.x25519.privada(),
+        &B64.decode(secreto_bob["sealed_dek_b64"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let plano = aead::descifrar(
+        &dek_bob,
+        &aead::Envoltura {
+            nonce: secreto_env.nonce,
+            ciphertext: B64.decode(secreto_bob["secret_ciphertext_b64"].as_str().unwrap()).unwrap(),
+        },
+        &aad,
+    )
+    .unwrap();
+    assert_eq!(plano, b"{}");
+
+    let recursos_de_bob: Vec<Value> = entorno
+        .cliente
+        .get(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion_bob)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        recursos_de_bob.iter().any(|r| r["id"] == resource_id.to_string()),
+        "bob debería ver el recurso user_key compartido con él en su propio listado"
+    );
 }
 
 #[tokio::test]

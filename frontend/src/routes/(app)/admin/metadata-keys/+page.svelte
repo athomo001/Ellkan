@@ -2,19 +2,28 @@
 <script lang="ts">
 	// F-06: alta y rotación de la clave de metadata compartida. La clave
 	// nueva se genera 100% client-side (par X25519) y su privada se sella
-	// para el propio admin que la crea — sumar destinatarios adicionales
-	// (otros admins/miembros) queda para cuando exista un selector de
-	// usuarios real (depende del mismo gap que "editar recursos": no hay
-	// forma de listar usuarios, ver `docs/pendientesVerificacionReal.md`).
+	// para el propio admin que la crea.
+	//
+	// Hallazgo real de uso 2026-08-10: "sumar destinatarios" quedaba
+	// pendiente acá mismo ("depende de un selector de usuarios real") pero
+	// ese bloqueo ya no existe (F-29, `GET /admin/users`, está desde hace
+	// rato) — nunca se volvió a esta página. Consecuencia real: sólo el
+	// admin que crea una metadata key tenía acceso de verdad a ella, así que
+	// ningún recurso `shared_key` era compartible con nadie más en la
+	// práctica. `agregarMiembro` de abajo cierra ese gap — abre la privada
+	// de la key con la propia clave, la resella para el destinatario nuevo
+	// (mismo patrón que agregar un miembro a un grupo, F-12) y la persiste
+	// vía `POST /admin/metadata-keys/{id}/members`, sin rotar la key.
 	import { onMount } from 'svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
+	import TextField from '$lib/components/TextField.svelte';
 	import { metadataKeysApi, type MetadataKeyAdmin, type RotationStatus } from '$lib/api/admin';
 	import { cargarCrypto } from '$lib/crypto/wasm';
-	import { bytesABase64 } from '$lib/crypto/b64';
+	import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import { ApiError, api } from '$lib/api/client';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();
@@ -61,6 +70,33 @@
 		}
 	}
 
+	let agregandoMiembroParaClave = $state<string | undefined>();
+	let emailMiembroNuevo = $state('');
+	let agregandoMiembro = $state(false);
+	let errorMiembro = $state<string | undefined>();
+
+	async function agregarMiembro(clave: MetadataKeyAdmin, e: SubmitEvent) {
+		e.preventDefault();
+		if (!$clavesDesbloqueadas || !clave.own_sealed_private_key_b64) return;
+		errorMiembro = undefined;
+		agregandoMiembro = true;
+		try {
+			const wasm = await cargarCrypto();
+			const privadaClave = wasm.abrir_sellado($clavesDesbloqueadas.x25519Private, base64ABytes(clave.own_sealed_private_key_b64));
+			const destinatario = await api.get<{ user_id: string; public_key_x25519_b64: string }>(
+				`/users/${encodeURIComponent(emailMiembroNuevo)}/public-key`
+			);
+			const sellado = wasm.sellar_para(base64ABytes(destinatario.public_key_x25519_b64), privadaClave);
+			await metadataKeysApi.agregarMiembro(clave.id, destinatario.user_id, bytesABase64(sellado));
+			emailMiembroNuevo = '';
+			agregandoMiembroParaClave = undefined;
+		} catch (err) {
+			errorMiembro = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			agregandoMiembro = false;
+		}
+	}
+
 	async function rotar() {
 		if (!$clavesDesbloqueadas || !$sesion.userId) return;
 		error = undefined;
@@ -100,6 +136,24 @@
 					<span class="secundario">
 						{$t.admin.metadataKeys.expira}: {clave.expired_at ?? $t.admin.metadataKeys.nuncaExpira}
 					</span>
+					{#if !clave.expired_at && clave.own_sealed_private_key_b64}
+						{#if agregandoMiembroParaClave === clave.id}
+							<form class="form-miembro" onsubmit={(e) => agregarMiembro(clave, e)}>
+								<TextField label={$t.admin.metadataKeys.emailMiembroNuevo} type="email" bind:value={emailMiembroNuevo} required />
+								{#if errorMiembro}<p class="error">{errorMiembro}</p>{/if}
+								<div class="botones">
+									<Button type="submit" variant="primary" loading={agregandoMiembro}>{$t.admin.metadataKeys.agregarMiembro}</Button>
+									<Button type="button" variant="ghost" onclick={() => (agregandoMiembroParaClave = undefined)}>
+										{$t.admin.comun.cancelar}
+									</Button>
+								</div>
+							</form>
+						{:else}
+							<button type="button" class="link" onclick={() => (agregandoMiembroParaClave = clave.id)}>
+								{$t.admin.metadataKeys.agregarMiembro}
+							</button>
+						{/if}
+					{/if}
 				</li>
 			{/each}
 		</ul>
@@ -166,5 +220,24 @@
 	.error {
 		color: var(--danger);
 		font-size: var(--text-sm);
+	}
+	.form-miembro {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-color);
+	}
+	.link {
+		background: none;
+		border: none;
+		padding: 0;
+		margin-top: var(--space-2);
+		font: inherit;
+		font-size: var(--text-sm);
+		color: var(--accent-primary);
+		cursor: pointer;
+		align-self: flex-start;
 	}
 </style>

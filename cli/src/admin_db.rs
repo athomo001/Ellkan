@@ -240,12 +240,12 @@ pub async fn recover_setup(pool: &PgPool, email: &str, crear: bool) -> anyhow::R
 // send-test-email
 // ---------------------------------------------------------------------
 
-/// Verifica el pipeline interno (cola `outbound_emails` → poller) sin
-/// disparar un flujo de negocio real sólo para probarlo — **no** valida un
-/// relay SMTP real: ese envío sigue siendo el stub documentado desde Fase 0
-/// (decisión explícita del usuario, ver `backend/src/notificaciones.rs`).
-/// Cuando el poller deje de ser un stub, este mismo comando empieza a
-/// verificar el envío real sin cambiar una línea.
+/// Verifica el pipeline interno (cola `outbound_emails` → poller) encolando
+/// un email real, igual que `POST /admin/smtp-config/test` (Parte C). Si
+/// `smtp_config` está configurada el poller manda de verdad vía SMTP
+/// (`backend/src/notificaciones.rs`); si no, cae al stub de dev que sólo
+/// marca `enviado` sin mandar nada — este comando no distingue los dos
+/// casos, sólo espera a que la fila deje de estar `pendiente`.
 pub async fn send_test_email(pool: &PgPool, destinatario: &str) -> anyhow::Result<bool> {
     sqlx::query!(
         r#"insert into outbound_emails (recipient, subject, body) values ($1, $2, $3)"#,

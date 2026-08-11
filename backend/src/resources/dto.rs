@@ -17,8 +17,8 @@ pub struct CrearRecursoRequest {
     pub secret_ciphertext_b64: String,
     pub secret_nonce_b64: String,
     /// F-06 completo: si se omite, el recurso queda `user_key` (personal,
-    /// no compartible) — mismo comportamiento que Fase 0. Si se da, debe
-    /// referenciar una metadata key compartida actualmente activa.
+    /// mismo comportamiento que Fase 0) — igual compartible (F-11/2026-08-11).
+    /// Si se da, debe referenciar una metadata key compartida actualmente activa.
     #[serde(default)]
     pub metadata_key_id: Option<Uuid>,
 }
@@ -27,6 +27,9 @@ pub struct CrearRecursoRequest {
 pub struct RecursoResponse {
     pub id: Uuid,
     pub resource_type_id: Uuid,
+    /// Parte C/2026-08-11: para que el cliente pueda armar el comando de
+    /// conexión SSH/FTP/Telnet sin resolver `resource_type_id` aparte.
+    pub resource_type_slug: String,
     pub metadata_ciphertext_b64: String,
     pub metadata_nonce_b64: String,
     pub created_by: Option<Uuid>,
@@ -121,4 +124,52 @@ pub struct CompartirRequest {
     /// `read` | `update` | `owner` — default `read` si se omite.
     #[serde(default)]
     pub level: Option<String>,
+}
+
+/// Módulo 3 (compartir en lote): mismo shape que `CompartirRequest` por
+/// ítem, repetido — el cliente ya hizo N×M sellados asimétricos
+/// client-side (uno por par recurso×destinatario, mismo costo barato que un
+/// share individual), esto sólo los agrupa en una sola llamada de red.
+#[derive(Debug, Deserialize)]
+pub struct CompartirLoteItem {
+    pub resource_id: Uuid,
+    pub recipient_user_id: Uuid,
+    pub sealed_dek_b64: String,
+    pub secret_ciphertext_b64: String,
+    pub secret_nonce_b64: String,
+    #[serde(default)]
+    pub level: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompartirLoteRequest {
+    pub items: Vec<CompartirLoteItem>,
+}
+
+/// Tolerante a fallos parciales — mismo criterio que la carga CSV de
+/// grupos (Bloque C): un ítem inválido (ej. el caller no es `owner` de ese
+/// recurso puntual) no debería abortar los demás ítems del lote.
+#[derive(Debug, Serialize)]
+pub struct CompartirLoteItemResultado {
+    pub resource_id: Uuid,
+    pub recipient_user_id: Uuid,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompartirLoteResponse {
+    pub resultados: Vec<CompartirLoteItemResultado>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PermisoGranteeResponse {
+    pub grantee_type: String,
+    pub grantee_id: Uuid,
+    pub level: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CambiarNivelRequest {
+    pub level: String,
 }

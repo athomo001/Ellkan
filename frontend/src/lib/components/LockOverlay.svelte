@@ -34,8 +34,14 @@
 			clavesDesbloqueadas.set(await desbloquearConPassphrase(email, passphrase));
 			passphrase = '';
 			onDesbloqueado();
-		} catch {
-			error = get(t).lockOverlay.errorPassphrase;
+		} catch (err) {
+			// Hallazgo real de uso: esto mostraba "contraseña incorrecta" para
+			// CUALQUIER falla — incluido un `429` de rate limit tras varios F5
+			// seguidos, que no tiene nada que ver con la contraseña. `ApiError`
+			// (falló la llamada a `/auth/key-material`) muestra el mensaje real
+			// del servidor; sólo la falla de `wasm.abrir_clave_privada` (la
+			// passphrase en sí no abre el blob) sigue siendo el genérico.
+			error = err instanceof ApiError ? err.message : get(t).lockOverlay.errorPassphrase;
 		} finally {
 			cargando = false;
 		}

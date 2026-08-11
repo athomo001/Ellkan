@@ -36,6 +36,7 @@ function aadDeRecurso(resourceId: string, createdBy: string): Uint8Array {
 interface RecursoCrudo {
 	id: string;
 	resource_type_id: string;
+	resource_type_slug: string;
 	metadata_ciphertext_b64: string;
 	metadata_nonce_b64: string;
 	created_by: string | null;
@@ -67,10 +68,24 @@ interface MetadataJson {
 	uri?: string;
 }
 
+/**
+ * Módulo 5 (spec/11): `recovery_codes`/`campos_extra` extienden el modelo sin
+ * migración — el secreto ya es JSON libre cifrado client-side, agregar un
+ * campo nuevo no toca el backend (`resource_types` nunca valida el
+ * contenido del blob). Todavía sin productor real (la detección de backup
+ * codes en la extensión de navegador es Fase 2, sin arrancar) ni consumidor
+ * en el flujo de editar/crear — `crearRecurso`/`editarRecurso` reconstruyen
+ * el JSON sólo con `password`/`notes`/`totp_secret`, así que un recurso con
+ * estos campos poblados a mano perdería el resto al editarse; wireear el
+ * round-trip completo (preservar+mostrar+editar) queda para cuando la
+ * extensión exista y realmente los escriba.
+ */
 interface SecretoJson {
 	password?: string;
 	notes?: string;
 	totp_secret?: string;
+	recovery_codes?: string[];
+	campos_extra?: Record<string, string>;
 }
 
 export interface Recurso {
@@ -79,6 +94,7 @@ export interface Recurso {
 	nombre: string;
 	usuario: string;
 	uri: string;
+	resourceTypeSlug: string;
 	metadataKeyType: 'user_key' | 'shared_key';
 	/** Sólo poblado para `user_key` — ya se necesitó para descifrar la metadata, se reusa al revelar el secreto. */
 	dekPropia?: Uint8Array;
@@ -133,6 +149,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				nombre: enCache.nombre,
 				usuario: enCache.usuario,
 				uri: enCache.uri,
+				resourceTypeSlug: r.resource_type_slug,
 				metadataKeyType: r.metadata_key_type,
 				dekPropia: enCache.dekPropiaB64 ? base64ABytes(enCache.dekPropiaB64) : undefined,
 				metadataKeyId: r.metadata_key_id ?? undefined,
@@ -175,6 +192,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				nombre,
 				usuario,
 				uri,
+				resourceTypeSlug: r.resource_type_slug,
 				metadataKeyType: r.metadata_key_type,
 				dekPropia,
 				metadataKeyId: r.metadata_key_id ?? undefined,
@@ -197,6 +215,49 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 	return resultado;
 }
 
+const PUERTOS_DEFAULT: Record<string, number> = { ssh: 22, ftp: 21, telnet: 23, vnc: 5900 };
+
+/** Separa `host` y `puerto` de un `uri` como los que ya guarda un recurso
+ * FTP/SSH/VNC/Telnet — acepta `host`, `host:puerto` o `esquema://host:puerto`
+ * (los tres formatos que ya circulan, el campo del formulario es texto
+ * libre). `undefined` de puerto = usar el default del protocolo. */
+function parsearHostPuerto(uri: string): { host: string; puerto?: number } {
+	const sinEsquema = uri.replace(/^[a-z]+:\/\//i, '').trim();
+	const idx = sinEsquema.lastIndexOf(':');
+	if (idx === -1) return { host: sinEsquema };
+	const resto = sinEsquema.slice(idx + 1);
+	const puerto = Number(resto);
+	if (!resto || !Number.isInteger(puerto)) return { host: sinEsquema };
+	return { host: sinEsquema.slice(0, idx), puerto };
+}
+
+/** Comando/URI listo para copiar y pegar en una terminal o cliente real —
+ * pedido explícito de uso real (2026-08-11): "cuando agrego un ssh o un
+ * telnet, ftp debería aparecerme el comando". `null` si el tipo de recurso
+ * no tiene un comando de conexión asociado (ej. login-password). */
+export function comandoDeConexion(recurso: Pick<Recurso, 'resourceTypeSlug' | 'usuario' | 'uri'>): string | null {
+	const slug = recurso.resourceTypeSlug;
+	if (!recurso.uri || !(slug in PUERTOS_DEFAULT)) return null;
+	const { host, puerto } = parsearHostPuerto(recurso.uri);
+	const puertoDefault = PUERTOS_DEFAULT[slug];
+	const puertoNoDefault = puerto !== undefined && puerto !== puertoDefault ? puerto : undefined;
+	const arroba = recurso.usuario ? `${recurso.usuario}@` : '';
+
+	switch (slug) {
+		case 'ssh':
+			return `ssh ${arroba}${host}${puertoNoDefault ? ` -p ${puertoNoDefault}` : ''}`;
+		case 'telnet':
+			// El comando `telnet` no toma usuario — se pide al conectar.
+			return `telnet ${host}${puertoNoDefault ? ` ${puertoNoDefault}` : ''}`;
+		case 'ftp':
+			return `ftp://${arroba}${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
+		case 'vnc':
+			return `vnc://${arroba}${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
+		default:
+			return null;
+	}
+}
+
 export async function verSecreto(
 	recurso: Recurso,
 	claves: ClavesDesbloqueadas
@@ -215,10 +276,11 @@ export async function verSecreto(
 	return { password: json.password ?? '', notes: json.notes ?? '', totpSecret: json.totp_secret };
 }
 
-/** F-07: FTP/SSH/VNC reusan el mismo shape que login-password (host:puerto
- * en `uri`) — sólo cambia el `resource_type_slug` para categorizar/mostrar
- * un ícono distinto, sin autenticación por clave SSH todavía. */
-export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc';
+/** F-07: FTP/SSH/VNC/Telnet reusan el mismo shape que login-password
+ * (host:puerto en `uri`) — sólo cambia el `resource_type_slug` para
+ * categorizar/mostrar un ícono distinto y armar el comando de conexión
+ * copiable (`comandoDeConexion`), sin autenticación por clave SSH todavía. */
+export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc' | 'telnet';
 
 export interface NuevoRecurso {
 	/** Sólo relevante para `crearRecurso` — `editarRecurso` reusa este mismo
@@ -234,10 +296,17 @@ export interface NuevoRecurso {
 }
 
 /**
- * Sólo crea recursos personales (`user_key`) — la opción de crearlo ya
- * ligado a una `metadata_key` compartida (F-06) queda para cuando el
- * panel de administración (F-20) exponga la gestión de esas claves; acá
- * alcanza con el caso simple, ya cubre el criterio de aceptación de F-05.
+ * Hallazgo real de uso 2026-08-10: esto creaba `user_key` siempre —
+ * el botón de "Compartir" (`metadataKeyType === 'shared_key'`) nunca
+ * aparecía para ningún recurso creado desde el Vault, así que nadie podía
+ * compartir nada con otro usuario (sólo "Compartir externo" quedaba
+ * visible). El bloqueo original ("falta un selector de usuarios en el
+ * panel admin") ya no existe — F-29 (`GET /admin/users`) está desde hace
+ * rato. Ahora usa la primera `metadata_key` activa a la que el usuario
+ * actual ya tiene acceso (`GET /metadata-keys`, mismo lookup que ya hace
+ * `editarRecurso`) si existe alguna; si no hay ninguna todavía (instancia
+ * nueva sin que un admin haya creado la primera), cae a `user_key` como
+ * antes — nunca rompe la creación por falta de una key.
  */
 export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloqueadas, userId: string): Promise<void> {
 	const wasm = await cargarCrypto();
@@ -245,11 +314,16 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 	const aad = aadDeRecurso(resourceId, userId);
 	const dek = wasm.generar_dek();
 
+	const clavesMetadata = await cargarClavesMetadataCompartidas(claves);
+	const primeraEntrada = clavesMetadata.entries().next();
+	const metadataKeyId = primeraEntrada.done ? null : primeraEntrada.value[0];
+	const claveMetadata = primeraEntrada.done ? dek : primeraEntrada.value[1];
+
 	const metadata = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
 	const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
 	if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
-	const metadataCifrada = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(metadata)), aad);
+	const metadataCifrada = wasm.cifrar_aead(claveMetadata, new TextEncoder().encode(JSON.stringify(metadata)), aad);
 	const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
 	const sealedDek = wasm.sellar_para(claves.x25519Public, dek);
 
@@ -263,7 +337,8 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 		metadata_nonce_b64: bytesABase64(metadataCifrada.nonce),
 		sealed_dek_b64: bytesABase64(sealedDek),
 		secret_ciphertext_b64: bytesABase64(secretoCifrado.ciphertext),
-		secret_nonce_b64: bytesABase64(secretoCifrado.nonce)
+		secret_nonce_b64: bytesABase64(secretoCifrado.nonce),
+		...(metadataKeyId ? { metadata_key_id: metadataKeyId } : {})
 	});
 }
 
@@ -375,18 +450,86 @@ export async function resellarSecretoParaGrupo(
 	};
 }
 
-/**
- * F-11: sólo recursos `shared_key` son compartibles — el backend rechaza
- * `user_key` explícitamente (`METADATA_PERSONAL_NO_COMPARTIBLE`,
- * `ResourceService::compartir`) porque un destinatario nuevo no tendría
- * forma de leer la metadata (esa clave nunca se le selló a él).
- */
-export async function compartirRecurso(recurso: Recurso, emailDestinatario: string, claves: ClavesDesbloqueadas): Promise<void> {
-	const wasm = await cargarCrypto();
-	const destinatario = await api.get<{ user_id: string; public_key_x25519_b64: string }>(
-		`/users/${encodeURIComponent(emailDestinatario)}/public-key`
-	);
+export interface DestinatarioLote {
+	userId: string;
+	publicKeyX25519B64: string;
+}
 
+export interface ResultadoItemLote {
+	resource_id: string;
+	recipient_user_id: string;
+	error: string | null;
+}
+
+/**
+ * Módulo 3 (compartir en lote): N recursos × M destinatarios en una sola
+ * llamada de red — cada par reusa exactamente `resellarSecretoParaGrupo`
+ * (mismo sellado asimétrico barato de siempre, nada nuevo del lado cripto),
+ * el backend sólo agrupa el loop. Tolerante a fallos parciales: un ítem que
+ * el servidor rechace (ej. sin permiso Owner sobre ese recurso puntual) no
+ * aborta el resto, viene reflejado en `resultados`.
+ */
+export async function compartirRecursosEnLote(
+	resourceIds: string[],
+	destinatarios: DestinatarioLote[],
+	claves: ClavesDesbloqueadas,
+	level: 'read' | 'update' | 'owner' = 'read'
+): Promise<ResultadoItemLote[]> {
+	const items = [];
+	for (const resourceId of resourceIds) {
+		for (const destinatario of destinatarios) {
+			const resellado = await resellarSecretoParaGrupo(resourceId, claves, destinatario.publicKeyX25519B64);
+			items.push({
+				resource_id: resellado.resource_id,
+				recipient_user_id: destinatario.userId,
+				sealed_dek_b64: resellado.sealed_dek_b64,
+				secret_ciphertext_b64: resellado.secret_ciphertext_b64,
+				secret_nonce_b64: resellado.secret_nonce_b64,
+				level
+			});
+		}
+	}
+	const resp = await api.post<{ resultados: ResultadoItemLote[] }>('/resources/share-bulk', { items });
+	return resp.resultados;
+}
+
+export interface UsuarioBusqueda {
+	userId: string;
+	email: string;
+	displayName: string;
+	publicKeyX25519B64: string;
+	hasAvatar: boolean;
+}
+
+/** Buscador en vivo del modal de compartir — mínimo 2 caracteres, hasta 10 resultados. */
+export async function buscarUsuarios(q: string): Promise<UsuarioBusqueda[]> {
+	if (q.trim().length < 2) return [];
+	const crudos = await api.get<
+		{ user_id: string; email: string; display_name: string; public_key_x25519_b64: string; has_avatar: boolean }[]
+	>(`/users/search?q=${encodeURIComponent(q.trim())}`);
+	return crudos.map((u) => ({
+		userId: u.user_id,
+		email: u.email,
+		displayName: u.display_name,
+		publicKeyX25519B64: u.public_key_x25519_b64,
+		hasAvatar: u.has_avatar
+	}));
+}
+
+/**
+ * F-11: funciona igual para `user_key` y `shared_key` (2026-08-11) — la DEK
+ * que se resella para el destinatario acá es la misma que cifra la
+ * metadata en un recurso `user_key`, así que el destinatario nuevo la
+ * descifra sin problema. El backend ya no distingue por tipo.
+ */
+export async function compartirRecursoConDestinatario(
+	recurso: Recurso,
+	userId: string,
+	publicKeyX25519B64: string,
+	claves: ClavesDesbloqueadas,
+	level: 'read' | 'update' | 'owner' = 'read'
+): Promise<void> {
+	const wasm = await cargarCrypto();
 	const secreto = await api.get<SecretoCrudo>(`/resources/${recurso.id}/secret`);
 	const dek = recurso.dekPropia ?? wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
 	const aad = aadDeRecurso(recurso.id, recurso.createdBy);
@@ -401,12 +544,55 @@ export async function compartirRecurso(recurso: Recurso, emailDestinatario: stri
 	// ciphertext por fila, no reusa el nonce ajeno) — misma DEK, se vuelve a
 	// cifrar el mismo plaintext con un nonce fresco.
 	const reCifrado = wasm.cifrar_aead(dek, bytes, aad);
-	const sealedDekDestinatario = wasm.sellar_para(base64ABytes(destinatario.public_key_x25519_b64), dek);
+	const sealedDekDestinatario = wasm.sellar_para(base64ABytes(publicKeyX25519B64), dek);
 
 	await api.post(`/resources/${recurso.id}/share`, {
-		recipient_user_id: destinatario.user_id,
+		recipient_user_id: userId,
 		sealed_dek_b64: bytesABase64(sealedDekDestinatario),
 		secret_ciphertext_b64: bytesABase64(reCifrado.ciphertext),
-		secret_nonce_b64: bytesABase64(reCifrado.nonce)
+		secret_nonce_b64: bytesABase64(reCifrado.nonce),
+		level
 	});
+}
+
+/** Wrapper por email — usado por el modal viejo, se mantiene por compatibilidad con `compartirRecursosEnLote`. */
+export async function compartirRecurso(recurso: Recurso, emailDestinatario: string, claves: ClavesDesbloqueadas): Promise<void> {
+	const destinatario = await api.get<{ user_id: string; public_key_x25519_b64: string }>(
+		`/users/${encodeURIComponent(emailDestinatario)}/public-key`
+	);
+	await compartirRecursoConDestinatario(recurso, destinatario.user_id, destinatario.public_key_x25519_b64, claves);
+}
+
+export interface PermisoGrantee {
+	granteeType: 'user' | 'group';
+	granteeId: string;
+	level: 'read' | 'update' | 'owner';
+	/** Email (usuario) o nombre (grupo) — sólo para mostrar. */
+	label: string | null;
+}
+
+/** Hallazgo real de uso: no había forma de ver/administrar quién tenía acceso a un recurso, sólo de agregar uno nuevo a ciegas. */
+export async function listarPermisos(resourceId: string): Promise<PermisoGrantee[]> {
+	const crudos = await api.get<{ grantee_type: string; grantee_id: string; level: string; label: string | null }[]>(
+		`/resources/${resourceId}/permissions`
+	);
+	return crudos.map((g) => ({
+		granteeType: g.grantee_type as 'user' | 'group',
+		granteeId: g.grantee_id,
+		level: g.level as 'read' | 'update' | 'owner',
+		label: g.label
+	}));
+}
+
+export async function cambiarNivelPermiso(
+	resourceId: string,
+	granteeType: string,
+	granteeId: string,
+	level: 'read' | 'update' | 'owner'
+): Promise<void> {
+	await api.put(`/resources/${resourceId}/permissions/${granteeType}/${granteeId}`, { level });
+}
+
+export async function revocarPermiso(resourceId: string, granteeType: string, granteeId: string): Promise<void> {
+	await api.delete(`/resources/${resourceId}/permissions/${granteeType}/${granteeId}`);
 }

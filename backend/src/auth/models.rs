@@ -19,6 +19,18 @@ pub struct UserKeysRow {
     pub public_key_ed25519: Vec<u8>,
 }
 
+/// Hallazgo real de uso: el modal de "Compartir" necesita buscar por
+/// coincidencia parcial (mientras el usuario tipea), no sólo por email
+/// exacto — `GET /users/search`.
+#[derive(Debug, Clone)]
+pub struct UsuarioBusqueda {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub public_key_x25519: Vec<u8>,
+    pub has_avatar: bool,
+}
+
 /// F-01, frontend web (Fase 1.4): material que un navegador sin estado
 /// local necesita para desbloquear la clave privada durante el login — a
 /// diferencia de la CLI (que lo cachea en un perfil local tras registrarse,

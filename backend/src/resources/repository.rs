@@ -71,6 +71,11 @@ pub trait ResourceRepository {
 pub trait ResourceTypeRepository {
     async fn id_por_slug(&self, slug: &str) -> Result<Option<Uuid>, RepoError>;
 
+    /// Inverso de `id_por_slug` — F-07/Parte C (comando de conexión SSH/FTP/
+    /// Telnet en la UI, necesita saber el slug de cada recurso ya creado sin
+    /// una consulta por fila; la tabla es chica, se trae entera una vez).
+    async fn mapa_id_a_slug(&self) -> Result<std::collections::HashMap<Uuid, String>, RepoError>;
+
     /// F-08: el `json_schema` completo — el servidor sólo lo usa para
     /// derivar si el tipo declara `totp_secret` en `secret`
     /// (`GET /resources/{id}/totp`), nunca para interpretar contenido
@@ -154,6 +159,21 @@ pub trait PermissionRepository {
     /// no bloquear carpetas creadas antes de que F-11 existiera, que nunca
     /// tuvieron ninguna fila de permiso).
     async fn existe_algun_permiso(&self, subject_type: &str, subject_id: Uuid) -> Result<bool, RepoError>;
+
+    /// Todos los grantees (usuario o grupo) con acceso a `subject`, con su
+    /// nivel — `GET /resources/{id}/permissions`, panel de "compartir".
+    async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<super::models::PermisoGrantee>, RepoError>;
+
+    /// Revoca el acceso de un grantee puntual — a diferencia de `otorgar`
+    /// (sólo usuario, por ahora), genérico sobre `grantee_type` porque acá
+    /// no hay crypto que resolver, sólo borrar la fila de autorización.
+    async fn revocar(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+    ) -> Result<(), RepoError>;
 }
 
 #[derive(Clone)]
@@ -394,6 +414,13 @@ impl ResourceTypeRepository for PgResourceTypeRepository {
         Ok(fila.map(|f| f.id))
     }
 
+    async fn mapa_id_a_slug(&self) -> Result<std::collections::HashMap<Uuid, String>, RepoError> {
+        let filas = sqlx::query!(r#"select id, slug from resource_types where deleted_at is null"#)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(filas.into_iter().map(|f| (f.id, f.slug)).collect())
+    }
+
     async fn json_schema_por_id(&self, id: Uuid) -> Result<Option<serde_json::Value>, RepoError> {
         let fila = sqlx::query!(
             r#"select json_schema from resource_types where id = $1 and deleted_at is null"#,
@@ -587,5 +614,48 @@ impl PermissionRepository for PgPermissionRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.is_some())
+    }
+
+    async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<super::models::PermisoGrantee>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select p.grantee_type, p.grantee_id, p.level,
+                   case p.grantee_type when 'user' then u.email when 'group' then g.name end as "label?"
+            from permissions p
+            left join users u on p.grantee_type = 'user' and u.id = p.grantee_id
+            left join groups g on p.grantee_type = 'group' and g.id = p.grantee_id
+            where p.subject_type = $1 and p.subject_id = $2
+            order by p.level desc, p.grantee_type, p.grantee_id
+            "#,
+            subject_type,
+            subject_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas
+            .into_iter()
+            .map(|f| super::models::PermisoGrantee {
+                grantee_type: f.grantee_type,
+                grantee_id: f.grantee_id,
+                level: f.level,
+                label: f.label,
+            })
+            .collect())
+    }
+
+    async fn revocar(&self, subject_type: &str, subject_id: Uuid, grantee_type: &str, grantee_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"
+            delete from permissions
+            where subject_type = $1 and subject_id = $2 and grantee_type = $3 and grantee_id = $4
+            "#,
+            subject_type,
+            subject_id,
+            grantee_type,
+            grantee_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

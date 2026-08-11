@@ -6,7 +6,9 @@
 // tenga que repetir el parseo.
 
 import { get } from 'svelte/store';
+import { goto } from '$app/navigation';
 import { sesion } from '$lib/state/session';
+import { limpiarStoresEn } from '$lib/state/declarative-store';
 
 export class ApiError extends Error {
 	constructor(
@@ -37,6 +39,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 	if (!resp.ok) {
 		const err = cuerpo?.error ?? { code: 'UNKNOWN', message: resp.statusText };
+
+		// Hallazgo real de uso: la sesión vencía server-side (TTL) y cada
+		// página mostraba su propio error genérico ("no se pudo cargar el
+		// vault") en vez de mandar a login — sólo dispara si *mandamos* un
+		// `Authorization` (creíamos tener sesión) y igual volvió `401`: eso
+		// es "la sesión ya no es válida", distinto de un intento de login
+		// con contraseña incorrecta (ahí nunca hay `Authorization` todavía,
+		// y sí queremos que la página de login muestre el error en vez de
+		// redirigir a sí misma).
+		if (resp.status === 401 && s.sessionId) {
+			limpiarStoresEn('logout');
+			goto('/login');
+		}
+
 		throw new ApiError(resp.status, err.code, err.message);
 	}
 

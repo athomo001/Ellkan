@@ -136,6 +136,42 @@ async fn fallback_frontend(req: axum::extract::Request) -> axum::response::Respo
     }
 }
 
+/// Rescate de recarga dura sobre una ruta que también es un endpoint real de
+/// la API — ej. `GET /admin/roles` es simultáneamente una página del
+/// frontend Y un `.nest("/admin/roles", ...)` del backend, mismo string de
+/// ruta (hallazgo real de uso: F5 en `/admin/roles`/`/admin/users`/
+/// `/admin/reports`/`/admin/audit-log`/`/admin/system-status`/
+/// `/admin/metadata-keys`/`/admin/directory-sync` — las únicas páginas admin
+/// cuyo path coincide *exactamente* con un `.nest` de la API, el resto ya
+/// usa slugs distintos, ej. `/admin/policies/mfa` vs `/admin/mfa-policy`).
+/// Sin esto, esas rutas le pegan directo al handler de la API en vez de
+/// servir el shell de la SPA: una navegación real de browser nunca manda
+/// `Authorization` (vive sólo en JS, `sessionStorage`), así que el handler
+/// devuelve `401` en JSON crudo en vez de la app — el usuario ve "se cerró
+/// la sesión" cuando en realidad la sesión seguía viva en `sessionStorage`
+/// y nunca llegó a preguntársele.
+///
+/// Detecta ese caso puntual — `GET`, sin `Authorization`, `Accept` que
+/// prefiere HTML (lo que manda un browser navegando, nunca lo que manda
+/// `$lib/api/client.ts` ni una llamada de la CLI/futura extensión) — y sirve
+/// la SPA en su lugar; cualquier otra combinación sigue el routing normal.
+/// Ningún endpoint cambia de ruta ni de contrato — esto es puramente sobre
+/// qué gana cuando dos paths coinciden.
+async fn rescate_spa_en_recarga(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let es_navegacion_sin_credenciales = req.method() == axum::http::Method::GET
+        && !req.headers().contains_key(axum::http::header::AUTHORIZATION)
+        && req
+            .headers()
+            .get(axum::http::header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+
+    if es_navegacion_sin_credenciales {
+        return fallback_frontend(req).await;
+    }
+    next.run(req).await
+}
+
 /// Carga la identidad Ed25519 propia del servidor (`GET /auth/server-key`) —
 /// se genera una sola vez, en el primer arranque. No es un secreto
 /// zero-knowledge del usuario, es la identidad del propio servidor.
@@ -204,9 +240,21 @@ pub async fn construir_estado(
 /// Arma el router completo — separado de `main()` para que los tests de
 /// integración puedan levantar el mismo árbol de rutas sin duplicar nada.
 pub fn construir_router(estado: AppState) -> Router {
+    // Hallazgo real de uso: `/vault` sólo en el mount ya dispara ~9-10
+    // llamadas reales (layout: permisos/perfil/avatar/preferencias; vault:
+    // recursos, metadata-keys, carpetas, tags, password-policy) — con
+    // ráfaga 20, un puñado de F5 seguidos ya alcanzaba para empezar a ver
+    // `429` en llamadas reales (no sólo assets estáticos, que ya estaban
+    // exentos, ver `fallback_frontend`/`rescate_spa_en_recarga`), y esos
+    // `429` quedaban mal manejados client-side (mostraban "contraseña
+    // incorrecta" en el desbloqueo, o degradaban silenciosamente a "sin
+    // permisos" en el layout) — de ahí la sensación de "todo se rompe".
+    // Ráfaga más generosa, mismo `per_second` (2/s) — un abuso sostenido
+    // sigue tan limitado como antes, sólo cambia cuánto margen hay para un
+    // puñado de recargas legítimas seguidas.
     let governor_conf = GovernorConfigBuilder::default()
         .per_second(2)
-        .burst_size(20)
+        .burst_size(60)
         .finish()
         .expect("configuración de rate limiting válida");
 
@@ -325,7 +373,9 @@ pub fn construir_router(estado: AppState) -> Router {
     let me_preferences_router =
         Router::new().route("/", get(me::handlers::obtener).put(me::handlers::actualizar));
 
-    let me_router = Router::new().route("/", get(me::handlers::perfil));
+    let me_router = Router::new()
+        .route("/", get(me::handlers::perfil))
+        .route("/permissions", get(me::handlers::permisos));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
     // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
     // en base64 dentro de un JSON (~33% más grande que los bytes crudos),
@@ -348,7 +398,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", get(mfa::handlers::politica).put(mfa::handlers::actualizar_politica));
 
     let admin_smtp_config_router = Router::new()
-        .route("/", get(smtp_config::handlers::obtener).put(smtp_config::handlers::actualizar));
+        .route("/", get(smtp_config::handlers::obtener).put(smtp_config::handlers::actualizar))
+        .route("/test", post(smtp_config::handlers::probar));
 
     let resources_router = Router::new()
         .route("/", get(resources::handlers::listar).post(resources::handlers::crear))
@@ -359,6 +410,12 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/recipients", get(resources::handlers::recipients))
         .route("/{id}/secret", get(resources::handlers::obtener_secreto))
         .route("/{id}/share", post(resources::handlers::compartir))
+        .route("/share-bulk", post(resources::handlers::compartir_lote))
+        .route("/{id}/permissions", get(resources::handlers::listar_permisos))
+        .route(
+            "/{id}/permissions/{grantee_type}/{grantee_id}",
+            put(resources::handlers::cambiar_nivel_permiso).delete(resources::handlers::revocar_permiso),
+        )
         .route(
             "/{id}/tags/{tag_id}",
             post(tags::handlers::aplicar).delete(tags::handlers::quitar),
@@ -390,6 +447,7 @@ pub fn construir_router(estado: AppState) -> Router {
     let metadata_keys_router = Router::new().route("/", get(metadata::handlers::listar));
     let admin_metadata_keys_router = Router::new()
         .route("/", post(metadata::handlers::crear))
+        .route("/{id}/members", post(metadata::handlers::agregar_destinatario))
         .route("/rotate", post(metadata::handlers::rotar))
         .route("/rotation-status", get(metadata::handlers::rotation_status));
 
@@ -512,7 +570,7 @@ pub fn construir_router(estado: AppState) -> Router {
         );
 
     let admin_users_router = Router::new()
-        .route("/", get(users_admin::handlers::listar))
+        .route("/", get(users_admin::handlers::listar).post(auth::handlers::crear_admin))
         .route(
             "/{id}",
             get(users_admin::handlers::obtener).put(users_admin::handlers::actualizar_activo),
@@ -524,6 +582,8 @@ pub fn construir_router(estado: AppState) -> Router {
     let router = Router::new()
         .route("/healthz", get(healthz))
         .route("/users/{email}/public-key", get(auth::handlers::public_key))
+        .route("/users/search", get(auth::handlers::buscar))
+        .route("/users/{id}/avatar", get(auth::handlers::avatar))
         .nest("/auth", auth_router)
         .nest("/resources", resources_router)
         .nest("/admin/roles", admin_roles_router)
@@ -577,6 +637,11 @@ pub fn construir_router(estado: AppState) -> Router {
         // error genérica — no era un bug intermitente, era agotamiento del
         // limitador contra tráfico de assets estáticos, no de abuso real.
         .route_layer(GovernorLayer::new(governor_conf))
+        // Fuera de `route_layer(Governor)` a propósito, mismo criterio que el
+        // comentario de arriba: cuando esto rescata a `fallback_frontend`
+        // nunca pasa por el limitador de la API, es tráfico de assets
+        // estáticos igual que un 404 normal contra el bundle.
+        .layer(axum::middleware::from_fn(rescate_spa_en_recarga))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &axum::http::Request<_>| {

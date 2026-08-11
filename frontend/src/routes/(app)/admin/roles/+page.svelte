@@ -1,10 +1,22 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
+	// Módulo 1 (RBAC granular, inspirado en Passbolt): matriz visual de
+	// permisos agrupada por categoría — reemplaza el textarea de permisos en
+	// texto libre de antes (obligaba a "aprender de memoria" los strings de
+	// permiso). Sólo `groups.create` tiene enforcement real en el backend
+	// (`Permisos de API`); el resto son gates de UI (`Permisos de UI`, mismo
+	// criterio que Passbolt: en una arquitectura zero-knowledge el servidor
+	// no puede distinguir "leer para mostrarle al usuario" de "leer para
+	// re-encriptar al editar", así que "puede previsualizar/copiar" sólo
+	// puede aplicarse del lado del cliente).
+	//
+	// A diferencia de la captura de referencia (2 columnas fijas
+	// Administrador/User), acá las columnas son dinámicas — una por cada rol
+	// que exista, incluidos los custom que se creen desde esta misma página.
 	import { onMount } from 'svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
-	import Table from '$lib/components/Table.svelte';
 	import { rolesApi, type Rol } from '$lib/api/admin';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -12,6 +24,8 @@
 	let cargando = $state(true);
 	let error = $state<string | undefined>();
 	let roles = $state<Rol[]>([]);
+	/** `role.id` con un `PUT` en curso — evita doble-click mientras guarda. */
+	let guardando = $state<string | undefined>();
 
 	async function cargar() {
 		cargando = true;
@@ -28,7 +42,6 @@
 
 	let mostrarNuevo = $state(false);
 	let nombreNuevo = $state('');
-	let permisosNuevo = $state('');
 	let creando = $state(false);
 
 	async function crear(e: SubmitEvent) {
@@ -36,12 +49,8 @@
 		creando = true;
 		error = undefined;
 		try {
-			await rolesApi.crear(
-				nombreNuevo,
-				permisosNuevo.split('\n').map((s) => s.trim()).filter(Boolean)
-			);
+			await rolesApi.crear(nombreNuevo, []);
 			nombreNuevo = '';
-			permisosNuevo = '';
 			mostrarNuevo = false;
 			await cargar();
 		} catch (err) {
@@ -51,31 +60,78 @@
 		}
 	}
 
-	let editandoId = $state<string | undefined>();
-	let permisosEditar = $state('');
-	let guardandoEdicion = $state(false);
-
-	function empezarEdicion(rol: Rol) {
-		editandoId = rol.id;
-		permisosEditar = rol.permissions.join('\n');
+	interface FilaMatriz {
+		permiso: string;
+		label: string;
+	}
+	interface CategoriaMatriz {
+		label: string;
+		filas: FilaMatriz[];
+	}
+	interface SeccionMatriz {
+		label: string;
+		categorias: CategoriaMatriz[];
 	}
 
-	async function guardarEdicion(e: SubmitEvent) {
-		e.preventDefault();
-		if (!editandoId) return;
-		guardandoEdicion = true;
+	// Catálogo curado — sólo permisos que un componente real del código
+	// consume hoy (ver `spec/11-diseno-passbolt-avanzado.md`, módulo 1). No
+	// se descubre dinámicamente del catálogo abierto de Postgres: la UI sólo
+	// tiene sentido para los permisos que algo en la app realmente chequea.
+	const secciones = $derived<SeccionMatriz[]>([
+		{
+			label: $t.admin.roles.matriz.seccionApi,
+			categorias: [
+				{
+					label: $t.admin.roles.matriz.categoriaGestionGrupos,
+					filas: [{ permiso: 'groups.create', label: $t.admin.roles.matriz.filaCrearGrupo }]
+				}
+			]
+		},
+		{
+			label: $t.admin.roles.matriz.seccionUi,
+			categorias: [
+				{
+					label: $t.admin.roles.matriz.categoriaImportExport,
+					filas: [
+						{ permiso: 'import.use', label: $t.admin.roles.matriz.filaImportar },
+						{ permiso: 'export.use', label: $t.admin.roles.matriz.filaExportar }
+					]
+				},
+				{
+					label: $t.admin.roles.matriz.categoriaContrasena,
+					filas: [
+						{ permiso: 'password.preview', label: $t.admin.roles.matriz.filaPrevisualizar },
+						{ permiso: 'password.copy', label: $t.admin.roles.matriz.filaCopiar }
+					]
+				},
+				{
+					label: $t.admin.roles.matriz.categoriaOrganizacion,
+					filas: [{ permiso: 'folders.use', label: $t.admin.roles.matriz.filaUsarCarpetas }]
+				},
+				{
+					label: $t.admin.roles.matriz.categoriaCompartiendo,
+					filas: [{ permiso: 'folder.share', label: $t.admin.roles.matriz.filaCompartirCarpetas }]
+				}
+			]
+		}
+	]);
+
+	function esComodin(rol: Rol): boolean {
+		return rol.permissions.includes('*');
+	}
+
+	async function alternar(rol: Rol, permiso: string, permitir: boolean) {
+		if (esComodin(rol)) return;
+		const nuevos = permitir ? [...rol.permissions, permiso] : rol.permissions.filter((p) => p !== permiso);
+		guardando = rol.id;
 		error = undefined;
 		try {
-			await rolesApi.actualizarPermisos(
-				editandoId,
-				permisosEditar.split('\n').map((s) => s.trim()).filter(Boolean)
-			);
-			editandoId = undefined;
-			await cargar();
+			const actualizado = await rolesApi.actualizarPermisos(rol.id, nuevos);
+			roles = roles.map((r) => (r.id === rol.id ? actualizado : r));
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
 		} finally {
-			guardandoEdicion = false;
+			guardando = undefined;
 		}
 	}
 </script>
@@ -94,39 +150,55 @@
 		{#if mostrarNuevo}
 			<form onsubmit={crear} class="form">
 				<TextField label={$t.admin.roles.nombre} bind:value={nombreNuevo} required />
-				<div class="field">
-					<label for="permisos-nuevo">{$t.admin.roles.permisos}</label>
-					<textarea id="permisos-nuevo" bind:value={permisosNuevo} rows="3"></textarea>
-				</div>
 				<Button type="submit" variant="primary" loading={creando}>{$t.admin.comun.crear}</Button>
 			</form>
 		{/if}
 
-		<Table
-			columnas={[
-				{ key: 'nombre', header: $t.admin.roles.nombre },
-				{ key: 'permisos', header: $t.admin.roles.colPermisos }
-			]}
-			filas={roles}
-			claveFila={(f) => f.id}
-			vacio={$t.admin.roles.sinRoles}
-			seleccionadaId={editandoId}
-			onSeleccionar={empezarEdicion}
-		>
-			{#snippet fila(rol)}
-				<td>{rol.name}</td>
-				<td class="secundario">{rol.permissions.join(', ') || '—'}</td>
-			{/snippet}
-		</Table>
-
-		{#if editandoId}
-			<form onsubmit={guardarEdicion} class="form detalle">
-				<div class="field">
-					<label for="permisos-editar">{$t.admin.roles.permisos}</label>
-					<textarea id="permisos-editar" bind:value={permisosEditar} rows="3"></textarea>
-				</div>
-				<Button type="submit" variant="primary" loading={guardandoEdicion}>{$t.admin.comun.guardar}</Button>
-			</form>
+		{#if roles.length === 0}
+			<p>{$t.admin.roles.sinRoles}</p>
+		{:else}
+			<div class="tabla-scroll">
+				<table class="matriz">
+					<thead>
+						<tr>
+							<th class="col-permiso"></th>
+							{#each roles as rol (rol.id)}
+								<th class="col-rol">{rol.name}</th>
+							{/each}
+						</tr>
+					</thead>
+					<tbody>
+						{#each secciones as seccion (seccion.label)}
+							<tr class="fila-seccion">
+								<td colspan={roles.length + 1}>{seccion.label}</td>
+							</tr>
+							{#each seccion.categorias as categoria (categoria.label)}
+								<tr class="fila-categoria">
+									<td colspan={roles.length + 1}>{categoria.label}</td>
+								</tr>
+								{#each categoria.filas as fila (fila.permiso)}
+									<tr>
+										<td class="col-permiso">{fila.label}</td>
+										{#each roles as rol (rol.id)}
+											<td class="col-rol">
+												<select
+													value={esComodin(rol) || rol.permissions.includes(fila.permiso) ? 'permitir' : 'denegar'}
+													disabled={esComodin(rol) || guardando === rol.id}
+													title={esComodin(rol) ? $t.admin.roles.matriz.comodinHint : undefined}
+													onchange={(e) => alternar(rol, fila.permiso, e.currentTarget.value === 'permitir')}
+												>
+													<option value="permitir">{$t.admin.roles.matriz.permitir}</option>
+													<option value="denegar">{$t.admin.roles.matriz.denegar}</option>
+												</select>
+											</td>
+										{/each}
+									</tr>
+								{/each}
+							{/each}
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{/if}
 	{/if}
 </Card>
@@ -149,38 +221,57 @@
 		border: 1px solid var(--border-color);
 		border-radius: var(--radius-sm);
 		padding: var(--space-4);
-	}
-	.field {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		margin-bottom: var(--space-4);
-	}
-	label {
-		font-size: var(--text-sm);
-		color: var(--text-secondary);
-		font-weight: 500;
-	}
-	textarea {
-		background: var(--bg-base);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-sm);
-		padding: var(--space-2) var(--space-3);
-		color: var(--text-primary);
-		font-family: var(--font-mono);
-		margin-bottom: var(--space-2);
-	}
-	.secundario {
-		color: var(--text-muted);
-		font-size: var(--text-sm);
-	}
-	.detalle {
-		margin-top: var(--space-4);
-		border-top: 1px solid var(--border-color);
-		padding-top: var(--space-4);
+		gap: var(--space-3);
 	}
 	.error {
 		color: var(--danger);
 		font-size: var(--text-sm);
+	}
+	.tabla-scroll {
+		overflow-x: auto;
+	}
+	.matriz {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: var(--text-sm);
+	}
+	.matriz th,
+	.matriz td {
+		padding: var(--space-2) var(--space-3);
+		border-bottom: 1px solid var(--border-color);
+		text-align: left;
+		white-space: nowrap;
+	}
+	.col-permiso {
+		min-width: 16rem;
+		color: var(--text-primary);
+	}
+	.col-rol {
+		min-width: 10rem;
+	}
+	thead .col-rol {
+		color: var(--text-secondary);
+		font-weight: 600;
+	}
+	.fila-seccion td {
+		font-weight: 700;
+		color: var(--text-primary);
+		background: var(--bg-overlay);
+		padding-top: var(--space-3);
+	}
+	.fila-categoria td {
+		font-weight: 500;
+		color: var(--text-secondary);
+	}
+	.matriz select {
+		background: var(--bg-base);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		color: var(--text-primary);
+		width: 100%;
+	}
+	.matriz select:disabled {
+		opacity: 0.6;
 	}
 </style>

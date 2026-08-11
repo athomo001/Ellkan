@@ -4,6 +4,153 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.24] - 2026-08-11
+
+### Agregado: MFA por correo electrónico
+
+Además de la app autenticadora (TOTP), ahora se puede exigir un código de verificación por email como segundo factor de login — el admin elige uno de los dos métodos desde "Política de MFA" (nunca los dos a la vez). El método por correo no necesita ninguna configuración previa del usuario: cada inicio de sesión manda un código nuevo.
+
+### Agregado: avatar en el buscador de "Compartir"
+
+Al buscar con quién compartir un recurso, ahora se ve la foto de perfil real de cada resultado en vez de un ícono genérico.
+
+### Arreglado: mensaje de error al compartir no decía la causa real
+
+El resumen de "Compartir en lote" mostraba siempre el mismo motivo (relacionado a una restricción que ya no existe) sin importar por qué había fallado en realidad. Ahora muestra el motivo real de cada ítem fallido — por ejemplo, si esa persona ya tenía acceso al recurso.
+
+### Cambiado: checkbox de selección más grande
+
+El check para seleccionar recursos en la tabla del Vault ahora es más grande y más fácil de tocar.
+
+## [0.1.23] - 2026-08-11
+
+### Agregado: comando de conexión copiable para SSH/FTP/VNC/Telnet
+
+Al abrir un recurso de tipo SSH, FTP, VNC o Telnet, ahora aparece el comando listo para copiar y pegar en una terminal (por ejemplo `ssh usuario@host -p puerto`). Se agregó Telnet como tipo de recurso nuevo.
+
+### Arreglado: no se podía compartir un recurso "Personal"
+
+Cualquier recurso creado sin que hubiera una clave de metadata compartida quedaba marcado "Personal — no compartible" para siempre, sin ninguna forma de compartirlo con otra persona. Era una restricción innecesaria — se sacó, y ahora cualquier recurso se puede compartir sin importar cómo se haya creado.
+
+## [0.1.22] - 2026-08-10
+
+### Agregado: crear usuarios sin SMTP configurado, y probar la configuración de SMTP desde el navegador
+
+- El panel admin ahora puede crear usuarios aunque todavía no haya SMTP configurado (antes fallaba con "auto-registro no disponible: SMTP no configurado"). La cuenta queda verificada de una, con la misma passphrase temporal que ya se generaba y mostraba al admin.
+- `/admin/smtp` ganó un botón de "Probar configuración" que manda un email real de prueba y muestra si llegó — antes había que usar la CLI para saber si la configuración estaba bien.
+
+### Cambiado: página de Política de MFA más clara
+
+- "Métodos permitidos" dejó de ser un campo de texto libre (hoy sólo existe un método real, TOTP) — ahora sólo lo informa.
+- "Días de gracia" ganó una explicación de qué controla realmente (no tiene nada que ver con que el código de la app cambie cada 30 segundos).
+
+## [0.1.21] - 2026-08-10
+
+### Agregado: íconos en los botones del Vault
+
+Los botones de "Mover a carpeta", "Agregar tag", "Compartir", "Exportar/Importar" y "Nuevo recurso" ahora tienen un ícono al lado del texto, mismo estilo de línea que ya usaba el menú lateral.
+
+## [0.1.20] - 2026-08-10
+
+### Arreglado: las ventanas de Compartir/Exportar/Nuevo recurso no tenían margen interno real
+
+Encontramos el motivo real de por qué las ventanas nuevas se veían apretadas: tenían un typo en el código que hacía que el margen interno quedara en cero — todo el contenido pegado al borde. Corregido usando como referencia real el mismo sistema de diseño que usan herramientas conocidas (shadcn/ui): más aire adentro, los campos relacionados agrupados en vez de todos separados por igual, y un resalte sutil al hacer foco en un campo (antes no había ninguno).
+
+## [0.1.19] - 2026-08-10
+
+### Arreglado: F5 repetidos podían dejar la app en un estado raro
+
+#### Fixed
+
+- **Recargar la página muchas veces seguidas podía dejar cosas rotas o mostrando "contraseña incorrecta" sin motivo** — el límite general de pedidos por segundo era demasiado ajustado para lo que tarda en cargar `/vault` de una sola vez, y cuando se topaba con ese límite, la app lo interpretaba mal (mostraba "contraseña incorrecta" en vez del error real, y a veces ocultaba de golpe cosas como carpetas o el botón de exportar). Subido el margen y arreglado cómo se interpreta cada error.
+
+### Cambiado: Exportar/Importar y "Nuevo recurso" ahora son ventanas, más pulido visual
+
+#### Changed
+
+- **"Exportar/Importar" y "Nuevo recurso" ahora se abren en una ventana compacta**, igual que "Compartir" — antes, si coincidían abiertos, se apilaban uno debajo del otro empujando toda la pantalla hacia abajo.
+- Toque general de pulido en todas las ventanas nuevas: entrada más suave, sombra con más profundidad, esquinas más redondeadas, e íconos de personas/grupos en círculo en vez de sueltos.
+
+## [0.1.18] - 2026-08-10
+
+### Cambiado: "Compartir" de selección múltiple también usa el modal nuevo
+
+El compartir masivo (elegir varias contraseñas y compartirlas todas juntas) ahora usa la misma ventana compacta con buscador en vivo del compartir individual — antes seguía siendo el panel viejo con una caja de texto para pegar emails.
+
+## [0.1.17] - 2026-08-10
+
+### Rediseñado: modal de compartir, más compacto y con buscador en vivo
+
+#### Changed
+
+- **El panel de "Compartir" ahora es una ventana compacta (modal)**, no un panel grande que empujaba el resto de la pantalla hacia abajo — mismo estilo que gestores de contraseñas conocidos: buscador con sugerencias en vivo a medida que escribís el nombre o email, cada persona con acceso en su propia fila con el nivel editable al lado y una cruz para sacarla, y los cambios quedan marcados en naranja hasta que tocás "Guardar" (así podés arrepentirte antes de aplicar nada).
+
+#### Known limitation
+
+- Compartir un recurso con un **grupo** por primera vez todavía no está soportado desde este modal — si un grupo ya tenía acceso, se puede ver/editar/sacar sin problema, pero agregar un grupo nuevo como destinatario queda pendiente para una próxima vuelta.
+
+## [0.1.16] - 2026-08-10
+
+### Arreglado: carpetas no se veían anidadas, y Estado del sistema más completo
+
+#### Fixed
+
+- **Las carpetas dentro de otras carpetas no se veían con sangría** — se mostraban todas al mismo nivel, como una lista plana, en vez de un árbol. Era un error de estilos que afectaba a todos los niveles de anidamiento, no sólo al primero.
+- **"Estado del sistema" decía que todo estaba bien aunque no hubiera ninguna clave de metadata compartida creada** — ahora avisa explícitamente cuando falta ese paso (sin él, compartir contraseñas entre usuarios no funciona).
+
+#### Added
+
+- **Estado del sistema** ahora también informa: si hay al menos un administrador activo, y si el cifrado del tráfico (TLS) está siendo manejado por el propio Ellkan.
+
+## [0.1.15] - 2026-08-10
+
+### Arreglado: compartir contraseñas con otros usuarios de la organización
+
+#### Fixed
+
+- **Compartir una contraseña con otro usuario de tu organización directamente ahora funciona de verdad** — antes, ninguna contraseña creada desde la app podía compartirse internamente (sólo aparecía la opción de compartir con alguien externo). Necesitaba tres arreglos encadenados: las contraseñas nuevas ahora nacen "compartibles" cuando corresponde, el administrador ahora puede agregar más personas a la clave organizacional que hace falta para compartir (antes sólo la tenía quien la creó), y se agregó una pantalla para ver y administrar con exactitud quién tiene acceso a cada contraseña compartida.
+
+#### Added
+
+- **Panel de "Compartir" rediseñado**: ahora muestra quién tiene acceso a la contraseña en este momento (con su nivel: lectura, edición o propietario), permite cambiar ese nivel al toque, y sacarle el acceso a alguien con un clic — antes sólo se podía agregar gente, nunca ver ni quitar.
+- **Panel de administración de claves de metadata**: nueva opción "Agregar miembro" para sumar a alguien a una clave compartida ya existente, sin tener que rotarla.
+
+## [0.1.14] - 2026-08-10
+
+### Dos arreglos más de uso real: sesión vencida y el cartel de "desbloquear"
+
+#### Fixed
+
+- **Si la sesión vencía por tiempo, la app se quedaba mostrando un error genérico en vez de mandarte a iniciar sesión de nuevo.** Ahora cualquier pantalla te lleva directo al login apenas eso pasa.
+- **El cartel que pide la contraseña para desbloquear el vault (no para iniciar sesión, esas son cosas distintas) no explicaba qué estaba pasando** — parecía que se había cerrado la sesión. Ahora usa el mismo cartel claro que ya se usaba en el bloqueo automático por inactividad ("tu sesión sigue activa, sólo hace falta desbloquear"), con las mismas opciones (código local, token de seguridad).
+
+## [0.1.13] - 2026-08-10
+
+### Compartir en lote, TLS sin necesitar un proxy aparte, y arreglo de un bug real de recarga
+
+#### Added
+
+- **Compartir varias contraseñas de una vez**: en el Vault, seleccioná varias contraseñas y compartilas todas con uno o más destinatarios en una sola acción, en vez de una por una.
+- **HTTPS sin instalar nada aparte**: Ellkan ahora puede manejar el cifrado del tráfico (HTTPS) él mismo, sin depender de un servidor intermediario extra (nginx u otro) — sólo hace falta indicarle dónde está el certificado. Instrucciones en `manual/instalacion.md`.
+- **Nueva guía de instalación**: modos de instalación, cómo hacer y restaurar un backup, problemas comunes y su solución, y una tabla de requisitos mínimos/recomendados de hardware — `manual/instalacion.md`, linkeada desde el README.
+
+#### Fixed
+
+- **Recargar la página (F5) en algunas secciones de administración (Roles, Usuarios, Reportes, Auditoría, Estado del sistema, Claves de metadata, Directory Sync) cerraba la sesión de golpe** — en realidad la sesión seguía viva, era un problema de enrutamiento interno del servidor (esas URLs eran, por casualidad, también rutas internas de la API). Arreglado sin tocar ninguna URL existente.
+
+## [0.1.12] - 2026-08-10
+
+### Matriz visual de permisos para roles
+
+#### Added
+
+- **Roles personalizados, ahora visuales**: la pantalla de administración de roles ya no obliga a escribir permisos a mano en una lista de texto — ahora es una tabla agrupada por categoría (gestión de grupos, importar/exportar, ver/copiar contraseñas, carpetas, compartir) con un selector "Permitir/Denegar" por cada permiso y cada rol, igual de fácil de leer que de cambiar.
+- **Delegar la creación de grupos**: ahora se puede crear un rol al que sólo se le permite crear grupos, sin darle acceso de administrador completo — antes esto sólo lo podía hacer un admin de la organización.
+
+#### Changed
+
+- El estado de "sos admin" que usa la app para mostrar/ocultar el panel de administración ahora se resuelve con un endpoint dedicado en vez de un truco (probar un endpoint de admin y ver si rechaza el acceso).
+
 ## [0.1.11] - 2026-08-10
 
 ### Carpetas con permisos reales, grupos por CSV, dispositivos de confianza, y más

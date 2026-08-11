@@ -90,12 +90,24 @@ DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_passwor
 
 See [manual/cli.md](manual/cli.md#comandos) for the rest of the commands.
 
+By default the backend serves plain HTTP — for TLS (terminated by Ellkan itself, no reverse proxy needed, or with one), backup/restore, and troubleshooting, see [manual/instalacion.md](manual/instalacion.md) (Spanish only, see disclaimer below).
+
+### Hardware requirements (reasoned estimate, not measured under real load — details and assumptions in [manual/instalacion.md](manual/instalacion.md#requisitos-de-hardware--estimación-razonada-no-medida-con-carga-real))
+
+| | Minimum | Recommended |
+| --- | --- | --- |
+| CPU | 1 vCPU | 2 vCPU |
+| RAM | 512 MB | 2 GB |
+| Disk | 1 GB + data | 10 GB + data |
+| Concurrent active users | ~10-20 | ~50-100 |
+
 ## Documentation
 
 Detailed manuals are currently Spanish-only:
 
 - [manual/funcionalidades.md](manual/funcionalidades.md) — what Ellkan does, by area.
 - [manual/cli.md](manual/cli.md) — full `ellkan-cli` reference.
+- [manual/instalacion.md](manual/instalacion.md) — TLS, backup/restore, troubleshooting, hardware requirements.
 
 ## FAQ
 

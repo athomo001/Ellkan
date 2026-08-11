@@ -110,7 +110,10 @@ export interface ActualizarSmtpConfig {
 }
 export const smtpConfigApi = {
 	obtener: () => api.get<SmtpConfig>('/admin/smtp-config'),
-	actualizar: (c: ActualizarSmtpConfig) => api.put<SmtpConfig>('/admin/smtp-config', c)
+	actualizar: (c: ActualizarSmtpConfig) => api.put<SmtpConfig>('/admin/smtp-config', c),
+	/** F-43/Parte C: encola un email real y espera al poller — `status` es
+	 * `'enviado' | 'fallido' | 'pendiente'`. */
+	probar: (to: string) => api.post<{ status: string }>('/admin/smtp-config/test', { to })
 };
 
 // --- políticas: password ---
@@ -280,7 +283,12 @@ export const metadataKeysApi = {
 			fingerprint,
 			destinatarios
 		}),
-	estadoRotacion: () => api.get<RotationStatus>('/admin/metadata-keys/rotation-status')
+	estadoRotacion: () => api.get<RotationStatus>('/admin/metadata-keys/rotation-status'),
+	/** Hallazgo real de uso: antes sólo el admin creador tenía acceso a una
+	 * metadata key compartida — esto agrega un miembro a una key ya activa
+	 * sin rotarla. */
+	agregarMiembro: (metadataKeyId: string, userId: string, sealedPrivateKeyB64: string) =>
+		api.post<void>(`/admin/metadata-keys/${metadataKeyId}/members`, { user_id: userId, sealed_private_key_b64: sealedPrivateKeyB64 })
 };
 
 // --- Usuarios ---
@@ -404,9 +412,11 @@ export type Check =
 			ultima_sincronizacion: string | null;
 	  }
 	| { id: 'metadata_key_rotacion'; nivel: NivelCheck; claves_activas: number }
-	| { id: 'origen_seguro'; nivel: NivelCheck; origen: string };
+	| { id: 'origen_seguro'; nivel: NivelCheck; origen: string }
+	| { id: 'admins_activos'; nivel: NivelCheck; cantidad: number }
+	| { id: 'tls_in_process'; nivel: NivelCheck; activo: boolean };
 export interface GrupoChecks {
-	categoria: 'base_datos' | 'correo' | 'integraciones' | 'seguridad';
+	categoria: 'base_datos' | 'correo' | 'integraciones' | 'seguridad' | 'organizacion';
 	checks: Check[];
 }
 export const systemStatusApi = {

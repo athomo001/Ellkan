@@ -34,7 +34,8 @@
 				base_datos: e.categoriaBaseDatos,
 				correo: e.categoriaCorreo,
 				integraciones: e.categoriaIntegraciones,
-				seguridad: e.categoriaSeguridad
+				seguridad: e.categoriaSeguridad,
+				organizacion: e.categoriaOrganizacion
 			} satisfies Record<GrupoChecks['categoria'], string>
 		)[categoria];
 	}
@@ -76,9 +77,15 @@
 				if (!check.ultima_sincronizacion) return e.directorySyncNuncaSincronizado;
 				return `${e.directorySyncConfiguradoSi} ${e.ultimaSincronizacion(new Date(check.ultima_sincronizacion).toLocaleString())}`;
 			case 'metadata_key_rotacion':
-				return check.claves_activas > 1 ? e.metadataRotacionAdvertencia(check.claves_activas) : e.metadataRotacionOk;
+				if (check.claves_activas === 0) return e.metadataSinClaves;
+				if (check.claves_activas > 1) return e.metadataRotacionAdvertencia(check.claves_activas);
+				return e.metadataRotacionOk;
 			case 'origen_seguro':
 				return check.nivel === 'ok' ? e.origenSeguroOk(check.origen) : e.origenSeguroAdvertencia(check.origen);
+			case 'admins_activos':
+				return check.cantidad === 0 ? e.adminsActivosError : e.adminsActivosOk(check.cantidad);
+			case 'tls_in_process':
+				return check.activo ? e.tlsInProcessOk : e.tlsInProcessAdvertencia;
 		}
 	}
 
@@ -97,9 +104,13 @@
 			case 'directory_sync_configurado':
 				return e.directorySyncSugerencia;
 			case 'metadata_key_rotacion':
-				return e.metadataRotacionSugerencia;
+				return check.claves_activas === 0 ? e.metadataSinClavesSugerencia : e.metadataRotacionSugerencia;
 			case 'origen_seguro':
 				return e.origenSeguroSugerencia;
+			case 'admins_activos':
+				return e.adminsActivosSugerencia;
+			case 'tls_in_process':
+				return e.tlsInProcessSugerencia;
 			default:
 				return undefined;
 		}

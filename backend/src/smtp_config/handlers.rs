@@ -7,15 +7,21 @@ use crate::auth::extractor::AdminUser;
 use crate::error::ApiError;
 use crate::state::AppState;
 
-use super::dto::{ActualizarSmtpConfigRequest, SmtpConfigResponse};
+use super::dto::{ActualizarSmtpConfigRequest, ProbarSmtpRequest, ProbarSmtpResponse, SmtpConfigResponse};
 use super::models::SmtpConfig;
 use super::repository::PgSmtpConfigRepository;
 use super::service::SmtpConfigService;
+use crate::notificaciones::PgOutboundEmailRepository;
 
-type Servicio<'a> = SmtpConfigService<'a, PgSmtpConfigRepository>;
+type Servicio<'a> = SmtpConfigService<'a, PgSmtpConfigRepository, PgOutboundEmailRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
-    SmtpConfigService { repo: &state.smtp_config, secrets_key: &state.secrets_key, eventos: state.eventos.clone() }
+    SmtpConfigService {
+        repo: &state.smtp_config,
+        emails: &state.emails,
+        secrets_key: &state.secrets_key,
+        eventos: state.eventos.clone(),
+    }
 }
 
 fn a_response(c: SmtpConfig) -> SmtpConfigResponse {
@@ -43,4 +49,13 @@ pub async fn actualizar(
         .actualizar(admin.user_id, req.host, req.port, req.from_address, req.tls, req.username, req.password)
         .await?;
     Ok(Json(a_response(c)))
+}
+
+pub async fn probar(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(req): Json<ProbarSmtpRequest>,
+) -> Result<Json<ProbarSmtpResponse>, ApiError> {
+    let status = servicio(&state).probar_envio(&req.to).await?;
+    Ok(Json(ProbarSmtpResponse { status }))
 }

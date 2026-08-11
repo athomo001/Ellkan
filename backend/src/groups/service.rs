@@ -37,6 +37,18 @@ where
         Ok(self.roles.usuario_tiene_permiso(actor_id, "*").await?)
     }
 
+    /// F-22/módulo 1: "Administrador de Grupos" delegado — un rol custom con
+    /// el permiso granular `groups.create` puede crear grupos raíz sin ser
+    /// admin de organización. Sin tabla nueva: el catálogo de `role_permissions`
+    /// ya es abierto, alcanza con asignarle este permiso a un rol vía
+    /// `PUT /admin/roles/{id}` (matriz RBAC).
+    async fn puede_crear_grupo_raiz(&self, actor_id: Uuid) -> Result<bool, DomainError> {
+        if self.es_admin_org(actor_id).await? {
+            return Ok(true);
+        }
+        Ok(self.roles.usuario_tiene_permiso(actor_id, "groups.create").await?)
+    }
+
     /// Manager de `group_id` mismo, o de cualquiera de sus ancestros
     /// (alcance recursivo por default, F-12) — o admin de organización.
     async fn autorizado_para_administrar(&self, actor_id: Uuid, group_id: Uuid) -> Result<bool, DomainError> {
@@ -75,7 +87,7 @@ where
 
         let profundidad_nueva = match parent_group_id {
             None => {
-                if !self.es_admin_org(actor_id).await? {
+                if !self.puede_crear_grupo_raiz(actor_id).await? {
                     return Err(DomainError::PermissionDenied);
                 }
                 1

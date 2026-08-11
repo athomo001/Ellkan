@@ -19,6 +19,9 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import SecretField from '$lib/components/SecretField.svelte';
 	import FolderTree from '$lib/components/FolderTree.svelte';
+	import LockOverlay from '$lib/components/LockOverlay.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import TagFilterBar from '$lib/components/TagFilterBar.svelte';
 	import Table from '$lib/components/Table.svelte';
 	import {
@@ -26,9 +29,16 @@
 		verSecreto,
 		crearRecurso,
 		editarRecurso,
-		compartirRecurso,
+		compartirRecursosEnLote,
+		listarPermisos,
+		cambiarNivelPermiso,
+		revocarPermiso,
+		buscarUsuarios,
+		compartirRecursoConDestinatario,
+		comandoDeConexion,
 		type Recurso,
-		type TipoRecurso
+		type TipoRecurso,
+		type UsuarioBusqueda
 	} from '$lib/crypto/recursos';
 	import {
 		listarArbolCarpetas,
@@ -43,7 +53,6 @@
 	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
 	import { externalSharesApi } from '$lib/api/externalShares';
 	import { cifrarContenidoDeShare } from '$lib/crypto/externalShare';
-	import { desbloquearConPassphrase } from '$lib/crypto/identity';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
 	import { copiarConLimpieza } from '$lib/clipboard';
 	import { exportPolicyApi, adminExportPolicyApi, type ExportPolicy } from '$lib/api/exportPolicy';
@@ -58,9 +67,23 @@
 		type FilaExport
 	} from '$lib/crypto/exportImport';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
-	import { sesion, clavesDesbloqueadas, preferencias } from '$lib/state/session';
+	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso } from '$lib/state/session';
+	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+
+	// Heroicons outline (24x24, stroke-width 1.5) — mismo set que ya usa la
+	// nav (`(app)/+layout.svelte::ICONOS`), verificados contra el repo real
+	// de tailwindlabs/heroicons en vez de dibujarlos a mano.
+	const ICONO_CARPETA = 'M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z';
+	const ICONO_TAG = [
+		'M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z',
+		'M6 6h.008v.008H6V6Z'
+	];
+	const ICONO_COMPARTIR =
+		'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z';
+	const ICONO_EXPORTAR = 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3';
+	const ICONO_NUEVO = 'M12 4.5v15m7.5-7.5h-15';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();
@@ -206,10 +229,18 @@
 
 	// Passkey sin PRF deja `clavesDesbloqueadas` vacío tras el login (spec
 	// F-03: la passphrase sigue haciendo falta para operaciones sobre
-	// recursos) — acá es donde efectivamente hace falta, se pide una vez.
-	let passphraseDesbloqueo = $state('');
-	let desbloqueando = $state(false);
-	let errorDesbloqueo = $state<string | undefined>();
+	// recursos), y lo mismo pasa en cualquier pestaña/reload donde la
+	// sesión HTTP sobrevive pero la clave desenvuelta (memoria pura, F-04)
+	// no — acá es donde efectivamente hace falta, se pide una vez. Reusa
+	// `LockOverlay` (mismo componente que el auto-bloqueo del layout, F-39)
+	// en vez de un form ad-hoc — antes esto era un `<TextField>` suelto sin
+	// ningún contexto, que un usuario real interpretó como "se cerró mi
+	// sesión" cuando en realidad seguía viva, sólo faltaba desenvolver la
+	// clave — mismo bug de claridad, no de lógica.
+	async function alDesbloquearVault() {
+		await cargar();
+		await cargarOrganizacion();
+	}
 
 	async function cargar() {
 		if (!$clavesDesbloqueadas) return;
@@ -270,22 +301,6 @@
 		editPassword = generarPassword(generatorLongitud, generatorReglas);
 	}
 
-	async function desbloquear(e: SubmitEvent) {
-		e.preventDefault();
-		errorDesbloqueo = undefined;
-		desbloqueando = true;
-		try {
-			clavesDesbloqueadas.set(await desbloquearConPassphrase($sesion.email ?? '', passphraseDesbloqueo));
-			passphraseDesbloqueo = '';
-			await cargar();
-			await cargarOrganizacion();
-		} catch {
-			errorDesbloqueo = $t.lockOverlay.errorPassphrase;
-		} finally {
-			desbloqueando = false;
-		}
-	}
-
 	// --- crear ---
 	let mostrarCrear = $state(false);
 	let tipoNuevo = $state<TipoRecurso>('login-password');
@@ -322,7 +337,7 @@
 
 	// --- panel de detalle: un solo recurso seleccionado a la vez ---
 	let seleccionado = $state<Recurso | undefined>();
-	let panelModo = $state<'detalle' | 'editar' | 'compartir' | 'externo'>('detalle');
+	let panelModo = $state<'detalle' | 'editar' | 'externo'>('detalle');
 
 	function seleccionarFila(recurso: Recurso) {
 		if (seleccionado?.id === recurso.id) {
@@ -333,9 +348,6 @@
 		panelModo = 'detalle';
 		secretoAbierto = undefined;
 		errorSecreto = undefined;
-		emailCompartir = '';
-		errorCompartir = undefined;
-		compartidoOk = false;
 		externoPassphrase = '';
 		externoExpiraHoras = '24';
 		externoMaxVistas = '1';
@@ -344,12 +356,10 @@
 	}
 
 	// F-05/F-11: ícono de compartir directo en la fila (antes había que abrir
-	// el detalle primero) — selecciona el recurso y abre el panel ya en modo
-	// "compartir", nunca lo deselecciona si ya estaba abierto.
+	// el detalle primero) — abre el modal de compartir directo.
 	function compartirDesdeIcono(recurso: Recurso, e: MouseEvent) {
 		e.stopPropagation();
-		if (seleccionado?.id !== recurso.id) seleccionarFila(recurso);
-		panelModo = 'compartir';
+		abrirModalCompartir(recurso);
 	}
 
 	function cerrarPanel() {
@@ -359,8 +369,8 @@
 	// Copiar usuario/URI del panel de detalle — no son secretos, pero
 	// respetan el mismo timer de limpieza automática que el resto de la app
 	// (`preferencias.clipboardClearMinutes`), mismo criterio que `SecretField`.
-	let campoCopiado = $state<'usuario' | 'uri' | undefined>();
-	async function copiarCampo(campo: 'usuario' | 'uri', valor: string) {
+	let campoCopiado = $state<'usuario' | 'uri' | 'comando' | undefined>();
+	async function copiarCampo(campo: 'usuario' | 'uri' | 'comando', valor: string) {
 		await copiarConLimpieza(valor, $preferencias.clipboardClearMinutes);
 		campoCopiado = campo;
 		setTimeout(() => (campoCopiado = undefined), 2000);
@@ -443,25 +453,144 @@
 		}
 	}
 
-	// --- compartir ---
-	let emailCompartir = $state('');
-	let enviandoCompartir = $state(false);
-	let errorCompartir = $state<string | undefined>();
-	let compartidoOk = $state(false);
+	// --- compartir (modal estilo Passbolt, referencia mandada por el
+	// usuario 3 veces) — antes esto era un panel inline aplicando cada
+	// cambio al toque; acá los cambios quedan "pendientes" en memoria hasta
+	// tocar Guardar, mismo patrón que la referencia (banner "Haga clic en
+	// Guardar para aplicar los cambios pendientes"). ---
+	interface FilaCompartir {
+		granteeType: 'user' | 'group';
+		granteeId: string;
+		label: string;
+		/** `null` = fila agregada en esta sesión del modal, todavía no existe en el backend. */
+		nivelOriginal: 'read' | 'update' | 'owner' | null;
+		nivel: 'read' | 'update' | 'owner';
+		quitar: boolean;
+		/** Sólo presente en filas nuevas — hace falta para sellar la DEK al guardar. */
+		publicKeyX25519B64?: string;
+	}
 
-	async function enviarCompartir(e: SubmitEvent) {
-		e.preventDefault();
-		if (!seleccionado || !$clavesDesbloqueadas) return;
-		errorCompartir = undefined;
-		enviandoCompartir = true;
+	// Hallazgo real de uso 2026-08-11: el buscador de destinatarios mostraba
+	// un ícono genérico para todos — cacheado y lazy (Map), mismo patrón que
+	// `admin/users/+page.svelte::avatarDe`, sólo se pide si `hasAvatar` dice
+	// que existe (la mayoría de los resultados no tiene uno cargado).
+	let avataresUsuarios = $state<Map<string, string>>(new Map());
+	async function avatarDeUsuario(userId: string, hasAvatar: boolean): Promise<string | undefined> {
+		if (!hasAvatar) return undefined;
+		if (avataresUsuarios.has(userId)) return avataresUsuarios.get(userId);
+		const url = await obtenerAvatarUrlDeUsuario(userId);
+		if (url) avataresUsuarios = new Map(avataresUsuarios).set(userId, url);
+		return url ?? undefined;
+	}
+
+	let mostrarModalCompartir = $state(false);
+	let cargandoPermisos = $state(false);
+	let errorPermisos = $state<string | undefined>();
+	let guardandoCompartir = $state(false);
+	let filasCompartir = $state<FilaCompartir[]>([]);
+	let busquedaCompartir = $state('');
+	let resultadosBusquedaCompartir = $state<UsuarioBusqueda[]>([]);
+	let buscandoCompartir = $state(false);
+	let timeoutBusquedaCompartir: ReturnType<typeof setTimeout> | undefined;
+
+	const hayPendientesCompartir = $derived(
+		filasCompartir.some((f) => f.nivelOriginal === null || f.quitar || f.nivel !== f.nivelOriginal)
+	);
+
+	async function abrirModalCompartir(recurso: Recurso) {
+		if (seleccionado?.id !== recurso.id) seleccionarFila(recurso);
+		mostrarModalCompartir = true;
+		busquedaCompartir = '';
+		resultadosBusquedaCompartir = [];
+		errorPermisos = undefined;
+		cargandoPermisos = true;
 		try {
-			await compartirRecurso(seleccionado, emailCompartir, $clavesDesbloqueadas);
-			compartidoOk = true;
-			emailCompartir = '';
+			const permisos = await listarPermisos(recurso.id);
+			filasCompartir = permisos.map((p) => ({
+				granteeType: p.granteeType,
+				granteeId: p.granteeId,
+				label: p.label ?? p.granteeId,
+				nivelOriginal: p.level,
+				nivel: p.level,
+				quitar: false
+			}));
 		} catch (err) {
-			errorCompartir = err instanceof ApiError ? err.message : $t.vault.errorCompartir;
+			errorPermisos = err instanceof ApiError ? err.message : $t.vault.errorCompartir;
 		} finally {
-			enviandoCompartir = false;
+			cargandoPermisos = false;
+		}
+	}
+
+	function cerrarModalCompartir() {
+		mostrarModalCompartir = false;
+	}
+
+	function alTipearBusquedaCompartir() {
+		clearTimeout(timeoutBusquedaCompartir);
+		const q = busquedaCompartir;
+		timeoutBusquedaCompartir = setTimeout(async () => {
+			if (q.trim().length < 2) {
+				resultadosBusquedaCompartir = [];
+				return;
+			}
+			buscandoCompartir = true;
+			try {
+				const todos = await buscarUsuarios(q);
+				resultadosBusquedaCompartir = todos.filter(
+					(u) => !filasCompartir.some((f) => f.granteeType === 'user' && f.granteeId === u.userId && !f.quitar)
+				);
+			} catch {
+				resultadosBusquedaCompartir = [];
+			} finally {
+				buscandoCompartir = false;
+			}
+		}, 250);
+	}
+
+	function agregarDeBusquedaCompartir(u: UsuarioBusqueda) {
+		filasCompartir = [
+			...filasCompartir,
+			{
+				granteeType: 'user',
+				granteeId: u.userId,
+				label: u.email,
+				nivelOriginal: null,
+				nivel: 'read',
+				quitar: false,
+				publicKeyX25519B64: u.publicKeyX25519B64
+			}
+		];
+		busquedaCompartir = '';
+		resultadosBusquedaCompartir = [];
+	}
+
+	function quitarFilaCompartir(f: FilaCompartir) {
+		if (f.nivelOriginal === null) {
+			filasCompartir = filasCompartir.filter((x) => x !== f);
+		} else {
+			f.quitar = true;
+		}
+	}
+
+	async function guardarCompartir() {
+		if (!seleccionado || !$clavesDesbloqueadas) return;
+		errorPermisos = undefined;
+		guardandoCompartir = true;
+		try {
+			for (const f of filasCompartir) {
+				if (f.quitar && f.nivelOriginal !== null) {
+					await revocarPermiso(seleccionado.id, f.granteeType, f.granteeId);
+				} else if (f.nivelOriginal === null && f.publicKeyX25519B64) {
+					await compartirRecursoConDestinatario(seleccionado, f.granteeId, f.publicKeyX25519B64, $clavesDesbloqueadas, f.nivel);
+				} else if (f.nivelOriginal !== null && f.nivel !== f.nivelOriginal) {
+					await cambiarNivelPermiso(seleccionado.id, f.granteeType, f.granteeId, f.nivel);
+				}
+			}
+			mostrarModalCompartir = false;
+		} catch (err) {
+			errorPermisos = err instanceof ApiError ? err.message : $t.vault.errorCompartir;
+		} finally {
+			guardandoCompartir = false;
 		}
 	}
 
@@ -558,6 +687,103 @@
 		}
 	}
 
+	// --- módulo 3: compartir en lote (modal, mismo patrón que el compartir
+	// individual — buscador en vivo en vez de una lista de emails a mano). ---
+	let mostrarModalCompartirLote = $state(false);
+	let destinatariosLote = $state<{ userId: string; label: string; publicKeyX25519B64: string; hasAvatar: boolean }[]>([]);
+	let nivelCompartirLote = $state<'read' | 'update' | 'owner'>('read');
+	let busquedaCompartirLote = $state('');
+	let resultadosBusquedaLote = $state<UsuarioBusqueda[]>([]);
+	let buscandoCompartirLote = $state(false);
+	let timeoutBusquedaLote: ReturnType<typeof setTimeout> | undefined;
+	let resumenCompartirLote = $state<string | undefined>();
+	/** Hallazgo real de uso 2026-08-11: antes se mostraba un hint fijo
+	 * ("revisá que los recursos sean de metadata compartida...") sin importar
+	 * la causa real — acá se listan los motivos reales que ya devuelve el
+	 * backend por ítem (ej. "esta persona ya tiene acceso a este recurso"). */
+	let erroresCompartirLote = $state<{ label: string; error: string }[]>([]);
+
+	function abrirModalCompartirLote() {
+		if (seleccionados.size === 0) return;
+		destinatariosLote = [];
+		busquedaCompartirLote = '';
+		resultadosBusquedaLote = [];
+		resumenCompartirLote = undefined;
+		erroresCompartirLote = [];
+		errorMasivo = undefined;
+		mostrarModalCompartirLote = true;
+	}
+
+	function cerrarModalCompartirLote() {
+		mostrarModalCompartirLote = false;
+	}
+
+	function alTipearBusquedaLote() {
+		clearTimeout(timeoutBusquedaLote);
+		const q = busquedaCompartirLote;
+		timeoutBusquedaLote = setTimeout(async () => {
+			if (q.trim().length < 2) {
+				resultadosBusquedaLote = [];
+				return;
+			}
+			buscandoCompartirLote = true;
+			try {
+				const todos = await buscarUsuarios(q);
+				resultadosBusquedaLote = todos.filter((u) => !destinatariosLote.some((d) => d.userId === u.userId));
+			} catch {
+				resultadosBusquedaLote = [];
+			} finally {
+				buscandoCompartirLote = false;
+			}
+		}, 250);
+	}
+
+	function agregarDestinatarioLote(u: UsuarioBusqueda) {
+		destinatariosLote = [
+			...destinatariosLote,
+			{ userId: u.userId, label: u.email, publicKeyX25519B64: u.publicKeyX25519B64, hasAvatar: u.hasAvatar }
+		];
+		busquedaCompartirLote = '';
+		resultadosBusquedaLote = [];
+	}
+
+	function quitarDestinatarioLote(userId: string) {
+		destinatariosLote = destinatariosLote.filter((d) => d.userId !== userId);
+	}
+
+	async function compartirSeleccionEnLote() {
+		if (seleccionados.size === 0 || destinatariosLote.length === 0) return;
+		aplicandoMasivo = true;
+		errorMasivo = undefined;
+		resumenCompartirLote = undefined;
+		erroresCompartirLote = [];
+		try {
+			const resultados = await compartirRecursosEnLote(
+				[...seleccionados],
+				destinatariosLote.map((d) => ({ userId: d.userId, publicKeyX25519B64: d.publicKeyX25519B64 })),
+				$clavesDesbloqueadas!,
+				nivelCompartirLote
+			);
+			const ok = resultados.filter((r) => !r.error).length;
+			const conError = resultados.length - ok;
+			resumenCompartirLote = $t.vault.compartirLote.resumen(ok, conError);
+			erroresCompartirLote = resultados
+				.filter((r): r is typeof r & { error: string } => !!r.error)
+				.map((r) => ({
+					label: destinatariosLote.find((d) => d.userId === r.recipient_user_id)?.label ?? r.recipient_user_id,
+					error: r.error
+				}));
+			if (conError === 0) {
+				seleccionados = new Set();
+				mostrarModalCompartirLote = false;
+			}
+		} catch (err) {
+			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			aplicandoMasivo = false;
+		}
+	}
+
 	// --- exportar/importar (F-27) — antes vivía en `/settings/export-import`,
 	// separado del propio Vault que exporta; movido acá para poder elegir
 	// "todos" o sólo lo seleccionado arriba, sin duplicar la carga/descifrado
@@ -587,8 +813,13 @@
 		cargandoPolitica = false;
 	}
 
-	const puedeExportar = $derived(!!politica && (politica.export_enabled || excepcionAdmin));
-	const puedeImportar = $derived(!!politica && politica.import_enabled);
+	// Módulo 1 (RBAC granular): la política de org (`politica.*_enabled`) sigue
+	// siendo el techo — el permiso de rol sólo puede restringir por debajo de
+	// ese techo, nunca habilitar algo que la organización apagó.
+	const puedeExportar = $derived(
+		!!politica && (politica.export_enabled || excepcionAdmin) && tienePermiso($permisos, 'export.use')
+	);
+	const puedeImportar = $derived(!!politica && politica.import_enabled && tienePermiso($permisos, 'import.use'));
 	const formatosDisponibles = $derived((politica?.allowed_formats ?? []) as FormatoExport[]);
 
 	let alcanceExport = $state<'todos' | 'seleccionados'>('todos');
@@ -698,21 +929,10 @@
 <h1>{$t.vault.titulo}</h1>
 
 {#if !$clavesDesbloqueadas}
-	<Card>
-		<form onsubmit={desbloquear}>
-			<TextField
-				label={$t.lockOverlay.passphrase}
-				type="password"
-				bind:value={passphraseDesbloqueo}
-				autocomplete="current-password"
-				required
-			/>
-			{#if errorDesbloqueo}<p class="error">{errorDesbloqueo}</p>{/if}
-			<Button type="submit" variant="primary" loading={desbloqueando}>{$t.lockOverlay.desbloquear}</Button>
-		</form>
-	</Card>
+	<LockOverlay email={$sesion.email ?? ''} onDesbloqueado={alDesbloquearVault} />
 {:else}
 	<div class="vault-layout" class:con-panel={!!seleccionado}>
+		{#if tienePermiso($permisos, 'folders.use')}
 		<Card padded={true}>
 			<FolderTree
 				nodos={carpetas}
@@ -721,7 +941,7 @@
 				onCrear={onCrearCarpeta}
 				onMover={onMoverCarpeta}
 				onFiltrar={onFiltrarCarpeta}
-				onCompartir={onCompartirCarpeta}
+				onCompartir={tienePermiso($permisos, 'folder.share') ? onCompartirCarpeta : undefined}
 			/>
 			{#if errorCarpetas}<p class="error">{errorCarpetas}</p>{/if}
 			{#if compartiendoCarpeta}
@@ -753,6 +973,7 @@
 				</form>
 			{/if}
 		</Card>
+		{/if}
 
 		<Card>
 			{#if cargando}
@@ -763,123 +984,22 @@
 				<div class="cabecera">
 					<p class="conteo">{$t.vault.conteo(recursosFiltrados.length)}</p>
 					<div class="botones">
-						<Button variant="secondary" onclick={abrirExportar}>{$t.exportImport.titulo}</Button>
-						<Button variant="primary" onclick={() => (mostrarCrear = !mostrarCrear)}>{$t.vault.nuevoRecurso}</Button>
+						<Button variant="secondary" onclick={abrirExportar}>
+							<Icon path={ICONO_EXPORTAR} size={14} />
+							{$t.exportImport.titulo}
+						</Button>
+						<Button variant="primary" onclick={() => (mostrarCrear = !mostrarCrear)}>
+							<Icon path={ICONO_NUEVO} size={14} />
+							{$t.vault.nuevoRecurso}
+						</Button>
 					</div>
 				</div>
-
-				{#if mostrarExportar}
-					<div class="panel-exportar">
-						{#if cargandoPolitica}
-							<p class="hint">{$t.exportImport.cargandoPolitica}</p>
-						{:else if !puedeExportar && !puedeImportar}
-							<p class="hint">{$t.exportImport.sinFormatosHabilitados}</p>
-						{:else}
-							{#if politica && !politica.export_enabled && excepcionAdmin}
-								<p class="hint">{$t.exportImport.viaExcepcionAdmin}</p>
-							{/if}
-
-							{#if puedeExportar}
-								<h3>{$t.exportImport.exportarTitulo}</h3>
-								<p class="hint">{$t.exportImport.exportarHint}</p>
-								<form onsubmit={hacerExport}>
-									<div class="field">
-										<label for="alcance-export">{$t.exportImport.alcance}</label>
-										<select id="alcance-export" bind:value={alcanceExport}>
-											<option value="todos">{$t.exportImport.alcanceTodos(recursosFiltrados.length)}</option>
-											<option value="seleccionados" disabled={seleccionados.size === 0}>
-												{$t.exportImport.alcanceSeleccionados(seleccionados.size)}
-											</option>
-										</select>
-									</div>
-									<div class="field">
-										<label for="formato-export">{$t.exportImport.formato}</label>
-										<select id="formato-export" bind:value={formatoExport}>
-											{#each formatosDisponibles as f (f)}
-												<option value={f}>{f.toUpperCase()}</option>
-											{/each}
-										</select>
-									</div>
-									{#if formatoExport === 'kdbx'}
-										<TextField
-											label={$t.exportImport.passwordArchivo}
-											type="password"
-											bind:value={passwordExport}
-											hint={$t.exportImport.passwordArchivoHint}
-											required
-										/>
-										{#if passwordExport}
-											<p class="fortaleza fortaleza-{fortalezaExport.score}">{labelFortalezaExport}</p>
-										{/if}
-									{/if}
-									{#if errorExport}<p class="error">{errorExport}</p>{/if}
-									{#if okExport !== undefined}<p class="ok">{$t.exportImport.exportadoOk(okExport)}</p>{/if}
-									<Button type="submit" variant="primary" loading={exportando}>{$t.exportImport.exportar}</Button>
-								</form>
-							{/if}
-
-							{#if puedeImportar}
-								<h3>{$t.exportImport.importarTitulo}</h3>
-								<p class="hint">{$t.exportImport.importarHint}</p>
-								<div class="field">
-									<label for="archivo-import">{$t.exportImport.archivo}</label>
-									<input id="archivo-import" type="file" accept=".kdbx,.csv,.json" onchange={alElegirArchivo} />
-								</div>
-								{#if archivoImport && detectarFormatoPorNombre(archivoImport.name) === 'kdbx'}
-									<TextField label={$t.exportImport.passwordArchivoImport} type="password" bind:value={passwordImport} />
-								{/if}
-								{#if errorImport}<p class="error">{errorImport}</p>{/if}
-								{#if !filasPreview}
-									<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
-										{$t.exportImport.previsualizar}
-									</Button>
-								{:else}
-									<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
-									<Button variant="primary" onclick={confirmarImport} loading={importando}>
-										{$t.exportImport.confirmarImportar}
-									</Button>
-								{/if}
-								{#if okImport !== undefined}<p class="ok">{$t.exportImport.importadoOk(okImport)}</p>{/if}
-							{/if}
-						{/if}
-					</div>
-				{/if}
 
 				<TextField label={$t.vault.buscar} bind:value={busqueda} />
 				<TagFilterBar tags={tags} bind:seleccionados={tagsSeleccionados} cargando={cargandoTags} onCrear={onCrearTag} />
 				{#if errorTags}<p class="error">{errorTags}</p>{/if}
 
-				{#if mostrarCrear}
-					<form onsubmit={crear} class="crear">
-						<label class="campo-tipo">
-							{$t.vault.tipo}
-							<select bind:value={tipoNuevo}>
-								<option value="login-password">{$t.vault.tipoLoginPassword}</option>
-								<option value="ftp">{$t.vault.tipoFtp}</option>
-								<option value="ssh">{$t.vault.tipoSsh}</option>
-								<option value="vnc">{$t.vault.tipoVnc}</option>
-							</select>
-						</label>
-						<TextField label={$t.vault.nombre} bind:value={nombre} required />
-						<TextField label={$t.vault.usuario} bind:value={usuario} />
-						<TextField label={tipoNuevo === 'login-password' ? $t.vault.uri : $t.vault.uriHostPuerto} bind:value={uri} />
-						<div class="con-generar">
-							<TextField label={$t.vault.password} type="password" bind:value={password} required />
-							<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
-						</div>
-						<TextField label={$t.vault.notas} bind:value={notas} />
-						{#if tipoNuevo === 'login-password'}
-							<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
-						{/if}
-						{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
-						<div class="botones">
-							<Button type="submit" variant="primary" loading={creando}>{$t.vault.crear}</Button>
-							<Button type="button" variant="ghost" onclick={() => (mostrarCrear = false)}>{$t.vault.cancelar}</Button>
-						</div>
-					</form>
-				{/if}
-
-				{#if recursosFiltrados.length === 0 && !mostrarCrear}
+				{#if recursosFiltrados.length === 0}
 					<p class="hint">{$t.vault.sinRecursos}</p>
 				{:else}
 					<div class="barra-seleccion">
@@ -899,6 +1019,7 @@
 								{/each}
 							</select>
 							<Button variant="secondary" onclick={moverSeleccionADeCarpeta} loading={aplicandoMasivo}>
+								<Icon path={ICONO_CARPETA} size={14} />
 								{$t.vault.moverSeleccion}
 							</Button>
 							<select bind:value={tagMasivo}>
@@ -908,7 +1029,12 @@
 								{/each}
 							</select>
 							<Button variant="secondary" onclick={agregarTagASeleccion} loading={aplicandoMasivo} disabled={!tagMasivo}>
+								<Icon path={ICONO_TAG} size={14} />
 								{$t.vault.taggearSeleccion}
+							</Button>
+							<Button variant="secondary" onclick={abrirModalCompartirLote}>
+								<Icon path={ICONO_COMPARTIR} size={14} />
+								{$t.vault.compartirLote.boton}
 							</Button>
 						</div>
 						{#if errorMasivo}<p class="error">{errorMasivo}</p>{/if}
@@ -928,23 +1054,25 @@
 					>
 						{#snippet fila(r)}
 							<td onclick={(e) => e.stopPropagation()}>
-								<input type="checkbox" checked={seleccionados.has(r.id)} onchange={() => toggleSeleccion(r.id)} />
+								<input
+									class="checkbox-seleccion"
+									type="checkbox"
+									checked={seleccionados.has(r.id)}
+									onchange={() => toggleSeleccion(r.id)}
+								/>
 							</td>
 							<td>{r.nombre}</td>
 							<td class="secundario">{r.usuario}</td>
 							<td class="secundario">{r.uri}</td>
 							<td class="secundario">
-								{r.metadataKeyType === 'shared_key' ? $t.vault.compartir : $t.vault.personal}
-								{#if r.metadataKeyType === 'shared_key'}
-									<button
-										type="button"
-										class="icono-copiar"
-										onclick={(e) => compartirDesdeIcono(r, e)}
-										title={$t.vault.compartir}
-									>
-										⇄
-									</button>
-								{/if}
+								<button
+									type="button"
+									class="icono-copiar"
+									onclick={(e) => compartirDesdeIcono(r, e)}
+									title={$t.vault.compartir}
+								>
+									⇄
+								</button>
 							</td>
 						{/snippet}
 					</Table>
@@ -990,8 +1118,24 @@
 									</button>
 								</dd>
 							{/if}
+							{#if comandoDeConexion(seleccionado)}
+								{@const comando = comandoDeConexion(seleccionado)!}
+								<dt>{$t.vault.comandoConexion}</dt>
+								<dd>
+									<code class="comando">{comando}</code>
+									<button
+										type="button"
+										class="icono-copiar"
+										onclick={() => copiarCampo('comando', comando)}
+										aria-label={$t.secretField.copiar}
+									>
+										{campoCopiado === 'comando' ? '✓' : '⧉'}
+									</button>
+								</dd>
+							{/if}
 						</dl>
 
+						{#if tienePermiso($permisos, 'folders.use')}
 						<label class="campo-carpeta">
 							{$t.vault.carpetas.titulo}
 							<select
@@ -1004,13 +1148,19 @@
 								{/each}
 							</select>
 						</label>
+						{/if}
 
 						{#if !secretoAbierto}
 							<Button variant="secondary" onclick={verSecretoDelSeleccionado} loading={cargandoSecreto}>
 								{$t.vault.verSecreto}
 							</Button>
 						{:else}
-							<SecretField label={$t.vault.password} valor={secretoAbierto.password} />
+							<SecretField
+								label={$t.vault.password}
+								valor={secretoAbierto.password}
+								puedeRevelar={tienePermiso($permisos, 'password.preview')}
+								puedeCopiar={tienePermiso($permisos, 'password.copy')}
+							/>
 							{#if secretoAbierto.notes}
 								<p class="notas">{secretoAbierto.notes}</p>
 							{/if}
@@ -1022,9 +1172,7 @@
 
 						<div class="panel-acciones">
 							<Button variant="ghost" onclick={empezarEditar}>{$t.vault.editar}</Button>
-							{#if seleccionado.metadataKeyType === 'shared_key'}
-								<Button variant="ghost" onclick={() => (panelModo = 'compartir')}>{$t.vault.compartir}</Button>
-							{/if}
+							<Button variant="ghost" onclick={() => abrirModalCompartir(seleccionado!)}>{$t.vault.compartir}</Button>
 							<Button variant="ghost" onclick={() => (panelModo = 'externo')}>{$t.vault.compartirExterno}</Button>
 						</div>
 					{:else if panelModo === 'editar'}
@@ -1048,16 +1196,6 @@
 								</div>
 							</form>
 						{/if}
-					{:else if panelModo === 'compartir'}
-						<form onsubmit={enviarCompartir}>
-							<TextField label={$t.vault.compartirCon} type="email" bind:value={emailCompartir} required />
-							{#if errorCompartir}<p class="error">{errorCompartir}</p>{/if}
-							{#if compartidoOk}<p class="ok">{$t.vault.compartido}</p>{/if}
-							<div class="botones">
-								<Button type="submit" variant="primary" loading={enviandoCompartir}>{$t.vault.enviarCompartir}</Button>
-								<Button type="button" variant="ghost" onclick={() => (panelModo = 'detalle')}>{$t.vault.cancelar}</Button>
-							</div>
-						</form>
 					{:else if panelModo === 'externo'}
 						<form onsubmit={crearExterno}>
 							<TextField label={$t.vault.externoExpiraHoras} type="number" bind:value={externoExpiraHoras} required />
@@ -1080,6 +1218,269 @@
 			</Card>
 		{/if}
 	</div>
+{/if}
+
+{#if mostrarModalCompartir && seleccionado}
+	<Modal titulo={$t.vault.compartirTitulo} subtitulo={seleccionado.nombre} onCerrar={cerrarModalCompartir}>
+		{#if cargandoPermisos}
+			<p class="hint">{$t.admin.comun.cargando}</p>
+		{:else}
+			{#if filasCompartir.length > 0}
+				<ul class="lista-grantees">
+					{#each filasCompartir as f (f.granteeType + f.granteeId)}
+						<li
+							class="fila-grantee"
+							class:fila-pendiente={f.quitar || f.nivelOriginal === null || f.nivel !== f.nivelOriginal}
+							class:fila-quitar={f.quitar}
+						>
+							<span class="icono-grantee">{f.granteeType === 'group' ? '👥' : '👤'}</span>
+							<span class="label-grantee">{f.label}</span>
+							{#if !f.quitar}
+								<select bind:value={f.nivel} disabled={f.granteeType !== 'user' && f.nivelOriginal !== null}>
+									<option value="read">{$t.vault.carpetas.nivelRead}</option>
+									<option value="update">{$t.vault.carpetas.nivelUpdate}</option>
+									<option value="owner">{$t.vault.carpetas.nivelOwner}</option>
+								</select>
+							{:else}
+								<span class="hint">{$t.vault.seQuitaAlGuardar}</span>
+							{/if}
+							<button type="button" class="icono-copiar" onclick={() => quitarFilaCompartir(f)} aria-label={$t.vault.revocarPermiso}>
+								✕
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			<label class="campo-nivel campo-busqueda-compartir">
+				{$t.vault.compartirCon}
+				<TextField
+					label=""
+					bind:value={busquedaCompartir}
+					oninput={alTipearBusquedaCompartir}
+					placeholder={$t.vault.compartirBuscarPlaceholder}
+				/>
+			</label>
+			{#if buscandoCompartir}
+				<p class="hint">{$t.admin.comun.buscar}…</p>
+			{:else if resultadosBusquedaCompartir.length > 0}
+				<ul class="lista-resultados-busqueda">
+					{#each resultadosBusquedaCompartir as u (u.userId)}
+						<li>
+							<button type="button" class="resultado-busqueda" onclick={() => agregarDeBusquedaCompartir(u)}>
+								<span class="icono-grantee">
+									{#await avatarDeUsuario(u.userId, u.hasAvatar) then url}
+										{#if url}<img class="avatar-grantee" src={url} alt="" />{:else}👤{/if}
+									{/await}
+								</span>
+								<span class="label-grantee">{u.displayName} <span class="hint">{u.email}</span></span>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if errorPermisos}<p class="error">{errorPermisos}</p>{/if}
+			{#if hayPendientesCompartir}<p class="hint banner-pendientes">{$t.vault.cambiosPendientes}</p>{/if}
+
+			<div class="botones">
+				<Button variant="primary" onclick={guardarCompartir} loading={guardandoCompartir} disabled={!hayPendientesCompartir}>
+					{$t.admin.comun.guardar}
+				</Button>
+				<Button variant="ghost" onclick={cerrarModalCompartir}>{$t.vault.cancelar}</Button>
+			</div>
+		{/if}
+	</Modal>
+{/if}
+
+{#if mostrarModalCompartirLote}
+	<Modal titulo={$t.vault.compartirLote.boton} subtitulo={$t.vault.conteoSeleccionados(seleccionados.size)} onCerrar={cerrarModalCompartirLote}>
+		{#if destinatariosLote.length > 0}
+			<ul class="lista-grantees">
+				{#each destinatariosLote as d (d.userId)}
+					<li class="fila-grantee fila-pendiente">
+						<span class="icono-grantee">
+							{#await avatarDeUsuario(d.userId, d.hasAvatar) then url}
+								{#if url}<img class="avatar-grantee" src={url} alt="" />{:else}👤{/if}
+							{/await}
+						</span>
+						<span class="label-grantee">{d.label}</span>
+						<button type="button" class="icono-copiar" onclick={() => quitarDestinatarioLote(d.userId)} aria-label={$t.vault.revocarPermiso}>
+							✕
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		<label class="campo-nivel campo-busqueda-compartir">
+			{$t.vault.compartirCon}
+			<TextField
+				label=""
+				bind:value={busquedaCompartirLote}
+				oninput={alTipearBusquedaLote}
+				placeholder={$t.vault.compartirBuscarPlaceholder}
+			/>
+		</label>
+		{#if buscandoCompartirLote}
+			<p class="hint">{$t.admin.comun.buscar}…</p>
+		{:else if resultadosBusquedaLote.length > 0}
+			<ul class="lista-resultados-busqueda">
+				{#each resultadosBusquedaLote as u (u.userId)}
+					<li>
+						<button type="button" class="resultado-busqueda" onclick={() => agregarDestinatarioLote(u)}>
+							<span class="icono-grantee">
+								{#await avatarDeUsuario(u.userId, u.hasAvatar) then url}
+									{#if url}<img class="avatar-grantee" src={url} alt="" />{:else}👤{/if}
+								{/await}
+							</span>
+							<span class="label-grantee">{u.displayName} <span class="hint">{u.email}</span></span>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		<label class="campo-nivel">
+			{$t.vault.carpetas.nivel}
+			<select bind:value={nivelCompartirLote}>
+				<option value="read">{$t.vault.carpetas.nivelRead}</option>
+				<option value="update">{$t.vault.carpetas.nivelUpdate}</option>
+				<option value="owner">{$t.vault.carpetas.nivelOwner}</option>
+			</select>
+		</label>
+
+		{#if errorMasivo}<p class="error">{errorMasivo}</p>{/if}
+		{#if resumenCompartirLote}<p class="hint">{resumenCompartirLote}</p>{/if}
+		{#if erroresCompartirLote.length > 0}
+			<ul class="lista-errores-lote">
+				{#each erroresCompartirLote as e (e.label)}
+					<li><strong>{e.label}:</strong> {e.error}</li>
+				{/each}
+			</ul>
+		{/if}
+
+		<div class="botones">
+			<Button variant="primary" onclick={compartirSeleccionEnLote} loading={aplicandoMasivo} disabled={destinatariosLote.length === 0}>
+				{$t.vault.compartirLote.confirmar}
+			</Button>
+			<Button variant="ghost" onclick={cerrarModalCompartirLote}>{$t.vault.cancelar}</Button>
+		</div>
+	</Modal>
+{/if}
+
+{#if mostrarCrear}
+	<Modal titulo={$t.vault.nuevoRecurso} onCerrar={() => (mostrarCrear = false)}>
+		<form onsubmit={crear} class="crear">
+			<label class="campo-tipo">
+				{$t.vault.tipo}
+				<select bind:value={tipoNuevo}>
+					<option value="login-password">{$t.vault.tipoLoginPassword}</option>
+					<option value="ftp">{$t.vault.tipoFtp}</option>
+					<option value="ssh">{$t.vault.tipoSsh}</option>
+					<option value="vnc">{$t.vault.tipoVnc}</option>
+					<option value="telnet">{$t.vault.tipoTelnet}</option>
+				</select>
+			</label>
+			<TextField label={$t.vault.nombre} bind:value={nombre} required />
+			<TextField label={$t.vault.usuario} bind:value={usuario} />
+			<TextField label={tipoNuevo === 'login-password' ? $t.vault.uri : $t.vault.uriHostPuerto} bind:value={uri} />
+			<div class="con-generar">
+				<TextField label={$t.vault.password} type="password" bind:value={password} required />
+				<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
+			</div>
+			<TextField label={$t.vault.notas} bind:value={notas} />
+			{#if tipoNuevo === 'login-password'}
+				<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
+			{/if}
+			{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
+			<div class="botones">
+				<Button type="submit" variant="primary" loading={creando}>{$t.vault.crear}</Button>
+				<Button type="button" variant="ghost" onclick={() => (mostrarCrear = false)}>{$t.vault.cancelar}</Button>
+			</div>
+		</form>
+	</Modal>
+{/if}
+
+{#if mostrarExportar}
+	<Modal titulo={$t.exportImport.titulo} onCerrar={() => (mostrarExportar = false)}>
+		{#if cargandoPolitica}
+			<p class="hint">{$t.exportImport.cargandoPolitica}</p>
+		{:else if !puedeExportar && !puedeImportar}
+			<p class="hint">{$t.exportImport.sinFormatosHabilitados}</p>
+		{:else}
+			{#if politica && !politica.export_enabled && excepcionAdmin}
+				<p class="hint">{$t.exportImport.viaExcepcionAdmin}</p>
+			{/if}
+
+			{#if puedeExportar}
+				<section class="seccion-modal">
+					<h3>{$t.exportImport.exportarTitulo}</h3>
+					<p class="hint">{$t.exportImport.exportarHint}</p>
+					<form onsubmit={hacerExport}>
+						<div class="field">
+							<label for="alcance-export">{$t.exportImport.alcance}</label>
+							<select id="alcance-export" bind:value={alcanceExport}>
+								<option value="todos">{$t.exportImport.alcanceTodos(recursosFiltrados.length)}</option>
+								<option value="seleccionados" disabled={seleccionados.size === 0}>
+									{$t.exportImport.alcanceSeleccionados(seleccionados.size)}
+								</option>
+							</select>
+						</div>
+						<div class="field">
+							<label for="formato-export">{$t.exportImport.formato}</label>
+							<select id="formato-export" bind:value={formatoExport}>
+								{#each formatosDisponibles as f (f)}
+									<option value={f}>{f.toUpperCase()}</option>
+								{/each}
+							</select>
+						</div>
+						{#if formatoExport === 'kdbx'}
+							<TextField
+								label={$t.exportImport.passwordArchivo}
+								type="password"
+								bind:value={passwordExport}
+								hint={$t.exportImport.passwordArchivoHint}
+								required
+							/>
+							{#if passwordExport}
+								<p class="fortaleza fortaleza-{fortalezaExport.score}">{labelFortalezaExport}</p>
+							{/if}
+						{/if}
+						{#if errorExport}<p class="error">{errorExport}</p>{/if}
+						{#if okExport !== undefined}<p class="ok">{$t.exportImport.exportadoOk(okExport)}</p>{/if}
+						<Button type="submit" variant="primary" loading={exportando}>{$t.exportImport.exportar}</Button>
+					</form>
+				</section>
+			{/if}
+
+			{#if puedeImportar}
+				<section class="seccion-modal" class:con-separador={puedeExportar}>
+					<h3>{$t.exportImport.importarTitulo}</h3>
+					<p class="hint">{$t.exportImport.importarHint}</p>
+					<div class="field">
+						<label for="archivo-import">{$t.exportImport.archivo}</label>
+						<input id="archivo-import" type="file" accept=".kdbx,.csv,.json" onchange={alElegirArchivo} />
+					</div>
+					{#if archivoImport && detectarFormatoPorNombre(archivoImport.name) === 'kdbx'}
+						<TextField label={$t.exportImport.passwordArchivoImport} type="password" bind:value={passwordImport} />
+					{/if}
+					{#if errorImport}<p class="error">{errorImport}</p>{/if}
+					{#if !filasPreview}
+						<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
+							{$t.exportImport.previsualizar}
+						</Button>
+					{:else}
+						<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
+						<Button variant="primary" onclick={confirmarImport} loading={importando}>
+							{$t.exportImport.confirmarImportar}
+						</Button>
+					{/if}
+					{#if okImport !== undefined}<p class="ok">{$t.exportImport.importadoOk(okImport)}</p>{/if}
+				</section>
+			{/if}
+		{/if}
+	</Modal>
 {/if}
 
 <style>
@@ -1210,6 +1611,14 @@
 		color: var(--text-primary);
 		word-break: break-word;
 	}
+	.comando {
+		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		font-size: var(--text-xs);
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+	}
 	.campo-carpeta {
 		display: flex;
 		flex-direction: column;
@@ -1247,6 +1656,7 @@
 		border-radius: var(--radius-sm);
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
+		font-family: inherit;
 	}
 	.botones-compartir-carpeta {
 		display: flex;
@@ -1263,6 +1673,130 @@
 		vertical-align: middle;
 	}
 	.icono-copiar:hover {
+		color: var(--text-primary);
+	}
+	.lista-grantees {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.fila-grantee {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		padding: var(--space-2) var(--space-3);
+		transition: border-color 0.12s ease;
+	}
+	.icono-grantee {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-base));
+		font-size: var(--text-base);
+		overflow: hidden;
+	}
+	.checkbox-seleccion {
+		width: 1.15rem;
+		height: 1.15rem;
+		cursor: pointer;
+		accent-color: var(--accent-primary);
+	}
+	.lista-errores-lote {
+		list-style: none;
+		margin: var(--space-2) 0 0 0;
+		padding: 0;
+		font-size: var(--text-sm);
+		color: var(--danger);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+	.avatar-grantee {
+		width: 100%;
+		height: 100%;
+		border-radius: 50%;
+		object-fit: cover;
+	}
+	.label-grantee {
+		flex: 1;
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.fila-grantee select {
+		background: var(--bg-base);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		cursor: pointer;
+	}
+	/* Fila con un cambio sin guardar todavía — mismo criterio visual que la
+	   referencia de Passbolt (fondo ámbar), para que "esto todavía no se
+	   aplicó" sea obvio de un vistazo. */
+	.fila-pendiente {
+		background: color-mix(in srgb, var(--warning) 18%, var(--bg-overlay));
+		border-color: color-mix(in srgb, var(--warning) 40%, var(--border-color));
+	}
+	.fila-quitar .label-grantee {
+		text-decoration: line-through;
+		color: var(--text-muted);
+	}
+	.campo-busqueda-compartir {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		font-weight: 600;
+		margin-top: var(--space-2);
+	}
+	.lista-resultados-busqueda {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+	.resultado-busqueda {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: 100%;
+		background: var(--bg-overlay);
+		border: none;
+		border-bottom: 1px solid var(--border-color);
+		padding: var(--space-2) var(--space-3);
+		cursor: pointer;
+		text-align: left;
+		font: inherit;
+	}
+	li:last-child .resultado-busqueda {
+		border-bottom: none;
+	}
+	.resultado-busqueda:hover {
+		background: var(--bg-raised);
+	}
+	.banner-pendientes {
+		background: color-mix(in srgb, var(--warning) 15%, transparent);
+		border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border-color));
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
 	}
 	.panel-acciones {
@@ -1282,37 +1816,57 @@
 		font-size: var(--text-base);
 		color: var(--text-primary);
 	}
-	.panel-exportar {
-		background: var(--bg-overlay);
-		border: 1px solid var(--border-color);
-		border-radius: var(--radius-sm);
-		padding: var(--space-4);
-		margin-bottom: var(--space-4);
-	}
-	.panel-exportar form {
-		display: flex;
-		flex-direction: column;
-		max-width: 24rem;
-		margin-bottom: var(--space-4);
-	}
-	.panel-exportar .field {
+	.field {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
 		margin-bottom: var(--space-4);
 	}
-	.panel-exportar label {
+	.field label {
 		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		font-weight: 500;
 	}
-	.panel-exportar select,
-	.panel-exportar input[type='file'] {
+	.field select,
+	.field input[type='file'] {
+		width: 100%;
 		background: var(--bg-raised);
 		border: 1px solid var(--border-color);
 		border-radius: var(--radius-sm);
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
+		font-size: var(--text-sm);
+		cursor: pointer;
+		transition:
+			border-color 0.12s ease,
+			box-shadow 0.12s ease;
+	}
+	.field select:hover,
+	.field input[type='file']:hover {
+		border-color: var(--accent-primary);
+	}
+	.field select:focus-visible,
+	.field input[type='file']:focus-visible {
+		outline: none;
+		border-color: var(--accent-primary);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+	}
+	/* Título + descripción + control agrupados con espacio ajustado entre
+	   sí — sólo el espacio ENTRE secciones (Exportar vs. Importar) usa el
+	   gap más generoso de `.contenido` en Modal.svelte. Antes cada línea
+	   (h3, hint, form) competía por el mismo espaciado que las secciones
+	   completas, así que todo se veía igual de apretado en vez de agrupado. */
+	.seccion-modal {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.seccion-modal.con-separador {
+		border-top: 1px solid var(--border-color);
+		padding-top: var(--space-4);
+	}
+	.seccion-modal h3 {
+		margin: 0;
 	}
 	.fortaleza {
 		font-size: var(--text-xs);

@@ -11,6 +11,12 @@ pub struct DestinatarioEnvelope {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AgregarDestinatarioRequest {
+    pub user_id: Uuid,
+    pub sealed_private_key_b64: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CrearMetadataKeyRequest {
     pub id: Uuid,
     pub public_key_x25519_b64: String,

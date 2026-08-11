@@ -52,6 +52,33 @@ export async function registrar(email: string, displayName: string, passphrase: 
 	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
 }
 
+/** Parte C: mismo shape que `registrar`, pero contra `POST /admin/users`
+ * (requiere permiso `*`) — salta la política de auto-registro y el
+ * requisito de SMTP configurado, la cuenta queda verificada de una. */
+export async function crearUsuarioPorAdmin(email: string, displayName: string, passphrase: string): Promise<ResultadoRegistro> {
+	const wasm = await cargarCrypto();
+	const identidad = wasm.generar_identidad();
+	const salt = wasm.generar_salt_kdf();
+	const blob = wasm.sellar_clave_privada(
+		passphrase,
+		salt,
+		identidad.x25519_private,
+		identidad.ed25519_private,
+		aadClavePrivada(email)
+	);
+
+	const resp = await api.post<{ user_id: string; pending_verification: boolean }>('/admin/users', {
+		email,
+		display_name: displayName,
+		public_key_x25519_b64: bytesABase64(identidad.x25519_public),
+		public_key_ed25519_b64: bytesABase64(identidad.ed25519_public),
+		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
+		private_key_nonce_b64: bytesABase64(blob.nonce),
+		kdf_salt_b64: bytesABase64(salt)
+	});
+	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
+}
+
 /** F-24: código de 6 dígitos enviado por email tras un auto-registro normal. */
 export async function verificarEmail(email: string, code: string): Promise<void> {
 	await api.post('/auth/verify-email', { email, code });

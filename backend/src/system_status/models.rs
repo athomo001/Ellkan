@@ -35,12 +35,24 @@ pub enum Check {
     /// (`http://localhost:8080`) o no es `https://` — mismo chequeo que ya
     /// documenta `state.rs::construir_webauthn` como obligatorio en
     /// producción (con el default, cualquier origin se acepta como
-    /// "localhost", WebAuthn pierde su propiedad anti-phishing). No hay
-    /// certificado propio que inspeccionar: Ellkan nunca termina TLS él
-    /// mismo (`docker-compose.yml` sólo expone HTTP plano), así que esto es
-    /// lo más cerca que se puede estar de "TLS configurado" sin acceso al
-    /// reverse proxy real.
+    /// "localhost", WebAuthn pierde su propiedad anti-phishing). Desde
+    /// spec/11 (operativa 1, 2026-08-10) Ellkan sí puede terminar TLS él
+    /// mismo (`ELLKAN_TLS_CERT_FILE`/`ELLKAN_TLS_KEY_FILE`, `main.rs` vía
+    /// `axum-server`+`rustls`) además de la opción de un reverse proxy
+    /// delante — pero este chequeo no inspecciona ninguno de los dos casos
+    /// puntualmente (no lee el cert propio ni sabe si hay un proxy),
+    /// `ELLKAN_RP_ORIGIN` en `https://` sigue siendo la señal indirecta más
+    /// cercana a "TLS configurado" que el servidor puede verificar solo.
     OrigenSeguro { nivel: NivelCheck, origen: String },
+    /// Hallazgo real de uso: la página nunca respondía "¿hay al menos un
+    /// admin activo?" — la pregunta más básica de todas.
+    AdminsActivos { nivel: NivelCheck, cantidad: i64 },
+    /// Operativa 1 (spec/11, 2026-08-10): TLS terminado por el propio
+    /// binario (`ELLKAN_TLS_CERT_FILE`/`ELLKAN_TLS_KEY_FILE`) — señal
+    /// directa, a diferencia de `OrigenSeguro` que sólo infiere por el
+    /// origin configurado (también aplica si hay un reverse proxy
+    /// delante, que este check no puede ver).
+    TlsInProcess { nivel: NivelCheck, activo: bool },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

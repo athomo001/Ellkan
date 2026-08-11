@@ -39,6 +39,10 @@ pub enum AuditEventType {
     PasskeyRevoked,
     MetadataKeyCreated,
     MetadataKeyRotationStarted,
+    /// Módulo "compartir de verdad" (spec/11 + hallazgo real de uso
+    /// 2026-08-10): un admin agrega un miembro nuevo a una metadata key
+    /// compartida ya existente, sin rotarla.
+    MetadataKeyMemberAdded,
     RoleCreated,
     RolePermissionsUpdated,
     DeviceApprovalPolicyUpdated,
@@ -142,6 +146,7 @@ impl AuditEventType {
             AuditEventType::PasskeyRevoked => "passkey.revoked",
             AuditEventType::MetadataKeyCreated => "metadata_key.created",
             AuditEventType::MetadataKeyRotationStarted => "metadata_key.rotation_started",
+            AuditEventType::MetadataKeyMemberAdded => "metadata_key.member_added",
             AuditEventType::RoleCreated => "role.created",
             AuditEventType::RolePermissionsUpdated => "role.permissions_updated",
             AuditEventType::DeviceApprovalPolicyUpdated => "device_approval_policy.updated",
@@ -227,6 +232,7 @@ impl AuditEventType {
             "passkey.revoked" => AuditEventType::PasskeyRevoked,
             "metadata_key.created" => AuditEventType::MetadataKeyCreated,
             "metadata_key.rotation_started" => AuditEventType::MetadataKeyRotationStarted,
+            "metadata_key.member_added" => AuditEventType::MetadataKeyMemberAdded,
             "role.created" => AuditEventType::RoleCreated,
             "role.permissions_updated" => AuditEventType::RolePermissionsUpdated,
             "device_approval_policy.updated" => AuditEventType::DeviceApprovalPolicyUpdated,

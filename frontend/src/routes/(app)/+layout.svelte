@@ -10,12 +10,11 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
-	import { sesion, preferencias, esAdmin } from '$lib/state/session';
+	import { sesion, preferencias, esAdmin, permisos } from '$lib/state/session';
 	import { cargarPreferencias, alternarTema as alternarTemaLocal, guardarPreferencias } from '$lib/api/preferences';
 	import { cerrarSesion } from '$lib/crypto/identity';
 	import { limpiarStoresEn } from '$lib/state/declarative-store';
-	import { rolesApi } from '$lib/api/admin';
-	import { perfilApi, obtenerAvatarUrl, type Perfil } from '$lib/api/profile';
+	import { perfilApi, permisosApi, obtenerAvatarUrl, type Perfil } from '$lib/api/profile';
 	import { ApiError } from '$lib/api/client';
 	import Button from '$lib/components/Button.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
@@ -44,14 +43,32 @@
 		}
 	});
 
-	// Se resuelve una sola vez por sesión — ver comentario de `esAdmin` en
-	// `$lib/state/session.ts`.
+	// Se resuelve una sola vez por sesión — ver comentario de `esAdmin`/`permisos`
+	// en `$lib/state/session.ts`. Antes esto probaba `GET /admin/roles` y miraba
+	// si daba 403 (hack); `GET /me/permissions` da el conjunto real y `esAdmin`
+	// queda como un derivado (`'*'` presente) en vez de una llamada aparte.
 	$effect(() => {
 		if ($sesion.sessionId && $esAdmin === null) {
-			rolesApi
-				.listar()
-				.then(() => esAdmin.set(true))
-				.catch((err) => esAdmin.set(!(err instanceof ApiError && err.status === 403)));
+			permisosApi
+				.mias()
+				.then((lista) => {
+					const conjunto = new Set(lista);
+					permisos.set(conjunto);
+					esAdmin.set(conjunto.has('*'));
+				})
+				.catch((err) => {
+					// Hallazgo real de uso: esto degradaba a "no admin, sin
+					// permisos" ante CUALQUIER falla — incluido un `429` de
+					// rate limit tras F5 seguidos, que no significa que el
+					// usuario haya perdido sus permisos. Sólo un `401` real
+					// (la sesión efectivamente ya no vale) es una respuesta
+					// con la que vale la pena quedarse; cualquier otra causa
+					// deja `esAdmin` en `null` — sigue sin mostrar nav de
+					// admin en esta carga puntual, pero la próxima recarga
+					// vuelve a intentarlo en vez de quedar mal-cacheado en
+					// "false" para siempre.
+					if (err instanceof ApiError && err.status === 401) esAdmin.set(false);
+				});
 		}
 	});
 

@@ -405,6 +405,82 @@ async fn admin_mfa_policy_rechaza_webauthn_y_permite_totp() {
     assert_eq!(cuerpo["require_mfa"], false, "el intento rechazado no debería haber aplicado nada");
 }
 
+async fn codigo_mfa_por_correo_encolado(pool: &sqlx::PgPool, email: &str) -> String {
+    for _ in 0..20 {
+        if let Ok(fila) = sqlx::query_as::<_, (String,)>(
+            "select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1",
+        )
+        .bind(email)
+        .bind("Ellkan: tu código de verificación")
+        .fetch_one(pool)
+        .await
+        {
+            return fila.0.lines().find_map(|l| l.strip_prefix("Código de verificación: ")).unwrap().trim().to_string();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("debería haber un email de código MFA encolado");
+}
+
+/// 2026-08-11: método `email` — sin ningún enrollment (a diferencia de
+/// TOTP), cada login pendiente manda un código nuevo y `requiere_configurar_mfa`
+/// nunca ocurre (no hay nada que configurar).
+#[tokio::test]
+async fn mfa_por_correo_manda_codigo_y_verifica_sin_enrollment() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-email-admin@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/admin/mfa-policy", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "require_mfa": true, "allowed_methods": ["email"], "grace_period_days": 7 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "un admin debería poder activar el método email");
+
+    let usuario = common::registrar(&entorno, "mfa-email-user@test.ellkan").await;
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    // Nunca "requiere_configurar_mfa" — el método email no tiene enrollment.
+    assert_eq!(cuerpo["estado"], "pendiente_mfa");
+    let sesion_parcial: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    assert!(!puede_operar(&entorno, sesion_parcial).await);
+
+    let codigo = codigo_mfa_por_correo_encolado(&entorno.pool, &usuario.email).await;
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_parcial)
+        .json(&json!({ "code": codigo }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el código emailado correcto debería completar la sesión");
+    assert!(puede_operar(&entorno, sesion_parcial).await);
+}
+
+#[tokio::test]
+async fn allowed_methods_rechaza_totp_y_email_juntos() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-dos-metodos@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/admin/mfa-policy", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "require_mfa": true, "allowed_methods": ["totp", "email"], "grace_period_days": 7 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "sólo un método activo a la vez, nunca los dos juntos");
+}
+
 #[tokio::test]
 async fn no_admin_no_puede_leer_ni_cambiar_la_politica_de_mfa() {
     let entorno = common::levantar().await;

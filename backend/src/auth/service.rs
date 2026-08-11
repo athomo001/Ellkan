@@ -127,6 +127,30 @@ where
         Ok(ResultadoRegistro::PendienteVerificacion { user_id: user.id })
     }
 
+    /// `POST /admin/users` — hallazgo real de uso: sin SMTP configurado, un
+    /// admin no podía crear ninguna cuenta nueva (la pantalla de "Crear
+    /// usuario" corre la misma ceremonia que el registro público, que exige
+    /// SMTP para poder mandar el código de verificación). Un admin
+    /// autenticado ya vouches por el email de la misma forma que el
+    /// bootstrap de la primera cuenta o el JIT provisioning de SSO — nace
+    /// verificada, sin política de auto-registro ni SMTP de por medio, sin
+    /// código ni email. La passphrase que se tipeó en la ceremonia la
+    /// conoce el admin (zero-knowledge roto para esa cuenta puntual hasta
+    /// que cambie) — el frontend recomienda cambiarla apenas se entra
+    /// (`POST /me/change-passphrase`, ya existente), no hay enforcement
+    /// automático todavía.
+    pub async fn crear_por_admin(&self, nuevo: NuevoUsuario<'_>) -> Result<crate::auth::models::User, DomainError> {
+        if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
+            return Err(DomainError::ValidacionInvalida(
+                "las claves públicas deben ser de 32 bytes".to_string(),
+            ));
+        }
+        self.usuarios.crear(nuevo, true).await.map_err(|e| match e {
+            crate::error::RepoError::Conflict => DomainError::Conflict,
+            otro => DomainError::Interno(otro),
+        })
+    }
+
     /// Anti user-enumeration: misma forma exista o no la cuenta, ya esté
     /// verificada o no — `buscar_no_verificado_por_email` sólo encuentra
     /// cuentas todavía pendientes, así que una ya verificada cae en el
@@ -359,7 +383,25 @@ where
                 let hash = crate::mfa::service::hash_de_sesion(parcial.id);
                 let expires_at = OffsetDateTime::now_utc()
                     + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
-                self.mfa_challenges.crear(user.id, &hash, expires_at).await?;
+
+                // Método `email` (2026-08-11): a diferencia de `totp` (el
+                // código vive en la app del usuario, nada que mandar acá),
+                // el servidor tiene que generar el código y mandarlo — no
+                // hay ningún otro momento en el que este código pueda
+                // originarse.
+                if politica.allowed_methods.first().map(String::as_str) == Some("email") {
+                    let (email, _nombre) = self
+                        .usuarios
+                        .email_y_nombre(user.id)
+                        .await?
+                        .ok_or(DomainError::InvalidCredentials)?;
+                    let codigo = generar_codigo_device();
+                    self.mfa_challenges.crear(user.id, &hash, Some(&hash_de_codigo(&codigo)), expires_at).await?;
+                    let _ = self.eventos.send(DomainEvent::MfaCodigoPorCorreo { user_id: user.id, email, codigo });
+                } else {
+                    self.mfa_challenges.crear(user.id, &hash, None, expires_at).await?;
+                }
+
                 Ok(ResultadoVerify::PendienteMfa { session_id: parcial.id })
             }
             DecisionMfa::DebeConfigurar => {

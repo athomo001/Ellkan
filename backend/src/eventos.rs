@@ -20,6 +20,11 @@ pub enum DomainEvent {
     /// verificación de email — mismo criterio de `codigo` en claro sólo
     /// mientras vive en memoria que `DispositivoNoReconocido`.
     RegistroPendienteVerificacion { user_id: Uuid, email: String, codigo: String },
+    /// F-14/2026-08-11: login pendiente de MFA cuando la política tiene
+    /// `email` como método activo — a diferencia de `totp` (el código nunca
+    /// pasa por el servidor), acá el código lo genera el servidor y no hay
+    /// otro momento en el que se pueda mandar.
+    MfaCodigoPorCorreo { user_id: Uuid, email: String, codigo: String },
     /// F-33: dispara el consumidor de `metadata::rotacion`, que vigila
     /// `saliente_id` hasta que ningún recurso lo referencie más y recién
     /// entonces la expira — nunca antes.

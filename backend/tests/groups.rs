@@ -109,6 +109,57 @@ async fn crear_grupo_raiz_sin_admin_de_org_falla() {
     assert_eq!(resp.status(), 403);
 }
 
+/// Módulo 1 (RBAC granular): asigna un rol custom con el permiso puntual
+/// `groups.create` (sin tocar `role_id` hacia `admin`, a diferencia de
+/// `common::promover_admin`) — mismo mecanismo que la matriz visual del
+/// panel admin va a exponer vía `PUT /admin/roles/{id}`.
+async fn crear_rol_con_permiso(pool: &sqlx::PgPool, name: &str, permiso: &str) -> Uuid {
+    let role_id: Uuid = sqlx::query_scalar("insert into roles (name) values ($1) returning id")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    sqlx::query("insert into role_permissions (role_id, permission) values ($1, $2)")
+        .bind(role_id)
+        .bind(permiso)
+        .execute(pool)
+        .await
+        .unwrap();
+    role_id
+}
+
+async fn asignar_rol(pool: &sqlx::PgPool, user_id: Uuid, role_id: Uuid) {
+    sqlx::query("update users set role_id = $1 where id = $2")
+        .bind(role_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn usuario_con_permiso_groups_create_delegado_crea_grupo_raiz_sin_ser_admin() {
+    let entorno = common::levantar().await;
+    let user = common::registrar(&entorno, "delegado-grupos@test.ellkan").await;
+    let role_id = crear_rol_con_permiso(&entorno.pool, "gestor-de-grupos", "groups.create").await;
+    asignar_rol(&entorno.pool, user.user_id, role_id).await;
+    let sesion = common::login(&entorno, &user).await;
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/groups", entorno.base))
+        .bearer_auth(sesion)
+        .json(&json!({ "id": Uuid::now_v7(), "name": "Delegado" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "un rol con el permiso granular groups.create debería poder crear un grupo raíz sin ser admin de organización"
+    );
+}
+
 #[tokio::test]
 async fn manager_sin_admin_de_org_gestiona_su_grupo_y_promueve_otro_manager() {
     let entorno = common::levantar().await;

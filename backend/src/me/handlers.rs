@@ -5,6 +5,7 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::Json;
 
+use crate::admin::repository::RoleRepository;
 use crate::auth::extractor::AuthenticatedUser;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
@@ -71,6 +72,14 @@ pub async fn perfil(
         updated_at: p.updated_at,
         keys_created_at: p.keys_created_at,
     }))
+}
+
+/// `GET /me/permissions` (módulo 1, matriz RBAC) — conjunto resuelto de
+/// permisos del usuario actual, usado por el frontend para ocultar/mostrar
+/// UI (`esAdmin` deja de resolverse con el hack de probar `/admin/roles` y
+/// mirar si da 403).
+pub async fn permisos(State(state): State<AppState>, user: AuthenticatedUser) -> Result<Json<Vec<String>>, ApiError> {
+    Ok(Json(state.roles.permisos_de_usuario(user.user_id).await.map_err(DomainError::from)?))
 }
 
 /// `GET /me/avatar` — `404` si no tiene avatar cargado, nunca un `200` con

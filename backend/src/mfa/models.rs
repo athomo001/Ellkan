@@ -26,11 +26,15 @@ pub struct TotpCredential {
 
 /// Fila de `mfa_challenges` pendiente — `session_hash` se compara en tiempo
 /// constante en Rust (`secreto_coincide`), nunca vía igualdad de SQL.
+/// `code_hash`: `None` para método `totp` (el código vive en la app del
+/// usuario, nunca en el servidor); `Some` para método `email` (el servidor
+/// generó el código y mandó el email, tiene que poder compararlo).
 #[derive(Debug, Clone)]
 pub struct MfaChallengeRow {
     pub id: Uuid,
     pub user_id: Uuid,
     pub session_hash: Vec<u8>,
+    pub code_hash: Option<Vec<u8>>,
 }
 
 /// Resultado de evaluar la política de MFA para un login (F-14) — decidido

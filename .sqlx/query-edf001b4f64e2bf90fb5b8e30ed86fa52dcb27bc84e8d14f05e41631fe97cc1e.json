@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, user_id, session_hash from mfa_challenges\n               where user_id = $1 and consumed_at is null and expires_at > now()",
+  "query": "select id, user_id, session_hash, code_hash from mfa_challenges\n               where user_id = $1 and consumed_at is null and expires_at > now()",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "session_hash"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "code_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "mfa_challenges",
+            "name": "code_hash"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "040613698771e9500592cce8e34e3a790ac49c895261f6a538d4bc9030690b8e"
+  "hash": "edf001b4f64e2bf90fb5b8e30ed86fa52dcb27bc84e8d14f05e41631fe97cc1e"
 }

@@ -8,6 +8,7 @@ use ellkan_crypto::secretos::ClaveSecreta32;
 use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::notificaciones::OutboundEmailRepository;
 
 use super::models::SmtpConfig;
 use super::repository::SmtpConfigRepository;
@@ -17,15 +18,23 @@ use super::repository::SmtpConfigRepository;
 /// variable al que atarlo.
 const AAD_SMTP_PASSWORD: &[u8] = b"smtp_config.password";
 
-pub struct SmtpConfigService<'a, R> {
+/// Mismo presupuesto que `ellkan-cli admin send-test-email` (Fase 0) — hasta
+/// 6s en total esperando que el poller (que corre cada pocos segundos)
+/// levante la fila y la mande.
+const INTENTOS_POLLING: u32 = 20;
+const ESPERA_POLLING_MS: u64 = 300;
+
+pub struct SmtpConfigService<'a, R, E> {
     pub repo: &'a R,
+    pub emails: &'a E,
     pub secrets_key: &'a ClaveSecreta32,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, R> SmtpConfigService<'a, R>
+impl<'a, R, E> SmtpConfigService<'a, R, E>
 where
     R: SmtpConfigRepository,
+    E: OutboundEmailRepository,
 {
     pub async fn obtener(&self) -> Result<SmtpConfig, DomainError> {
         Ok(self.repo.obtener().await?)
@@ -83,6 +92,33 @@ where
         ));
 
         Ok(nueva)
+    }
+
+    /// `POST /admin/smtp/test` — mismo mecanismo que `ellkan-cli admin
+    /// send-test-email`: encola una fila real en `outbound_emails` y espera
+    /// a que el poller (real vía SMTP si está configurado) la procese, en vez
+    /// de simular el envío desde acá. `"pendiente"` como resultado significa
+    /// que el poller no llegó a procesarla en el presupuesto de polling, no
+    /// necesariamente que vaya a fallar — puede seguir viéndose en "Estado
+    /// del sistema" (F-43) un momento después.
+    pub async fn probar_envio(&self, to: &str) -> Result<String, DomainError> {
+        let actual = self.repo.obtener().await?;
+        if !actual.esta_configurado() {
+            return Err(DomainError::ValidacionInvalida("SMTP no está configurado todavía".into()));
+        }
+
+        let id = self
+            .emails
+            .encolar(to, "Ellkan — email de prueba", "Generado desde /admin/smtp para verificar la configuración SMTP.")
+            .await?;
+
+        for _ in 0..INTENTOS_POLLING {
+            match self.emails.estado_de(id).await? {
+                Some(estado) if estado == "enviado" || estado == "fallido" => return Ok(estado),
+                _ => tokio::time::sleep(std::time::Duration::from_millis(ESPERA_POLLING_MS)).await,
+            }
+        }
+        Ok("pendiente".to_string())
     }
 }
 

@@ -40,6 +40,13 @@ pub fn decidir(politica: &MfaPolicy, tiene_confirmado: bool, user_created_at: Of
     if !politica.require_mfa {
         return DecisionMfa::NoRequerido;
     }
+    // Método `email` (2026-08-11): no hay nada que "configurar" — el email
+    // ya está verificado desde F-24, cada login pendiente manda un código
+    // nuevo. Nunca `DebeConfigurar`, el período de gracia tampoco aplica
+    // (no depende de ningún credential previo).
+    if politica.allowed_methods.first().map(String::as_str) == Some("email") {
+        return DecisionMfa::DebeVerificar;
+    }
     if tiene_confirmado {
         return DecisionMfa::DebeVerificar;
     }
@@ -95,9 +102,11 @@ where
         Ok(self.policy.obtener().await?)
     }
 
-    /// `PUT /admin/mfa-policy` — F-14. `allowed_methods` sólo acepta `totp`
-    /// hoy: `webauthn` está declarado en el modelo de datos para más
-    /// adelante, pero `POST /auth/mfa/verify` todavía no tiene un segundo
+    /// `PUT /admin/mfa-policy` — F-14. `allowed_methods` admite `totp` y
+    /// `email` (2026-08-11) — nunca los dos juntos: el admin elige UN método
+    /// activo (o ninguno), no una lista de opciones entre las que el usuario
+    /// elige en el login. `webauthn` sigue declarado en el modelo de datos
+    /// para más adelante, pero `POST /auth/mfa/verify` todavía no tiene un
     /// branch que lo verifique, así que aceptarlo acá dejaría a un usuario
     /// sin ningún camino real para completar el login.
     pub async fn actualizar_politica(
@@ -107,9 +116,14 @@ where
         allowed_methods: Vec<String>,
         grace_period_days: i32,
     ) -> Result<MfaPolicy, DomainError> {
-        if allowed_methods.iter().any(|m| m != "totp") {
+        if allowed_methods.iter().any(|m| m != "totp" && m != "email") {
             return Err(DomainError::ValidacionInvalida(
-                "allowed_methods sólo admite 'totp' — 'webauthn' como segundo factor todavía no está implementado".into(),
+                "allowed_methods sólo admite 'totp' o 'email' — 'webauthn' como segundo factor todavía no está implementado".into(),
+            ));
+        }
+        if allowed_methods.len() > 1 {
+            return Err(DomainError::ValidacionInvalida(
+                "allowed_methods admite un único método activo a la vez".into(),
             ));
         }
         if grace_period_days < 0 {
@@ -216,8 +230,6 @@ where
         session_id_actual: Uuid,
         codigo: u32,
     ) -> Result<(), DomainError> {
-        let credential = self.totp.buscar_confirmado(user_id).await?.ok_or(DomainError::InvalidCredentials)?;
-
         let hash_actual = hash_de_sesion(session_id_actual);
         let pendientes = self.challenges.listar_pendientes(user_id).await?;
         let desafio = pendientes
@@ -225,12 +237,28 @@ where
             .find(|d| secreto_coincide(&d.session_hash, &hash_actual))
             .ok_or(DomainError::InvalidCredentials)?;
 
-        let mut secreto = descifrar_secreto(self.secrets_key, &credential)?;
-        let ahora = OffsetDateTime::now_utc().unix_timestamp() as u64;
-        let valido = totp::verificar_totp(&secreto, codigo, ahora);
-        secreto.zeroize();
-        if !valido {
-            return Err(DomainError::InvalidCredentials);
+        // `code_hash` presente = desafío de método `email` (2026-08-11):
+        // comparación por hash, igual que `device_challenges`. Ausente =
+        // `totp`, el código vive en la app del usuario y se verifica con el
+        // algoritmo RFC 6238 contra el credential confirmado.
+        match &desafio.code_hash {
+            Some(hash_esperado) => {
+                let codigo_str = format!("{codigo:06}");
+                let hash_recibido = Sha256::digest(codigo_str.as_bytes()).to_vec();
+                if !secreto_coincide(hash_esperado, &hash_recibido) {
+                    return Err(DomainError::InvalidCredentials);
+                }
+            }
+            None => {
+                let credential = self.totp.buscar_confirmado(user_id).await?.ok_or(DomainError::InvalidCredentials)?;
+                let mut secreto = descifrar_secreto(self.secrets_key, &credential)?;
+                let ahora = OffsetDateTime::now_utc().unix_timestamp() as u64;
+                let valido = totp::verificar_totp(&secreto, codigo, ahora);
+                secreto.zeroize();
+                if !valido {
+                    return Err(DomainError::InvalidCredentials);
+                }
+            }
         }
 
         self.challenges.consumir(desafio.id).await?;

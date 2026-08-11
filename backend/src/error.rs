@@ -33,11 +33,6 @@ pub enum DomainError {
     ValidacionInvalida(String),
     #[error("demasiadas solicitudes")]
     RateLimited,
-    /// F-06: un recurso con metadata personal (`metadata_key_type =
-    /// 'user_key'`) no puede compartirse — sólo los cifrados con la
-    /// metadata key compartida.
-    #[error("un recurso con metadata personal no puede compartirse")]
-    MetadataPersonalNoCompartible,
     /// F-12: re-parentar un grupo de forma que quede como su propio
     /// ancestro.
     #[error("ese movimiento crearía un ciclo en el árbol de grupos")]
@@ -129,11 +124,6 @@ impl From<DomainError> for ApiError {
                 StatusCode::TOO_MANY_REQUESTS,
                 "RATE_LIMITED",
                 "demasiadas solicitudes, esperá antes de reintentar",
-            ),
-            DomainError::MetadataPersonalNoCompartible => ApiError::new(
-                StatusCode::BAD_REQUEST,
-                "METADATA_PERSONAL_NO_COMPARTIBLE",
-                "un recurso con metadata personal no puede compartirse",
             ),
             DomainError::CicloDeGrupo => ApiError::new(
                 StatusCode::BAD_REQUEST,

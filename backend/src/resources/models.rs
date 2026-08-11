@@ -16,7 +16,8 @@ pub struct Resource {
     /// editar (F-07, concurrencia optimista).
     pub updated_at: OffsetDateTime,
     /// `user_key` (default, F-05/F-06 básico) | `shared_key` (F-06
-    /// completo) — sólo un recurso `shared_key` puede compartirse.
+    /// completo) — los dos tipos son compartibles (F-11/2026-08-11), sólo
+    /// cambia qué clave envuelve la metadata.
     pub metadata_key_type: String,
     pub metadata_key_id: Option<Uuid>,
 }
@@ -45,6 +46,21 @@ pub struct EnvelopeInput {
     pub sealed_dek: Vec<u8>,
     pub secret_ciphertext: Vec<u8>,
     pub secret_nonce: Vec<u8>,
+}
+
+/// Hallazgo real de uso 2026-08-10: no había forma de ver ni administrar
+/// quién tiene acceso a un recurso más allá de agregar un destinatario
+/// nuevo — `GET/{DELETE,PUT} /resources/{id}/permissions*` lo cubre.
+#[derive(Debug, Clone)]
+pub struct PermisoGrantee {
+    pub grantee_type: String,
+    pub grantee_id: Uuid,
+    pub level: String,
+    /// Email (usuario) o nombre (grupo) — sólo para mostrar en la UI, nunca
+    /// dato sensible: los nombres de grupo son texto plano (organizacional,
+    /// no zero-knowledge) y el email de un usuario ya es público dentro de
+    /// la org (se usa para buscar destinatarios al compartir).
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

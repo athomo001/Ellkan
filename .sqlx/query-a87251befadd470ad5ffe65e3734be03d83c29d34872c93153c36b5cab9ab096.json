@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select status from outbound_emails where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbound_emails",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a87251befadd470ad5ffe65e3734be03d83c29d34872c93153c36b5cab9ab096"
+}

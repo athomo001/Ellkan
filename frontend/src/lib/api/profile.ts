@@ -19,6 +19,11 @@ export const perfilApi = {
 	obtener: () => api.get<Perfil>('/me')
 };
 
+/** Módulo 1 (RBAC granular) — `GET /me/permissions`, conjunto crudo (puede traer `"*"`). */
+export const permisosApi = {
+	mias: () => api.get<string[]>('/me/permissions')
+};
+
 /**
  * `GET /me/avatar` devuelve bytes de imagen, no JSON — igual criterio que
  * `descargarExport` (`$lib/api/admin.ts`): un `<img src="/me/avatar">` no
@@ -41,3 +46,16 @@ export const avatarApi = {
 		api.put<void>('/me/avatar', { avatar_b64: avatarB64, content_type: contentType }),
 	eliminar: () => api.delete<void>('/me/avatar')
 };
+
+/** Avatar de OTRO usuario (`GET /me/avatar` sólo sirve el propio) —
+ * hallazgo real de uso 2026-08-11: el buscador de destinatarios del modal
+ * de compartir mostraba un ícono genérico para todos. Mismo patrón que
+ * `obtenerAvatarUrl` de arriba (bytes crudos, no JSON, Bearer a mano). */
+export async function obtenerAvatarUrlDeUsuario(userId: string): Promise<string | null> {
+	const sessionId = get(sesion).sessionId;
+	const resp = await fetch(`/users/${userId}/avatar`, { headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {} });
+	if (resp.status === 404) return null;
+	if (!resp.ok) throw new Error(`avatar: ${resp.status}`);
+	const blob = await resp.blob();
+	return URL.createObjectURL(blob);
+}

@@ -27,6 +27,11 @@ pub trait RoleRepository {
     /// comodín `"*"` — único caso real hasta que 1.3 agregue consumidores de
     /// permisos granulares.
     async fn usuario_tiene_permiso(&self, user_id: Uuid, permission: &str) -> Result<bool, RepoError>;
+
+    /// `GET /me/permissions` — conjunto resuelto del usuario, tal cual (si
+    /// el rol tiene `"*"`, viene literal en la lista; el frontend no lo
+    /// expande, sólo chequea membresía).
+    async fn permisos_de_usuario(&self, user_id: Uuid) -> Result<Vec<String>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -161,5 +166,20 @@ impl RoleRepository for PgRoleRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.is_some())
+    }
+
+    async fn permisos_de_usuario(&self, user_id: Uuid) -> Result<Vec<String>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select rp.permission from users u
+            join role_permissions rp on rp.role_id = u.role_id
+            where u.id = $1
+            order by rp.permission
+            "#,
+            user_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.permission).collect())
     }
 }

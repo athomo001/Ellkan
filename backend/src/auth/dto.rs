@@ -107,3 +107,17 @@ pub struct PublicKeyResponse {
     pub user_id: Uuid,
     pub public_key_x25519_b64: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct BuscarUsuariosQuery {
+    pub q: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UsuarioBusquedaResponse {
+    pub user_id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub public_key_x25519_b64: String,
+    pub has_avatar: bool,
+}

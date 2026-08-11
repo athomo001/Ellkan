@@ -12,15 +12,19 @@
 	let error = $state<string | undefined>();
 	let guardado = $state(false);
 
+	// F-14/2026-08-11: `allowed_methods` admite 'totp' o 'email' (nunca los
+	// dos juntos, ver `mfa/service.rs::actualizar_politica`) — el admin
+	// elige uno de los dos con este selector; "nada" es el checkbox
+	// "Requerir MFA" ya existente, no un tercer valor acá.
 	let requireMfa = $state(false);
-	let allowedMethods = $state('');
+	let metodoActivo = $state<'totp' | 'email'>('totp');
 	let gracePeriodDays = $state('0');
 
 	onMount(async () => {
 		try {
 			const p = await mfaPolicyApi.obtener();
 			requireMfa = p.require_mfa;
-			allowedMethods = p.allowed_methods.join('\n');
+			if (p.allowed_methods[0] === 'email') metodoActivo = 'email';
 			gracePeriodDays = String(p.grace_period_days);
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
@@ -37,7 +41,7 @@
 		try {
 			const p: Omit<MfaPolicy, 'require_mfa_since'> = {
 				require_mfa: requireMfa,
-				allowed_methods: allowedMethods.split('\n').map((s) => s.trim()).filter(Boolean),
+				allowed_methods: [metodoActivo],
 				grace_period_days: Number(gracePeriodDays)
 			};
 			await mfaPolicyApi.actualizar(p);
@@ -58,12 +62,21 @@
 		<form onsubmit={guardar}>
 			<label class="check"><input type="checkbox" bind:checked={requireMfa} /> {$t.admin.politicaMfa.requerir}</label>
 			<div class="field">
-				<label for="metodos">{$t.admin.politicaMfa.metodosPermitidos}</label>
-				<textarea id="metodos" bind:value={allowedMethods} rows="3"></textarea>
+				<label for="metodo">{$t.admin.politicaMfa.metodosPermitidos}</label>
+				<select id="metodo" bind:value={metodoActivo} disabled={!requireMfa}>
+					<option value="totp">{$t.admin.politicaMfa.metodoTotp}</option>
+					<option value="email">{$t.admin.politicaMfa.metodoEmail}</option>
+				</select>
+				<p class="ayuda">
+					{metodoActivo === 'totp' ? $t.admin.politicaMfa.metodoTotpAyuda : $t.admin.politicaMfa.metodoEmailAyuda}
+				</p>
 			</div>
 			<div class="field">
 				<label for="gracia">{$t.admin.politicaMfa.diasGracia}</label>
-				<input id="gracia" type="number" min="0" bind:value={gracePeriodDays} />
+				<input id="gracia" type="number" min="0" bind:value={gracePeriodDays} disabled={metodoActivo === 'email'} />
+				<p class="ayuda">
+					{metodoActivo === 'email' ? $t.admin.politicaMfa.diasGraciaNoAplicaEmail : $t.admin.politicaMfa.diasGraciaAyuda}
+				</p>
 			</div>
 			{#if error}<p class="error">{error}</p>{/if}
 			{#if guardado}<p class="ok">{$t.admin.comun.guardado}</p>{/if}
@@ -94,6 +107,12 @@
 		color: var(--text-secondary);
 		font-weight: 500;
 	}
+	.ayuda {
+		margin: 0;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		line-height: 1.4;
+	}
 	.check {
 		display: flex;
 		align-items: center;
@@ -101,7 +120,7 @@
 		margin-bottom: var(--space-4);
 	}
 	input,
-	textarea {
+	select {
 		background: var(--bg-overlay);
 		border: 1px solid var(--border-color);
 		border-radius: var(--radius-sm);

@@ -26,3 +26,14 @@ pub struct ActualizarSmtpConfigRequest {
     pub username: Option<String>,
     pub password: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ProbarSmtpRequest {
+    pub to: String,
+}
+
+/// `status`: `"enviado"` | `"fallido"` | `"pendiente"` (ver `SmtpConfigService::probar_envio`).
+#[derive(Debug, Serialize)]
+pub struct ProbarSmtpResponse {
+    pub status: String,
+}

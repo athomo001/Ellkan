@@ -7,7 +7,15 @@
 	import { preferencias } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 
-	let { label, valor }: { label: string; valor: string } = $props();
+	// Módulo 1 (RBAC granular): `password.preview`/`password.copy` — por
+	// default `true` (los demás usos de este componente, TOTP/share externo,
+	// no pasan por la matriz de roles, sólo el campo de contraseña del Vault).
+	let {
+		label,
+		valor,
+		puedeRevelar = true,
+		puedeCopiar = true
+	}: { label: string; valor: string; puedeRevelar?: boolean; puedeCopiar?: boolean } = $props();
 
 	let revelado = $state(false);
 	let copiado = $state(false);
@@ -22,18 +30,22 @@
 <div class="field">
 	<span class="label">{label}</span>
 	<div class="fila">
-		<code class="valor">{revelado ? valor : '••••••••••••'}</code>
-		<button
-			type="button"
-			class="icono"
-			onclick={() => (revelado = !revelado)}
-			aria-label={revelado ? $t.secretField.ocultar : $t.secretField.revelar}
-		>
-			{revelado ? '🙈' : '👁'}
-		</button>
-		<button type="button" class="icono" onclick={copiar} aria-label={$t.secretField.copiar}>
-			{copiado ? '✓' : '⧉'}
-		</button>
+		<code class="valor">{revelado && puedeRevelar ? valor : '••••••••••••'}</code>
+		{#if puedeRevelar}
+			<button
+				type="button"
+				class="icono"
+				onclick={() => (revelado = !revelado)}
+				aria-label={revelado ? $t.secretField.ocultar : $t.secretField.revelar}
+			>
+				{revelado ? '🙈' : '👁'}
+			</button>
+		{/if}
+		{#if puedeCopiar}
+			<button type="button" class="icono" onclick={copiar} aria-label={$t.secretField.copiar}>
+				{copiado ? '✓' : '⧉'}
+			</button>
+		{/if}
 	</div>
 </div>
 

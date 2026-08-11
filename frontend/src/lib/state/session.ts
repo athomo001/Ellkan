@@ -60,6 +60,23 @@ export const esAdmin = declararStore<boolean | null>('esAdmin', null, {
 	clearOn: ['logout']
 });
 
+/**
+ * Módulo 1 (RBAC granular): conjunto crudo de `GET /me/permissions` — puede
+ * contener `"*"` literal (comodín de admin), el frontend nunca lo expande,
+ * sólo chequea membresía vía `tienePermiso`. Se resuelve una sola vez por
+ * sesión junto con `esAdmin` (mismo `$effect` en `(app)/+layout.svelte`,
+ * ambos derivados de la misma llamada).
+ */
+export const permisos = declararStore<Set<string>>('permisos', new Set(), {
+	ubicacion: 'memory',
+	clearOn: ['logout']
+});
+
+/** `'*'` (admin) siempre pasa cualquier chequeo — mismo criterio que el backend. */
+export function tienePermiso(conjunto: Set<string>, permiso: string): boolean {
+	return conjunto.has('*') || conjunto.has(permiso);
+}
+
 /** `/me/preferences` (F-31/F-39) — nunca sensible, sobrevive lock/logout. */
 export interface Preferencias {
 	locale: 'en' | 'es';

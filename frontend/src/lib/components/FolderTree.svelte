@@ -173,7 +173,13 @@
 		margin: 0;
 		padding-left: var(--space-4);
 	}
-	.rama:first-of-type {
+	/* Bug real de uso: `.rama:first-of-type` matcheaba TODOS los niveles, no
+	   sólo la raíz — cada `<ul class="rama">` anidado es el único `ul` entre
+	   los hijos de SU PROPIO `<li>`, así que `:first-of-type` lo trataba como
+	   "primero" en cada nivel por igual, anulando la indentación en todos
+	   ellos (se veía como lista plana). Sólo el `<ul>` raíz es hijo directo
+	   de `.folder-tree` — este selector sí distingue "raíz" de "anidado". */
+	.folder-tree > .rama {
 		padding-left: 0;
 	}
 	.fila {

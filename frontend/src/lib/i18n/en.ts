@@ -138,6 +138,7 @@ const en: Diccionario = {
 		nombre: 'Name',
 		usuario: 'Username',
 		uri: 'URI',
+		comandoConexion: 'Connection command',
 		password: 'Password',
 		generarPassword: 'Generate',
 		notas: 'Notes',
@@ -147,6 +148,7 @@ const en: Diccionario = {
 		tipoFtp: 'FTP',
 		tipoSsh: 'SSH',
 		tipoVnc: 'VNC',
+		tipoTelnet: 'Telnet',
 		uriHostPuerto: 'Host:port',
 		crear: 'Create',
 		cancelar: 'Cancel',
@@ -155,10 +157,14 @@ const en: Diccionario = {
 		editar: 'Edit',
 		guardarEdicion: 'Save changes',
 		compartir: 'Share',
-		compartirCon: "Recipient's email",
+		compartirTitulo: 'Share resource',
+		compartirCon: 'Share with people',
+		compartirBuscarPlaceholder: "Start typing a person's name or email…",
 		enviarCompartir: 'Share',
 		compartido: 'Shared.',
-		personal: 'Personal — not shareable',
+		revocarPermiso: 'Remove access',
+		seQuitaAlGuardar: 'Removed on save',
+		cambiosPendientes: 'Click Save to apply the pending changes.',
 		error: 'Could not load the vault.',
 		errorCrear: 'Could not create the resource.',
 		errorVerSecreto: 'Could not open the secret.',
@@ -179,6 +185,12 @@ const en: Diccionario = {
 		moverSeleccion: 'Move to folder',
 		taggearSeleccion: 'Add tag',
 		errorMasivo: 'Could not apply the action to all selected resources.',
+		compartirLote: {
+			boton: 'Share',
+			confirmar: 'Share selected',
+			resumen: (ok: number, conError: number) =>
+				conError === 0 ? `Shared successfully (${ok}).` : `${ok} shared, ${conError} with errors — see details below.`
+		},
 		carpetas: {
 			titulo: 'Folders',
 			todas: 'All resources',
@@ -442,11 +454,27 @@ const en: Diccionario = {
 		roles: {
 			titulo: 'Roles',
 			nombre: 'Name',
-			permisos: 'Permissions (one per line)',
-			colPermisos: 'Permissions',
 			nuevoRol: 'New role',
-			editarPermisos: 'Edit permissions',
-			sinRoles: 'No roles to show.'
+			sinRoles: 'No roles to show.',
+			matriz: {
+				seccionApi: 'API permissions',
+				seccionUi: 'UI permissions',
+				categoriaGestionGrupos: 'Group management',
+				categoriaImportExport: 'Import/Export',
+				categoriaContrasena: 'Password',
+				categoriaOrganizacion: 'Organization',
+				categoriaCompartiendo: 'Sharing',
+				filaCrearGrupo: 'Create group',
+				filaImportar: 'Can import',
+				filaExportar: 'Can export',
+				filaPrevisualizar: 'Can preview',
+				filaCopiar: 'Can copy',
+				filaUsarCarpetas: 'Can use folders',
+				filaCompartirCarpetas: 'Can share folders',
+				permitir: 'Allow',
+				denegar: 'Deny',
+				comodinHint: 'This role has "*" (admin wildcard) — always allows everything, cannot be restricted per row.'
+			}
 		},
 		grupos: {
 			titulo: 'Groups',
@@ -503,8 +531,15 @@ const en: Diccionario = {
 		politicaMfa: {
 			titulo: 'MFA policy',
 			requerir: 'Require MFA',
-			metodosPermitidos: 'Allowed methods (one per line)',
-			diasGracia: 'Grace period (days)'
+			metodosPermitidos: 'Second-factor method',
+			metodoTotp: 'TOTP (authenticator app)',
+			metodoTotpAyuda: 'Google Authenticator, Authy, or similar — the user sets up the app the first time they log in after this is turned on.',
+			metodoEmail: 'Email',
+			metodoEmailAyuda: 'No prior setup: every login sends a one-time code to the user\'s email. Requires SMTP to be configured — without it, the code never arrives.',
+			diasGracia: 'Grace period (days)',
+			diasGraciaAyuda:
+				'Unrelated to the 30-second rotation of each TOTP code. This is how long users who already existed before "Require MFA" was turned on get to set up their second factor before being locked out at login. A user created after the policy is active gets no grace period: MFA must be set up on their first login.',
+			diasGraciaNoAplicaEmail: 'Does not apply with the "Email" method — there is nothing to set up, so there is no grace period.'
 		},
 		smtp: {
 			titulo: 'SMTP',
@@ -518,7 +553,15 @@ const en: Diccionario = {
 			usuario: 'Username (optional)',
 			contrasena: 'Password',
 			contrasenaHint: 'Leave blank to keep it unchanged. One is already saved if the status says "configured".',
-			contrasenaBorrar: 'Clear saved password (unauthenticated relay)'
+			contrasenaBorrar: 'Clear saved password (unauthenticated relay)',
+			probarTitulo: 'Test configuration',
+			probarAyuda: 'Sends a real test email using the saved configuration — save your changes before testing.',
+			probarDestinatario: 'Send test to',
+			probarBoton: 'Send test',
+			probarEnviando: 'Sending and waiting for confirmation (up to 6s)…',
+			probarResultadoEnviado: 'Email sent successfully.',
+			probarResultadoFallido: 'Sending failed — check host/port/username/password.',
+			probarResultadoPendiente: 'No send confirmation yet — it may still be in progress, check "System status" shortly.'
 		},
 		politicaPassword: {
 			titulo: 'Passphrase policy',
@@ -622,7 +665,9 @@ const en: Diccionario = {
 			estadoRotacion: 'Rotation status',
 			rotacionActiva: 'Rotation in progress',
 			sinRotacion: 'No active rotation',
-			pendientes: 'Resources pending migration'
+			pendientes: 'Resources pending migration',
+			agregarMiembro: 'Add member',
+			emailMiembroNuevo: "New member's email"
 		},
 		estadoSistema: {
 			titulo: 'System status',
@@ -635,6 +680,7 @@ const en: Diccionario = {
 			categoriaCorreo: 'Outbound email',
 			categoriaIntegraciones: 'Integrations',
 			categoriaSeguridad: 'Security',
+			categoriaOrganizacion: 'Organization',
 			dbPingOk: 'Connected to the database.',
 			dbPingError: 'Could not connect to the database.',
 			dbPingSugerencia: 'Check that Postgres is running and DATABASE_URL is correct.',
@@ -658,10 +704,19 @@ const en: Diccionario = {
 			metadataRotacionOk: 'No metadata key rotation in progress.',
 			metadataRotacionAdvertencia: (claves: number) => `Metadata key rotation in progress (${claves} active keys).`,
 			metadataRotacionSugerencia: 'Check the progress in Metadata keys.',
+			metadataSinClaves: 'There is no shared metadata key yet — passwords cannot be shared between users until one exists.',
+			metadataSinClavesSugerencia: 'Create the first key from Metadata keys.',
 			origenSeguroOk: (origen: string) => `Origin configured for HTTPS (${origen}).`,
 			origenSeguroAdvertencia: (origen: string) => `The configured origin is not HTTPS (${origen}).`,
 			origenSeguroSugerencia:
-				'Set ELLKAN_RP_ORIGIN to your real origin over https:// — with the development default, the anti-phishing protection of passkeys is weakened.'
+				'Set ELLKAN_RP_ORIGIN to your real origin over https:// — with the development default, the anti-phishing protection of passkeys is weakened.',
+			adminsActivosOk: (cantidad: number) => `${cantidad} active ${cantidad === 1 ? 'admin' : 'admins'}.`,
+			adminsActivosError: 'No active admin — nobody can administer this instance.',
+			adminsActivosSugerencia: 'Use `ellkan-cli admin promote-to-admin` (direct server access) to regain access.',
+			tlsInProcessOk: 'TLS terminated by Ellkan itself.',
+			tlsInProcessAdvertencia: 'In-process TLS not configured — this can be fine if a reverse proxy sits in front.',
+			tlsInProcessSugerencia:
+				"If nothing in front handles HTTPS, configure ELLKAN_TLS_CERT_FILE/ELLKAN_TLS_KEY_FILE (see manual/instalacion.md) or a reverse proxy."
 		}
 	}
 };

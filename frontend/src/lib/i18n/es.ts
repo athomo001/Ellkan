@@ -138,6 +138,7 @@ const es = {
 		nombre: 'Nombre',
 		usuario: 'Usuario',
 		uri: 'URI',
+		comandoConexion: 'Comando de conexión',
 		password: 'Contraseña',
 		generarPassword: 'Generar',
 		notas: 'Notas',
@@ -147,6 +148,7 @@ const es = {
 		tipoFtp: 'FTP',
 		tipoSsh: 'SSH',
 		tipoVnc: 'VNC',
+		tipoTelnet: 'Telnet',
 		uriHostPuerto: 'Host:puerto',
 		crear: 'Crear',
 		cancelar: 'Cancelar',
@@ -155,10 +157,14 @@ const es = {
 		editar: 'Editar',
 		guardarEdicion: 'Guardar cambios',
 		compartir: 'Compartir',
-		compartirCon: 'Email del destinatario',
+		compartirTitulo: 'Compartir recurso',
+		compartirCon: 'Compartir con personas',
+		compartirBuscarPlaceholder: 'Empecé a escribir el nombre o email de una persona…',
 		enviarCompartir: 'Compartir',
 		compartido: 'Compartido.',
-		personal: 'Personal — no compartible',
+		revocarPermiso: 'Quitar acceso',
+		seQuitaAlGuardar: 'Se quita al guardar',
+		cambiosPendientes: 'Hacé clic en Guardar para aplicar los cambios pendientes.',
 		error: 'No se pudo cargar el vault.',
 		errorCrear: 'No se pudo crear el recurso.',
 		errorVerSecreto: 'No se pudo abrir el secreto.',
@@ -179,6 +185,12 @@ const es = {
 		moverSeleccion: 'Mover a carpeta',
 		taggearSeleccion: 'Agregar tag',
 		errorMasivo: 'No se pudo aplicar la acción a todos los recursos seleccionados.',
+		compartirLote: {
+			boton: 'Compartir',
+			confirmar: 'Compartir seleccionados',
+			resumen: (ok: number, conError: number) =>
+				conError === 0 ? `Compartido con éxito (${ok}).` : `${ok} compartidos, ${conError} con error — detalle abajo.`
+		},
 		carpetas: {
 			titulo: 'Carpetas',
 			todas: 'Todos los recursos',
@@ -445,11 +457,27 @@ const es = {
 		roles: {
 			titulo: 'Roles',
 			nombre: 'Nombre',
-			permisos: 'Permisos (uno por línea)',
-			colPermisos: 'Permisos',
 			nuevoRol: 'Nuevo rol',
-			editarPermisos: 'Editar permisos',
-			sinRoles: 'No hay roles para mostrar.'
+			sinRoles: 'No hay roles para mostrar.',
+			matriz: {
+				seccionApi: 'Permisos de API',
+				seccionUi: 'Permisos de UI',
+				categoriaGestionGrupos: 'Gestión de grupos',
+				categoriaImportExport: 'Importar/Exportar',
+				categoriaContrasena: 'Contraseña',
+				categoriaOrganizacion: 'Organización',
+				categoriaCompartiendo: 'Compartiendo',
+				filaCrearGrupo: 'Crear grupo',
+				filaImportar: 'Puede importar',
+				filaExportar: 'Puede exportar',
+				filaPrevisualizar: 'Puede previsualizar',
+				filaCopiar: 'Puede copiar',
+				filaUsarCarpetas: 'Puede usar carpetas',
+				filaCompartirCarpetas: 'Puede compartir carpetas',
+				permitir: 'Permitir',
+				denegar: 'Denegar',
+				comodinHint: 'Este rol tiene "*" (comodín de administrador) — siempre permite todo, no se puede restringir por fila.'
+			}
 		},
 		grupos: {
 			titulo: 'Grupos',
@@ -508,8 +536,15 @@ const es = {
 		politicaMfa: {
 			titulo: 'Política de MFA',
 			requerir: 'Requerir MFA',
-			metodosPermitidos: 'Métodos permitidos (uno por línea)',
-			diasGracia: 'Días de gracia'
+			metodosPermitidos: 'Método de segundo factor',
+			metodoTotp: 'TOTP (app autenticadora)',
+			metodoTotpAyuda: 'Google Authenticator, Authy o similar — el usuario configura la app la primera vez que inicia sesión tras activar esto.',
+			metodoEmail: 'Correo electrónico',
+			metodoEmailAyuda: 'Sin configuración previa: cada inicio de sesión manda un código de un solo uso al email del usuario. Requiere SMTP configurado — sin eso, el código nunca llega.',
+			diasGracia: 'Días de gracia',
+			diasGraciaAyuda:
+				'No tiene relación con los 30 segundos que dura cada código TOTP. Es el plazo que se le da a los usuarios que ya existían antes de activar "Requerir MFA" para configurar su segundo factor antes de quedar bloqueados al iniciar sesión. Un usuario creado después de activar la política no tiene gracia: debe configurar MFA en su primer login.',
+			diasGraciaNoAplicaEmail: 'No aplica con el método "Correo electrónico" — no hay nada que configurar, así que no hay período de gracia.'
 		},
 		smtp: {
 			titulo: 'SMTP',
@@ -523,7 +558,15 @@ const es = {
 			usuario: 'Usuario (opcional)',
 			contrasena: 'Contraseña',
 			contrasenaHint: 'Dejar en blanco para no cambiarla. Ya hay una guardada si el estado dice "configurado".',
-			contrasenaBorrar: 'Borrar contraseña guardada (relay sin autenticación)'
+			contrasenaBorrar: 'Borrar contraseña guardada (relay sin autenticación)',
+			probarTitulo: 'Probar configuración',
+			probarAyuda: 'Manda un email real de prueba usando la configuración guardada — guardá los cambios antes de probar.',
+			probarDestinatario: 'Enviar prueba a',
+			probarBoton: 'Enviar prueba',
+			probarEnviando: 'Enviando y esperando confirmación (hasta 6s)…',
+			probarResultadoEnviado: 'Email enviado correctamente.',
+			probarResultadoFallido: 'El envío falló — revisá host/puerto/usuario/contraseña.',
+			probarResultadoPendiente: 'Todavía no hay confirmación de envío — puede seguir en curso, revisá "Estado del sistema" en un momento.'
 		},
 		politicaPassword: {
 			titulo: 'Política de contraseña',
@@ -628,7 +671,9 @@ const es = {
 			estadoRotacion: 'Estado de rotación',
 			rotacionActiva: 'Rotación en curso',
 			sinRotacion: 'Sin rotación activa',
-			pendientes: 'Recursos pendientes de migrar'
+			pendientes: 'Recursos pendientes de migrar',
+			agregarMiembro: 'Agregar miembro',
+			emailMiembroNuevo: 'Email del miembro nuevo'
 		},
 		estadoSistema: {
 			titulo: 'Estado del sistema',
@@ -641,6 +686,7 @@ const es = {
 			categoriaCorreo: 'Correo saliente',
 			categoriaIntegraciones: 'Integraciones',
 			categoriaSeguridad: 'Seguridad',
+			categoriaOrganizacion: 'Organización',
 			dbPingOk: 'Conectado a la base de datos.',
 			dbPingError: 'No se pudo conectar a la base de datos.',
 			dbPingSugerencia: 'Verificá que Postgres esté corriendo y que DATABASE_URL sea correcto.',
@@ -665,10 +711,19 @@ const es = {
 			metadataRotacionOk: 'Sin rotación de clave de metadata en curso.',
 			metadataRotacionAdvertencia: (claves: number) => `Rotación de clave de metadata en curso (${claves} claves activas).`,
 			metadataRotacionSugerencia: 'Revisá el progreso en Claves de metadata.',
+			metadataSinClaves: 'No hay ninguna clave de metadata compartida — las contraseñas no pueden compartirse entre usuarios todavía.',
+			metadataSinClavesSugerencia: 'Creá la primera clave desde Claves de metadata.',
 			origenSeguroOk: (origen: string) => `Origen configurado en HTTPS (${origen}).`,
 			origenSeguroAdvertencia: (origen: string) => `El origen configurado no es HTTPS (${origen}).`,
 			origenSeguroSugerencia:
-				'Fijá ELLKAN_RP_ORIGIN a tu origen real en https:// — con el valor por defecto de desarrollo, la protección anti-phishing de las passkeys queda debilitada.'
+				'Fijá ELLKAN_RP_ORIGIN a tu origen real en https:// — con el valor por defecto de desarrollo, la protección anti-phishing de las passkeys queda debilitada.',
+			adminsActivosOk: (cantidad: number) => `${cantidad} ${cantidad === 1 ? 'admin activo' : 'admins activos'}.`,
+			adminsActivosError: 'No hay ningún admin activo — nadie puede administrar esta instancia.',
+			adminsActivosSugerencia: 'Usá `ellkan-cli admin promote-to-admin` (acceso directo al servidor) para recuperar acceso.',
+			tlsInProcessOk: 'TLS terminado por el propio Ellkan.',
+			tlsInProcessAdvertencia: 'TLS in-process no configurado — puede estar bien si hay un reverse proxy delante.',
+			tlsInProcessSugerencia:
+				'Si no hay nada delante manejando HTTPS, configurá ELLKAN_TLS_CERT_FILE/ELLKAN_TLS_KEY_FILE (ver manual/instalacion.md) o un reverse proxy.'
 		}
 	}
 };

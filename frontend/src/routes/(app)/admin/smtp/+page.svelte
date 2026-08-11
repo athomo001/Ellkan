@@ -24,6 +24,11 @@
 	let passwordNueva = $state('');
 	let borrarPassword = $state(false);
 
+	let destinatarioPrueba = $state('');
+	let probando = $state(false);
+	let resultadoPrueba = $state<string | undefined>();
+	let errorPrueba = $state<string | undefined>();
+
 	async function cargar() {
 		cargando = true;
 		error = undefined;
@@ -68,6 +73,21 @@
 			guardando = false;
 		}
 	}
+
+	async function probar(e: SubmitEvent) {
+		e.preventDefault();
+		errorPrueba = undefined;
+		resultadoPrueba = undefined;
+		probando = true;
+		try {
+			const r = await smtpConfigApi.probar(destinatarioPrueba);
+			resultadoPrueba = r.status;
+		} catch (err) {
+			errorPrueba = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			probando = false;
+		}
+	}
 </script>
 
 <h1>{$t.admin.smtp.titulo}</h1>
@@ -102,6 +122,22 @@
 		</form>
 	{/if}
 </Card>
+
+{#if !cargando && configurado}
+	<Card>
+		<h2>{$t.admin.smtp.probarTitulo}</h2>
+		<p class="ayuda">{$t.admin.smtp.probarAyuda}</p>
+		<form class="probar" onsubmit={probar}>
+			<TextField label={$t.admin.smtp.probarDestinatario} type="email" bind:value={destinatarioPrueba} required />
+			<Button type="submit" variant="secondary" loading={probando}>{$t.admin.smtp.probarBoton}</Button>
+		</form>
+		{#if probando}<p class="ayuda">{$t.admin.smtp.probarEnviando}</p>{/if}
+		{#if errorPrueba}<p class="error">{errorPrueba}</p>{/if}
+		{#if resultadoPrueba === 'enviado'}<p class="ok-msg">{$t.admin.smtp.probarResultadoEnviado}</p>{/if}
+		{#if resultadoPrueba === 'fallido'}<p class="error">{$t.admin.smtp.probarResultadoFallido}</p>{/if}
+		{#if resultadoPrueba === 'pendiente'}<p class="ayuda">{$t.admin.smtp.probarResultadoPendiente}</p>{/if}
+	</Card>
+{/if}
 
 <style>
 	h1 {
@@ -142,5 +178,24 @@
 	.ok-msg {
 		color: var(--success);
 		font-size: var(--text-sm);
+	}
+	h2 {
+		margin: 0 0 var(--space-2) 0;
+		font-size: var(--text-lg);
+		color: var(--text-primary);
+	}
+	.ayuda {
+		margin: 0 0 var(--space-4) 0;
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+	}
+	.probar {
+		display: flex;
+		align-items: flex-end;
+		gap: var(--space-3);
+		max-width: 28rem;
+	}
+	.probar :global(.field) {
+		flex: 1;
 	}
 </style>

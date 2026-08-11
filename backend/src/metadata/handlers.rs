@@ -1,14 +1,18 @@
 // Autor: Athan Espinoza
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
+use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
-use super::dto::{CrearMetadataKeyRequest, DestinatarioEnvelope, MetadataKeyResponse, RotationStatusResponse};
+use super::dto::{
+    AgregarDestinatarioRequest, CrearMetadataKeyRequest, DestinatarioEnvelope, MetadataKeyResponse,
+    RotationStatusResponse,
+};
 use super::service::MetadataKeyService;
 
 type Servicio<'a> = MetadataKeyService<
@@ -78,6 +82,26 @@ pub async fn crear(
         expired_at: clave.expired_at,
         own_sealed_private_key_b64: None,
     }))
+}
+
+/// `POST /admin/metadata-keys/{id}/members` — agrega un destinatario a una
+/// key ya activa sin rotarla. El caller ya abrió su propia
+/// `own_sealed_private_key_b64` (`GET /metadata-keys`) y la reselló para el
+/// destinatario nuevo — el backend sólo persiste el envelope.
+pub async fn agregar_destinatario(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(metadata_key_id): Path<Uuid>,
+    Json(req): Json<AgregarDestinatarioRequest>,
+) -> Result<(), ApiError> {
+    let sealed = b64::decode(&req.sealed_private_key_b64)
+        .map_err(|_| DomainError::ValidacionInvalida("sealed_private_key_b64 inválido".into()))?;
+
+    servicio(&state)
+        .agregar_destinatario(admin.user_id, metadata_key_id, req.user_id, &sealed)
+        .await?;
+
+    Ok(())
 }
 
 pub async fn rotar(

@@ -83,6 +83,7 @@ webauthn-rs = { version = "=0.6.1-dev", default-features = false, features = ["d
 # Misma versión que `ellkan-crypto` (3.0.0, feature `static_secrets`) — dos
 # versiones distintas producen dos tipos `PublicKey` incompatibles entre sí.
 x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
 
 [dev-dependencies]
 base64 = "0.23.0"

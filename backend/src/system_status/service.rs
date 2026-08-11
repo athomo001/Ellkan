@@ -50,9 +50,30 @@ where
             },
             GrupoChecks {
                 categoria: "seguridad",
-                checks: vec![self.origen_seguro(), self.metadata_key_rotacion().await],
+                checks: vec![self.origen_seguro(), self.tls_in_process(), self.metadata_key_rotacion().await],
             },
+            GrupoChecks { categoria: "organizacion", checks: vec![self.admins_activos().await] },
         ]
+    }
+
+    fn tls_in_process(&self) -> Check {
+        let activo = std::env::var("ELLKAN_TLS_CERT_FILE").is_ok() && std::env::var("ELLKAN_TLS_KEY_FILE").is_ok();
+        // `Advertencia`, no `Error`: un reverse proxy delante es igual de
+        // válido y este check no tiene forma de detectarlo — sólo informa
+        // la opción que Ellkan puede confirmar por sí mismo.
+        Check::TlsInProcess { nivel: if activo { NivelCheck::Ok } else { NivelCheck::Advertencia }, activo }
+    }
+
+    async fn admins_activos(&self) -> Check {
+        match self.system_status.contar_admins().await {
+            Ok(cantidad) => {
+                Check::AdminsActivos { nivel: if cantidad == 0 { NivelCheck::Error } else { NivelCheck::Ok }, cantidad }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "system-status: falló el conteo de admins activos");
+                Check::AdminsActivos { nivel: NivelCheck::Error, cantidad: 0 }
+            }
+        }
     }
 
     /// `ELLKAN_RP_ORIGIN` — mismo default de desarrollo que `state.rs::
@@ -158,7 +179,11 @@ where
     async fn metadata_key_rotacion(&self) -> Check {
         match self.claves_metadata.contar_activas().await {
             Ok(claves_activas) => Check::MetadataKeyRotacion {
-                nivel: if claves_activas > 1 { NivelCheck::Advertencia } else { NivelCheck::Ok },
+                // Bug real de uso: antes `0` y `1` daban el mismo "todo
+                // bien" — pero `0` significa que ningún recurso puede
+                // nacer compartible todavía (F-06), es una advertencia
+                // real, no el estado normal.
+                nivel: if claves_activas == 1 { NivelCheck::Ok } else { NivelCheck::Advertencia },
                 claves_activas,
             },
             Err(e) => {

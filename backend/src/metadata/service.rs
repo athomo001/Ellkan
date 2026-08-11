@@ -72,6 +72,40 @@ where
         Ok(self.claves.activas().await?)
     }
 
+    /// `POST /admin/metadata-keys/{id}/members` — hallazgo real de uso:
+    /// `crear_clave_compartida` sólo sellaba la privada para el propio admin
+    /// creador, así que ningún otro usuario tenía nunca acceso real a una
+    /// metadata key compartida (ergo, ningún recurso `shared_key` era
+    /// compartible con nadie en la práctica). Esto agrega un miembro a una
+    /// key ya activa sin necesidad de rotarla — el caller ya resolvió y
+    /// reselló la privada client-side (mismo patrón que agregar un miembro a
+    /// un grupo, `GroupService::agregar_con_envelopes`).
+    pub async fn agregar_destinatario(
+        &self,
+        actor_id: Uuid,
+        metadata_key_id: Uuid,
+        user_id: Uuid,
+        sealed_private_key: &[u8],
+    ) -> Result<(), DomainError> {
+        let clave = self.claves.buscar(metadata_key_id).await?.ok_or(DomainError::NotFound)?;
+        if clave.expired_at.is_some() {
+            return Err(DomainError::ValidacionInvalida("esta metadata key ya no está activa".into()));
+        }
+
+        self.envelopes.insertar(metadata_key_id, user_id, sealed_private_key).await.map_err(|e| match e {
+            crate::error::RepoError::Conflict => DomainError::Conflict,
+            otro => DomainError::Interno(otro),
+        })?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::MetadataKeyMemberAdded, Some(actor_id))
+                .con_sujeto("metadata_key", metadata_key_id)
+                .con_metadata(serde_json::json!({ "user_id": user_id })),
+        ));
+
+        Ok(())
+    }
+
     pub async fn envelope_propio(
         &self,
         metadata_key_id: Uuid,

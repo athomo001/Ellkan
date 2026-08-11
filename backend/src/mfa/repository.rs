@@ -45,10 +45,14 @@ pub trait TotpCredentialRepository {
 }
 
 pub trait MfaChallengeRepository {
+    /// `codigo_hash`: `None` crea un desafío `totp` (default histórico);
+    /// `Some` crea uno `email` con ese hash guardado para comparar en la
+    /// verificación.
     async fn crear(
         &self,
         user_id: Uuid,
         session_hash: &[u8],
+        codigo_hash: Option<&[u8]>,
         expires_at: OffsetDateTime,
     ) -> Result<(), RepoError>;
 
@@ -210,13 +214,17 @@ impl MfaChallengeRepository for PgMfaChallengeRepository {
         &self,
         user_id: Uuid,
         session_hash: &[u8],
+        codigo_hash: Option<&[u8]>,
         expires_at: OffsetDateTime,
     ) -> Result<(), RepoError> {
+        let metodo = if codigo_hash.is_some() { "email" } else { "totp" };
         sqlx::query!(
-            r#"insert into mfa_challenges (user_id, method, session_hash, expires_at)
-               values ($1, 'totp', $2, $3)"#,
+            r#"insert into mfa_challenges (user_id, method, session_hash, code_hash, expires_at)
+               values ($1, $2, $3, $4, $5)"#,
             user_id,
+            metodo,
             session_hash,
+            codigo_hash,
             expires_at,
         )
         .execute(&self.pool)
@@ -226,7 +234,7 @@ impl MfaChallengeRepository for PgMfaChallengeRepository {
 
     async fn listar_pendientes(&self, user_id: Uuid) -> Result<Vec<MfaChallengeRow>, RepoError> {
         let filas = sqlx::query!(
-            r#"select id, user_id, session_hash from mfa_challenges
+            r#"select id, user_id, session_hash, code_hash from mfa_challenges
                where user_id = $1 and consumed_at is null and expires_at > now()"#,
             user_id,
         )
@@ -235,7 +243,7 @@ impl MfaChallengeRepository for PgMfaChallengeRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| MfaChallengeRow { id: f.id, user_id: f.user_id, session_hash: f.session_hash })
+            .map(|f| MfaChallengeRow { id: f.id, user_id: f.user_id, session_hash: f.session_hash, code_hash: f.code_hash })
             .collect())
     }
 
