@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select distinct u.email from users u\n            join role_permissions rp on rp.role_id = u.role_id\n            where (rp.permission = $1 or rp.permission = '*') and u.deleted_at is null\n            order by u.email\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5986ae6d1351534fa7c495ec863705f7b29a1d4285fb56cb812784766d18a5c8"
+}

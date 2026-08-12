@@ -5,6 +5,8 @@ use axum::Json;
 
 use crate::auth::extractor::AdminUser;
 use crate::error::ApiError;
+use crate::groups::repository::{PgGroupMemberRepository, PgGroupRepository};
+use crate::resources::repository::PgPermissionRepository;
 use crate::scim::repository::PgScimUserRepository;
 use crate::state::AppState;
 
@@ -13,12 +15,22 @@ use super::models::{DirectorySyncConfig, ResultadoSync};
 use super::repository::PgDirectorySyncConfigRepository;
 use super::service::DirectorySyncService;
 
-type Servicio<'a> = DirectorySyncService<'a, PgDirectorySyncConfigRepository, PgScimUserRepository>;
+type Servicio<'a> = DirectorySyncService<
+    'a,
+    PgDirectorySyncConfigRepository,
+    PgScimUserRepository,
+    PgGroupRepository,
+    PgGroupMemberRepository,
+    PgPermissionRepository,
+>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     DirectorySyncService {
         config: &state.directory_sync_config,
         usuarios: &state.scim_users,
+        grupos: &state.grupos,
+        miembros: &state.miembros_de_grupo,
+        permisos: &state.permisos,
         secrets_key: &state.secrets_key,
         eventos: state.eventos.clone(),
     }
@@ -33,6 +45,9 @@ fn a_response(c: DirectorySyncConfig) -> ConfigResponse {
         user_filter: c.user_filter,
         attribute_mapping: c.attribute_mapping,
         last_sync_at: c.last_sync_at,
+        user_object_class: c.user_object_class,
+        sync_groups: c.sync_groups,
+        group_membership_attribute: c.group_membership_attribute,
     }
 }
 
@@ -56,6 +71,9 @@ pub async fn actualizar_config(
             req.base_dn,
             req.user_filter,
             req.attribute_mapping,
+            req.user_object_class,
+            req.sync_groups,
+            req.group_membership_attribute,
         )
         .await?;
     Ok(Json(a_response(c)))

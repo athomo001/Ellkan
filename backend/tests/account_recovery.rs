@@ -14,6 +14,7 @@ use ellkan_crypto::sellado;
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn usuario_sin_escrow_no_puede_recuperar() {
@@ -277,6 +278,11 @@ async fn admin_descubre_solicitudes_pendientes_por_el_listado() {
     assert_eq!(encontrada["approvals_count"], 0);
     assert_eq!(encontrada["approval_threshold"], 1);
 
+    // 2026-08-11: el extractor pasa de `AdminUser` a `AuthenticatedUser` —
+    // la visibilidad ahora se filtra dentro del Service (admin de grupo vs.
+    // de organización), así que un usuario sin ninguna autoridad ya no
+    // recibe 403 acá, recibe 200 con una lista vacía (no ve nada, porque no
+    // administra ningún grupo que comparta con el solicitante).
     let resp = entorno
         .cliente
         .get(format!("{}/admin/account-recovery/requests", entorno.base))
@@ -284,5 +290,261 @@ async fn admin_descubre_solicitudes_pendientes_por_el_listado() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 403, "un usuario no-admin no puede ver el listado");
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert!(cuerpo.as_array().unwrap().is_empty(), "un usuario sin autoridad no debe ver ninguna solicitud");
+}
+
+/// 2026-08-11: delegación de autoridad a admin de grupo — mismo patrón que
+/// `DELETE /resources/{id}`. Un admin del grupo AL QUE PERTENECE el
+/// solicitante puede aprobar/rechazar/listar; un admin de un grupo NO
+/// relacionado no puede (403); el evento de auditoría de esa acción trae
+/// `metadata.authority` marcado como `"group_admin"`, distinguible de una
+/// acción de admin de organización.
+#[tokio::test]
+async fn admin_de_grupo_del_solicitante_puede_gestionar_y_queda_bien_marcado_en_auditoria() {
+    let entorno = common::levantar().await;
+
+    let org_admin = common::registrar(&entorno, "org-admin-deleg@test.ellkan").await;
+    common::promover_admin(&entorno.pool, org_admin.user_id).await;
+    let sesion_org_admin = common::login(&entorno, &org_admin).await;
+
+    let victima = common::registrar(&entorno, "victima-grupo@test.ellkan").await;
+    let sesion_victima = common::login(&entorno, &victima).await;
+    let admin_grupo = common::registrar(&entorno, "admin-grupo-deleg@test.ellkan").await;
+    let sesion_admin_grupo = common::login(&entorno, &admin_grupo).await;
+    let admin_otro_grupo = common::registrar(&entorno, "admin-otro-grupo-deleg@test.ellkan").await;
+    let sesion_admin_otro_grupo = common::login(&entorno, &admin_otro_grupo).await;
+
+    // Grupo del que la víctima es miembro (no admin) — `admin_grupo` lo administra.
+    let grupo_id = Uuid::now_v7();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/groups", entorno.base))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "id": grupo_id, "name": "Grupo víctima" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    entorno
+        .cliente
+        .post(format!("{}/groups/{grupo_id}/members/{}", entorno.base, admin_grupo.user_id))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "is_admin": true, "envelopes": [] }))
+        .send()
+        .await
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/groups/{grupo_id}/members/{}", entorno.base, victima.user_id))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "is_admin": false, "envelopes": [] }))
+        .send()
+        .await
+        .unwrap();
+
+    // Un segundo grupo, sin relación con la víctima — `admin_otro_grupo` lo administra.
+    let otro_grupo_id = Uuid::now_v7();
+    entorno
+        .cliente
+        .post(format!("{}/groups", entorno.base))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "id": otro_grupo_id, "name": "Grupo sin relación" }))
+        .send()
+        .await
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/groups/{otro_grupo_id}/members/{}", entorno.base, admin_otro_grupo.user_id))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "is_admin": true, "envelopes": [] }))
+        .send()
+        .await
+        .unwrap();
+
+    enrolar(&entorno, sesion_victima).await;
+
+    let crear_solicitud = || {
+        let entorno = &entorno;
+        let email = victima.email.clone();
+        async move {
+            let efimera = KeypairAcuerdo::generar();
+            let resp = entorno
+                .cliente
+                .post(format!("{}/account-recovery/requests", entorno.base))
+                .json(&json!({
+                    "email": email,
+                    "requester_public_key_x25519_b64": B64.encode(efimera.publica().as_bytes()),
+                }))
+                .send()
+                .await
+                .unwrap();
+            let cuerpo: Value = resp.json().await.unwrap();
+            cuerpo["id"].as_str().unwrap().to_string()
+        }
+    };
+
+    // El admin de un grupo SIN relación no puede aprobar.
+    let request_id = crear_solicitud().await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/account-recovery/requests/{request_id}/approve", entorno.base))
+        .bearer_auth(sesion_admin_otro_grupo)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "admin de un grupo no relacionado con el solicitante no puede aprobar");
+
+    // Tampoco lo ve en su listado.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/account-recovery/requests", entorno.base))
+        .bearer_auth(sesion_admin_otro_grupo)
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert!(cuerpo.as_array().unwrap().is_empty(), "admin de grupo no relacionado no debe ver la solicitud");
+
+    // El admin del grupo de la víctima SÍ la ve y puede aprobarla.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/account-recovery/requests", entorno.base))
+        .bearer_auth(sesion_admin_grupo)
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert!(
+        cuerpo.as_array().unwrap().iter().any(|s| s["id"] == request_id),
+        "admin del grupo de la víctima debe ver la solicitud en su listado"
+    );
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/account-recovery/requests/{request_id}/approve", entorno.base))
+        .bearer_auth(sesion_admin_grupo)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "admin del grupo de la víctima debería poder aprobar");
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["status"], "approved");
+
+    let fila: (String, Option<Uuid>) = sqlx::query_as(
+        "select metadata->>'authority', (metadata->>'group_id')::uuid from audit_log_entries
+         where event_type = 'account_recovery.approved' and subject_id = $1
+         order by created_at desc limit 1",
+    )
+    .bind(uuid::Uuid::parse_str(&request_id).unwrap())
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(fila.0, "group_admin", "la auditoría debe distinguir claramente una acción de admin de grupo");
+    assert_eq!(fila.1, Some(grupo_id));
+
+    // Rechazar sigue el mismo gate — otra solicitud, el admin no relacionado no puede rechazar.
+    let request_id_2 = crear_solicitud().await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/account-recovery/requests/{request_id_2}/reject", entorno.base))
+        .bearer_auth(sesion_admin_otro_grupo)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/account-recovery/requests/{request_id_2}/reject", entorno.base))
+        .bearer_auth(sesion_admin_grupo)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "admin del grupo de la víctima debería poder rechazar");
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["status"], "rejected");
+
+    // Org admin puede aprobar/rechazar sin importar los grupos.
+    let request_id_3 = crear_solicitud().await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/account-recovery/requests/{request_id_3}/approve", entorno.base))
+        .bearer_auth(sesion_org_admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "admin de organización siempre puede aprobar, sin importar los grupos");
+}
+
+/// 2026-08-11: al crear una solicitud, los admins del grupo del solicitante
+/// (no todos los admins de organización) reciben el email de aviso.
+#[tokio::test]
+async fn crear_solicitud_notifica_solo_a_admins_del_grupo_del_solicitante() {
+    let entorno = common::levantar().await;
+
+    let org_admin = common::registrar(&entorno, "org-admin-notif@test.ellkan").await;
+    common::promover_admin(&entorno.pool, org_admin.user_id).await;
+    let sesion_org_admin = common::login(&entorno, &org_admin).await;
+
+    let victima = common::registrar(&entorno, "victima-notif@test.ellkan").await;
+    let sesion_victima = common::login(&entorno, &victima).await;
+    let admin_grupo = common::registrar(&entorno, "admin-grupo-notif@test.ellkan").await;
+
+    let grupo_id = Uuid::now_v7();
+    entorno
+        .cliente
+        .post(format!("{}/groups", entorno.base))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "id": grupo_id, "name": "Grupo notif" }))
+        .send()
+        .await
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/groups/{grupo_id}/members/{}", entorno.base, admin_grupo.user_id))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "is_admin": true, "envelopes": [] }))
+        .send()
+        .await
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/groups/{grupo_id}/members/{}", entorno.base, victima.user_id))
+        .bearer_auth(sesion_org_admin)
+        .json(&json!({ "is_admin": false, "envelopes": [] }))
+        .send()
+        .await
+        .unwrap();
+
+    enrolar(&entorno, sesion_victima).await;
+
+    let efimera = KeypairAcuerdo::generar();
+    entorno
+        .cliente
+        .post(format!("{}/account-recovery/requests", entorno.base))
+        .json(&json!({
+            "email": victima.email,
+            "requester_public_key_x25519_b64": B64.encode(efimera.publica().as_bytes()),
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let mut destinatarios = Vec::new();
+    for _ in 0..20 {
+        destinatarios = sqlx::query_scalar::<_, String>(
+            "select recipient from outbound_emails where subject = 'Ellkan: solicitud de recuperación de cuenta pendiente'",
+        )
+        .fetch_all(&entorno.pool)
+        .await
+        .unwrap();
+        if !destinatarios.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    assert_eq!(destinatarios, vec![admin_grupo.email.clone()], "sólo el admin del grupo de la víctima debe ser notificado");
 }

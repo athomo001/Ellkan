@@ -14,10 +14,11 @@
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { iniciarSesion, verificarDispositivo } from '$lib/crypto/identity';
+	import { iniciarSesion, verificarDispositivo, cambiarPassphrase } from '$lib/crypto/identity';
 	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '$lib/crypto/totp';
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
 	import { desbloquear as desbloquearLocal } from '$lib/crypto/totp-local';
+	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
 	import { t } from '$lib/i18n';
@@ -62,8 +63,38 @@
 	let confirmandoSetup = $state(false);
 	let cargandoSetup = $state(true);
 
-	function completarSesion(userId: string | undefined, sessionId: string | undefined) {
+	// Passphrase provisoria (cuenta creada por un admin): enforcement real,
+	// no sólo una recomendación — sesión parcial, sólo puede llegar a
+	// /me/change-passphrase hasta que se cambie. Reusa `passphrase` (lo que
+	// el usuario ya tipeó para entrar) como "actual", sólo pide la nueva.
+	let cambioObligatorioPendiente = $state(false);
+	let passphraseNuevaObligatoria = $state('');
+	let passphraseConfirmarObligatoria = $state('');
+	let cambiandoObligatorio = $state(false);
+	let cambioObligatorioListo = $state(false);
+
+	// Recovery kit: prompt obligatorio, no saltable — cada login sin kit
+	// configurado (o con uno ya usado y marcado `must_rotate`) cae acá antes
+	// de entrar al vault, en vez de a `/vault` directo. Cubre tanto
+	// onboarding nuevo como cuentas preexistentes logueando después de este
+	// deploy, con un solo chequeo en el único punto de convergencia real de
+	// los seis caminos de login (dispositivo, MFA, setup MFA, passkey,
+	// código local, passphrase directa).
+	async function completarSesion(userId: string | undefined, sessionId: string | undefined) {
 		sesion.set({ sessionId: sessionId ?? null, userId: userId ?? null, email });
+		try {
+			const estado = await recoveryKitApi.estado();
+			if (!estado.configured) {
+				goto('/onboarding/recovery-kit');
+				return;
+			}
+			if (estado.must_rotate) {
+				goto('/onboarding/recovery-kit?motivo=rotacion');
+				return;
+			}
+		} catch {
+			/* si falla la consulta, no bloqueamos el login — el gate se reintenta en el próximo login */
+		}
 		goto('/vault');
 	}
 
@@ -95,6 +126,32 @@
 				mfaSetupPendiente = true;
 				await cargarSetupTotp();
 				break;
+			case 'requiere_cambiar_passphrase':
+				// Sesión parcial: queda como Bearer para POST
+				// /me/change-passphrase (SesionValida la acepta a propósito).
+				sesion.set({ sessionId: resultado.sessionId ?? null, userId: null, email });
+				cambioObligatorioPendiente = true;
+				break;
+		}
+	}
+
+	async function confirmarCambioObligatorio(e: SubmitEvent) {
+		e.preventDefault();
+		error = undefined;
+		if (passphraseNuevaObligatoria !== passphraseConfirmarObligatoria) {
+			error = get(t).login.errorPassphrasesNoCoinciden;
+			return;
+		}
+		cambiandoObligatorio = true;
+		try {
+			// Cambia la sesión (muere al terminar, ver `cambiarPassphrase`) —
+			// no hay nada que redirigir, el próximo login ya entra normal.
+			await cambiarPassphrase(email, passphrase, passphraseNuevaObligatoria);
+			cambioObligatorioListo = true;
+		} catch (err) {
+			error = err instanceof ApiError || err instanceof Error ? err.message : get(t).login.errorGenerico;
+		} finally {
+			cambiandoObligatorio = false;
 		}
 	}
 
@@ -211,7 +268,40 @@
 <Card>
 	<h1>{$t.login.iniciarSesion}</h1>
 
-	{#if mfaSetupPendiente}
+	{#if cambioObligatorioPendiente}
+		{#if cambioObligatorioListo}
+			<p class="ok">{$t.login.cambioObligatorioListoHint}</p>
+			<Button
+				variant="primary"
+				onclick={() => {
+					sesion.set({ sessionId: null, userId: null, email: null });
+					window.location.href = '/login';
+				}}
+			>
+				{$t.recuperacionCuenta.irALogin}
+			</Button>
+		{:else}
+			<p class="hint">{$t.login.cambioObligatorioHint}</p>
+			<form onsubmit={confirmarCambioObligatorio}>
+				<TextField
+					label={$t.recuperacionCuenta.passphraseNueva}
+					type="password"
+					bind:value={passphraseNuevaObligatoria}
+					autocomplete="new-password"
+					required
+				/>
+				<TextField
+					label={$t.recuperacionCuenta.passphraseConfirmar}
+					type="password"
+					bind:value={passphraseConfirmarObligatoria}
+					autocomplete="new-password"
+					required
+				/>
+				{#if error}<p class="error">{error}</p>{/if}
+				<Button type="submit" variant="primary" loading={cambiandoObligatorio}>{$t.login.confirmar}</Button>
+			</form>
+		{/if}
+	{:else if mfaSetupPendiente}
 		<p class="hint">{$t.login.mfaSetupHint}</p>
 		{#if cargandoSetup}
 			<p class="hint">{$t.login.generandoCodigo}</p>
@@ -331,6 +421,11 @@
 	}
 	.error {
 		color: var(--danger);
+		font-size: var(--text-sm);
+		margin: 0 0 var(--space-4) 0;
+	}
+	.ok {
+		color: var(--success);
 		font-size: var(--text-sm);
 		margin: 0 0 var(--space-4) 0;
 	}

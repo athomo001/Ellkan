@@ -36,6 +36,7 @@
 	let solicitudes = $state<SolicitudRecoveryAdmin[]>([]);
 	let cargandoSolicitudes = $state(true);
 	let aprobandoId = $state<string | undefined>();
+	let rechazandoId = $state<string | undefined>();
 	let errorSolicitudes = $state<string | undefined>();
 
 	async function cargarSolicitudes() {
@@ -60,6 +61,21 @@
 			errorSolicitudes = err instanceof ApiError ? err.message : $t.admin.comun.error;
 		} finally {
 			aprobandoId = undefined;
+		}
+	}
+
+	// 2026-08-11: delegado a admin de grupo, mismo criterio que aprobar — el
+	// backend ya filtra qué solicitudes ve y puede resolver este admin.
+	async function rechazar(id: string) {
+		rechazandoId = id;
+		errorSolicitudes = undefined;
+		try {
+			await accountRecoveryAdminApi.rechazar(id);
+			await cargarSolicitudes();
+		} catch (err) {
+			errorSolicitudes = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			rechazandoId = undefined;
 		}
 	}
 
@@ -127,9 +143,12 @@
 			<td>{s.status}</td>
 			<td>{s.approvals_count}/{s.approval_threshold}</td>
 			<td class="secundario">{new Date(s.created_at).toLocaleString()}</td>
-			<td>
+			<td class="acciones">
 				<Button variant="primary" onclick={() => aprobar(s.id)} loading={aprobandoId === s.id}>
 					{$t.admin.politicaRecovery.aprobar}
+				</Button>
+				<Button variant="danger" onclick={() => rechazar(s.id)} loading={rechazandoId === s.id}>
+					{$t.admin.politicaRecovery.rechazar}
 				</Button>
 			</td>
 		{/snippet}
@@ -149,6 +168,10 @@
 	}
 	.secundario {
 		color: var(--text-secondary);
+	}
+	.acciones {
+		display: flex;
+		gap: var(--space-2);
 	}
 	:global(.card) + :global(.card) {
 		margin-top: var(--space-4);

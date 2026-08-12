@@ -10,7 +10,7 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import SecretField from '$lib/components/SecretField.svelte';
 	import Table from '$lib/components/Table.svelte';
-	import { usersAdminApi, obtenerAvatarUrlAdmin, type UsuarioAdmin, type PurgeDryRun } from '$lib/api/admin';
+	import { usersAdminApi, obtenerAvatarUrlAdmin, groupsApi, type UsuarioAdmin, type PurgeDryRun, type Grupo } from '$lib/api/admin';
 	import { crearUsuarioPorAdmin } from '$lib/crypto/identity';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -29,6 +29,30 @@
 	let errorCrear = $state<string | undefined>();
 	let passphraseCreada = $state<string | undefined>();
 
+	// Punto 4 (feedback de uso real): asignar grupo(s) en el mismo alta, sin
+	// el paso aparte de siempre. Sólo grupos raíz (`GET /groups`) — cubre el
+	// caso pedido sin construir un aplanado recursivo de subgrupos que nadie
+	// pidió; un subgrupo puntual se sigue asignando después, a mano.
+	let gruposDisponibles = $state<Grupo[]>([]);
+	let gruposSeleccionados = $state<Set<string>>(new Set());
+	let advertenciasGrupos = $state<string[]>([]);
+
+	async function cargarGruposDisponibles() {
+		try {
+			gruposDisponibles = await groupsApi.listar();
+		} catch {
+			/* el form de creación sigue funcionando igual sin el selector si esto falla */
+		}
+	}
+	onMount(cargarGruposDisponibles);
+
+	function toggleGrupoSeleccionado(id: string) {
+		const nuevo = new Set(gruposSeleccionados);
+		if (nuevo.has(id)) nuevo.delete(id);
+		else nuevo.add(id);
+		gruposSeleccionados = nuevo;
+	}
+
 	function generarPassphraseTemporal(): string {
 		const bytes = crypto.getRandomValues(new Uint8Array(20));
 		return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, '').slice(0, 24);
@@ -38,13 +62,32 @@
 		e.preventDefault();
 		errorCrear = undefined;
 		passphraseCreada = undefined;
+		advertenciasGrupos = [];
 		creandoUsuario = true;
 		try {
 			const passphrase = generarPassphraseTemporal();
-			await crearUsuarioPorAdmin(nuevoEmail, nuevoNombre, passphrase);
+			const resultado = await crearUsuarioPorAdmin(nuevoEmail, nuevoNombre, passphrase);
 			passphraseCreada = passphrase;
+
+			// Grupo sin recursos compartidos todavía: `envelopes: []` alcanza
+			// (mismo criterio que `GroupService::agregar_miembro`). Si algún
+			// grupo seleccionado ya comparte recursos, la llamada falla con
+			// un 400 claro — se informa por grupo en vez de fallar en
+			// silencio o abortar la creación (el usuario ya se creó bien).
+			const advertencias: string[] = [];
+			for (const groupId of gruposSeleccionados) {
+				const grupo = gruposDisponibles.find((g) => g.id === groupId);
+				try {
+					await groupsApi.agregarMiembro(groupId, resultado.userId, false, []);
+				} catch {
+					advertencias.push($t.admin.usuarios.errorAgregarAGrupo(grupo?.name ?? groupId));
+				}
+			}
+			advertenciasGrupos = advertencias;
+
 			nuevoEmail = '';
 			nuevoNombre = '';
+			gruposSeleccionados = new Set();
 			await cargarListado(true);
 		} catch (err) {
 			errorCrear = err instanceof ApiError ? err.message : $t.admin.usuarios.errorCrear;
@@ -240,6 +283,25 @@
 		<TextField label={$t.admin.usuarios.email} type="email" bind:value={nuevoEmail} autocomplete="off" required />
 		<Button type="submit" variant="primary" loading={creandoUsuario}>{$t.admin.usuarios.crear}</Button>
 	</form>
+	{#if gruposDisponibles.length > 0}
+		<div class="grupos-al-crear">
+			<p class="hint">{$t.admin.usuarios.gruposAlCrearHint}</p>
+			<ul class="lista-grupos-checkbox">
+				{#each gruposDisponibles as g (g.id)}
+					<li>
+						<label>
+							<input
+								type="checkbox"
+								checked={gruposSeleccionados.has(g.id)}
+								onchange={() => toggleGrupoSeleccionado(g.id)}
+							/>
+							{g.name}
+						</label>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
 	{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
 	{#if passphraseCreada}
 		<div class="passphrase-creada">
@@ -247,6 +309,9 @@
 			<SecretField label={$t.admin.usuarios.passphraseGenerada} valor={passphraseCreada} />
 		</div>
 	{/if}
+	{#each advertenciasGrupos as advertencia (advertencia)}
+		<p class="error">{advertencia}</p>
+	{/each}
 </Card>
 
 <Card>
@@ -439,6 +504,24 @@
 	.form :global(.field),
 	.form-crear :global(.field) {
 		margin-bottom: 0;
+	}
+	.grupos-al-crear {
+		margin-top: var(--space-3);
+	}
+	.lista-grupos-checkbox {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+	}
+	.lista-grupos-checkbox label {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-primary);
 	}
 	.passphrase-creada {
 		margin-top: var(--space-3);

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select r.id, u.email as target_email, r.status, r.approvals,\n                   e.approval_threshold, r.created_at\n            from account_recovery_requests r\n            join account_recovery_escrow e on e.id = r.escrow_id\n            join users u on u.id = e.user_id\n            where r.status = 'pending'\n            order by r.created_at asc\n            ",
+  "query": "\n            select r.id, u.email as target_email, r.status, r.approvals,\n                   e.approval_threshold, r.created_at\n            from account_recovery_requests r\n            join account_recovery_escrow e on e.id = r.escrow_id\n            join users u on u.id = e.user_id\n            where r.status = 'pending'\n              and ($1 or exists (\n                  select 1 from group_members gm\n                  where gm.user_id = e.user_id and gm.group_id = any($2)\n              ))\n            order by r.created_at asc\n            ",
   "describe": {
     "columns": [
       {
@@ -71,7 +71,10 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Bool",
+        "UuidArray"
+      ]
     },
     "nullable": [
       false,
@@ -82,5 +85,5 @@
       false
     ]
   },
-  "hash": "e4449914235cd593e8312a1acf618cf49fbe5e72da006dea201c08a2c80b7dbf"
+  "hash": "6cf821380bcc86978ca0a14aa1818827f817331c243affefd65cd1f88e677476"
 }

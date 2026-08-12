@@ -55,7 +55,7 @@ fn servicio(
 }
 
 /// Mismo shape de respuesta para `verify` y `verify_device` — desde F-14 los
-/// dos pueden resolver en cualquiera de los cuatro estados.
+/// dos pueden resolver en cualquiera de los cinco estados.
 fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
     match resultado {
         ResultadoVerify::SesionCompleta(sesion) => VerifyResponse {
@@ -78,6 +78,12 @@ fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
         },
         ResultadoVerify::RequiereConfigurarMfa { session_id } => VerifyResponse {
             estado: "requiere_configurar_mfa",
+            session_id: Some(session_id),
+            user_id: None,
+            device_challenge_id: None,
+        },
+        ResultadoVerify::RequiereCambiarPassphrase { session_id } => VerifyResponse {
+            estado: "requiere_cambiar_passphrase",
             session_id: Some(session_id),
             user_id: None,
             device_challenge_id: None,

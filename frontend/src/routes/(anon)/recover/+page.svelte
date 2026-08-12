@@ -1,33 +1,37 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
-	// F-16: Account Recovery self-service — sin sesión a propósito (ver
-	// `account_recovery::handlers`), cubre justo el caso de alguien que
-	// perdió la passphrase. Tres pasos: pedir por email, esperar aprobación
-	// (poll), fijar una passphrase nueva. `requestId` sólo vive en memoria
-	// del componente — un F5 pierde el estado y hay que reintentar, flujo
-	// raro, aceptable.
+	// Recovery kit: flujo primario de recuperación de cuenta, self-service,
+	// sin admin de por medio — distinto de F-16 (movido a
+	// `/recover/admin-approval`, fallback para quien no tiene kit). Pedido
+	// por email → link con token → nueva passphrase + kit → todo client-side
+	// hasta que ambos pasos cierran → segundo factor (TOTP si el usuario lo
+	// tiene confirmado, email si no) → listo. Si la URL trae `?token=`, se
+	// salta directo al paso de kit+passphrase tras verificar el token.
 	import { goto } from '$app/navigation';
-	import { onDestroy } from 'svelte';
+	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { accountRecoveryApi } from '$lib/api/accountRecovery';
-	import { generarClaveEfimera, desellarMaterialDelEscrow, reSellarConNuevaPassphrase } from '$lib/crypto/accountRecovery';
+	import { recoveryKitApi } from '$lib/api/recoveryKit';
+	import { desellarMaterialDelEscrow, reSellarConNuevaPassphrase } from '$lib/crypto/accountRecovery';
+	import { base64ABytes } from '$lib/crypto/b64';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
-	type Paso = 'email' | 'esperando' | 'passphrase' | 'lista';
+	type Paso = 'email' | 'esperando-email' | 'kit-y-passphrase' | 'mfa' | 'lista';
 	let paso = $state<Paso>('email');
 	let email = $state('');
 	let cargando = $state(false);
 	let error = $state<string | undefined>();
 
-	let requestId: string | undefined;
-	let efimeraPrivada: Uint8Array | undefined;
-	let intervalo: ReturnType<typeof setInterval> | undefined;
+	const token = page.url.searchParams.get('token') ?? undefined;
+	let selladoMaterialB64: string | undefined;
+	let mfaMethod = $state<'totp' | 'email' | undefined>(undefined);
 
+	let kitPrivadaB64 = $state('');
 	let passphraseNueva = $state('');
 	let passphraseConfirmar = $state('');
 	const fortaleza = $derived(evaluarFortaleza(passphraseNueva));
@@ -41,63 +45,77 @@
 		][fortaleza.score]
 	);
 
-	function detenerPoll() {
-		if (intervalo) clearInterval(intervalo);
-		intervalo = undefined;
-	}
-	onDestroy(detenerPoll);
+	let blobListo: { blobB64: string; nonceB64: string; saltB64: string } | undefined;
+	let codigoMfa = $state('');
 
-	async function pedirRecuperacion(e: SubmitEvent) {
+	onMount(async () => {
+		if (!token) return;
+		cargando = true;
+		try {
+			const verificado = await recoveryKitApi.verificarToken(token);
+			selladoMaterialB64 = verificado.sealed_identity_material_b64;
+			mfaMethod = verificado.mfa_method;
+			email = verificado.email;
+			paso = 'kit-y-passphrase';
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.recoveryKit.errorTokenInvalido;
+		} finally {
+			cargando = false;
+		}
+	});
+
+	async function pedirLink(e: SubmitEvent) {
 		e.preventDefault();
 		error = undefined;
 		cargando = true;
 		try {
-			const efimera = await generarClaveEfimera();
-			efimeraPrivada = efimera.privada;
-			const solicitud = await accountRecoveryApi.crearSolicitud(email, efimera.publicaB64);
-			requestId = solicitud.id;
-			paso = 'esperando';
-			intervalo = setInterval(async () => {
-				if (!requestId) return;
-				try {
-					const actual = await accountRecoveryApi.estadoSolicitud(requestId);
-					if (actual.status === 'approved') {
-						detenerPoll();
-						paso = 'passphrase';
-					}
-				} catch {
-					/* red intermitente: el próximo tick reintenta solo */
-				}
-			}, 5000);
+			await recoveryKitApi.solicitarReset(email);
+			paso = 'esperando-email';
 		} catch (err) {
-			error = err instanceof ApiError ? err.message : get(t).recuperacionCuenta.errorGenerico;
+			error = err instanceof ApiError ? err.message : $t.recoveryKit.errorGenerico;
 		} finally {
 			cargando = false;
 		}
 	}
 
-	async function fijarPassphraseNueva(e: SubmitEvent) {
+	async function confirmarKitYPassphrase(e: SubmitEvent) {
 		e.preventDefault();
 		error = undefined;
 
 		if (passphraseNueva !== passphraseConfirmar) {
-			error = get(t).recuperacionCuenta.errorNoCoinciden;
+			error = $t.recoveryKit.errorNoCoinciden;
 			return;
 		}
-		if (!requestId || !efimeraPrivada) return;
+		if (!selladoMaterialB64) return;
 
 		cargando = true;
 		try {
-			const estado = await accountRecoveryApi.estadoSolicitud(requestId);
-			if (!estado.sealed_private_key_for_requester_b64) {
-				throw new Error(get(t).recuperacionCuenta.errorGenerico);
+			const kitPrivada = base64ABytes(kitPrivadaB64.trim());
+			const material = await desellarMaterialDelEscrow(kitPrivada, selladoMaterialB64);
+			blobListo = await reSellarConNuevaPassphrase(email, passphraseNueva, material);
+
+			if (mfaMethod === 'email' && token) {
+				await recoveryKitApi.enviarCodigoEmail(token);
 			}
-			const material = await desellarMaterialDelEscrow(efimeraPrivada, estado.sealed_private_key_for_requester_b64);
-			const blob = await reSellarConNuevaPassphrase(email, passphraseNueva, material);
-			await accountRecoveryApi.completar(requestId, blob.blobB64, blob.nonceB64, blob.saltB64);
+			paso = 'mfa';
+		} catch {
+			error = $t.recoveryKit.errorKitInvalido;
+		} finally {
+			cargando = false;
+		}
+	}
+
+	async function confirmarMfa(e: SubmitEvent) {
+		e.preventDefault();
+		error = undefined;
+		if (!token || !blobListo) return;
+
+		cargando = true;
+		try {
+			await recoveryKitApi.completar(token, codigoMfa, blobListo.blobB64, blobListo.nonceB64, blobListo.saltB64);
 			paso = 'lista';
 		} catch (err) {
-			error = err instanceof ApiError || err instanceof Error ? err.message : get(t).recuperacionCuenta.errorGenerico;
+			error = err instanceof ApiError ? err.message : $t.recoveryKit.errorGenerico;
 		} finally {
 			cargando = false;
 		}
@@ -105,24 +123,31 @@
 </script>
 
 <svelte:head>
-	<title>{$t.recuperacionCuenta.titulo}</title>
+	<title>{$t.recoveryKit.tituloRecover} — Ellkan</title>
 </svelte:head>
 
 <Card>
-	<h1>{$t.recuperacionCuenta.titulo}</h1>
+	<h1>{$t.recoveryKit.tituloRecover}</h1>
 
 	{#if paso === 'email'}
-		<p class="subtitulo">{$t.recuperacionCuenta.subtitulo}</p>
-		<form onsubmit={pedirRecuperacion}>
+		<p class="subtitulo">{$t.recoveryKit.subtituloRecover}</p>
+		<form onsubmit={pedirLink}>
 			<TextField label={$t.recuperacionCuenta.email} type="email" bind:value={email} autocomplete="email" required />
 			{#if error}<p class="error">{error}</p>{/if}
-			<Button type="submit" variant="primary" loading={cargando}>{$t.recuperacionCuenta.solicitar}</Button>
+			<Button type="submit" variant="primary" loading={cargando}>{$t.recoveryKit.pedirLink}</Button>
 		</form>
-	{:else if paso === 'esperando'}
-		<p class="hint">{$t.recuperacionCuenta.esperandoAprobacion}</p>
-	{:else if paso === 'passphrase'}
-		<p class="hint">{$t.recuperacionCuenta.aprobadaHint}</p>
-		<form onsubmit={fijarPassphraseNueva}>
+		<p class="hint centrado"><a href="/recover/admin-approval">{$t.recoveryKit.sinKitLink}</a></p>
+	{:else if paso === 'esperando-email'}
+		<p class="hint">{$t.recoveryKit.esperandoEmailHint}</p>
+	{:else if paso === 'kit-y-passphrase'}
+		<p class="hint">{$t.recoveryKit.kitYPassphraseHint}</p>
+		<form onsubmit={confirmarKitYPassphrase}>
+			<TextField
+				label={$t.recoveryKit.pegarKit}
+				bind:value={kitPrivadaB64}
+				hint={$t.recoveryKit.pegarKitHint}
+				required
+			/>
 			<TextField
 				label={$t.recuperacionCuenta.passphraseNueva}
 				type="password"
@@ -140,6 +165,15 @@
 				autocomplete="new-password"
 				required
 			/>
+			{#if error}<p class="error">{error}</p>{/if}
+			<Button type="submit" variant="primary" loading={cargando}>{$t.recoveryKit.continuar}</Button>
+		</form>
+	{:else if paso === 'mfa'}
+		<p class="hint">
+			{mfaMethod === 'totp' ? $t.recoveryKit.mfaTotpHint : $t.recoveryKit.mfaEmailHint}
+		</p>
+		<form onsubmit={confirmarMfa}>
+			<TextField label={$t.login.codigoApp} bind:value={codigoMfa} autocomplete="one-time-code" required />
 			{#if error}<p class="error">{error}</p>{/if}
 			<Button type="submit" variant="primary" loading={cargando}>{$t.recuperacionCuenta.fijarPassphrase}</Button>
 		</form>
@@ -164,6 +198,10 @@
 		color: var(--text-secondary);
 		font-size: var(--text-sm);
 		margin: var(--space-2) 0 var(--space-4) 0;
+	}
+	.hint.centrado {
+		text-align: center;
+		margin-top: var(--space-4);
 	}
 	form {
 		display: flex;

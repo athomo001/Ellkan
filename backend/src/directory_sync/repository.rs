@@ -22,6 +22,9 @@ pub trait DirectorySyncConfigRepository {
         base_dn: Option<&str>,
         user_filter: Option<&str>,
         attribute_mapping: &Value,
+        user_object_class: &str,
+        sync_groups: bool,
+        group_membership_attribute: &str,
     ) -> Result<(), RepoError>;
 
     async fn guardar_resultado_dry_run(&self, resultado: &Value) -> Result<(), RepoError>;
@@ -42,7 +45,8 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
         let fila = sqlx::query!(
             r#"
             select ldap_url, bind_dn, require_starttls, base_dn, user_filter,
-                   attribute_mapping, last_sync_at
+                   attribute_mapping, last_sync_at,
+                   user_object_class, sync_groups, group_membership_attribute
             from directory_sync_config where organization_id = 1
             "#,
         )
@@ -61,6 +65,9 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
             user_filter: fila.user_filter,
             attribute_mapping: mapping,
             last_sync_at: fila.last_sync_at,
+            user_object_class: fila.user_object_class,
+            sync_groups: fila.sync_groups,
+            group_membership_attribute: fila.group_membership_attribute,
         })
     }
 
@@ -74,6 +81,9 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
         base_dn: Option<&str>,
         user_filter: Option<&str>,
         attribute_mapping: &Value,
+        user_object_class: &str,
+        sync_groups: bool,
+        group_membership_attribute: &str,
     ) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
@@ -85,7 +95,10 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
                 require_starttls = $5,
                 base_dn = $6,
                 user_filter = $7,
-                attribute_mapping = $8
+                attribute_mapping = $8,
+                user_object_class = $9,
+                sync_groups = $10,
+                group_membership_attribute = $11
             where organization_id = 1
             "#,
             ldap_url,
@@ -96,6 +109,9 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
             base_dn,
             user_filter,
             attribute_mapping,
+            user_object_class,
+            sync_groups,
+            group_membership_attribute,
         )
         .execute(&self.pool)
         .await?;

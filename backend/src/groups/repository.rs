@@ -30,6 +30,14 @@ pub trait GroupRepository {
     async fn mover(&self, group_id: Uuid, new_parent_group_id: Option<Uuid>) -> Result<(), RepoError>;
 
     async fn eliminar(&self, group_id: Uuid) -> Result<(), RepoError>;
+
+    /// F-19: find-or-create por nombre a nivel raíz, usado por Directory
+    /// Sync para auto-crear grupos que vienen del directorio (`memberOf`).
+    /// Si ya existe un grupo raíz con ese nombre (armado a mano o por una
+    /// corrida anterior), reusa su `id` sin tocar `managed_by_directory_sync`
+    /// — sólo se marca `true` en la creación real, nunca se le pisa el flag
+    /// a un grupo que ya existía por otra vía.
+    async fn buscar_o_crear_raiz_gestionado(&self, name: &str) -> Result<Uuid, RepoError>;
 }
 
 pub trait GroupMemberRepository {
@@ -78,6 +86,13 @@ pub trait GroupMemberRepository {
     /// selector "compartir con mi grupo" y para autorizar `DELETE
     /// /resources/{id}` de un recurso que vive en una carpeta de grupo.
     async fn grupos_administrados_por(&self, user_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
+
+    /// F-19: grupos raíz **gestionados por Directory Sync**
+    /// (`managed_by_directory_sync`) a los que pertenece `user_id` — usado
+    /// sólo para la reconciliación de salida (alguien ya no aparece en el
+    /// `memberOf` actual). Nunca incluye un grupo armado a mano, aunque el
+    /// usuario también sea miembro de uno con el mismo nombre.
+    async fn grupos_gestionados_de(&self, user_id: Uuid) -> Result<Vec<GrupoDeUsuario>, RepoError>;
 }
 
 pub trait OrganizationRepository {
@@ -206,6 +221,22 @@ impl GroupRepository for PgGroupRepository {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn buscar_o_crear_raiz_gestionado(&self, name: &str) -> Result<Uuid, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            insert into groups (name, managed_by_directory_sync)
+            values ($1, true)
+            on conflict (name) where parent_group_id is null and deleted_at is null
+                do update set name = excluded.name
+            returning id
+            "#,
+            name,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fila.id)
     }
 }
 
@@ -415,6 +446,22 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(filas.into_iter().map(|f| f.group_id).collect())
+    }
+
+    async fn grupos_gestionados_de(&self, user_id: Uuid) -> Result<Vec<GrupoDeUsuario>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select g.id as group_id, g.name, gm.is_admin
+            from group_members gm
+            join groups g on g.id = gm.group_id and g.deleted_at is null
+            where gm.user_id = $1 and g.parent_group_id is null and g.managed_by_directory_sync
+            order by g.name
+            "#,
+            user_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| GrupoDeUsuario { group_id: f.group_id, name: f.name, is_admin: f.is_admin }).collect())
     }
 }
 

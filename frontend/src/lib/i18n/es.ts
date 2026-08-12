@@ -38,7 +38,11 @@ const es = {
 		errorPasskey: 'No se pudo iniciar sesión con la passkey.',
 		errorDesbloqueoLocal: 'No se pudo desbloquear.',
 		tokenSeguridadHint: 'Deberías reconocer este color y esta palabra en este dispositivo:',
-		olvidasteTuPassphrase: '¿Olvidaste tu contraseña?'
+		olvidasteTuPassphrase: '¿Olvidaste tu contraseña?',
+		cambioObligatorioHint:
+			'Esta cuenta se creó con una contraseña provisoria. Elegí una contraseña nueva para poder continuar.',
+		cambioObligatorioListoHint: 'Listo — iniciá sesión de nuevo con tu contraseña nueva.',
+		errorPassphrasesNoCoinciden: 'Las contraseñas no coinciden.'
 	},
 	recuperacionCuenta: {
 		titulo: 'Recuperar cuenta — Ellkan',
@@ -54,7 +58,45 @@ const es = {
 		completaHint: 'Listo — ya podés iniciar sesión con tu contraseña nueva.',
 		irALogin: 'Ir a iniciar sesión',
 		errorNoCoinciden: 'Las contraseñas no coinciden.',
-		errorGenerico: 'No se pudo completar la recuperación.'
+		errorGenerico: 'No se pudo completar la recuperación.',
+		volverAlKit: '¿Tenés tu recovery kit? Recuperá tu cuenta vos mismo'
+	},
+	recoveryKit: {
+		tituloOnboarding: 'Configurá tu kit de recuperación',
+		tituloRotacion: 'Generá un kit de recuperación nuevo',
+		introOnboarding:
+			'Este kit es la única forma de recuperar tu cuenta vos mismo si olvidás tu contraseña. Guardalo en un lugar seguro — si lo perdés, no vas a poder recuperar tu cuenta con él.',
+		introRotacion:
+			'Tu kit anterior se usó para recuperar tu cuenta y ya no sirve. Generá uno nuevo y eliminá el archivo viejo para evitar confusiones.',
+		advertencia: 'Guardalo con tu vida: si lo perdés, no vas a poder recuperar tu cuenta con él nunca más.',
+		descargar: 'Descargar .txt',
+		copiar: 'Copiar al portapapeles',
+		copiado: 'Copiado.',
+		confirmacion: 'Ya guardé mi kit de recuperación',
+		finalizar: 'Finalizar',
+		generando: 'Generando…',
+		reintentar: 'Reintentar',
+		errorGenerico: 'No se pudo generar el kit de recuperación.',
+		errorClavesBloqueadas: 'Necesitás tu sesión desbloqueada para generar un kit.',
+		ajustesTitulo: 'Kit de recuperación',
+		ajustesHint: 'Un kit de recuperación te permite recuperar tu cuenta vos mismo, sin depender de un administrador.',
+		ajustesConfigurado: 'Configurado el {fecha}.',
+		ajustesNoConfigurado: 'Todavía no configuraste un kit de recuperación.',
+		ajustesGenerarNuevo: 'Generar nuevo kit',
+		tituloRecover: 'Recuperar cuenta',
+		subtituloRecover: 'Te mandamos un link a tu email para recuperar tu cuenta con tu kit de recuperación.',
+		pedirLink: 'Enviar link de recuperación',
+		sinKitLink: '¿No tenés tu kit de recuperación? Pedir aprobación de un admin',
+		esperandoEmailHint: 'Revisá tu email y abrí el link que te mandamos. Podés cerrar esta pantalla.',
+		kitYPassphraseHint: 'Pegá tu kit de recuperación y elegí una contraseña nueva.',
+		pegarKit: 'Kit de recuperación',
+		pegarKitHint: 'El texto que guardaste cuando configuraste tu kit.',
+		continuar: 'Continuar',
+		mfaTotpHint: 'Ingresá el código de tu app de autenticación para confirmar la recuperación.',
+		mfaEmailHint: 'Te mandamos un código por email para confirmar la recuperación.',
+		errorTokenInvalido: 'Este link no es válido o venció — pedí uno nuevo.',
+		errorKitInvalido: 'No pudimos usar ese kit de recuperación. Revisá que lo hayas pegado completo.',
+		errorNoCoinciden: 'Las contraseñas no coinciden.'
 	},
 	registro: {
 		titulo: 'Crear cuenta — Ellkan',
@@ -465,6 +507,9 @@ const es = {
 			crearTitulo: 'Crear usuario',
 			crearHint:
 				'Corre la misma ceremonia de registro que la pantalla pública — el navegador genera las claves acá mismo, el servidor nunca ve la passphrase. Crea sólo un usuario con rol "user"; para admin, usar la CLI (ellkan-cli admin promote-to-admin).',
+			gruposAlCrearHint: 'Grupo(s) a incluir (opcional) — se puede seguir ajustando después desde Grupos.',
+			errorAgregarAGrupo: (nombre: string) =>
+				`El usuario se creó, pero no se pudo agregar a "${nombre}" porque ese grupo ya comparte recursos — agregalo manualmente.`,
 			nombre: 'Nombre',
 			passphraseTemporal: 'Passphrase temporal',
 			crear: 'Crear usuario',
@@ -615,6 +660,7 @@ const es = {
 			colAprobaciones: 'Aprobaciones',
 			colFecha: 'Solicitada',
 			aprobar: 'Aprobar',
+			rechazar: 'Rechazar',
 			sinSolicitudes: 'No hay solicitudes pendientes.'
 		},
 		politicaSelfRegistration: {
@@ -677,7 +723,20 @@ const es = {
 			reactivar: 'Reactivar',
 			desactivar: 'Desactivar',
 			sinCambios: 'Sin cambios',
-			conflictos: 'Conflictos'
+			conflictos: 'Conflictos',
+			userObjectClass: 'objectClass de usuario',
+			userObjectClassHint: 'inetOrgPerson (OpenLDAP) o user (Active Directory).',
+			mapeoTitulo: 'Mapeo de atributos',
+			mapeoHint: 'Vacío usa el default que se ve como placeholder en cada campo.',
+			mapeoExternalId: 'Atributo de ID externo',
+			mapeoEmail: 'Atributo de email',
+			mapeoDisplayName: 'Atributo de nombre',
+			gruposTitulo: 'Grupos',
+			syncGroups: 'Sincronizar grupos desde el directorio',
+			groupMembershipAttribute: 'Atributo de membresía de grupo',
+			groupMembershipAttributeHint:
+				'Atributo multivaluado en la propia entrada de usuario — memberOf (Active Directory) por default.',
+			cambiosGrupos: 'Cambios de grupo'
 		},
 		metadataKeys: {
 			titulo: 'Claves de metadata',

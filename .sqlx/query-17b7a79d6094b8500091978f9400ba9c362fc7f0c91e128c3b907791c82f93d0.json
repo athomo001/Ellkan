@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update recovery_kits set must_rotate = true where user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17b7a79d6094b8500091978f9400ba9c362fc7f0c91e128c3b907791c82f93d0"
+}

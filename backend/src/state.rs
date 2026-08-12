@@ -34,6 +34,7 @@ use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, Pg
 use crate::notificaciones::PgOutboundEmailRepository;
 use crate::passkeys::repository::{PgCeremonyStateRepository, PgPasskeyRepository};
 use crate::password_policy::repository::PgPasswordPolicyRepository;
+use crate::recovery_kit::repository::{PgRecoveryKitRepository, PgResetTokenRepository};
 use crate::self_registration::repository::PgSelfRegistrationPolicyRepository;
 use crate::reports::repository::PgReportsRepository;
 use crate::resources::repository::{
@@ -115,6 +116,9 @@ pub struct AppState {
     pub org_recovery_key: PgOrgRecoveryKeyRepository,
     pub account_recovery_escrow: PgEscrowRepository,
     pub account_recovery_requests: PgRecoveryRequestRepository,
+    // Recovery kit (self-held, sin escrow de admin — distinto de F-16)
+    pub recovery_kits: PgRecoveryKitRepository,
+    pub recovery_reset_tokens: PgResetTokenRepository,
     // F-17
     pub sso_config: PgSsoConfigRepository,
     pub sso_identities: PgSsoIdentityRepository,
@@ -210,6 +214,8 @@ impl AppState {
             org_recovery_key: PgOrgRecoveryKeyRepository { pool: pool.clone() },
             account_recovery_escrow: PgEscrowRepository { pool: pool.clone() },
             account_recovery_requests: PgRecoveryRequestRepository { pool: pool.clone() },
+            recovery_kits: PgRecoveryKitRepository { pool: pool.clone() },
+            recovery_reset_tokens: PgResetTokenRepository { pool: pool.clone() },
             sso_config: PgSsoConfigRepository { pool: pool.clone() },
             sso_identities: PgSsoIdentityRepository { pool: pool.clone() },
             sso_login_state: PgLoginStateRepository { pool: pool.clone() },

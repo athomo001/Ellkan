@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update users set role_id = $1 where email = $2 and deleted_at is null returning id",
+  "query": "insert into recovery_reset_tokens (user_id, token_hash, expires_at) values ($1, $2, $3) returning id",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "users",
+            "table": "recovery_reset_tokens",
             "name": "id"
           }
         }
@@ -18,12 +18,13 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text"
+        "Bytea",
+        "Timestamptz"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "b75afad498f367beab9eb2d7bc291a0629eb4d09feb0aedc92101ac16003f565"
+  "hash": "9ffd8fb4932a7874313c53412519e311a2cd180fd0434a3a743e9cd30be94fca"
 }

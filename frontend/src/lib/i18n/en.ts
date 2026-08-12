@@ -39,7 +39,10 @@ const en: Diccionario = {
 		errorPasskey: 'Could not sign in with the passkey.',
 		errorDesbloqueoLocal: 'Could not unlock.',
 		tokenSeguridadHint: 'You should recognize this color and word on this device:',
-		olvidasteTuPassphrase: 'Forgot your passphrase?'
+		olvidasteTuPassphrase: 'Forgot your passphrase?',
+		cambioObligatorioHint: 'This account was created with a temporary passphrase. Choose a new one to continue.',
+		cambioObligatorioListoHint: 'Done — sign in again with your new passphrase.',
+		errorPassphrasesNoCoinciden: 'Passphrases do not match.'
 	},
 	recuperacionCuenta: {
 		titulo: 'Recover account — Ellkan',
@@ -54,7 +57,45 @@ const en: Diccionario = {
 		completaHint: 'Done — you can now sign in with your new passphrase.',
 		irALogin: 'Go to sign in',
 		errorNoCoinciden: 'Passphrases do not match.',
-		errorGenerico: 'Could not complete the recovery.'
+		errorGenerico: 'Could not complete the recovery.',
+		volverAlKit: 'Have your recovery kit? Recover your account yourself'
+	},
+	recoveryKit: {
+		tituloOnboarding: 'Set up your recovery kit',
+		tituloRotacion: 'Generate a new recovery kit',
+		introOnboarding:
+			'This kit is the only way to recover your account yourself if you forget your passphrase. Keep it somewhere safe — if you lose it, you won’t be able to use it to recover your account.',
+		introRotacion:
+			'Your previous kit was used to recover your account and no longer works. Generate a new one and delete the old file to avoid confusion.',
+		advertencia: 'Guard it with your life: if you lose it, you will never be able to use it to recover your account again.',
+		descargar: 'Download .txt',
+		copiar: 'Copy to clipboard',
+		copiado: 'Copied.',
+		confirmacion: 'I already saved my recovery kit',
+		finalizar: 'Finish',
+		generando: 'Generating…',
+		reintentar: 'Retry',
+		errorGenerico: 'Could not generate the recovery kit.',
+		errorClavesBloqueadas: 'You need your session unlocked to generate a kit.',
+		ajustesTitulo: 'Recovery kit',
+		ajustesHint: 'A recovery kit lets you recover your account yourself, without relying on an administrator.',
+		ajustesConfigurado: 'Configured on {fecha}.',
+		ajustesNoConfigurado: 'You haven’t configured a recovery kit yet.',
+		ajustesGenerarNuevo: 'Generate new kit',
+		tituloRecover: 'Recover account',
+		subtituloRecover: 'We’ll email you a link to recover your account with your recovery kit.',
+		pedirLink: 'Send recovery link',
+		sinKitLink: 'Don’t have your recovery kit? Request admin approval instead',
+		esperandoEmailHint: 'Check your email and open the link we sent you. You can close this screen.',
+		kitYPassphraseHint: 'Paste your recovery kit and choose a new passphrase.',
+		pegarKit: 'Recovery kit',
+		pegarKitHint: 'The text you saved when you set up your kit.',
+		continuar: 'Continue',
+		mfaTotpHint: 'Enter the code from your authenticator app to confirm the recovery.',
+		mfaEmailHint: 'We emailed you a code to confirm the recovery.',
+		errorTokenInvalido: 'This link is invalid or expired — request a new one.',
+		errorKitInvalido: 'We couldn’t use that recovery kit. Check that you pasted it in full.',
+		errorNoCoinciden: 'Passphrases do not match.'
 	},
 	registro: {
 		titulo: 'Create account — Ellkan',
@@ -462,6 +503,9 @@ const en: Diccionario = {
 			crearTitulo: 'Create user',
 			crearHint:
 				'Runs the same registration ceremony as the public signup screen — your browser generates the keys right here, the server never sees the passphrase. Creates a "user"-role account only; for admin, use the CLI (ellkan-cli admin promote-to-admin).',
+			gruposAlCrearHint: 'Group(s) to include (optional) — can still be adjusted later from Groups.',
+			errorAgregarAGrupo: (nombre: string) =>
+				`The user was created, but couldn't be added to "${nombre}" because that group already shares resources — add them manually.`,
 			nombre: 'Name',
 			passphraseTemporal: 'Temporary passphrase',
 			crear: 'Create user',
@@ -610,6 +654,7 @@ const en: Diccionario = {
 			colAprobaciones: 'Approvals',
 			colFecha: 'Requested',
 			aprobar: 'Approve',
+			rechazar: 'Reject',
 			sinSolicitudes: 'No pending requests.'
 		},
 		politicaSelfRegistration: {
@@ -671,7 +716,19 @@ const en: Diccionario = {
 			reactivar: 'Reactivate',
 			desactivar: 'Deactivate',
 			sinCambios: 'Unchanged',
-			conflictos: 'Conflicts'
+			conflictos: 'Conflicts',
+			userObjectClass: 'User objectClass',
+			userObjectClassHint: 'inetOrgPerson (OpenLDAP) or user (Active Directory).',
+			mapeoTitulo: 'Attribute mapping',
+			mapeoHint: 'Empty uses the default shown as a placeholder in each field.',
+			mapeoExternalId: 'External ID attribute',
+			mapeoEmail: 'Email attribute',
+			mapeoDisplayName: 'Display name attribute',
+			gruposTitulo: 'Groups',
+			syncGroups: 'Sync groups from the directory',
+			groupMembershipAttribute: 'Group membership attribute',
+			groupMembershipAttributeHint: 'Multivalued attribute on the user entry itself — memberOf (Active Directory) by default.',
+			cambiosGrupos: 'Group changes'
 		},
 		metadataKeys: {
 			titulo: 'Metadata keys',

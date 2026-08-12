@@ -181,7 +181,10 @@ interface SolicitudRecoveryTrasAprobar {
 }
 export const accountRecoveryAdminApi = {
 	listarPendientes: () => api.get<SolicitudRecoveryAdmin[]>('/admin/account-recovery/requests'),
-	aprobar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/approve`)
+	aprobar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/approve`),
+	// 2026-08-11: delegado a admin de grupo, mismo criterio que aprobar — el
+	// backend filtra visibilidad/autorización, acá sólo se llama al endpoint.
+	rechazar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/reject`)
 };
 
 // --- políticas: emergency access ---
@@ -228,6 +231,9 @@ export interface DirectorySyncConfig {
 	user_filter: string | null;
 	attribute_mapping: Record<string, string>;
 	last_sync_at: string | null;
+	user_object_class: string;
+	sync_groups: boolean;
+	group_membership_attribute: string;
 }
 export interface DirectorySyncConfigUpdate {
 	ldap_url?: string;
@@ -237,6 +243,14 @@ export interface DirectorySyncConfigUpdate {
 	base_dn?: string;
 	user_filter?: string;
 	attribute_mapping: Record<string, string>;
+	user_object_class: string;
+	sync_groups: boolean;
+	group_membership_attribute: string;
+}
+export interface CambioGrupoUsuario {
+	external_id: string;
+	grupos_nuevos: string[];
+	grupos_removidos: string[];
 }
 export interface ResultadoSync {
 	would_create: string[];
@@ -244,6 +258,7 @@ export interface ResultadoSync {
 	would_deactivate: string[];
 	unchanged: number;
 	conflicts: string[];
+	group_changes: CambioGrupoUsuario[];
 }
 export const directorySyncApi = {
 	obtenerConfig: () => api.get<DirectorySyncConfig>('/admin/directory-sync/config'),

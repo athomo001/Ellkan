@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 
 use crate::admin::repository::RoleRepository;
-use crate::auth::extractor::AuthenticatedUser;
+use crate::auth::extractor::{AuthenticatedUser, SesionValida};
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
@@ -132,9 +132,16 @@ pub async fn avatar_eliminar(State(state): State<AppState>, user: AuthenticatedU
 /// con la passphrase actual y lo re-selló con la nueva antes de llamar acá
 /// (`$lib/crypto/identity.ts::cambiarPassphrase`); el servidor nunca ve
 /// ninguna de las dos passphrases, sólo el blob ya re-sellado.
+///
+/// `SesionValida` (no `AuthenticatedUser`): quien llega hasta acá ya
+/// demostró conocer la passphrase actual (la firma Ed25519 de
+/// `/auth/verify` exige haberla desbloqueado client-side antes de firmar),
+/// así que una sesión parcial también puede cambiarla — es justo lo que
+/// necesita `RequiereCambiarPassphrase` (passphrase provisoria creada por un
+/// admin) para no tener que abrir un endpoint nuevo sólo para ese caso.
 pub async fn cambiar_passphrase(
     State(state): State<AppState>,
-    user: AuthenticatedUser,
+    sesion: SesionValida,
     Json(req): Json<CambiarPassphraseRequest>,
 ) -> Result<(), ApiError> {
     let encrypted_private_key_blob = b64::decode(&req.encrypted_private_key_blob_b64)
@@ -145,7 +152,7 @@ pub async fn cambiar_passphrase(
         .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
 
     CambiarPassphraseService { claves: &state.preferencias_usuario, eventos: state.eventos.clone() }
-        .actualizar(user.user_id, NuevaClavePrivada { encrypted_private_key_blob, private_key_nonce, kdf_salt })
+        .actualizar(sesion.user_id, NuevaClavePrivada { encrypted_private_key_blob, private_key_nonce, kdf_salt })
         .await?;
     Ok(())
 }

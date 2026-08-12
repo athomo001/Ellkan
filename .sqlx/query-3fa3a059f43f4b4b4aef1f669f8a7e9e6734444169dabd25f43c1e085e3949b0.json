@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select ldap_url, bind_dn, require_starttls, base_dn, user_filter,\n                   attribute_mapping, last_sync_at\n            from directory_sync_config where organization_id = 1\n            ",
+  "query": "\n            select ldap_url, bind_dn, require_starttls, base_dn, user_filter,\n                   attribute_mapping, last_sync_at,\n                   user_object_class, sync_groups, group_membership_attribute\n            from directory_sync_config where organization_id = 1\n            ",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,39 @@
             "name": "last_sync_at"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "user_object_class",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "user_object_class"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "sync_groups",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "sync_groups"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "group_membership_attribute",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "group_membership_attribute"
+          }
+        }
       }
     ],
     "parameters": {
@@ -91,8 +124,11 @@
       true,
       true,
       false,
-      true
+      true,
+      false,
+      false,
+      false
     ]
   },
-  "hash": "67325cc785669899d3fb8ddfce2957dd36e49ba1e717282ef3222d4c7ae41425"
+  "hash": "3fa3a059f43f4b4b4aef1f669f8a7e9e6734444169dabd25f43c1e085e3949b0"
 }

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update directory_sync_config set\n                ldap_url = $1,\n                bind_dn = $2,\n                bind_password_encrypted = coalesce($3, bind_password_encrypted),\n                bind_password_nonce = coalesce($4, bind_password_nonce),\n                require_starttls = $5,\n                base_dn = $6,\n                user_filter = $7,\n                attribute_mapping = $8,\n                user_object_class = $9,\n                sync_groups = $10,\n                group_membership_attribute = $11\n            where organization_id = 1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Bool",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "836b52eb363f02c1d1d925f5b2b105ef556af4c57769ddcdd07faa24210b6f3f"
+}

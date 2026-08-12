@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            insert into users (email, display_name, role_id, email_verified_at)\n            values ($1, $2,\n                (select id from roles where name =\n                    case when exists (select 1 from users) then 'user' else 'admin' end),\n                case when (not exists (select 1 from users)) or $3 then now() else null end\n            )\n            returning id, security_stamp, created_at\n            ",
+  "query": "\n            insert into users (email, display_name, role_id, email_verified_at)\n            values ($1, $2,\n                (select id from roles where name =\n                    case when exists (select 1 from users) then 'user' else 'admin' end),\n                case when (not exists (select 1 from users)) or $3 then now() else null end\n            )\n            returning id, security_stamp, created_at, must_change_passphrase\n            ",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "must_change_passphrase",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "must_change_passphrase"
+          }
+        }
       }
     ],
     "parameters": {
@@ -47,8 +58,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "27ada9833ae5737510e8fe8047b860a3582c87a86eabf6aa7f721fd78da2eed4"
+  "hash": "f9b1de7d0fb0ebafa3dfa52f1d8d1de49c06b8f82815924f8798608411857e74"
 }

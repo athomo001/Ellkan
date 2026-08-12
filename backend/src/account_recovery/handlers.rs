@@ -21,7 +21,9 @@ use super::repository::{
     PgRecoveryRequestRepository,
 };
 use super::service::AccountRecoveryService;
+use crate::admin::repository::PgRoleRepository;
 use crate::auth::repository::PgUserRepository;
+use crate::groups::repository::PgGroupMemberRepository;
 use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::PgPreferenciasRepository;
 
@@ -33,6 +35,8 @@ type Servicio<'a> = AccountRecoveryService<
     PgRecoveryRequestRepository,
     PgUserRepository,
     PgPreferenciasRepository,
+    PgRoleRepository,
+    PgGroupMemberRepository,
 >;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
@@ -45,6 +49,8 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         claves: &state.preferencias_usuario,
         secrets_key: &state.secrets_key,
         pool: &state.pool,
+        roles: &state.roles,
+        grupos: &state.miembros_de_grupo,
         eventos: state.eventos.clone(),
     }
 }
@@ -142,12 +148,28 @@ pub async fn estado_solicitud(
     Ok(Json(solicitud_a_response(solicitud)))
 }
 
+/// `POST /admin/account-recovery/requests/{id}/approve` — 2026-08-11:
+/// extractor pasa de `AdminUser` a `AuthenticatedUser` porque la
+/// autorización real (admin de organización O admin del grupo del
+/// solicitante) ya no es una propiedad estática de la sesión, depende de
+/// `id` — el gate vive en `AccountRecoveryService::autorizar_gestion`.
 pub async fn aprobar(
     State(state): State<AppState>,
-    admin: AdminUser,
+    actor: AuthenticatedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SolicitudResponse>, ApiError> {
-    let solicitud = servicio(&state).aprobar(admin.user_id, id).await?;
+    let solicitud = servicio(&state).aprobar(actor.user_id, id).await?;
+    Ok(Json(solicitud_a_response(solicitud)))
+}
+
+/// `POST /admin/account-recovery/requests/{id}/reject` — 2026-08-11, mismo
+/// criterio de extractor/autorización que `aprobar`.
+pub async fn rechazar(
+    State(state): State<AppState>,
+    actor: AuthenticatedUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<SolicitudResponse>, ApiError> {
+    let solicitud = servicio(&state).rechazar(actor.user_id, id).await?;
     Ok(Json(solicitud_a_response(solicitud)))
 }
 
@@ -177,11 +199,13 @@ fn solicitud_admin_a_response(s: SolicitudPendiente) -> SolicitudAdminResponse {
 }
 
 /// `GET /admin/account-recovery/requests` — descubribilidad para el admin,
-/// ver `AccountRecoveryService::listar_pendientes`.
+/// ver `AccountRecoveryService::listar_pendientes`. 2026-08-11: extractor
+/// `AuthenticatedUser` (no `AdminUser`) — un admin de grupo también puede
+/// llamar esto, el filtro de visibilidad vive en el Service.
 pub async fn listar_solicitudes_pendientes(
     State(state): State<AppState>,
-    _admin: AdminUser,
+    actor: AuthenticatedUser,
 ) -> Result<Json<Vec<SolicitudAdminResponse>>, ApiError> {
-    let solicitudes = servicio(&state).listar_pendientes().await?;
+    let solicitudes = servicio(&state).listar_pendientes(actor.user_id).await?;
     Ok(Json(solicitudes.into_iter().map(solicitud_admin_a_response).collect()))
 }

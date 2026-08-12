@@ -32,6 +32,11 @@ pub trait RoleRepository {
     /// el rol tiene `"*"`, viene literal en la lista; el frontend no lo
     /// expande, sólo chequea membresía).
     async fn permisos_de_usuario(&self, user_id: Uuid) -> Result<Vec<String>, RepoError>;
+
+    /// 2026-08-11: emails de todos los usuarios cuyo rol tiene `permission`
+    /// o el comodín `"*"` — fallback de F-16 cuando el solicitante no
+    /// pertenece a ningún grupo (nadie a quien notificar de forma acotada).
+    async fn listar_emails_con_permiso(&self, permission: &str) -> Result<Vec<String>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -181,5 +186,20 @@ impl RoleRepository for PgRoleRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(filas.into_iter().map(|f| f.permission).collect())
+    }
+
+    async fn listar_emails_con_permiso(&self, permission: &str) -> Result<Vec<String>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select distinct u.email from users u
+            join role_permissions rp on rp.role_id = u.role_id
+            where (rp.permission = $1 or rp.permission = '*') and u.deleted_at is null
+            order by u.email
+            "#,
+            permission,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.email).collect())
     }
 }

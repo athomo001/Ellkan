@@ -74,10 +74,20 @@ pub trait RecoveryRequestRepository {
 
     async fn marcar_completada(&self, id: Uuid) -> Result<bool, RepoError>;
 
+    /// 2026-08-11: mismo lock optimista que `marcar_completada` — sólo
+    /// transiciona `pending -> rejected`, nunca pisa una ya resuelta.
+    async fn marcar_rechazada(&self, id: Uuid) -> Result<bool, RepoError>;
+
     /// `GET /admin/account-recovery/requests` — único modo de que un admin
     /// descubra que existe una solicitud pendiente (el id sólo lo conoce
-    /// quien la creó).
-    async fn listar_pendientes(&self) -> Result<Vec<SolicitudPendiente>, RepoError>;
+    /// quien la creó). 2026-08-11: acotado por visibilidad — un admin de
+    /// organización (`es_admin_org`) ve todas; un admin de grupo sólo ve las
+    /// de usuarios que comparten alguno de `grupos_administrados` con él.
+    async fn listar_pendientes_visibles(
+        &self,
+        es_admin_org: bool,
+        grupos_administrados: &[Uuid],
+    ) -> Result<Vec<SolicitudPendiente>, RepoError>;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -418,7 +428,22 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
         Ok(resultado.rows_affected() == 1)
     }
 
-    async fn listar_pendientes(&self) -> Result<Vec<SolicitudPendiente>, RepoError> {
+    async fn marcar_rechazada(&self, id: Uuid) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update account_recovery_requests set status = 'rejected', resolved_at = now()
+               where id = $1 and status = 'pending'"#,
+            id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn listar_pendientes_visibles(
+        &self,
+        es_admin_org: bool,
+        grupos_administrados: &[Uuid],
+    ) -> Result<Vec<SolicitudPendiente>, RepoError> {
         let filas = sqlx::query!(
             r#"
             select r.id, u.email as target_email, r.status, r.approvals,
@@ -427,8 +452,14 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
             join account_recovery_escrow e on e.id = r.escrow_id
             join users u on u.id = e.user_id
             where r.status = 'pending'
+              and ($1 or exists (
+                  select 1 from group_members gm
+                  where gm.user_id = e.user_id and gm.group_id = any($2)
+              ))
             order by r.created_at asc
             "#,
+            es_admin_org,
+            grupos_administrados,
         )
         .fetch_all(&self.pool)
         .await?;

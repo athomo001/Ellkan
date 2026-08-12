@@ -193,6 +193,51 @@ where
                 // F-33: consumidor dedicado en `metadata::rotacion`, no
                 // genera ninguna notificación por email.
                 DomainEvent::MetadataKeyRotationStarted { .. } => {}
+                DomainEvent::RecoveryKitResetRequested { email, token, .. } => {
+                    let base = std::env::var("ELLKAN_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:8080".to_string());
+                    let asunto = "Ellkan: recuperá el acceso a tu cuenta";
+                    let cuerpo = format!(
+                        "Pediste recuperar el acceso a tu cuenta de Ellkan.\n\
+                         Abrí este link y seguí los pasos (vas a necesitar tu recovery kit):\n\
+                         {base}/recover?token={token}\n\
+                         Este link vence en 1 hora. Si no fuiste vos, ignorá este email — tu cuenta sigue segura."
+                    );
+                    if let Err(e) = emails.encolar(&email, asunto, &cuerpo).await {
+                        tracing::error!(error = %e, "no se pudo encolar el email de reset de recovery kit");
+                    }
+                }
+                DomainEvent::RecoveryKitResetEmailCode { email, codigo, .. } => {
+                    let asunto = "Ellkan: tu código de verificación";
+                    let cuerpo = format!(
+                        "Estás recuperando tu cuenta de Ellkan con tu recovery kit.\n\
+                         Código de verificación: {codigo}\n\
+                         Ingresalo para completar la recuperación. Si no fuiste vos, ignorá este email."
+                    );
+                    if let Err(e) = emails.encolar(&email, asunto, &cuerpo).await {
+                        tracing::error!(error = %e, "no se pudo encolar el email de código de recovery kit");
+                    }
+                }
+                DomainEvent::RecoveryKitResetCompleted { email, .. } => {
+                    let asunto = "Ellkan: tu cuenta se acaba de recuperar";
+                    let cuerpo = "Tu cuenta de Ellkan se acaba de recuperar con tu recovery kit y se cerraron \
+                                   todas las sesiones activas. Si no fuiste vos, contactá a un administrador de inmediato."
+                        .to_string();
+                    if let Err(e) = emails.encolar(&email, asunto, &cuerpo).await {
+                        tracing::error!(error = %e, "no se pudo encolar el email de aviso de recuperación");
+                    }
+                }
+                DomainEvent::AccountRecoveryAdminNotify { target_email, recipient_emails, .. } => {
+                    let asunto = "Ellkan: solicitud de recuperación de cuenta pendiente";
+                    let cuerpo = format!(
+                        "Hay una solicitud de recuperación de cuenta pendiente para {target_email}.\n\
+                         Revisala en el panel de administración."
+                    );
+                    for destinatario in &recipient_emails {
+                        if let Err(e) = emails.encolar(destinatario, asunto, &cuerpo).await {
+                            tracing::error!(error = %e, "no se pudo encolar el aviso de solicitud de account recovery");
+                        }
+                    }
+                }
                 // F-13: consumidor dedicado en `audit::consumidor`, no
                 // genera ninguna notificación por email.
                 DomainEvent::Auditoria(_) => {}

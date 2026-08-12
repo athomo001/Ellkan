@@ -136,19 +136,21 @@ where
     /// verificada, sin política de auto-registro ni SMTP de por medio, sin
     /// código ni email. La passphrase que se tipeó en la ceremonia la
     /// conoce el admin (zero-knowledge roto para esa cuenta puntual hasta
-    /// que cambie) — el frontend recomienda cambiarla apenas se entra
-    /// (`POST /me/change-passphrase`, ya existente), no hay enforcement
-    /// automático todavía.
+    /// que cambie) — el próximo login fuerza el cambio antes de operar
+    /// (`must_change_passphrase`, ver `resolver_tras_f02`), no es sólo una
+    /// recomendación de la UI.
     pub async fn crear_por_admin(&self, nuevo: NuevoUsuario<'_>) -> Result<crate::auth::models::User, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
             return Err(DomainError::ValidacionInvalida(
                 "las claves públicas deben ser de 32 bytes".to_string(),
             ));
         }
-        self.usuarios.crear(nuevo, true).await.map_err(|e| match e {
+        let user = self.usuarios.crear(nuevo, true).await.map_err(|e| match e {
             crate::error::RepoError::Conflict => DomainError::Conflict,
             otro => DomainError::Interno(otro),
-        })
+        })?;
+        self.usuarios.marcar_debe_cambiar_passphrase(user.id).await?;
+        Ok(crate::auth::models::User { must_change_passphrase: true, ..user })
     }
 
     /// Anti user-enumeration: misma forma exista o no la cuenta, ya esté
@@ -256,11 +258,13 @@ where
             }
             // El caso "dispositivo no reconocido" ya se audita en el punto
             // donde se detecta, más abajo — acá no es ni éxito ni fallo.
-            // Los dos estados de MFA tampoco son éxito ni fallo todavía:
-            // `mfa::service` audita el desenlace real cuando se resuelvan.
+            // Los estados de MFA/cambio de passphrase obligatorio tampoco
+            // son éxito ni fallo todavía: se resuelven (y se auditan si
+            // corresponde) más adelante en su propio flujo.
             Ok(ResultadoVerify::PendienteDispositivo { .. })
             | Ok(ResultadoVerify::PendienteMfa { .. })
-            | Ok(ResultadoVerify::RequiereConfigurarMfa { .. }) => {}
+            | Ok(ResultadoVerify::RequiereConfigurarMfa { .. })
+            | Ok(ResultadoVerify::RequiereCambiarPassphrase { .. }) => {}
             Err(_) => {
                 let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
                     AuditEventType::AuthLoginFailed,
@@ -370,6 +374,16 @@ where
     /// `verify_device_con_desafio` — la decisión de MFA es la misma en los
     /// dos casos, sólo cambia cómo se llegó hasta acá.
     pub(crate) async fn resolver_tras_f02(&self, user: User) -> Result<ResultadoVerify, DomainError> {
+        // Passphrase provisoria (creada por un admin): se resuelve ANTES que
+        // MFA, a propósito — nunca tiene sentido dejar que alguien configure
+        // un segundo factor atado a una passphrase que todavía conoce otra
+        // persona. Sesión parcial, sólo `/me/change-passphrase` la acepta
+        // (`SesionValida`) hasta que se limpie la marca.
+        if user.must_change_passphrase {
+            let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+            return Ok(ResultadoVerify::RequiereCambiarPassphrase { session_id: parcial.id });
+        }
+
         let politica = self.mfa_policy.obtener().await?;
         let tiene_confirmado = self.mfa_totp.buscar_confirmado(user.id).await?.is_some();
 

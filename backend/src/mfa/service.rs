@@ -68,7 +68,11 @@ pub fn decidir(politica: &MfaPolicy, tiene_confirmado: bool, user_created_at: Of
     }
 }
 
-fn descifrar_secreto(clave: &ClaveSecreta32, credential: &TotpCredential) -> Result<Vec<u8>, DomainError> {
+/// `pub(crate)`: `recovery_kit::service` también necesita descifrar el
+/// secreto TOTP para verificarlo durante un reset por kit (sin sesión ni
+/// desafío de por medio, a diferencia del resto de este módulo) — único
+/// motivo por el que esto deja de ser privado.
+pub(crate) fn descifrar_secreto(clave: &ClaveSecreta32, credential: &TotpCredential) -> Result<Vec<u8>, DomainError> {
     // El nonce siempre tiene 24 bytes: la única fuente de esta columna es
     // `aead::cifrar` en `iniciar_setup_totp`, nunca un valor externo — un
     // largo distinto sería un bug de escritura, no una entrada inválida.

@@ -23,6 +23,7 @@ pub mod observabilidad;
 pub mod passkeys;
 pub mod password_policy;
 pub mod rate_limit;
+pub mod recovery_kit;
 pub mod reports;
 pub mod resources;
 pub mod retention;
@@ -491,7 +492,57 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let admin_account_recovery_requests_router = Router::new()
         .route("/", get(account_recovery::handlers::listar_solicitudes_pendientes))
-        .route("/{id}/approve", post(account_recovery::handlers::aprobar));
+        .route("/{id}/approve", post(account_recovery::handlers::aprobar))
+        .route("/{id}/reject", post(account_recovery::handlers::rechazar));
+
+    let me_recovery_kit_router = Router::new()
+        .route("/", get(recovery_kit::handlers::estado).put(recovery_kit::handlers::generar_o_regenerar));
+
+    // Recovery kit: reset por email sin sesión — mismo patrón de rate limit
+    // por IP que `external_shares_router` (`GovernorLayer` + `retain_recent()`
+    // en background), no el `governor::RateLimiter::keyed` de
+    // `limitar_mfa_por_sesion` (ese exige una identidad ya extraída, acá no
+    // hay sesión). Dos tiers: general para pedir/verificar el link, y uno
+    // más estricto dedicado sobre `complete` (ahí se juega el segundo
+    // factor, mismo criterio de F-14 para `POST /auth/mfa/verify`).
+    let recovery_kit_reset_governor_conf = GovernorConfigBuilder::default()
+        .per_second(1)
+        .burst_size(5)
+        .finish()
+        .expect("configuración de rate limiting de recovery-kit-reset válida");
+    let recovery_kit_reset_limiter = recovery_kit_reset_governor_conf.limiter().clone();
+    tokio::spawn(async move {
+        let mut intervalo = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            intervalo.tick().await;
+            recovery_kit_reset_limiter.retain_recent();
+        }
+    });
+
+    let recovery_kit_complete_governor_conf = GovernorConfigBuilder::default()
+        .period(Duration::from_secs(12))
+        .burst_size(5)
+        .finish()
+        .expect("configuración de rate limiting de recovery-kit-complete válida");
+    let recovery_kit_complete_limiter = recovery_kit_complete_governor_conf.limiter().clone();
+    tokio::spawn(async move {
+        let mut intervalo = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            intervalo.tick().await;
+            recovery_kit_complete_limiter.retain_recent();
+        }
+    });
+
+    let recovery_kit_reset_router = Router::new()
+        .route("/", post(recovery_kit::handlers::solicitar_reset))
+        .route("/{token}", get(recovery_kit::handlers::verificar_token))
+        .route("/{token}/email-code", post(recovery_kit::handlers::enviar_codigo_email))
+        .layer(GovernorLayer::new(recovery_kit_reset_governor_conf))
+        .merge(
+            Router::new()
+                .route("/{token}/complete", post(recovery_kit::handlers::completar_reset))
+                .layer(GovernorLayer::new(recovery_kit_complete_governor_conf)),
+        );
 
     let me_emergency_access_router = Router::new()
         .route("/", get(emergency_access::handlers::listar).post(emergency_access::handlers::designar))
@@ -610,6 +661,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/account-recovery-policy", admin_account_recovery_policy_router)
         .nest("/account-recovery", account_recovery_router)
         .nest("/admin/account-recovery/requests", admin_account_recovery_requests_router)
+        .nest("/me/recovery-kit", me_recovery_kit_router)
+        .nest("/recovery-kit/reset", recovery_kit_reset_router)
         .nest("/me/emergency-access", me_emergency_access_router)
         .nest("/admin/emergency-access-policy", admin_emergency_access_policy_router)
         .nest("/admin/sso-config", admin_sso_config_router)

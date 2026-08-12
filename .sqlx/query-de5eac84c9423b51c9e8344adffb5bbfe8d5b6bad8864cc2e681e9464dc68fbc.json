@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update recovery_reset_tokens set email_code_hash = $2, email_code_expires_at = $3 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de5eac84c9423b51c9e8344adffb5bbfe8d5b6bad8864cc2e681e9464dc68fbc"
+}

@@ -141,6 +141,12 @@ pub async fn callback(
         ResultadoVerify::RequiereConfigurarMfa { session_id } => {
             LoginCompletoResponse { estado: "requiere_configurar_mfa".into(), session_id: Some(session_id) }
         }
+        // SSO JIT/linking nunca marca `must_change_passphrase` (sólo
+        // `AuthService::crear_por_admin` lo hace) — inalcanzable en la
+        // práctica, pero el match tiene que ser exhaustivo igual.
+        ResultadoVerify::RequiereCambiarPassphrase { session_id } => {
+            LoginCompletoResponse { estado: "requiere_cambiar_passphrase".into(), session_id: Some(session_id) }
+        }
         ResultadoVerify::PendienteDispositivo { .. } => unreachable!("SSO nunca pasa por F-02"),
     }))
 }

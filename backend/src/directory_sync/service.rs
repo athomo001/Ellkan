@@ -14,13 +14,26 @@ use uuid::Uuid;
 use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::groups::models::GrupoDeUsuario;
+use crate::groups::repository::{GroupMemberRepository, GroupRepository};
+use crate::resources::repository::PermissionRepository;
 use crate::scim::models::ResultadoCrearUsuario;
 use crate::scim::repository::ScimUserRepository;
 use ellkan_crypto::aead;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
-use super::models::{DirectorySyncConfig, EntradaLdap, ResultadoSync, ATRIBUTOS_PROHIBIDOS};
+use super::models::{CambioGrupoUsuario, DirectorySyncConfig, EntradaLdap, ResultadoSync, ATRIBUTOS_PROHIBIDOS};
 use super::repository::DirectorySyncConfigRepository;
+
+/// Resuelve el nombre de grupo desde un valor crudo de `memberOf` — si
+/// tiene forma de DN (`cn=RRHH,ou=groups,dc=...`), extrae el valor del
+/// primer RDN; si no, lo usa tal cual (atributo plano con nombres directos).
+fn nombre_de_grupo_desde_valor_ldap(valor: &str) -> String {
+    match valor.split_once('=') {
+        Some((_, resto)) => resto.split(',').next().unwrap_or(resto).trim().to_string(),
+        None => valor.trim().to_string(),
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DirectorySyncError {
@@ -82,17 +95,27 @@ fn validar_tls(cfg: &DirectorySyncConfig) -> Result<(), DirectorySyncError> {
     Err(DirectorySyncError::TlsRequerido)
 }
 
-pub struct DirectorySyncService<'a, C, U> {
+pub struct DirectorySyncService<'a, C, U, GR, GM, P> {
     pub config: &'a C,
     pub usuarios: &'a U,
+    /// F-19: sólo se usan si `sync_groups` está activo — find-or-create de
+    /// grupos raíz (`GR`) y reconciliación de membresía (`GM`); `P` resuelve
+    /// qué recursos comparte un grupo al reconciliar una baja, mismo
+    /// criterio que `GroupService::quitar_miembro`.
+    pub grupos: &'a GR,
+    pub miembros: &'a GM,
+    pub permisos: &'a P,
     pub secrets_key: &'a ClaveSecreta32,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, C, U> DirectorySyncService<'a, C, U>
+impl<'a, C, U, GR, GM, P> DirectorySyncService<'a, C, U, GR, GM, P>
 where
     C: DirectorySyncConfigRepository,
     U: ScimUserRepository,
+    GR: GroupRepository,
+    GM: GroupMemberRepository,
+    P: PermissionRepository,
 {
     pub async fn config(&self) -> Result<DirectorySyncConfig, DomainError> {
         Ok(self.config.obtener().await?)
@@ -109,8 +132,17 @@ where
         base_dn: Option<String>,
         user_filter: Option<String>,
         attribute_mapping: std::collections::BTreeMap<String, String>,
+        user_object_class: String,
+        sync_groups: bool,
+        group_membership_attribute: String,
     ) -> Result<DirectorySyncConfig, DomainError> {
         validar_mapeo(&attribute_mapping)?;
+        if user_object_class.trim().is_empty() {
+            return Err(DomainError::ValidacionInvalida("user_object_class no puede estar vacío".into()));
+        }
+        if group_membership_attribute.trim().is_empty() {
+            return Err(DomainError::ValidacionInvalida("group_membership_attribute no puede estar vacío".into()));
+        }
 
         let (cifrado, nonce) = match bind_password {
             Some(pw) => {
@@ -133,6 +165,9 @@ where
                 base_dn.as_deref(),
                 user_filter.as_deref(),
                 &mapping_json,
+                &user_object_class,
+                sync_groups,
+                &group_membership_attribute,
             )
             .await?;
 
@@ -180,7 +215,7 @@ where
             .and_then(|r| r.success())
             .map_err(|e| DirectorySyncError::Ldap(e.to_string()))?;
 
-        let filtro_base = "(objectClass=inetOrgPerson)".to_string();
+        let filtro_base = format!("(objectClass={})", escapar_filtro_ldap(&cfg.user_object_class));
         let filtro = match &cfg.user_filter {
             Some(custom) if !custom.is_empty() => {
                 format!("(&{filtro_base}({}))", escapar_filtro_ldap(custom))
@@ -192,8 +227,13 @@ where
         let campo_email = cfg.attribute_mapping.get("email").cloned().unwrap_or_else(|| "mail".into());
         let campo_nombre = cfg.attribute_mapping.get("display_name").cloned().unwrap_or_else(|| "cn".into());
 
+        let mut atributos = vec![campo_external_id.as_str(), campo_email.as_str(), campo_nombre.as_str()];
+        if cfg.sync_groups {
+            atributos.push(cfg.group_membership_attribute.as_str());
+        }
+
         let (resultados, _res) = ldap
-            .search(base_dn, Scope::Subtree, &filtro, vec![campo_external_id.as_str(), campo_email.as_str(), campo_nombre.as_str()])
+            .search(base_dn, Scope::Subtree, &filtro, atributos)
             .await
             .map_err(|e| DirectorySyncError::Ldap(e.to_string()))?
             .success()
@@ -207,8 +247,16 @@ where
             let external_id = se.attrs.get(&campo_external_id).and_then(|v| v.first()).cloned();
             let email = se.attrs.get(&campo_email).and_then(|v| v.first()).cloned();
             let nombre = se.attrs.get(&campo_nombre).and_then(|v| v.first()).cloned();
+            let grupos = if cfg.sync_groups {
+                se.attrs
+                    .get(&cfg.group_membership_attribute)
+                    .map(|valores| valores.iter().map(|v| nombre_de_grupo_desde_valor_ldap(v)).collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             if let (Some(external_id), Some(email)) = (external_id, email) {
-                entradas.push(EntradaLdap { external_id, email, display_name: nombre.unwrap_or_default() });
+                entradas.push(EntradaLdap { external_id, email, display_name: nombre.unwrap_or_default(), grupos });
             }
         }
 
@@ -218,19 +266,39 @@ where
     /// Calcula el diff sin aplicar nada — usado tanto por dry-run (persiste
     /// el resultado, no toca `users`) como por `apply` (mismo cálculo,
     /// después sí muta).
-    async fn calcular_diff(&self, entradas: &[EntradaLdap]) -> Result<ResultadoSync, DomainError> {
+    async fn calcular_diff(&self, cfg: &DirectorySyncConfig, entradas: &[EntradaLdap]) -> Result<ResultadoSync, DomainError> {
         let mut resultado = ResultadoSync::default();
 
         for entrada in entradas {
-            match self.usuarios.buscar_por_external_id(&entrada.external_id).await? {
-                Some(existente) if existente.active => resultado.unchanged += 1,
+            let existente = self.usuarios.buscar_por_external_id(&entrada.external_id).await?;
+            match &existente {
+                Some(u) if u.active => resultado.unchanged += 1,
                 Some(_) => resultado.would_reactivate.push(entrada.external_id.clone()),
                 None => match self.usuarios.buscar_por_email(&entrada.email).await? {
-                    Some(otro) if otro.external_id.as_deref() != Some(&entrada.external_id) => {
+                    Some(otro) if otro.external_id.as_deref() != Some(entrada.external_id.as_str()) => {
                         resultado.conflicts.push(entrada.email.clone())
                     }
                     _ => resultado.would_create.push(entrada.external_id.clone()),
                 },
+            }
+
+            if cfg.sync_groups {
+                let deseados: std::collections::HashSet<&str> = entrada.grupos.iter().map(String::as_str).collect();
+                let actuales: Vec<GrupoDeUsuario> = match &existente {
+                    Some(u) => self.miembros.grupos_gestionados_de(u.id).await?,
+                    None => Vec::new(),
+                };
+                let nombres_actuales: std::collections::HashSet<&str> = actuales.iter().map(|g| g.name.as_str()).collect();
+
+                let nuevos: Vec<String> = deseados.difference(&nombres_actuales).map(|s| s.to_string()).collect();
+                let removidos: Vec<String> = nombres_actuales.difference(&deseados).map(|s| s.to_string()).collect();
+                if !nuevos.is_empty() || !removidos.is_empty() {
+                    resultado.group_changes.push(CambioGrupoUsuario {
+                        external_id: entrada.external_id.clone(),
+                        grupos_nuevos: nuevos,
+                        grupos_removidos: removidos,
+                    });
+                }
             }
         }
 
@@ -255,7 +323,7 @@ where
     pub async fn dry_run(&self, actor_id: Uuid) -> Result<ResultadoSync, DomainError> {
         let cfg = self.config().await?;
         let entradas = self.buscar_entradas(&cfg).await?;
-        let resultado = self.calcular_diff(&entradas).await?;
+        let resultado = self.calcular_diff(&cfg, &entradas).await?;
 
         let json = serde_json::to_value(&resultado).expect("serializar resultado no falla");
         self.config.guardar_resultado_dry_run(&json).await?;
@@ -270,7 +338,7 @@ where
     pub async fn aplicar(&self, actor_id: Uuid) -> Result<ResultadoSync, DomainError> {
         let cfg = self.config().await?;
         let entradas = self.buscar_entradas(&cfg).await?;
-        let resultado = self.calcular_diff(&entradas).await?;
+        let resultado = self.calcular_diff(&cfg, &entradas).await?;
 
         for entrada in &entradas {
             match self.usuarios.buscar_por_external_id(&entrada.external_id).await? {
@@ -293,6 +361,39 @@ where
         for external_id in &resultado.would_deactivate {
             if let Some(u) = self.usuarios.buscar_por_external_id(external_id).await? {
                 self.usuarios.actualizar_activo(u.id, false).await?;
+            }
+        }
+
+        // F-19: reconciliación de grupos — corre después de alta/reactivación
+        // (todo usuario de `entradas` ya existe en este punto). Alta: cada
+        // nombre de `entrada.grupos` se resuelve a un grupo raíz gestionado
+        // (find-or-create) y se agrega la membresía (idempotente, un
+        // `Conflict` significa que ya era miembro). Baja: cualquier grupo
+        // gestionado al que el usuario pertenecía y ya no aparece en su
+        // `memberOf` actual se revoca, junto con el acceso a los recursos
+        // que ese grupo comparte (mismo criterio que `GroupService::quitar_miembro`).
+        if cfg.sync_groups {
+            for entrada in &entradas {
+                let Some(usuario) = self.usuarios.buscar_por_external_id(&entrada.external_id).await? else {
+                    continue;
+                };
+
+                for nombre_grupo in &entrada.grupos {
+                    let group_id = self.grupos.buscar_o_crear_raiz_gestionado(nombre_grupo).await?;
+                    if let Err(e) = self.miembros.agregar_simple(group_id, usuario.id, false).await
+                        && !matches!(e, crate::error::RepoError::Conflict)
+                    {
+                        return Err(e.into());
+                    }
+                }
+
+                let deseados: std::collections::HashSet<&str> = entrada.grupos.iter().map(String::as_str).collect();
+                for actual in self.miembros.grupos_gestionados_de(usuario.id).await? {
+                    if !deseados.contains(actual.name.as_str()) {
+                        let recursos_compartidos = self.permisos.recursos_por_grantee("group", actual.group_id).await?;
+                        self.miembros.quitar(actual.group_id, usuario.id, &recursos_compartidos).await?;
+                    }
+                }
             }
         }
 

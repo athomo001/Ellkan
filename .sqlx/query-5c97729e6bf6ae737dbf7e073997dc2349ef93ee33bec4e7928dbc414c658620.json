@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, security_stamp, created_at from users\n               where email = $1 and active and deleted_at is null and email_verified_at is null",
+  "query": "select id, security_stamp, created_at, must_change_passphrase from users\n               where email = $1 and active and deleted_at is null and email_verified_at is null",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "must_change_passphrase",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "must_change_passphrase"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "7609cc4f3e9e1f40e243a0f6275c1a0c7f4cbaa694aba567cae623985faf4066"
+  "hash": "5c97729e6bf6ae737dbf7e073997dc2349ef93ee33bec4e7928dbc414c658620"
 }

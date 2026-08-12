@@ -29,6 +29,22 @@ pub enum DomainEvent {
     /// `saliente_id` hasta que ningún recurso lo referencie más y recién
     /// entonces la expira — nunca antes.
     MetadataKeyRotationStarted { saliente_id: Uuid, entrante_id: Uuid },
+    /// Recovery kit: link de reset — a diferencia de `codigo` en los otros
+    /// variantes, `token` viaja en claro sólo mientras el evento vive en
+    /// memoria, igual criterio (se usa para armar la URL del email y se
+    /// suelta ahí mismo).
+    RecoveryKitResetRequested { user_id: Uuid, email: String, token: String },
+    /// Recovery kit: fallback de segundo factor cuando el usuario no tiene
+    /// TOTP confirmado — mismo criterio de `codigo` en claro que `MfaCodigoPorCorreo`.
+    RecoveryKitResetEmailCode { user_id: Uuid, email: String, codigo: String },
+    /// Recovery kit: aviso al dueño de la cuenta de que se acaba de
+    /// recuperar — si no fue él, tiene que enterarse.
+    RecoveryKitResetCompleted { user_id: Uuid, email: String },
+    /// F-16, 2026-08-11: notificación de una solicitud pendiente acotada a
+    /// los admins del/los grupo(s) del solicitante (fallback a admins de
+    /// organización si no tiene grupo) — antes esta acción no mandaba
+    /// ningún email a nadie.
+    AccountRecoveryAdminNotify { request_id: Uuid, target_email: String, recipient_emails: Vec<String> },
     /// F-13: dispara el consumidor de `audit::consumidor`, que persiste la
     /// entrada de forma asíncrona — nunca dentro de la transacción de la
     /// acción que audita.

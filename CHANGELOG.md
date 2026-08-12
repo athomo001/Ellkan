@@ -4,6 +4,40 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.27] - 2026-08-11
+
+### Agregado: cambio de contraseña obligatorio para cuentas creadas por un admin
+
+- Si un administrador te crea la cuenta, la contraseña temporal que te entrega ahora se tiene que cambiar sí o sí en tu primer inicio de sesión — antes era sólo una recomendación, no algo forzado de verdad.
+
+### Agregado: elegir grupo(s) al crear un usuario
+
+- El formulario de "Crear usuario" del panel de administración ahora deja elegir a qué grupo o grupos incluir a la persona en el mismo paso, en vez de tener que hacerlo después por separado.
+
+### Agregado: sincronización de grupos desde LDAP
+
+- Directory Sync (LDAP) ahora puede traer también la membresía de grupo de cada persona desde el directorio (activable desde su configuración) — si el grupo todavía no existe en Ellkan, se crea solo.
+- El filtro de búsqueda de usuarios contra LDAP dejó de estar fijo — ahora se puede configurar para que funcione tanto contra OpenLDAP como contra Active Directory.
+
+### Arreglado: la configuración de Directory Sync perdía el mapeo de atributos al guardar
+
+- El formulario no tenía ningún campo para el mapeo de atributos LDAP → campos de usuario, así que cada vez que se guardaba la configuración se borraba en silencio lo que estuviera configurado. Ahora el formulario tiene esos campos y guardarlo ya no lo pisa.
+
+## [0.1.26] - 2026-08-11
+
+### Agregado: kit de recuperación de cuenta — recuperá tu cuenta vos mismo, sin depender de un administrador
+
+- Al configurar el segundo factor por primera vez (o en el próximo login, si ya tenías uno), ahora se genera un kit de recuperación: un archivo que tenés que guardar en un lugar seguro. Es el único paso obligatorio nuevo — se muestra una vez, con la opción de descargarlo como `.txt` o copiarlo.
+- Si te olvidás la contraseña, ya no hace falta esperar a que un admin apruebe tu recuperación: pedís un link por email, elegís una contraseña nueva, pegás tu kit, y confirmás con tu app de autenticación (o con un código por email si todavía no configuraste una). La recuperación vía admin sigue disponible como alternativa para quien no tiene kit.
+- Por seguridad, el kit usado para recuperar la cuenta queda invalidado — el próximo inicio de sesión pide generar uno nuevo.
+- Se puede generar un kit nuevo en cualquier momento desde Ajustes → Seguridad. Nunca se vuelve a mostrar el kit original, siempre es uno nuevo y distinto.
+
+### Cambiado: recuperación de cuenta por un administrador ahora se puede delegar a admins de grupo
+
+- Aprobar o rechazar una solicitud de recuperación ya no requiere ser admin general de la organización — un admin del grupo de la persona que pide recuperación también puede resolverla. Antes sólo se podía aprobar, nunca rechazar.
+- El aviso de una solicitud nueva ya no le llega a todos los admins de la organización, sólo a los del grupo de quien la pidió (con los admins generales como respaldo si esa persona no pertenece a ningún grupo).
+- Cada aprobación o rechazo hecho por un admin de grupo queda marcado con claridad en el registro de auditoría, distinto de una acción de un admin general.
+
 ## [0.1.25] - 2026-08-11
 
 ### Agregado: los grupos ahora son una unidad de trabajo real

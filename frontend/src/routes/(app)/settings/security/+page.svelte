@@ -23,6 +23,8 @@
 	import { generarSetup, confirmarYActivar, estaActivo, desactivar } from '$lib/crypto/totp-local';
 	import { accountRecoveryApi } from '$lib/api/accountRecovery';
 	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
+	import { recoveryKitApi } from '$lib/api/recoveryKit';
+	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
 	import { devicesApi, type TrustedDevice } from '$lib/api/devices';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
@@ -78,6 +80,33 @@
 		} finally {
 			habilitandoRecovery = false;
 		}
+	}
+
+	// Recovery kit: sólo status acá — nunca re-muestra un kit ya generado
+	// antes (ver `GenerarRecoveryKit.svelte`), regenerar siempre produce uno
+	// nuevo y genuinamente distinto.
+	let kitConfigurado = $state(false);
+	let kitCreatedAt = $state<string | null>(null);
+	let cargandoKit = $state(true);
+	let regenerandoKit = $state(false);
+
+	async function cargarEstadoKit() {
+		cargandoKit = true;
+		try {
+			const estado = await recoveryKitApi.estado();
+			kitConfigurado = estado.configured;
+			kitCreatedAt = estado.created_at;
+		} catch {
+			/* la card simplemente no ofrece el botón de regenerar si esto falla */
+		} finally {
+			cargandoKit = false;
+		}
+	}
+	onMount(cargarEstadoKit);
+
+	function alRegenerarKit() {
+		regenerandoKit = false;
+		cargarEstadoKit();
 	}
 
 	async function agregar(e: SubmitEvent) {
@@ -308,6 +337,29 @@
 		{#if errorRecovery}<p class="error">{errorRecovery}</p>{/if}
 		<Button variant="secondary" onclick={habilitarRecovery} loading={habilitandoRecovery}>
 			{$t.settingsSecurity.recoveryHabilitar}
+		</Button>
+	{/if}
+</Card>
+
+<Card>
+	<h2>{$t.recoveryKit.ajustesTitulo}</h2>
+	<p class="hint">{$t.recoveryKit.ajustesHint}</p>
+
+	{#if cargandoKit}
+		<p class="hint">{$t.settingsSecurity.cargando}</p>
+	{:else if regenerandoKit}
+		<GenerarRecoveryKit
+			mensaje={kitConfigurado ? $t.recoveryKit.introRotacion : $t.recoveryKit.introOnboarding}
+			onGenerado={alRegenerarKit}
+		/>
+	{:else}
+		{#if kitConfigurado}
+			<p class="ok">{$t.recoveryKit.ajustesConfigurado.replace('{fecha}', new Date(kitCreatedAt ?? '').toLocaleString())}</p>
+		{:else}
+			<p class="hint">{$t.recoveryKit.ajustesNoConfigurado}</p>
+		{/if}
+		<Button variant="secondary" onclick={() => (regenerandoKit = true)}>
+			{kitConfigurado ? $t.recoveryKit.ajustesGenerarNuevo : $t.recoveryKit.finalizar}
 		</Button>
 	{/if}
 </Card>

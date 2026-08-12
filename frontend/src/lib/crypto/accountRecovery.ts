@@ -12,7 +12,10 @@ import { bytesABase64, base64ABytes } from './b64';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 
 /** El servidor nunca ve más que bytes opacos: concatena las dos privadas
- * antes de sellar contra la clave pública organizacional. */
+ * antes de sellar contra la clave pública organizacional. Genérica pese al
+ * nombre — sella contra CUALQUIER clave pública X25519, no sólo la de la
+ * org; `recovery_kit` la reusa tal cual bajo el alias `sellarMaterialParaKit`
+ * para sellar contra la pública del kit en vez de la de la org. */
 export async function sellarMaterialParaOrg(orgPublicKeyB64: string, claves: ClavesDesbloqueadas): Promise<string> {
 	const wasm = await cargarCrypto();
 	const material = new Uint8Array(64);
@@ -21,6 +24,8 @@ export async function sellarMaterialParaOrg(orgPublicKeyB64: string, claves: Cla
 	const sellado = wasm.sellar_para(base64ABytes(orgPublicKeyB64), material);
 	return bytesABase64(sellado);
 }
+
+export { sellarMaterialParaOrg as sellarMaterialParaKit };
 
 export interface ClaveEfimera {
 	privada: Uint8Array;

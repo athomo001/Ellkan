@@ -144,9 +144,16 @@ impl ClavePrivadaRepository for PgPreferenciasRepository {
         )
         .execute(&mut *tx)
         .await?;
-        sqlx::query!(r#"update users set security_stamp = gen_random_uuid() where id = $1"#, user_id)
-            .execute(&mut *tx)
-            .await?;
+        // `must_change_passphrase = false` en el mismo UPDATE: si esta
+        // llamada viene de una sesión `RequiereCambiarPassphrase` (passphrase
+        // provisoria), cambiar la passphrase ya cierra ese requisito — sin
+        // esto, el próximo login volvería a exigirlo con la passphrase nueva.
+        sqlx::query!(
+            r#"update users set security_stamp = gen_random_uuid(), must_change_passphrase = false where id = $1"#,
+            user_id,
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }

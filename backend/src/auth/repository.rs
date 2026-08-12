@@ -26,6 +26,13 @@ pub trait UserRepository {
     async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError>;
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError>;
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError>;
+
+    /// `POST /admin/users` — la passphrase temporal la conoce el admin que
+    /// la creó, así que el próximo login fuerza el cambio (ver
+    /// `ResultadoVerify::RequiereCambiarPassphrase`). Update de una sola
+    /// columna, separado de `crear` para no tocar `NuevoUsuario` (lo
+    /// comparten auto-registro/SSO JIT/SCIM, que nunca deben marcarla).
+    async fn marcar_debe_cambiar_passphrase(&self, user_id: Uuid) -> Result<(), RepoError>;
     async fn buscar_keys(&self, user_id: Uuid) -> Result<Option<UserKeysRow>, RepoError>;
 
     /// F-03: `webauthn-rs` exige `email`/`display_name` al iniciar el
@@ -178,7 +185,7 @@ impl UserRepository for PgUserRepository {
                     case when exists (select 1 from users) then 'user' else 'admin' end),
                 case when (not exists (select 1 from users)) or $3 then now() else null end
             )
-            returning id, security_stamp, created_at
+            returning id, security_stamp, created_at, must_change_passphrase
             "#,
             nuevo.email,
             nuevo.display_name,
@@ -211,31 +218,53 @@ impl UserRepository for PgUserRepository {
 
         tx.commit().await?;
 
-        Ok(User { id: fila.id, security_stamp: fila.security_stamp, created_at: fila.created_at })
+        Ok(User {
+            id: fila.id,
+            security_stamp: fila.security_stamp,
+            created_at: fila.created_at,
+            must_change_passphrase: fila.must_change_passphrase,
+        })
     }
 
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, security_stamp, created_at from users
+            r#"select id, security_stamp, created_at, must_change_passphrase from users
                where email = $1 and active and deleted_at is null and email_verified_at is not null"#,
             email,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
+        Ok(fila.map(|f| User {
+            id: f.id,
+            security_stamp: f.security_stamp,
+            created_at: f.created_at,
+            must_change_passphrase: f.must_change_passphrase,
+        }))
     }
 
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, security_stamp, created_at from users
+            r#"select id, security_stamp, created_at, must_change_passphrase from users
                where id = $1 and active and deleted_at is null and email_verified_at is not null"#,
             user_id,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
+        Ok(fila.map(|f| User {
+            id: f.id,
+            security_stamp: f.security_stamp,
+            created_at: f.created_at,
+            must_change_passphrase: f.must_change_passphrase,
+        }))
+    }
+
+    async fn marcar_debe_cambiar_passphrase(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"update users set must_change_passphrase = true where id = $1"#, user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn buscar_keys(&self, user_id: Uuid) -> Result<Option<UserKeysRow>, RepoError> {
@@ -292,14 +321,19 @@ impl UserRepository for PgUserRepository {
 
     async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, security_stamp, created_at from users
+            r#"select id, security_stamp, created_at, must_change_passphrase from users
                where email = $1 and active and deleted_at is null and email_verified_at is null"#,
             email,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
+        Ok(fila.map(|f| User {
+            id: f.id,
+            security_stamp: f.security_stamp,
+            created_at: f.created_at,
+            must_change_passphrase: f.must_change_passphrase,
+        }))
     }
 
     async fn buscar_por_prefijo(
@@ -356,7 +390,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_por_email_visible(&self, actor_id: Uuid, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"
-            select u.id, u.security_stamp, u.created_at from users u
+            select u.id, u.security_stamp, u.created_at, u.must_change_passphrase from users u
             where u.email = $2 and u.active and u.deleted_at is null and u.email_verified_at is not null
               and (
                     u.id = $1
@@ -379,7 +413,12 @@ impl UserRepository for PgUserRepository {
         )
         .fetch_optional(&self.pool)
         .await?;
-        Ok(fila.map(|f| User { id: f.id, security_stamp: f.security_stamp, created_at: f.created_at }))
+        Ok(fila.map(|f| User {
+            id: f.id,
+            security_stamp: f.security_stamp,
+            created_at: f.created_at,
+            must_change_passphrase: f.must_change_passphrase,
+        }))
     }
 }
 

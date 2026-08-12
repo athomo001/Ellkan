@@ -91,7 +91,12 @@ export async function reenviarVerificacionEmail(email: string): Promise<void> {
 }
 
 interface ResultadoLogin {
-	estado: 'completo' | 'pendiente_dispositivo' | 'pendiente_mfa' | 'requiere_configurar_mfa';
+	estado:
+		| 'completo'
+		| 'pendiente_dispositivo'
+		| 'pendiente_mfa'
+		| 'requiere_configurar_mfa'
+		| 'requiere_cambiar_passphrase';
 	sessionId?: string;
 	userId?: string;
 	deviceChallengeId?: string;

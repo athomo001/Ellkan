@@ -18,10 +18,12 @@ use ellkan_crypto::aead::{self, Envoltura};
 use ellkan_crypto::secretos::ClaveSecreta32;
 use ellkan_crypto::{claves::KeypairAcuerdo, sellado};
 
+use crate::admin::repository::RoleRepository;
 use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::auth::repository::UserRepository;
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::groups::repository::GroupMemberRepository;
 use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::ClavePrivadaRepository;
 use crate::me::service::CambiarPassphraseService;
@@ -31,7 +33,7 @@ use super::repository::{
     AccountRecoveryPolicyRepository, EscrowRepository, OrgRecoveryKeyRepository, RecoveryRequestRepository,
 };
 
-pub struct AccountRecoveryService<'a, P, K, E, R, U, C> {
+pub struct AccountRecoveryService<'a, P, K, E, R, U, C, RR, GM> {
     pub policy: &'a P,
     pub org_key: &'a K,
     pub escrow: &'a E,
@@ -40,6 +42,10 @@ pub struct AccountRecoveryService<'a, P, K, E, R, U, C> {
     pub claves: &'a C,
     pub secrets_key: &'a ClaveSecreta32,
     pub pool: &'a sqlx::PgPool,
+    /// 2026-08-11: delegación de autoridad a admin de grupo (aprobar/
+    /// rechazar/listar) — mismo patrón que `resources::service::eliminar`.
+    pub roles: &'a RR,
+    pub grupos: &'a GM,
     pub eventos: EmisorDeEventos,
 }
 
@@ -50,7 +56,7 @@ fn parsear_public_key_x25519(bytes: &[u8]) -> Result<X25519PublicKey, DomainErro
     Ok(X25519PublicKey::from(arreglo))
 }
 
-impl<'a, P, K, E, R, U, C> AccountRecoveryService<'a, P, K, E, R, U, C>
+impl<'a, P, K, E, R, U, C, RR, GM> AccountRecoveryService<'a, P, K, E, R, U, C, RR, GM>
 where
     P: AccountRecoveryPolicyRepository,
     K: OrgRecoveryKeyRepository,
@@ -58,7 +64,35 @@ where
     R: RecoveryRequestRepository,
     U: UserRepository,
     C: ClavePrivadaRepository,
+    RR: RoleRepository,
+    GM: GroupMemberRepository,
 {
+    /// `Ok((true, None))` si `admin_id` autoriza como admin de organización;
+    /// `Ok((false, Some(group_id)))` si autoriza como admin de un grupo al
+    /// que pertenece `target_user_id`; `PermissionDenied` si ninguna de las
+    /// dos. Mismo patrón que `resources::service::eliminar`, adaptado de
+    /// "admin del grupo dueño de la carpeta" a "admin de un grupo del
+    /// solicitante". Compartido entre `aprobar`/`rechazar` para no duplicar
+    /// el gate en dos lugares.
+    async fn autorizar_gestion(&self, admin_id: Uuid, target_user_id: Uuid) -> Result<(bool, Option<Uuid>), DomainError> {
+        let es_admin_org = self.roles.usuario_tiene_permiso(admin_id, "*").await?;
+        if es_admin_org {
+            return Ok((true, None));
+        }
+
+        let grupos_del_requester = self.grupos.grupos_de(target_user_id).await?;
+        let grupos_admin_del_actor = self.grupos.grupos_administrados_por(admin_id).await?;
+        let group_id = grupos_del_requester
+            .iter()
+            .map(|g| g.group_id)
+            .find(|gid| grupos_admin_del_actor.contains(gid));
+
+        match group_id {
+            Some(gid) => Ok((false, Some(gid))),
+            None => Err(DomainError::PermissionDenied),
+        }
+    }
+
     pub async fn politica(&self) -> Result<AccountRecoveryPolicy, DomainError> {
         Ok(self.policy.obtener().await?)
     }
@@ -168,6 +202,31 @@ where
 
         let solicitud = self.requests.crear(escrow.id, None, &requester_public_key_x25519).await?;
 
+        // 2026-08-11: notificación acotada a los admins del/los grupo(s) del
+        // solicitante — antes esto no mandaba ningún email a nadie (ver
+        // ground truth en el plan). Fallback a admins de organización sólo
+        // si el solicitante no pertenece a ningún grupo — nunca se le manda
+        // esto a los 500 admins de una org grande por una sola solicitud.
+        let grupos_del_requester = self.grupos.grupos_de(user.id).await?;
+        let mut destinatarios: Vec<String> = Vec::new();
+        for g in &grupos_del_requester {
+            for m in self.grupos.miembros_de(g.group_id).await? {
+                if m.is_admin {
+                    destinatarios.push(m.email);
+                }
+            }
+        }
+        destinatarios.sort();
+        destinatarios.dedup();
+        if destinatarios.is_empty() {
+            destinatarios = self.roles.listar_emails_con_permiso("*").await?;
+        }
+        let _ = self.eventos.send(DomainEvent::AccountRecoveryAdminNotify {
+            request_id: solicitud.id,
+            target_email: email.to_string(),
+            recipient_emails: destinatarios,
+        });
+
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::AccountRecoveryRequested, None)
                 .con_sujeto("account_recovery_request", solicitud.id)
@@ -196,6 +255,9 @@ where
             return Err(DomainError::NotFound);
         };
 
+        let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
+        let (es_admin_org, authority_group_id) = self.autorizar_gestion(admin_id, escrow.user_id).await?;
+
         let ya_aprobo = solicitud
             .approvals
             .as_array()
@@ -217,7 +279,6 @@ where
 
         let umbral_alcanzado = cantidad >= umbral;
         if umbral_alcanzado {
-            let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
             let clave = self
                 .org_key
                 .obtener_o_crear(|| unreachable!("la clave org ya existe si hay un escrow"))
@@ -252,7 +313,36 @@ where
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::AccountRecoveryApproved, Some(admin_id))
                 .con_sujeto("account_recovery_request", request_id)
-                .con_metadata(serde_json::json!({ "threshold_reached": umbral_alcanzado })),
+                .con_metadata(serde_json::json!({
+                    "threshold_reached": umbral_alcanzado,
+                    "authority": if es_admin_org { "org_admin" } else { "group_admin" },
+                    "group_id": authority_group_id,
+                })),
+        ));
+
+        self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)
+    }
+
+    /// `POST /admin/account-recovery/requests/{id}/reject` — 2026-08-11,
+    /// mismo gate de autoridad delegada que `aprobar` (`autorizar_gestion`);
+    /// a diferencia de aprobar, no hay umbral ni desello: rechazar cierra el
+    /// ciclo directo, cualquier admin autorizado alcanza.
+    pub async fn rechazar(&self, admin_id: Uuid, request_id: Uuid) -> Result<RecoveryRequest, DomainError> {
+        let solicitud = self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)?;
+        let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
+        let (es_admin_org, authority_group_id) = self.autorizar_gestion(admin_id, escrow.user_id).await?;
+
+        if !self.requests.marcar_rechazada(request_id).await? {
+            return Err(DomainError::Conflict);
+        }
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryRejected, Some(admin_id))
+                .con_sujeto("account_recovery_request", request_id)
+                .con_metadata(serde_json::json!({
+                    "authority": if es_admin_org { "org_admin" } else { "group_admin" },
+                    "group_id": authority_group_id,
+                })),
         ));
 
         self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)
@@ -287,8 +377,13 @@ where
 
     /// `GET /admin/account-recovery/requests` — el id de una solicitud sólo
     /// lo conoce quien la creó; sin este listado un admin no tiene forma de
-    /// enterarse de que hay algo para aprobar.
-    pub async fn listar_pendientes(&self) -> Result<Vec<SolicitudPendiente>, DomainError> {
-        Ok(self.requests.listar_pendientes().await?)
+    /// enterarse de que hay algo para aprobar. 2026-08-11: acotado por
+    /// visibilidad — un admin de grupo sólo ve las de usuarios que
+    /// comparten alguno de sus grupos administrados.
+    pub async fn listar_pendientes(&self, actor_id: Uuid) -> Result<Vec<SolicitudPendiente>, DomainError> {
+        let es_admin_org = self.roles.usuario_tiene_permiso(actor_id, "*").await?;
+        let grupos_administrados =
+            if es_admin_org { Vec::new() } else { self.grupos.grupos_administrados_por(actor_id).await? };
+        Ok(self.requests.listar_pendientes_visibles(es_admin_org, &grupos_administrados).await?)
     }
 }
