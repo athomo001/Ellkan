@@ -297,7 +297,18 @@
 		border-right: 1px solid var(--border-color);
 		background: var(--bg-raised);
 		padding: var(--space-6) var(--space-4);
-		overflow: hidden;
+		overflow-x: hidden;
+		overflow-y: auto;
+		/* Hallazgo real de uso, 2026-08-12: sin `position: sticky` + altura
+		   fija, este nav es una celda de grid que se estira para igualar la
+		   altura de `main` (`.shell` no fija `height`, sólo `min-height`) —
+		   en una página larga (ej. la nav secundaria de /admin, bastante más
+		   alta que los 4 links de este nav) el pie con el botón de "cerrar
+		   sesión" terminaba muy por debajo del viewport, a mitad de la lista
+		   de la nav secundaria vecina en vez de pegado abajo del todo. */
+		position: sticky;
+		top: 0;
+		height: 100vh;
 	}
 	.marca-fila {
 		display: flex;

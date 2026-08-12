@@ -314,4 +314,24 @@ where
         self.grupos.eliminar(group_id).await?;
         Ok(())
     }
+
+    /// `PUT /groups/{id}/share-exempt` — 2026-08-13, hallazgo real de uso:
+    /// grupos como Soporte/TI que por norma crean cuentas y comparten
+    /// contraseñas para OTRAS áreas necesitan ver/compartir con cualquiera,
+    /// sin que eso los vuelva admin de organización. A propósito **no**
+    /// usa `autorizado_para_administrar` (que también deja pasar a un
+    /// admin de ESE grupo) — sólo el handler con `AdminUser` puede llegar
+    /// acá, así que un admin de grupo no puede auto-exentarse.
+    pub async fn actualizar_share_exempt(&self, actor_id: Uuid, group_id: Uuid, exempt: bool) -> Result<Group, DomainError> {
+        self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
+        self.grupos.actualizar_share_exempt(group_id, exempt).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::GroupShareExemptChanged, Some(actor_id))
+                .con_sujeto("group", group_id)
+                .con_metadata(serde_json::json!({ "share_exempt": exempt })),
+        ));
+
+        self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)
+    }
 }

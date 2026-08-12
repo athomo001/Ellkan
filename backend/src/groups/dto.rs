@@ -37,11 +37,18 @@ pub struct SetManagerRequest {
     pub is_admin: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ActualizarShareExemptRequest {
+    pub exempt: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GrupoResponse {
     pub id: Uuid,
     pub name: String,
     pub parent_group_id: Option<Uuid>,
+    /// 2026-08-13 — ver `Group::share_exempt`.
+    pub share_exempt: bool,
     /// Sólo poblado en `GET /groups/{id}` ("detalle + membresía completa",
     /// `03-api-contrato.md`) — vacío en listados (`GET /groups`,
     /// `GET /groups/{id}/subgroups`), que son sólo estructura del árbol.

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            insert into groups (id, name, parent_group_id)\n            values ($1, $2, $3)\n            returning id, name, parent_group_id\n            ",
+  "query": "\n            select id, name, parent_group_id, share_exempt from groups\n            where parent_group_id = $1 and deleted_at is null\n            order by name\n            ",
   "describe": {
     "columns": [
       {
@@ -35,20 +35,30 @@
             "name": "parent_group_id"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "share_exempt",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "share_exempt"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
         "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "54327fdcb94f4e7ab237aaa67fdc0415ec98d8f8f18a0fadb0d21a84c34860a4"
+  "hash": "738d4de78bcee47741c3006a7031300d29d29eff151c03aa870f537d8a70dfd7"
 }

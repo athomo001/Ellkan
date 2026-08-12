@@ -161,6 +161,90 @@ async fn visibilidad_de_usuarios_acotada_por_grupo() {
     assert!(contiene_email(&resultados, "gc-alice@test.ellkan"), "el admin de organización ve a todos");
 }
 
+/// 2026-08-13: excepciones a la visibilidad acotada por grupo — un grupo
+/// marcado `share_exempt` (ej. Soporte/TI que crean cuentas para otras
+/// áreas) ve a cualquiera, y sólo un admin de organización puede marcarlo
+/// (un admin del propio grupo no puede auto-exentarse). Apagar
+/// `sharing_policy.restrict_visibility_by_group` entero vuelve a
+/// "cualquiera ve a cualquiera", incluso para alguien sin ningún grupo.
+#[tokio::test]
+async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gcx-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let alice = common::registrar(&entorno, "gcx-alice@test.ellkan").await;
+    let carol = common::registrar(&entorno, "gcx-carol@test.ellkan").await;
+    let sesion_alice = common::login(&entorno, &alice).await;
+    let sesion_carol = common::login(&entorno, &carol).await;
+
+    let soporte = crear_grupo(&entorno, sesion_admin, "SoporteExento").await;
+    agregar_miembro(&entorno, sesion_admin, soporte, alice.user_id, false).await;
+
+    // Sin exención todavía: alice (en Soporte) no ve a carol (sin grupo).
+    let resultados = buscar(&entorno, sesion_alice, "gcx-carol").await;
+    assert!(!contiene_email(&resultados, "gcx-carol@test.ellkan"), "sin exención, alice no debería ver a carol");
+
+    // Un no-admin de organización (carol, sin ninguna autoridad) no puede marcar un grupo como exento.
+    let resp = entorno
+        .cliente
+        .put(format!("{}/groups/{}/share-exempt", entorno.base, soporte))
+        .bearer_auth(sesion_carol)
+        .json(&json!({ "exempt": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "sólo un admin de organización puede marcar un grupo como exento");
+
+    // El admin de organización marca "Soporte" como exento.
+    let resp = entorno
+        .cliente
+        .put(format!("{}/groups/{}/share-exempt", entorno.base, soporte))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "exempt": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["share_exempt"], json!(true));
+
+    // Ahora alice (miembro de un grupo exento) ve a carol, que ni siquiera tiene grupo.
+    let resultados = buscar(&entorno, sesion_alice, "gcx-carol").await;
+    assert!(contiene_email(&resultados, "gcx-carol@test.ellkan"), "miembro de grupo exento debería ver a cualquiera");
+
+    // Apagar la exención puntual — alice vuelve a no ver a carol.
+    let resp = entorno
+        .cliente
+        .put(format!("{}/groups/{}/share-exempt", entorno.base, soporte))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "exempt": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let dave = common::registrar(&entorno, "gcx-dave@test.ellkan").await; // sin grupo, sin exención
+    let sesion_dave = common::login(&entorno, &dave).await;
+    let resultados = buscar(&entorno, sesion_dave, "gcx-carol").await;
+    assert!(!contiene_email(&resultados, "gcx-carol@test.ellkan"), "sin exención ni política apagada, dave no debería ver a carol");
+
+    // Apagar la política entera: hasta alguien completamente sin grupo ve a todos.
+    let resp = entorno
+        .cliente
+        .put(format!("{}/admin/sharing-policy", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "restrict_visibility_by_group": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resultados = buscar(&entorno, sesion_dave, "gcx-carol").await;
+    assert!(contiene_email(&resultados, "gcx-carol@test.ellkan"), "con la política apagada, cualquiera ve a cualquiera");
+}
+
 #[tokio::test]
 async fn anidacion_de_carpetas_exige_privilegio_y_respeta_profundidad_3() {
     let entorno = common::levantar().await;

@@ -4,6 +4,39 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.28] - 2026-08-13
+
+### Agregado: excepciones a la visibilidad de compartir por grupo
+
+- Un admin de organización ahora puede marcar un grupo como "exento" (por ejemplo Soporte o TI, que suelen crear cuentas y compartir contraseñas para otras áreas) — sus miembros ven y comparten con cualquiera en la organización, sin volverse admin de nada más. Se configura con un checkbox directo en cada fila de la tabla de grupos, sin tener que abrir cada uno.
+- También se puede apagar la restricción de visibilidad por grupo entera, volviendo a que cualquiera vea y comparta con cualquiera. Mientras está apagada, los checkboxes de "exento" quedan deshabilitados (no hacen nada mientras tanto).
+
+### Agregado: MFA ya no se pide en cada login
+
+- Una vez que verificás tu segundo factor en un dispositivo, ese dispositivo queda recordado — el próximo login desde el mismo navegador no lo vuelve a pedir. Sólo se pide de nuevo desde un dispositivo distinto, o la primera vez que configurás el segundo factor.
+
+### Agregado: borrado masivo de contraseñas y "salir" de un recurso compartido
+
+- Se puede seleccionar varias contraseñas a la vez en el Vault y borrarlas juntas, con confirmación.
+- Si te compartieron una contraseña que no es tuya, ahora podés sacarla de tu propio Vault sin que la persona dueña tenga que revocarte el acceso — no borra la copia del dueño, sólo la tuya.
+
+### Agregado: mostrar/ocultar contraseña al escribirla
+
+- Los campos de contraseña (login, registro, cambio de contraseña, etc.) ahora tienen un ícono para ver lo que escribiste, en vez de tener que confiar en que no hubo un error de tipeo.
+
+### Agregado: comandos de grupos en `ellkan-cli`
+
+- La línea de comandos ahora puede crear grupos, listarlos, ver el detalle de uno y agregar/quitar miembros — antes había que hacerlo desde la interfaz web sí o sí.
+- Se agregó también `ellkan-cli verify-email` (completa la verificación de cuenta desde la CLI) y el login por CLI ya sabe manejar una contraseña provisoria asignada por un admin.
+
+### Arreglado: el panel de administración a veces mostraba "Ocurrió un error" con la sesión bien iniciada
+
+- Algunas páginas del panel de administración (Usuarios, Roles, y otras que comparten la misma ruta que un endpoint real de la API) podían quedar mostrando una versión vieja cacheada por el navegador en vez de los datos reales. Recargar con `Ctrl+Shift+R` lo resolvía momentáneamente, pero el problema podía volver — ya está arreglado de raíz.
+
+### Arreglado: el botón de cerrar sesión podía terminar muy por debajo de la pantalla
+
+- En páginas largas (como el panel de administración), la barra lateral con el botón de cerrar sesión ya no se estira junto con el contenido — queda siempre fija en su lugar.
+
 ## [0.1.27] - 2026-08-11
 
 ### Agregado: cambio de contraseña obligatorio para cuentas creadas por un admin

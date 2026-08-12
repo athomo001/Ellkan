@@ -134,6 +134,10 @@ pub enum AuditEventType {
     /// F-24: código de verificación de email confirmado — habilita el
     /// login de una cuenta recién auto-registrada.
     EmailVerified,
+    /// 2026-08-13: `PUT /admin/sharing-policy`.
+    SharingPolicyUpdated,
+    /// 2026-08-13: `PUT /groups/{id}/share-exempt`.
+    GroupShareExemptChanged,
 }
 
 impl AuditEventType {
@@ -223,6 +227,8 @@ impl AuditEventType {
             AuditEventType::PassphraseChanged => "user.passphrase_changed",
             AuditEventType::SelfRegistrationPolicyUpdated => "self_registration_policy.updated",
             AuditEventType::EmailVerified => "user.email_verified",
+            AuditEventType::SharingPolicyUpdated => "sharing_policy.updated",
+            AuditEventType::GroupShareExemptChanged => "group.share_exempt_changed",
         }
     }
 
@@ -315,6 +321,8 @@ impl AuditEventType {
             "user.passphrase_changed" => AuditEventType::PassphraseChanged,
             "self_registration_policy.updated" => AuditEventType::SelfRegistrationPolicyUpdated,
             "user.email_verified" => AuditEventType::EmailVerified,
+            "sharing_policy.updated" => AuditEventType::SharingPolicyUpdated,
+            "group.share_exempt_changed" => AuditEventType::GroupShareExemptChanged,
             _ => return None,
         })
     }

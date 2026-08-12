@@ -391,6 +391,7 @@ export interface Grupo {
 	id: string;
 	name: string;
 	parent_group_id: string | null;
+	share_exempt: boolean;
 	members: Miembro[];
 }
 export interface EnvelopeParaGrupo {
@@ -409,7 +410,20 @@ export const groupsApi = {
 	recursosCompartidos: (groupId: string) => api.get<string[]>(`/groups/${groupId}/resources`),
 	agregarMiembro: (groupId: string, userId: string, isAdmin: boolean, envelopes: EnvelopeParaGrupo[] = []) =>
 		api.post<void>(`/groups/${groupId}/members/${userId}`, { is_admin: isAdmin, envelopes }),
-	quitarMiembro: (groupId: string, userId: string) => api.delete<void>(`/groups/${groupId}/members/${userId}`)
+	quitarMiembro: (groupId: string, userId: string) => api.delete<void>(`/groups/${groupId}/members/${userId}`),
+	/** 2026-08-13: excepción a la visibilidad de compartir acotada por grupo — sólo admin de organización. */
+	actualizarShareExempt: (groupId: string, exempt: boolean) =>
+		api.put<Grupo>(`/groups/${groupId}/share-exempt`, { exempt })
+};
+
+/** 2026-08-13: interruptor único de organización, contraparte de `Grupo.share_exempt` (granular por grupo). */
+export interface SharingPolicy {
+	restrict_visibility_by_group: boolean;
+}
+export const sharingPolicyApi = {
+	obtener: () => api.get<SharingPolicy>('/admin/sharing-policy'),
+	actualizar: (restrictVisibilityByGroup: boolean) =>
+		api.put<SharingPolicy>('/admin/sharing-policy', { restrict_visibility_by_group: restrictVisibilityByGroup })
 };
 
 // --- Estado del sistema (F-43): unión discriminada por `id`, igual

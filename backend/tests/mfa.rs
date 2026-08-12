@@ -221,6 +221,64 @@ async fn login_posterior_con_totp_ya_confirmado_queda_pendiente_de_verificar() {
     assert!(puede_operar(&entorno, sesion_b).await);
 }
 
+/// 2026-08-13: hallazgo real de uso — con TOTP ya confirmado, cada login
+/// volvía a pedir el código sin importar qué tan conocido fuera el
+/// dispositivo (ni Passbolt ni Proton son así de reiterativos). Mandar
+/// `device_token_hash_b64` en `/auth/mfa/verify` marca ese dispositivo
+/// puntual como ya-verificado — el PRÓXIMO login desde el mismo
+/// `device_token` queda `completo` de una, sin desafío de MFA.
+#[tokio::test]
+async fn login_desde_dispositivo_que_ya_paso_mfa_no_lo_vuelve_a_pedir() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-admin-recordar@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    activar_mfa_requerido(&entorno, sesion_admin).await;
+
+    let usuario = common::registrar(&entorno, "mfa-recordar@test.ellkan").await;
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    let sesion_parcial: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/setup", entorno.base))
+        .bearer_auth(sesion_parcial)
+        .send()
+        .await
+        .unwrap();
+    let setup: Value = resp.json().await.unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/confirm", entorno.base))
+        .bearer_auth(sesion_parcial)
+        .json(&json!({ "code": generar_codigo_actual(&secreto).to_string() }))
+        .send()
+        .await
+        .unwrap();
+
+    // Segundo login: pendiente_mfa de nuevo (todavía no se mandó el device token al verify).
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    assert_eq!(cuerpo["estado"], "pendiente_mfa");
+    let sesion_b: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+
+    let device_token_hash_b64 = B64.encode(Sha256::digest(usuario.device_token));
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_b)
+        .json(&json!({ "code": generar_codigo_actual(&secreto).to_string(), "device_token_hash_b64": device_token_hash_b64 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Tercer login, mismo dispositivo: directo a completo, sin pedir MFA.
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    assert_eq!(cuerpo["estado"], "completo", "un dispositivo que ya pasó MFA no debería tener que repetirlo");
+}
+
 #[tokio::test]
 async fn codigo_incorrecto_no_completa_la_sesion() {
     let entorno = common::levantar().await;

@@ -4,14 +4,14 @@ use axum::extract::{Path, State};
 use axum::Json;
 use uuid::Uuid;
 
-use crate::auth::extractor::AuthenticatedUser;
+use crate::auth::extractor::{AdminUser, AuthenticatedUser};
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    AgregarMiembroRequest, CrearGrupoRequest, GrupoResponse, MiembroResponse, MoverGrupoRequest,
-    SetManagerRequest,
+    ActualizarShareExemptRequest, AgregarMiembroRequest, CrearGrupoRequest, GrupoResponse, MiembroResponse,
+    MoverGrupoRequest, SetManagerRequest,
 };
 use super::models::{EnvelopeParaMiembroNuevo, Group, Miembro};
 use super::service::GroupService;
@@ -37,7 +37,13 @@ fn servicio(state: &AppState) -> Servicio<'_> {
 }
 
 fn a_response(grupo: Group) -> GrupoResponse {
-    GrupoResponse { id: grupo.id, name: grupo.name, parent_group_id: grupo.parent_group_id, members: vec![] }
+    GrupoResponse {
+        id: grupo.id,
+        name: grupo.name,
+        parent_group_id: grupo.parent_group_id,
+        share_exempt: grupo.share_exempt,
+        members: vec![],
+    }
 }
 
 fn miembro_a_response(m: Miembro) -> MiembroResponse {
@@ -157,4 +163,17 @@ pub async fn eliminar(
 ) -> Result<(), ApiError> {
     servicio(&state).eliminar(auth.user_id, group_id).await?;
     Ok(())
+}
+
+/// `PUT /groups/{id}/share-exempt` — `AdminUser`, no `AuthenticatedUser`:
+/// a propósito exige admin de organización, no admin del grupo puntual
+/// (ver comentario de `GroupService::actualizar_share_exempt`).
+pub async fn actualizar_share_exempt(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(group_id): Path<Uuid>,
+    Json(req): Json<ActualizarShareExemptRequest>,
+) -> Result<Json<GrupoResponse>, ApiError> {
+    let grupo = servicio(&state).actualizar_share_exempt(admin.user_id, group_id, req.exempt).await?;
+    Ok(Json(a_response(grupo)))
 }

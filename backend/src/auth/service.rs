@@ -338,7 +338,7 @@ where
                     EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id))
                         .con_sujeto("user", user.id),
                 ));
-                return self.resolver_tras_f02(user).await;
+                return self.resolver_tras_f02(user, device_token_hash).await;
             }
 
             let codigo = generar_codigo_device();
@@ -363,7 +363,7 @@ where
             return Ok(ResultadoVerify::PendienteDispositivo { device_challenge_id });
         }
 
-        self.resolver_tras_f02(user).await
+        self.resolver_tras_f02(user, device_token_hash).await
     }
 
     /// F-14: una vez que F-02 (dispositivo conocido) ya se resolvió —ya sea
@@ -373,7 +373,7 @@ where
     /// vez. Compartido entre `verify_con_usuario` y
     /// `verify_device_con_desafio` — la decisión de MFA es la misma en los
     /// dos casos, sólo cambia cómo se llegó hasta acá.
-    pub(crate) async fn resolver_tras_f02(&self, user: User) -> Result<ResultadoVerify, DomainError> {
+    pub(crate) async fn resolver_tras_f02(&self, user: User, device_token_hash: &[u8]) -> Result<ResultadoVerify, DomainError> {
         // Passphrase provisoria (creada por un admin): se resuelve ANTES que
         // MFA, a propósito — nunca tiene sentido dejar que alguien configure
         // un segundo factor atado a una passphrase que todavía conoce otra
@@ -387,7 +387,16 @@ where
         let politica = self.mfa_policy.obtener().await?;
         let tiene_confirmado = self.mfa_totp.buscar_confirmado(user.id).await?.is_some();
 
-        match crate::mfa::service::decidir(&politica, tiene_confirmado, user.created_at) {
+        // 2026-08-13: mismo criterio de confianza que F-02 — si este
+        // dispositivo puntual ya pasó MFA una vez, no se lo vuelve a pedir
+        // (ni Passbolt ni Proton lo repiten en cada login). Sólo aplica
+        // cuando ya habría un credential que verificar; nunca salta la
+        // configuración inicial (`DebeConfigurar`).
+        let decision = crate::mfa::service::decidir(&politica, tiene_confirmado, user.created_at);
+        let ya_confirmado_en_este_dispositivo = decision == DecisionMfa::DebeVerificar
+            && self.dispositivos.mfa_confirmado(user.id, device_token_hash).await?;
+
+        match if ya_confirmado_en_este_dispositivo { DecisionMfa::NoRequerido } else { decision } {
             DecisionMfa::NoRequerido => {
                 let sesion = self.sesiones.crear(user.id, user.security_stamp).await?;
                 Ok(ResultadoVerify::SesionCompleta(sesion))
@@ -481,7 +490,7 @@ where
             .buscar_por_id(desafio.user_id)
             .await?
             .ok_or(DomainError::InvalidCredentials)?;
-        self.resolver_tras_f02(user).await
+        self.resolver_tras_f02(user, &desafio.device_token_hash).await
     }
 
     pub async fn logout(&self, session_id: Uuid, user_id: Uuid) -> Result<(), DomainError> {

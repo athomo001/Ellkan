@@ -202,6 +202,9 @@ const es = {
 		eliminar: 'Eliminar',
 		confirmarEliminar: '¿Eliminar este recurso? No se puede deshacer.',
 		errorEliminar: 'No se pudo eliminar el recurso.',
+		salir: 'Salir',
+		confirmarSalir: '¿Sacar este recurso de tu vault? No borra la copia del dueño, sólo tu acceso.',
+		errorSalir: 'No se pudo salir del recurso.',
 		guardarEdicion: 'Guardar cambios',
 		compartir: 'Compartir',
 		compartirTitulo: 'Compartir recurso',
@@ -231,6 +234,12 @@ const es = {
 		conteoSeleccionados: (n: number) => `${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
 		moverSeleccion: 'Mover a carpeta',
 		taggearSeleccion: 'Agregar tag',
+		eliminarSeleccion: 'Eliminar',
+		confirmarEliminarSeleccion: (n: number) =>
+			`¿Eliminar ${n} ${n === 1 ? 'recurso' : 'recursos'}? No se puede deshacer.`,
+		salirSeleccion: 'Salir',
+		confirmarSalirSeleccion: (n: number) =>
+			`¿Sacar ${n} ${n === 1 ? 'recurso' : 'recursos'} de tu vault? No borra la copia del dueño.`,
 		errorMasivo: 'No se pudo aplicar la acción a todos los recursos seleccionados.',
 		compartirLote: {
 			boton: 'Compartir',
@@ -563,7 +572,15 @@ const es = {
 			resumenCsv: (agregados: number, fallidos: number) =>
 				fallidos === 0
 					? `${agregados} miembro(s) agregado(s).`
-					: `${agregados} miembro(s) agregado(s), ${fallidos} fallido(s):`
+					: `${agregados} miembro(s) agregado(s), ${fallidos} fallido(s):`,
+			politicaTitulo: 'Visibilidad para compartir',
+			politicaRestringir: 'Restringir por grupo (sin esto, cualquiera ve y comparte con cualquiera)',
+			politicaHint:
+				'Con la restricción activa, cada usuario sólo ve y puede compartir con gente de su propio grupo; un admin de grupo ve además a otros admins de grupo. Los grupos marcados "exento" abajo se saltan esta regla sin desactivarla para el resto.',
+			shareExempt: 'Exento — sus miembros ven y comparten con cualquiera',
+			shareExemptCol: 'Exento',
+			shareExemptSinEfecto: 'Sin efecto mientras "Restringir por grupo" esté apagado — ya ve todo el mundo a todo el mundo.',
+			errorPolitica: 'No se pudo actualizar la política de compartir.'
 		},
 		reportes: {
 			titulo: 'Reportes',

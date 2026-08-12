@@ -16,7 +16,7 @@ use uuid::Uuid;
 use zeroize::Zeroize;
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
-use crate::auth::repository::SessionRepository;
+use crate::auth::repository::{KnownDeviceRepository, SessionRepository};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
@@ -86,21 +86,23 @@ pub(crate) fn descifrar_secreto(clave: &ClaveSecreta32, credential: &TotpCredent
         .map_err(|_| DomainError::InvalidCredentials)
 }
 
-pub struct MfaService<'a, P, T, C, S> {
+pub struct MfaService<'a, P, T, C, S, D> {
     pub policy: &'a P,
     pub totp: &'a T,
     pub challenges: &'a C,
     pub sesiones: &'a S,
+    pub dispositivos: &'a D,
     pub secrets_key: &'a ClaveSecreta32,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, P, T, C, S> MfaService<'a, P, T, C, S>
+impl<'a, P, T, C, S, D> MfaService<'a, P, T, C, S, D>
 where
     P: MfaPolicyRepository,
     T: TotpCredentialRepository,
     C: MfaChallengeRepository,
     S: SessionRepository,
+    D: KnownDeviceRepository,
 {
     pub async fn obtener_politica(&self) -> Result<MfaPolicy, DomainError> {
         Ok(self.policy.obtener().await?)
@@ -185,6 +187,7 @@ where
         user_id: Uuid,
         codigo: u32,
         session_id_actual: Uuid,
+        device_token_hash: Option<&[u8]>,
     ) -> Result<(), DomainError> {
         let pendiente = self.totp.buscar_pendiente(user_id).await?.ok_or(DomainError::NotFound)?;
         let mut secreto = descifrar_secreto(self.secrets_key, &pendiente)?;
@@ -199,6 +202,9 @@ where
         self.totp.revocar_confirmados_de(user_id).await?;
         self.totp.confirmar(pendiente.id).await?;
         self.sesiones.marcar_mfa_verificada(session_id_actual).await?;
+        if let Some(hash) = device_token_hash {
+            self.dispositivos.marcar_mfa_confirmado(user_id, hash).await?;
+        }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::MfaEnrolled, Some(user_id)).con_sujeto("user", user_id),
@@ -215,8 +221,9 @@ where
         user_id: Uuid,
         session_id_actual: Uuid,
         codigo: u32,
+        device_token_hash: Option<&[u8]>,
     ) -> Result<(), DomainError> {
-        let resultado = self.verificar_login_interno(user_id, session_id_actual, codigo).await;
+        let resultado = self.verificar_login_interno(user_id, session_id_actual, codigo, device_token_hash).await;
 
         if resultado.is_err() {
             let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
@@ -233,6 +240,7 @@ where
         user_id: Uuid,
         session_id_actual: Uuid,
         codigo: u32,
+        device_token_hash: Option<&[u8]>,
     ) -> Result<(), DomainError> {
         let hash_actual = hash_de_sesion(session_id_actual);
         let pendientes = self.challenges.listar_pendientes(user_id).await?;
@@ -267,6 +275,11 @@ where
 
         self.challenges.consumir(desafio.id).await?;
         self.sesiones.marcar_mfa_verificada(session_id_actual).await?;
+        // 2026-08-13: recordar MFA en este dispositivo — próximo login desde
+        // acá salta el desafío (ver `AuthService::resolver_tras_f02`).
+        if let Some(hash) = device_token_hash {
+            self.dispositivos.marcar_mfa_confirmado(user_id, hash).await?;
+        }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(user_id))

@@ -5,6 +5,7 @@ use axum::Json;
 use base32::Alphabet;
 
 use crate::auth::extractor::{AdminUser, SesionValida};
+use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
@@ -15,10 +16,16 @@ use super::dto::{
 use super::models::MfaPolicy;
 use super::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, PgTotpCredentialRepository};
 use super::service::MfaService;
-use crate::auth::repository::PgSessionRepository;
+use crate::auth::repository::{PgKnownDeviceRepository, PgSessionRepository};
 
-type Servicio<'a> =
-    MfaService<'a, PgMfaPolicyRepository, PgTotpCredentialRepository, PgMfaChallengeRepository, PgSessionRepository>;
+type Servicio<'a> = MfaService<
+    'a,
+    PgMfaPolicyRepository,
+    PgTotpCredentialRepository,
+    PgMfaChallengeRepository,
+    PgSessionRepository,
+    PgKnownDeviceRepository,
+>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     MfaService {
@@ -26,6 +33,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         totp: &state.mfa_totp,
         challenges: &state.mfa_challenges,
         sesiones: &state.sesiones,
+        dispositivos: &state.dispositivos,
         secrets_key: &state.secrets_key,
         eventos: state.eventos.clone(),
     }
@@ -92,7 +100,8 @@ pub async fn confirm_totp(
     Json(req): Json<ConfirmarTotpRequest>,
 ) -> Result<(), ApiError> {
     let codigo = parsear_codigo(&req.code)?;
-    servicio(&state).confirmar_setup_totp(sesion.user_id, codigo, sesion.session_id).await?;
+    let device_token_hash = decodificar_device_token_opt(req.device_token_hash_b64.as_deref())?;
+    servicio(&state).confirmar_setup_totp(sesion.user_id, codigo, sesion.session_id, device_token_hash.as_deref()).await?;
     Ok(())
 }
 
@@ -102,6 +111,16 @@ pub async fn verify(
     Json(req): Json<VerificarMfaRequest>,
 ) -> Result<(), ApiError> {
     let codigo = parsear_codigo(&req.code)?;
-    servicio(&state).verificar_login(sesion.user_id, sesion.session_id, codigo).await?;
+    let device_token_hash = decodificar_device_token_opt(req.device_token_hash_b64.as_deref())?;
+    servicio(&state).verificar_login(sesion.user_id, sesion.session_id, codigo, device_token_hash.as_deref()).await?;
     Ok(())
+}
+
+fn decodificar_device_token_opt(b64_opt: Option<&str>) -> Result<Option<Vec<u8>>, ApiError> {
+    match b64_opt {
+        None => Ok(None),
+        Some(s) => Ok(Some(
+            b64::decode(s).map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?,
+        )),
+    }
 }

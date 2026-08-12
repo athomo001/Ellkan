@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, name, parent_group_id from groups where id = $1 and deleted_at is null",
+  "query": "select id, name, parent_group_id, share_exempt from groups where id = $1 and deleted_at is null",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "parent_group_id"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "share_exempt",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "share_exempt"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "d19f2f2d64b1ba8e1cf8df6bf4d81043e38fbf79917e2fa8f8b63f55ee278c4e"
+  "hash": "7da6306f7ad3d7aea7fe85c5f535b72f42c718587c3ae5b1c219a48b2885c49d"
 }

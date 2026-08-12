@@ -51,6 +51,14 @@ enum Comando {
         #[arg(long)]
         email: String,
     },
+    /// F-24, 2026-08-11: completa la verificación de email que `register`
+    /// deja pendiente en cualquier instancia que no sea el bootstrap — antes
+    /// no existía ningún camino de la CLI para esto (hallazgo real de
+    /// auditoría, sesión 2026-08-11).
+    VerifyEmail {
+        #[arg(long)]
+        email: String,
+    },
     /// Crea un recurso login/password (F-05, F-06, F-07)
     Create {
         #[arg(long)]
@@ -94,6 +102,43 @@ enum Comando {
     Admin {
         #[command(subcommand)]
         accion: AdminAccion,
+    },
+    /// Subcomandos de grupos (F-12) — 2026-08-12: no existía ninguno,
+    /// hallazgo real de auditoría (sesión de seeding de usuarios de prueba).
+    Group {
+        #[command(subcommand)]
+        accion: GroupAccion,
+    },
+}
+
+#[derive(Subcommand)]
+enum GroupAccion {
+    /// Crea un grupo raíz o un subgrupo (con `--parent-group-id`).
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        parent_group_id: Option<Uuid>,
+    },
+    /// Lista los grupos raíz visibles (misma limitación que `GET /groups`:
+    /// sólo estructura de árbol, sin miembros — para eso, `group get`).
+    List,
+    /// Detalle de un grupo puntual, con su membresía completa.
+    Get { group_id: Uuid },
+    /// Agrega un miembro a un grupo que todavía no comparte recursos — si ya
+    /// comparte algo, el backend rechaza el alta pidiendo envelopes que este
+    /// comando no arma (ver comentario en `api.rs`).
+    AddMember {
+        group_id: Uuid,
+        #[arg(long)]
+        user_email: String,
+        #[arg(long)]
+        is_admin: bool,
+    },
+    RemoveMember {
+        group_id: Uuid,
+        #[arg(long)]
+        user_email: String,
     },
 }
 
@@ -307,7 +352,35 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
             let codigo = leer_codigo_dispositivo()?;
             cliente.verify_device(device_challenge_id, &codigo)?.session_id
         }
-        otro => anyhow::bail!("estado de verify desconocido: {otro}"),
+        // 2026-08-11: faltaba por completo — `login` bailaba con "estado de
+        // verify desconocido" ante una cuenta con passphrase provisoria
+        // (`POST /admin/users`, must_change_passphrase). Cambia la
+        // passphrase con la misma sesión parcial (SesionValida la acepta a
+        // propósito) y termina ahí — la sesión muere al cambiarla (mismo
+        // criterio que el resto de la app), hay que loguear de nuevo con la
+        // nueva passphrase después.
+        "requiere_cambiar_passphrase" => {
+            let session_parcial = resp
+                .session_id
+                .ok_or_else(|| anyhow::anyhow!("respuesta de verify sin session_id (requiere_cambiar_passphrase)"))?;
+            println!("Esta cuenta tiene una passphrase provisoria — hay que cambiarla antes de poder operar.");
+            let nueva_passphrase = leer_passphrase("Passphrase nueva: ")?;
+            let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+            let nuevo_blob =
+                ellkan_crypto::clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &clave.privadas_concatenadas(), email.as_bytes())
+                    .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
+            cliente.change_passphrase(
+                session_parcial,
+                &api::CambiarPassphraseRequest {
+                    encrypted_private_key_blob_b64: B64.encode(&nuevo_blob.envoltura.ciphertext),
+                    private_key_nonce_b64: B64.encode(nuevo_blob.envoltura.nonce),
+                    kdf_salt_b64: B64.encode(nueva_salt),
+                },
+            )?;
+            println!("Passphrase cambiada — la sesión murió (mismo criterio que un cambio de passphrase normal). Corré 'ellkan-cli login --email {email}' de nuevo con la passphrase nueva.");
+            return Ok(());
+        }
+        otro => anyhow::bail!("estado de verify desconocido: {otro} (pendiente_mfa/requiere_configurar_mfa todavía no soportados por la CLI)"),
     };
 
     config::guardar_sesion(&config::Sesion { session_id })?;
@@ -320,6 +393,20 @@ fn leer_codigo_dispositivo() -> anyhow::Result<String> {
         return Ok(valor);
     }
     Ok(rpassword::prompt_password("Código recibido por email: ")?)
+}
+
+fn leer_codigo_email() -> anyhow::Result<String> {
+    if let Ok(valor) = std::env::var("ELLKAN_EMAIL_CODE") {
+        return Ok(valor);
+    }
+    Ok(rpassword::prompt_password("Código de verificación de email: ")?)
+}
+
+fn verificar_email(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
+    let codigo = leer_codigo_email()?;
+    cliente.verify_email(email, &codigo)?;
+    println!("Email verificado — 'ellkan-cli login --email {email}' ya funciona.");
+    Ok(())
 }
 
 fn blob_desde_perfil(perfil: &config::Perfil) -> anyhow::Result<EncryptedPrivateKeyBlob> {
@@ -425,6 +512,56 @@ fn compartir(cliente: &Cliente, resource_id: Uuid, recipient_email: &str, level:
     )?;
 
     println!("Recurso {resource_id} compartido con {recipient_email} ({level})");
+    Ok(())
+}
+
+fn grupo_crear(cliente: &Cliente, name: &str, parent_group_id: Option<Uuid>) -> anyhow::Result<()> {
+    let sesion = config::cargar_sesion()?;
+    let grupo = cliente.crear_grupo(
+        sesion.session_id,
+        &api::CrearGrupoRequest { id: Uuid::now_v7(), name: name.to_string(), parent_group_id },
+    )?;
+    println!("Grupo creado: {} ({})", grupo.id, grupo.name);
+    Ok(())
+}
+
+fn grupo_listar(cliente: &Cliente) -> anyhow::Result<()> {
+    let sesion = config::cargar_sesion()?;
+    for grupo in cliente.listar_grupos(sesion.session_id)? {
+        match grupo.parent_group_id {
+            Some(padre) => println!("{}  {}  (subgrupo de {padre})", grupo.id, grupo.name),
+            None => println!("{}  {}", grupo.id, grupo.name),
+        }
+    }
+    Ok(())
+}
+
+fn grupo_obtener(cliente: &Cliente, group_id: Uuid) -> anyhow::Result<()> {
+    let sesion = config::cargar_sesion()?;
+    let grupo = cliente.obtener_grupo(sesion.session_id, group_id)?;
+    match grupo.parent_group_id {
+        Some(padre) => println!("{} ({}) — subgrupo de {padre}", grupo.name, grupo.id),
+        None => println!("{} ({})", grupo.name, grupo.id),
+    }
+    for m in &grupo.members {
+        println!("  {} — {} <{}>{}", m.user_id, m.display_name, m.email, if m.is_admin { " [admin]" } else { "" });
+    }
+    Ok(())
+}
+
+fn grupo_agregar_miembro(cliente: &Cliente, group_id: Uuid, user_email: &str, is_admin: bool) -> anyhow::Result<()> {
+    let sesion = config::cargar_sesion()?;
+    let usuario = cliente.public_key(sesion.session_id, user_email)?;
+    cliente.agregar_miembro_grupo(sesion.session_id, group_id, usuario.user_id, is_admin)?;
+    println!("{user_email} agregado al grupo {group_id}");
+    Ok(())
+}
+
+fn grupo_quitar_miembro(cliente: &Cliente, group_id: Uuid, user_email: &str) -> anyhow::Result<()> {
+    let sesion = config::cargar_sesion()?;
+    let usuario = cliente.public_key(sesion.session_id, user_email)?;
+    cliente.quitar_miembro_grupo(sesion.session_id, group_id, usuario.user_id)?;
+    println!("{user_email} sacado del grupo {group_id}");
     Ok(())
 }
 
@@ -569,6 +706,7 @@ fn main() -> anyhow::Result<()> {
             cli.ca_bundle.clone(),
         )?,
         Comando::Login { email } => login(&cliente, email)?,
+        Comando::VerifyEmail { email } => verificar_email(&cliente, email)?,
         Comando::Create { name, username, uri, password, notes } => {
             crear(&cliente, name, username, uri, password, notes)?
         }
@@ -701,6 +839,15 @@ fn main() -> anyhow::Result<()> {
                     println!("Restore completado desde '{}'.", input.display());
                 }
             },
+        },
+        Comando::Group { accion } => match accion {
+            GroupAccion::Create { name, parent_group_id } => grupo_crear(&cliente, name, *parent_group_id)?,
+            GroupAccion::List => grupo_listar(&cliente)?,
+            GroupAccion::Get { group_id } => grupo_obtener(&cliente, *group_id)?,
+            GroupAccion::AddMember { group_id, user_email, is_admin } => {
+                grupo_agregar_miembro(&cliente, *group_id, user_email, *is_admin)?
+            }
+            GroupAccion::RemoveMember { group_id, user_email } => grupo_quitar_miembro(&cliente, *group_id, user_email)?,
         },
     }
 

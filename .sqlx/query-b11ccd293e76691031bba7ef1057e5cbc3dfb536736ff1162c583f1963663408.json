@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update groups set share_exempt = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b11ccd293e76691031bba7ef1057e5cbc3dfb536736ff1162c583f1963663408"
+}

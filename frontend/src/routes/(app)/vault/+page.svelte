@@ -38,6 +38,7 @@
 		comandoDeConexion,
 		infoConexion,
 		eliminarRecurso,
+		salirDeRecurso,
 		type Recurso,
 		type TipoRecurso,
 		type UsuarioBusqueda
@@ -89,6 +90,8 @@
 	const ICONO_COMPARTIR =
 		'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z';
 	const ICONO_EXPORTAR = 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3';
+	const ICONO_ELIMINAR =
+		'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0';
 	const ICONO_NUEVO = 'M12 4.5v15m7.5-7.5h-15';
 
 	let cargando = $state(true);
@@ -478,6 +481,29 @@
 		}
 	}
 
+	// 2026-08-13: contraparte de "Eliminar" para un recurso que no es propio
+	// (`!puedeBorrar`) — sacar el acceso propio sin tocar la copia del dueño.
+	// Mismo patrón que `confirmarEliminarRecurso`.
+	let confirmandoSalir = $state<string | undefined>();
+	let saliendo = $state(false);
+	let errorSalir = $state<string | undefined>();
+
+	async function confirmarSalirRecurso() {
+		if (!seleccionado) return;
+		saliendo = true;
+		errorSalir = undefined;
+		try {
+			await salirDeRecurso(seleccionado.id);
+			recursos = recursos.filter((r) => r.id !== seleccionado!.id);
+			confirmandoSalir = undefined;
+			seleccionado = undefined;
+		} catch (err) {
+			errorSalir = err instanceof ApiError ? err.message : $t.vault.errorSalir;
+		} finally {
+			saliendo = false;
+		}
+	}
+
 	// Copiar usuario/URI del panel de detalle — no son secretos, pero
 	// respetan el mismo timer de limpieza automática que el resto de la app
 	// (`preferencias.clipboardClearMinutes`), mismo criterio que `SecretField`.
@@ -792,6 +818,51 @@
 		try {
 			await Promise.all([...seleccionados].map((id) => tagsApi.aplicar(id, tagMasivo)));
 			seleccionados = new Set();
+		} catch (err) {
+			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			aplicandoMasivo = false;
+		}
+	}
+
+	// Borrado masivo — mismo patrón que mover/taggear, con confirmación
+	// inline (mismo criterio que el borrado individual, `confirmandoEliminar`
+	// más abajo). Filtra a `puedeBorrar` antes de mandar nada: son los
+	// mismos recursos que ya muestran el botón de borrar en el panel de
+	// detalle, evitar pedir un borrado que el backend va a rechazar seguro.
+	let confirmandoEliminarSeleccion = $state(false);
+
+	async function eliminarSeleccion() {
+		const borrables = recursos.filter((r) => seleccionados.has(r.id) && r.puedeBorrar).map((r) => r.id);
+		if (borrables.length === 0) return;
+		aplicandoMasivo = true;
+		errorMasivo = undefined;
+		try {
+			await Promise.all(borrables.map((id) => eliminarRecurso(id)));
+			recursos = recursos.filter((r) => !borrables.includes(r.id));
+			seleccionados = new Set();
+			confirmandoEliminarSeleccion = false;
+		} catch (err) {
+			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			aplicandoMasivo = false;
+		}
+	}
+
+	// Contraparte de "eliminar" masivo para recursos compartidos (no
+	// propios) — mismo patrón, filtra a `!puedeBorrar`.
+	let confirmandoSalirSeleccion = $state(false);
+
+	async function salirSeleccion() {
+		const compartidos = recursos.filter((r) => seleccionados.has(r.id) && !r.puedeBorrar).map((r) => r.id);
+		if (compartidos.length === 0) return;
+		aplicandoMasivo = true;
+		errorMasivo = undefined;
+		try {
+			await Promise.all(compartidos.map((id) => salirDeRecurso(id)));
+			recursos = recursos.filter((r) => !compartidos.includes(r.id));
+			seleccionados = new Set();
+			confirmandoSalirSeleccion = false;
 		} catch (err) {
 			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
 		} finally {
@@ -1174,6 +1245,31 @@
 								<Icon path={ICONO_COMPARTIR} size={14} />
 								{$t.vault.compartirLote.boton}
 							</Button>
+							{#if recursos.filter((r) => seleccionados.has(r.id) && r.puedeBorrar).length > 0}
+								{#if confirmandoEliminarSeleccion}
+									<Button variant="danger" onclick={eliminarSeleccion} loading={aplicandoMasivo}>
+										{$t.vault.confirmarEliminarSeleccion(recursos.filter((r) => seleccionados.has(r.id) && r.puedeBorrar).length)}
+									</Button>
+									<Button variant="ghost" onclick={() => (confirmandoEliminarSeleccion = false)}>{$t.vault.cancelar}</Button>
+								{:else}
+									<Button variant="danger" onclick={() => (confirmandoEliminarSeleccion = true)}>
+										<Icon path={ICONO_ELIMINAR} size={14} />
+										{$t.vault.eliminarSeleccion}
+									</Button>
+								{/if}
+							{/if}
+							{#if recursos.filter((r) => seleccionados.has(r.id) && !r.puedeBorrar).length > 0}
+								{#if confirmandoSalirSeleccion}
+									<Button variant="secondary" onclick={salirSeleccion} loading={aplicandoMasivo}>
+										{$t.vault.confirmarSalirSeleccion(recursos.filter((r) => seleccionados.has(r.id) && !r.puedeBorrar).length)}
+									</Button>
+									<Button variant="ghost" onclick={() => (confirmandoSalirSeleccion = false)}>{$t.vault.cancelar}</Button>
+								{:else}
+									<Button variant="secondary" onclick={() => (confirmandoSalirSeleccion = true)}>
+										{$t.vault.salirSeleccion}
+									</Button>
+								{/if}
+							{/if}
 						</div>
 						{#if errorMasivo}<p class="error">{errorMasivo}</p>{/if}
 					{/if}
@@ -1325,9 +1421,19 @@
 								{:else}
 									<Button variant="ghost" onclick={() => (confirmandoEliminar = seleccionado!.id)}>{$t.vault.eliminar}</Button>
 								{/if}
+							{:else}
+								{#if confirmandoSalir === seleccionado.id}
+									<Button variant="ghost" onclick={confirmarSalirRecurso} loading={saliendo}>
+										{$t.vault.confirmarSalir}
+									</Button>
+									<Button variant="ghost" onclick={() => (confirmandoSalir = undefined)}>{$t.vault.cancelar}</Button>
+								{:else}
+									<Button variant="ghost" onclick={() => (confirmandoSalir = seleccionado!.id)}>{$t.vault.salir}</Button>
+								{/if}
 							{/if}
 						</div>
 						{#if errorEliminar}<p class="error">{errorEliminar}</p>{/if}
+						{#if errorSalir}<p class="error">{errorSalir}</p>{/if}
 					{:else if panelModo === 'editar'}
 						{#if cargandoParaEditar}
 							<p>{$t.vault.cargando}</p>

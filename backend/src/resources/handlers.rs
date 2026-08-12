@@ -476,3 +476,13 @@ pub async fn eliminar(
     servicio(&state).eliminar(resource_id, auth.user_id).await?;
     Ok(())
 }
+
+/// `POST /resources/{id}/leave` — ver `ResourceService::salir`.
+pub async fn salir(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+) -> Result<(), ApiError> {
+    servicio(&state).salir(resource_id, auth.user_id).await?;
+    Ok(())
+}

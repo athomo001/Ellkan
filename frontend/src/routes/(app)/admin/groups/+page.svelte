@@ -5,7 +5,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Table from '$lib/components/Table.svelte';
-	import { groupsApi, usersAdminApi, type Grupo, type EnvelopeParaGrupo, type UsuarioAdmin } from '$lib/api/admin';
+	import { groupsApi, sharingPolicyApi, usersAdminApi, type Grupo, type EnvelopeParaGrupo, type UsuarioAdmin } from '$lib/api/admin';
 	import { resellarSecretoParaGrupo } from '$lib/crypto/recursos';
 	import { desbloquearConPassphrase } from '$lib/crypto/identity';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
@@ -43,9 +43,54 @@
 			cargando = false;
 		}
 	}
+	let restringirPorGrupo = $state(true);
+	let guardandoPolitica = $state(false);
+	let errorPolitica = $state<string | undefined>();
+
+	async function cargarPolitica() {
+		try {
+			restringirPorGrupo = (await sharingPolicyApi.obtener()).restrict_visibility_by_group;
+		} catch {
+			/* si falla, el toggle se queda en el default `true` — mismo criterio que otras políticas */
+		}
+	}
+
+	async function alternarPolitica() {
+		const nuevo = !restringirPorGrupo;
+		guardandoPolitica = true;
+		errorPolitica = undefined;
+		try {
+			restringirPorGrupo = (await sharingPolicyApi.actualizar(nuevo)).restrict_visibility_by_group;
+		} catch (err) {
+			errorPolitica = err instanceof ApiError ? err.message : $t.admin.grupos.errorPolitica;
+		} finally {
+			guardandoPolitica = false;
+		}
+	}
+
+	// 2026-08-13, hallazgo real de uso: el checkbox vivía sólo en el panel de
+	// detalle, había que abrir cada grupo para verlo o tocarlo — ahora
+	// también vive directo en la fila de la tabla, sin abrir nada.
+	let guardandoExento = $state<string | undefined>();
+
+	async function alternarShareExemptDeGrupo(g: Grupo) {
+		const nuevo = !g.share_exempt;
+		guardandoExento = g.id;
+		try {
+			const actualizado = await groupsApi.actualizarShareExempt(g.id, nuevo);
+			grupos = grupos.map((x) => (x.id === g.id ? actualizado : x));
+			if (detalle?.id === g.id) detalle = actualizado;
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.admin.grupos.errorPolitica;
+		} finally {
+			guardandoExento = undefined;
+		}
+	}
+
 	onMount(() => {
 		cargar();
 		cargarUsuarios();
+		cargarPolitica();
 	});
 
 	let mostrarNuevo = $state(false);
@@ -205,6 +250,16 @@
 			<Button variant="primary" onclick={() => (mostrarNuevo = !mostrarNuevo)}>{$t.admin.grupos.nuevoGrupo}</Button>
 		</div>
 
+		<div class="politica">
+			<h2>{$t.admin.grupos.politicaTitulo}</h2>
+			<label class="check">
+				<input type="checkbox" checked={restringirPorGrupo} disabled={guardandoPolitica} onchange={alternarPolitica} />
+				{$t.admin.grupos.politicaRestringir}
+			</label>
+			<p class="hint">{$t.admin.grupos.politicaHint}</p>
+			{#if errorPolitica}<p class="error">{errorPolitica}</p>{/if}
+		</div>
+
 		{#if mostrarNuevo}
 			<form onsubmit={crear} class="form">
 				<TextField label={$t.admin.grupos.nombre} bind:value={nombreNuevo} required />
@@ -216,6 +271,7 @@
 			columnas={[
 				{ key: 'nombre', header: $t.admin.grupos.nombre },
 				{ key: 'padre', header: $t.admin.grupos.colPadre },
+				{ key: 'exento', header: $t.admin.grupos.shareExemptCol },
 				{ key: 'acciones', header: '' }
 			]}
 			filas={grupos}
@@ -227,6 +283,17 @@
 			{#snippet fila(g)}
 				<td>{g.name}</td>
 				<td class="secundario">{g.parent_group_id ?? $t.admin.grupos.grupoRaiz}</td>
+				<td onclick={(e) => e.stopPropagation()}>
+					<label class="check">
+						<input
+							type="checkbox"
+							checked={g.share_exempt}
+							disabled={!restringirPorGrupo || guardandoExento === g.id}
+							onchange={() => alternarShareExemptDeGrupo(g)}
+							title={restringirPorGrupo ? $t.admin.grupos.shareExempt : $t.admin.grupos.shareExemptSinEfecto}
+						/>
+					</label>
+				</td>
 				<td>
 					<Button variant="danger" onclick={(e) => { e.stopPropagation(); eliminarGrupo(g.id); }}>
 						{$t.admin.grupos.eliminarGrupo}
@@ -361,6 +428,18 @@
 	.secundario {
 		color: var(--text-muted);
 		font-size: var(--text-sm);
+	}
+	.politica {
+		margin-bottom: var(--space-4);
+		padding-bottom: var(--space-4);
+		border-bottom: 1px solid var(--border-color);
+	}
+	.politica h2 {
+		margin: 0 0 var(--space-2) 0;
+		font-size: var(--text-sm);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
 	}
 	.detalle {
 		margin-top: var(--space-4);

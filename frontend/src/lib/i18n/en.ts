@@ -201,6 +201,9 @@ const en: Diccionario = {
 		eliminar: 'Delete',
 		confirmarEliminar: 'Delete this resource? This cannot be undone.',
 		errorEliminar: 'Could not delete the resource.',
+		salir: 'Leave',
+		confirmarSalir: "Remove this resource from your vault? This doesn't delete the owner's copy, only your access.",
+		errorSalir: 'Could not leave the resource.',
 		guardarEdicion: 'Save changes',
 		compartir: 'Share',
 		compartirTitulo: 'Share resource',
@@ -230,6 +233,10 @@ const en: Diccionario = {
 		conteoSeleccionados: (n: number) => `${n} selected`,
 		moverSeleccion: 'Move to folder',
 		taggearSeleccion: 'Add tag',
+		eliminarSeleccion: 'Delete',
+		confirmarEliminarSeleccion: (n: number) => `Delete ${n} resource${n === 1 ? '' : 's'}? This can't be undone.`,
+		salirSeleccion: 'Leave',
+		confirmarSalirSeleccion: (n: number) => `Remove ${n} resource${n === 1 ? '' : 's'} from your vault? This doesn't delete the owner's copy.`,
 		errorMasivo: 'Could not apply the action to all selected resources.',
 		compartirLote: {
 			boton: 'Share',
@@ -557,7 +564,15 @@ const en: Diccionario = {
 			errorEnvelopes: "Could not add the member — you might not have access to one of the group's resources.",
 			cargarCsv: 'Upload CSV of emails',
 			resumenCsv: (agregados: number, fallidos: number) =>
-				fallidos === 0 ? `${agregados} member(s) added.` : `${agregados} member(s) added, ${fallidos} failed:`
+				fallidos === 0 ? `${agregados} member(s) added.` : `${agregados} member(s) added, ${fallidos} failed:`,
+			politicaTitulo: 'Sharing visibility',
+			politicaRestringir: 'Restrict by group (without this, anyone sees and can share with anyone)',
+			politicaHint:
+				"With the restriction on, each user only sees and can share with people in their own group; a group admin also sees other group admins. Groups marked \"exempt\" below skip this rule without turning it off for everyone else.",
+			shareExempt: 'Exempt — members see and share with anyone',
+			shareExemptCol: 'Exempt',
+			shareExemptSinEfecto: 'No effect while "Restrict by group" is off — everyone already sees everyone.',
+			errorPolitica: 'Could not update the sharing policy.'
 		},
 		reportes: {
 			titulo: 'Reports',

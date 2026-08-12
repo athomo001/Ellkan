@@ -358,6 +358,41 @@ where
         Ok(())
     }
 
+    /// `POST /resources/{id}/leave` — 2026-08-13, hallazgo real de uso: a
+    /// quien le comparten un recurso (grantee directo, no Owner) no tenía
+    /// ninguna forma de sacárselo de su propio vault sin que el dueño lo
+    /// revocara primero (`revocar_permiso` exige ser Owner para revocar a
+    /// cualquiera). Acá sólo se revoca la propia membresía directa, así que
+    /// no hace falta ser Owner — salvo que la propia membresía SEA de nivel
+    /// `owner`, ahí aplica la misma regla de "no te podés quedar sin ningún
+    /// Owner" que ya usa `revocar_permiso`/`cambiar_nivel`. Si el acceso
+    /// viene sólo por un grupo (sin fila directa `grantee_type='user'` para
+    /// este actor), no hay nada que revocar acá — salir del grupo es el
+    /// camino real, se lo dice explícito en vez de un no-op silencioso.
+    pub async fn salir(&self, resource_id: Uuid, actor_id: Uuid) -> Result<(), DomainError> {
+        let grantees = self.permisos.listar("resource", resource_id).await?;
+        let propio = grantees.iter().find(|g| g.grantee_type == "user" && g.grantee_id == actor_id).ok_or_else(|| {
+            DomainError::ValidacionInvalida(
+                "no tenés un acceso directo a este recurso — si lo ves por ser miembro de un grupo, salí del grupo en cambio".into(),
+            )
+        })?;
+
+        if propio.level == NivelPermiso::Owner.as_db_str()
+            && !self.permisos.existe_otro_owner("resource", resource_id, "user", actor_id).await?
+        {
+            return Err(DomainError::ValidacionInvalida("no podés salir: sos el único Owner de este recurso".into()));
+        }
+
+        self.permisos.revocar("resource", resource_id, "user", actor_id).await?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
+                .con_sujeto("resource", resource_id)
+                .con_metadata(serde_json::json!({ "grantee_type": "user", "grantee_id": actor_id, "revoked": true, "self_service": true })),
+        ));
+        Ok(())
+    }
+
     /// F-33: el cliente descifró la metadata con la clave saliente (via su
     /// propio `metadata_key_envelopes`) y la re-envuelve para la entrante —
     /// el servidor sólo mueve bytes opacos, igual criterio que el resto de

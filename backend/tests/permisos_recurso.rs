@@ -177,6 +177,97 @@ async fn listar_cambiar_y_revocar_permisos_respeta_el_invariante_de_owner() {
     assert_eq!(resp.status(), 403, "revocado, Bob no debería seguir teniendo acceso al secreto");
 }
 
+/// 2026-08-13: `POST /resources/{id}/leave` — hallazgo real de uso, a
+/// diferencia de `revocar_permiso` (exige ser Owner), acá un grantee
+/// read/update se saca su propio acceso sin que el dueño tenga que hacer
+/// nada, y sin que el recurso del dueño se vea afectado.
+#[tokio::test]
+async fn bob_puede_salir_de_un_recurso_compartido_sin_tocar_el_de_alice() {
+    let entorno = common::levantar().await;
+    let alice = common::registrar(&entorno, "alice-salir@test.ellkan").await;
+    let bob = common::registrar(&entorno, "bob-salir@test.ellkan").await;
+    let sesion_alice = common::login(&entorno, &alice).await;
+    let sesion_bob = common::login(&entorno, &bob).await;
+    common::promover_admin(&entorno.pool, alice.user_id).await;
+
+    let metadata_key_id = crear_metadata_key(&entorno, sesion_alice, &alice).await;
+    let (resource_id, dek) = crear_recurso_compartible(&entorno, sesion_alice, &alice, metadata_key_id).await;
+
+    let publica_bob = *bob.x25519.publica();
+    let sealed_dek_bob = sellado::sellar_dek(&publica_bob, &dek);
+    let mut aad = Vec::new();
+    aad.extend_from_slice(resource_id.as_bytes());
+    aad.extend_from_slice(alice.user_id.as_bytes());
+    let secreto_env = aead::cifrar(&dek, br#"{"password":"pw"}"#, &aad).unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/share", entorno.base, resource_id))
+        .bearer_auth(sesion_alice)
+        .json(&json!({
+            "recipient_user_id": bob.user_id,
+            "sealed_dek_b64": B64.encode(&sealed_dek_bob),
+            "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+            "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Alice, única Owner, no puede salir de su propio recurso.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/leave", entorno.base, resource_id))
+        .bearer_auth(sesion_alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "el único Owner no debería poder salir");
+
+    // Alguien sin ningún acceso directo (llega acá vía otra cuenta) no tiene nada que salir.
+    let carla = common::registrar(&entorno, "carla-salir@test.ellkan").await;
+    let sesion_carla = common::login(&entorno, &carla).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/leave", entorno.base, resource_id))
+        .bearer_auth(sesion_carla)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "sin acceso directo, no hay nada de qué salir");
+
+    // Bob (read, no-owner) sí puede salir por su cuenta, sin que Alice haga nada.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/leave", entorno.base, resource_id))
+        .bearer_auth(sesion_bob)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Bob ya no ve el recurso ni su secreto.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/secret", entorno.base, resource_id))
+        .bearer_auth(sesion_bob)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "Bob salió, no debería seguir teniendo acceso al secreto");
+
+    // Alice sigue teniendo su copia intacta — salir no es lo mismo que eliminar.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/secret", entorno.base, resource_id))
+        .bearer_auth(sesion_alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el recurso de Alice no debería verse afectado por que Bob salga");
+}
+
 #[tokio::test]
 async fn agregar_destinatario_a_metadata_key_existente_le_da_acceso_real() {
     let entorno = common::levantar().await;

@@ -274,9 +274,10 @@ pub async fn avatar(
 
 const LIMITE_BUSQUEDA: i64 = 10;
 
-/// `GET /users/search?q=` — buscador en vivo del modal de compartir, mismo
-/// criterio de "cualquier miembro de la org puede buscar a otro" que ya
-/// aplica `public_key` (email exacto) — sólo agrega coincidencia parcial.
+/// `GET /users/search?q=` — buscador en vivo del modal de compartir, misma
+/// visibilidad acotada por grupo que ya aplica `public_key` (email exacto,
+/// ver `buscar_por_prefijo`/`buscar_por_email_visible`) — sólo agrega
+/// coincidencia parcial.
 pub async fn buscar(
     State(state): State<AppState>,
     Query(query): Query<super::dto::BuscarUsuariosQuery>,

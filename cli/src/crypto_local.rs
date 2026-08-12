@@ -59,6 +59,17 @@ impl ClavePrivadaReconstruida {
     pub fn firmar(&self, mensaje: &[u8]) -> ed25519_dalek::Signature {
         self.signing_key.sign(mensaje)
     }
+
+    /// X25519 privada || Ed25519 privada, mismo formato de 64 bytes que
+    /// `NuevoKeypar::concatenar_privadas` — necesario para re-sellar con una
+    /// passphrase nueva (`requiere_cambiar_passphrase`) sin volver a generar
+    /// un keypair (la identidad no cambia, sólo el envoltorio).
+    pub fn privadas_concatenadas(&self) -> [u8; 64] {
+        let mut buf = [0u8; 64];
+        buf[..32].copy_from_slice(&self.x25519.to_bytes());
+        buf[32..].copy_from_slice(&self.signing_key.to_bytes());
+        buf
+    }
 }
 
 pub fn reconstruir_clave_privada(

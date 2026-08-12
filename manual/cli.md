@@ -24,8 +24,11 @@ La passphrase se puede pasar por variable de entorno (`ELLKAN_PASSPHRASE`) para 
 ### `ellkan-cli register --email <email> --display-name <nombre>`
 Genera los keypares (X25519 + Ed25519) localmente, cifra la clave privada con la passphrase (pedida por prompt) y registra la cuenta. Guarda el perfil en `~/.ellkan/`.
 
+### `ellkan-cli verify-email --email <email>`
+Completa la verificación de email que `register` deja pendiente en cualquier instancia que no sea el bootstrap (self-registration con verificación de email activa) — sin esto, la cuenta recién registrada no puede loguear. Pide el código por prompt (o `ELLKAN_EMAIL_CODE` para scripts).
+
 ### `ellkan-cli login --email <email>`
-Login por firma de nonce (nunca viaja una contraseña por la red). Si el dispositivo no es conocido todavía, el servidor manda un código de verificación por email — la CLI lo pide por prompt antes de completar el login. Guarda la sesión.
+Login por firma de nonce (nunca viaja una contraseña por la red). Si el dispositivo no es conocido todavía, el servidor manda un código de verificación por email — la CLI lo pide por prompt antes de completar el login (o `ELLKAN_DEVICE_CODE` para scripts). Si la cuenta tiene una passphrase provisoria (creada por un admin), la CLI la cambia en el momento usando la sesión parcial y avisa que hay que loguear de nuevo. Guarda la sesión.
 
 ### `ellkan-cli create --name <nombre> --username <usuario> [--uri <uri>] --password <contraseña> [--notes <notas>]`
 Crea un recurso login/password. La metadata y el secreto se cifran client-side antes de mandarse.
@@ -38,6 +41,16 @@ Lista los recursos visibles, descifrando la metadata localmente. `--filter` acep
 
 ### `ellkan-cli share <resource-id> --recipient-email <email> [--level read]`
 Comparte un recurso con otro usuario. Sólo funciona sobre recursos `shared_key` (los personales no son compartibles).
+
+### Grupos (`ellkan-cli group <subcomando>`)
+
+| Subcomando | Qué hace |
+| --- | --- |
+| `create --name <n> [--parent-group-id <uuid>]` | Crea un grupo raíz, o un subgrupo con `--parent-group-id`. |
+| `list` | Lista los grupos raíz visibles (id + nombre, sin miembros). |
+| `get <group-id>` | Detalle de un grupo puntual, con su membresía completa. |
+| `add-member <group-id> --user-email <email> [--is-admin]` | Agrega un miembro. Sólo funciona si el grupo todavía no comparte ningún recurso — si ya comparte algo, el backend pide envelopes (DEKs re-selladas para el nuevo miembro) que este comando no arma; hay que agregarlo por la UI en ese caso. |
+| `remove-member <group-id> --user-email <email>` | Saca a un miembro del grupo. |
 
 ### `ellkan-cli exec <resource-id> [--env-var ELLKAN_PASSWORD] -- <comando> [args...]`
 Ejecuta un comando externo con la contraseña inyectada como variable de entorno **sólo al subproceso** — nunca queda en el entorno del shell padre ni en el historial. Ejemplo:

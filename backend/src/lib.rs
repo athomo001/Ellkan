@@ -29,6 +29,7 @@ pub mod resources;
 pub mod retention;
 pub mod scim;
 pub mod self_registration;
+pub mod sharing_policy;
 pub mod smtp_config;
 pub mod sso;
 pub mod state;
@@ -131,6 +132,22 @@ async fn fallback_frontend(req: axum::extract::Request) -> axum::response::Respo
     match ServeFile::new(format!("{dist}/index.html")).oneshot(req_index).await {
         Ok(mut respuesta) => {
             *respuesta.status_mut() = axum::http::StatusCode::OK;
+            // Hallazgo real de uso, 2026-08-12: `ServeFile` pone `ETag`/
+            // `Last-Modified` (correctos para un archivo real, pero acá el
+            // mismo `index.html` se sirve bajo decenas de paths distintos,
+            // varios de los cuales *también* son endpoints JSON reales —
+            // ver comentario de `rescate_spa_en_recarga`). Sin esto, el
+            // navegador cachea la respuesta HTML de una recarga dura y
+            // se la sirve después a un `fetch()` autenticado a la misma
+            // URL en vez de ir a la red — el fetch nunca llega al backend
+            // y el JSON nunca se pide, aunque el request lleve `Authorization`.
+            let headers = respuesta.headers_mut();
+            headers.remove(axum::http::header::ETAG);
+            headers.remove(axum::http::header::LAST_MODIFIED);
+            headers.insert(
+                axum::http::header::CACHE_CONTROL,
+                HeaderValue::from_static("no-store"),
+            );
             respuesta.into_response()
         }
         Err(_) => axum::http::StatusCode::NOT_FOUND.into_response(),
@@ -425,6 +442,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/rekey-metadata", post(resources::handlers::rekey_metadata))
         .route("/{id}/totp", get(resources::handlers::totp))
         .route("/{id}/move", put(resources::handlers::mover))
+        .route("/{id}/leave", post(resources::handlers::salir))
         .route_layer(axum::middleware::from_fn_with_state(
             estado.clone(),
             rate_limit::limitar_por_usuario,
@@ -439,6 +457,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/subgroups", get(groups::handlers::subgrupos))
         .route("/{id}/resources", get(groups::handlers::recursos_compartidos))
         .route("/{id}/move", put(groups::handlers::mover))
+        .route("/{id}/share-exempt", put(groups::handlers::actualizar_share_exempt))
         .route(
             "/{id}/members/{user_id}",
             post(groups::handlers::agregar_miembro)
@@ -473,6 +492,9 @@ pub fn construir_router(estado: AppState) -> Router {
         "/",
         get(self_registration::handlers::politica).put(self_registration::handlers::actualizar_politica),
     );
+
+    let admin_sharing_policy_router = Router::new()
+        .route("/", get(sharing_policy::handlers::politica).put(sharing_policy::handlers::actualizar_politica));
 
     let admin_retention_policy_router = Router::new()
         .route("/", get(retention::handlers::politica).put(retention::handlers::actualizar_politica));
@@ -657,6 +679,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/smtp-config", admin_smtp_config_router)
         .nest("/admin/password-policy", admin_password_policy_router)
         .nest("/admin/self-registration-policy", admin_self_registration_policy_router)
+        .nest("/admin/sharing-policy", admin_sharing_policy_router)
         .nest("/admin/data-retention-policy", admin_retention_policy_router)
         .nest("/admin/account-recovery-policy", admin_account_recovery_policy_router)
         .nest("/account-recovery", account_recovery_router)

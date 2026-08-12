@@ -95,6 +95,24 @@ pub struct VerifyDeviceResponse {
     pub user_id: Uuid,
 }
 
+/// F-24: faltaba por completo en la CLI — `register` nunca llama a esto,
+/// así que en cualquier instancia que no sea el bootstrap (self-registration
+/// con verificación de email activa) una cuenta creada por `ellkan-cli
+/// register`/`admin create-user` quedaba sin forma de completar el alta
+/// desde la propia CLI. Hallazgo real, 2026-08-11.
+#[derive(Serialize)]
+struct VerifyEmailRequest<'a> {
+    email: &'a str,
+    code: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct CambiarPassphraseRequest {
+    pub encrypted_private_key_blob_b64: String,
+    pub private_key_nonce_b64: String,
+    pub kdf_salt_b64: String,
+}
+
 #[derive(Deserialize)]
 pub struct PublicKeyResponse {
     pub user_id: Uuid,
@@ -134,6 +152,45 @@ pub struct CompartirRequest {
     pub secret_ciphertext_b64: String,
     pub secret_nonce_b64: String,
     pub level: Option<String>,
+}
+
+/// F-12, 2026-08-12: la CLI no tenía ningún comando de grupos — hallazgo de
+/// auditoría real (sesión de seeding de usuarios de prueba). `id` es
+/// client-generado, mismo criterio que `CrearRecursoRequest`.
+#[derive(Serialize)]
+pub struct CrearGrupoRequest {
+    pub id: Uuid,
+    pub name: String,
+    pub parent_group_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+pub struct MiembroGrupoResponse {
+    pub user_id: Uuid,
+    pub is_admin: bool,
+    pub email: String,
+    pub display_name: String,
+}
+
+#[derive(Deserialize)]
+pub struct GrupoResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub parent_group_id: Option<Uuid>,
+    #[serde(default)]
+    pub members: Vec<MiembroGrupoResponse>,
+}
+
+/// `envelopes` queda siempre vacío — alcanza para un grupo que todavía no
+/// comparte recursos (caso normal al armar un grupo nuevo). Si el grupo ya
+/// comparte algo, el backend rechaza el alta pidiendo los envelopes
+/// correspondientes (mismo criterio que ya documentaba `service.rs`); sellar
+/// una DEK ajena por cada recurso ya compartido del grupo queda fuera de
+/// alcance de este comando.
+#[derive(Serialize)]
+struct AgregarMiembroGrupoRequest {
+    is_admin: bool,
+    envelopes: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -245,6 +302,41 @@ impl Cliente {
         a_resultado(resp)
     }
 
+    pub fn verify_email(&self, email: &str, code: &str) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}/auth/verify-email", self.base_url))
+            .json(&VerifyEmailRequest { email, code })
+            .send()?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let texto = resp.text()?;
+            anyhow::bail!("error HTTP {status}: {texto}")
+        }
+    }
+
+    /// 2026-08-11: usado por `login()` cuando `/auth/verify` devuelve
+    /// `requiere_cambiar_passphrase` (cuenta creada por un admin con
+    /// passphrase provisoria) — misma sesión parcial que ya trae `verify`,
+    /// server-side acepta `SesionValida` para este endpoint a propósito.
+    pub fn change_passphrase(&self, session_id: Uuid, req: &CambiarPassphraseRequest) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}/me/change-passphrase", self.base_url))
+            .bearer_auth(session_id)
+            .json(req)
+            .send()?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let texto = resp.text()?;
+            anyhow::bail!("error HTTP {status}: {texto}")
+        }
+    }
+
     pub fn public_key(&self, session_id: Uuid, email: &str) -> anyhow::Result<PublicKeyResponse> {
         let resp = self
             .http
@@ -310,6 +402,61 @@ impl Cliente {
     pub fn healthz(&self) -> anyhow::Result<String> {
         let resp = self.http.get(format!("{}/healthz", self.base_url)).send()?;
         Ok(resp.text()?)
+    }
+
+    pub fn crear_grupo(&self, session_id: Uuid, req: &CrearGrupoRequest) -> anyhow::Result<GrupoResponse> {
+        let resp = self
+            .http
+            .post(format!("{}/groups", self.base_url))
+            .bearer_auth(session_id)
+            .json(req)
+            .send()?;
+        a_resultado(resp)
+    }
+
+    pub fn listar_grupos(&self, session_id: Uuid) -> anyhow::Result<Vec<GrupoResponse>> {
+        let resp = self.http.get(format!("{}/groups", self.base_url)).bearer_auth(session_id).send()?;
+        a_resultado(resp)
+    }
+
+    pub fn obtener_grupo(&self, session_id: Uuid, group_id: Uuid) -> anyhow::Result<GrupoResponse> {
+        let resp = self
+            .http
+            .get(format!("{}/groups/{}", self.base_url, group_id))
+            .bearer_auth(session_id)
+            .send()?;
+        a_resultado(resp)
+    }
+
+    pub fn agregar_miembro_grupo(&self, session_id: Uuid, group_id: Uuid, user_id: Uuid, is_admin: bool) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}/groups/{}/members/{}", self.base_url, group_id, user_id))
+            .bearer_auth(session_id)
+            .json(&AgregarMiembroGrupoRequest { is_admin, envelopes: vec![] })
+            .send()?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let texto = resp.text()?;
+            anyhow::bail!("error HTTP {status}: {texto}")
+        }
+    }
+
+    pub fn quitar_miembro_grupo(&self, session_id: Uuid, group_id: Uuid, user_id: Uuid) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .delete(format!("{}/groups/{}/members/{}", self.base_url, group_id, user_id))
+            .bearer_auth(session_id)
+            .send()?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let texto = resp.text()?;
+            anyhow::bail!("error HTTP {status}: {texto}")
+        }
     }
 }
 

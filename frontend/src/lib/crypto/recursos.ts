@@ -304,6 +304,15 @@ export async function eliminarRecurso(resourceId: string): Promise<void> {
 	await api.delete(`/resources/${resourceId}`);
 }
 
+/** `POST /resources/{id}/leave` (2026-08-13, endpoint nuevo) — para alguien
+ * a quien le compartieron el recurso (no dueño, `puedeBorrar` en `false`):
+ * saca su propio acceso directo sin tocar el recurso del dueño. Si el
+ * acceso viene sólo por un grupo, el backend rechaza con un mensaje real
+ * explicando eso — ver `ResourceService::salir`. */
+export async function salirDeRecurso(resourceId: string): Promise<void> {
+	await api.post<void>(`/resources/${resourceId}/leave`);
+}
+
 /** F-07: FTP/SSH/VNC/Telnet reusan el mismo shape que login-password
  * (host:puerto en `uri`) — sólo cambia el `resource_type_slug` para
  * categorizar/mostrar un ícono distinto y armar el comando de conexión

@@ -31,6 +31,10 @@ pub trait GroupRepository {
 
     async fn eliminar(&self, group_id: Uuid) -> Result<(), RepoError>;
 
+    /// 2026-08-13: sólo tocable por un admin de organización — el handler
+    /// gatea con `AdminUser`, no hay chequeo de autoridad acá adentro.
+    async fn actualizar_share_exempt(&self, group_id: Uuid, exempt: bool) -> Result<(), RepoError>;
+
     /// F-19: find-or-create por nombre a nivel raíz, usado por Directory
     /// Sync para auto-crear grupos que vienen del directorio (`memberOf`).
     /// Si ya existe un grupo raíz con ese nombre (armado a mano o por una
@@ -110,7 +114,7 @@ impl GroupRepository for PgGroupRepository {
             r#"
             insert into groups (id, name, parent_group_id)
             values ($1, $2, $3)
-            returning id, name, parent_group_id
+            returning id, name, parent_group_id, share_exempt
             "#,
             id,
             name,
@@ -123,24 +127,24 @@ impl GroupRepository for PgGroupRepository {
             _ => RepoError::Database(e),
         })?;
 
-        Ok(Group { id: fila.id, name: fila.name, parent_group_id: fila.parent_group_id })
+        Ok(Group { id: fila.id, name: fila.name, parent_group_id: fila.parent_group_id, share_exempt: fila.share_exempt })
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Group>, RepoError> {
         let fila = sqlx::query!(
-            r#"select id, name, parent_group_id from groups where id = $1 and deleted_at is null"#,
+            r#"select id, name, parent_group_id, share_exempt from groups where id = $1 and deleted_at is null"#,
             id,
         )
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id }))
+        Ok(fila.map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id, share_exempt: f.share_exempt }))
     }
 
     async fn hijos_directos(&self, group_id: Uuid) -> Result<Vec<Group>, RepoError> {
         let filas = sqlx::query!(
             r#"
-            select id, name, parent_group_id from groups
+            select id, name, parent_group_id, share_exempt from groups
             where parent_group_id = $1 and deleted_at is null
             order by name
             "#,
@@ -151,14 +155,14 @@ impl GroupRepository for PgGroupRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id })
+            .map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id, share_exempt: f.share_exempt })
             .collect())
     }
 
     async fn raices(&self) -> Result<Vec<Group>, RepoError> {
         let filas = sqlx::query!(
             r#"
-            select id, name, parent_group_id from groups
+            select id, name, parent_group_id, share_exempt from groups
             where parent_group_id is null and deleted_at is null
             order by name
             "#,
@@ -168,7 +172,7 @@ impl GroupRepository for PgGroupRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id })
+            .map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id, share_exempt: f.share_exempt })
             .collect())
     }
 
@@ -218,6 +222,13 @@ impl GroupRepository for PgGroupRepository {
 
     async fn eliminar(&self, group_id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(r#"update groups set deleted_at = now() where id = $1"#, group_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn actualizar_share_exempt(&self, group_id: Uuid, exempt: bool) -> Result<(), RepoError> {
+        sqlx::query!(r#"update groups set share_exempt = $2 where id = $1"#, group_id, exempt)
             .execute(&self.pool)
             .await?;
         Ok(())

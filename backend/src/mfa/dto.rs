@@ -31,9 +31,21 @@ pub struct SetupTotpResponse {
 #[derive(Debug, Deserialize)]
 pub struct ConfirmarTotpRequest {
     pub code: String,
+    /// 2026-08-13: recién configurado el segundo factor en este dispositivo
+    /// puntual — cuenta como "ya verificado" acá también, ver
+    /// `VerificarMfaRequest`. `Option` para no romper callers viejos que
+    /// todavía no lo mandan (no hay downside: sin esto, simplemente no se
+    /// recuerda el dispositivo, mismo comportamiento que antes de F-14b).
+    #[serde(default)]
+    pub device_token_hash_b64: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct VerificarMfaRequest {
     pub code: String,
+    /// 2026-08-13: mismo hash que `/auth/verify` — permite recordar que MFA
+    /// ya se pasó en este dispositivo puntual (ver `KnownDeviceRepository`).
+    /// `Option` por la misma razón que `ConfirmarTotpRequest`.
+    #[serde(default)]
+    pub device_token_hash_b64: Option<String>,
 }

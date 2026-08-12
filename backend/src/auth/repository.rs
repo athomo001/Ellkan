@@ -132,6 +132,12 @@ pub trait SessionRepository {
 pub trait KnownDeviceRepository {
     async fn es_conocido(&self, user_id: Uuid, device_token_hash: &[u8]) -> Result<bool, RepoError>;
     async fn marcar_conocido(&self, user_id: Uuid, device_token_hash: &[u8]) -> Result<(), RepoError>;
+
+    /// 2026-08-13: MFA ya verificado en este dispositivo puntual — mismo
+    /// `device_token_hash` de F-02, evita repetir el desafío en cada login
+    /// (ver `resolver_tras_f02`).
+    async fn mfa_confirmado(&self, user_id: Uuid, device_token_hash: &[u8]) -> Result<bool, RepoError>;
+    async fn marcar_mfa_confirmado(&self, user_id: Uuid, device_token_hash: &[u8]) -> Result<(), RepoError>;
 }
 
 pub trait DeviceChallengeRepository {
@@ -336,6 +342,14 @@ impl UserRepository for PgUserRepository {
         }))
     }
 
+    /// 2026-08-13: dos excepciones nuevas a la visibilidad acotada por
+    /// grupo de 0037 — `sharing_policy.restrict_visibility_by_group = false`
+    /// apaga la restricción entera (vuelve a "cualquiera ve a cualquiera"),
+    /// y `groups.share_exempt` deja a los miembros de un grupo puntual
+    /// (ej. soporte/TI que crean cuentas para otras áreas) ver y compartir
+    /// con cualquiera sin volverse admin de organización. Ambas ganancias
+    /// de visibilidad, nunca de otro privilegio — misma función que ya
+    /// resuelve el resto del predicado.
     async fn buscar_por_prefijo(
         &self,
         actor_id: Uuid,
@@ -355,6 +369,10 @@ impl UserRepository for PgUserRepository {
                     u.id = $1
                     or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id
                             where a.id = $1 and rp.permission = '*')
+                    or not exists (select 1 from sharing_policy sp
+                                   where sp.organization_id = 1 and sp.restrict_visibility_by_group)
+                    or exists (select 1 from group_members gme join groups g on g.id = gme.group_id
+                               where gme.user_id = $1 and g.share_exempt and g.deleted_at is null)
                     or exists (select 1 from group_members gm1 join group_members gm2 on gm1.group_id = gm2.group_id
                                where gm1.user_id = $1 and gm2.user_id = u.id)
                     or (
@@ -396,6 +414,10 @@ impl UserRepository for PgUserRepository {
                     u.id = $1
                     or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id
                             where a.id = $1 and rp.permission = '*')
+                    or not exists (select 1 from sharing_policy sp
+                                   where sp.organization_id = 1 and sp.restrict_visibility_by_group)
+                    or exists (select 1 from group_members gme join groups g on g.id = gme.group_id
+                               where gme.user_id = $1 and g.share_exempt and g.deleted_at is null)
                     or exists (select 1 from group_members gm1 join group_members gm2 on gm1.group_id = gm2.group_id
                                where gm1.user_id = $1 and gm2.user_id = u.id)
                     or (
@@ -637,6 +659,29 @@ impl KnownDeviceRepository for PgKnownDeviceRepository {
         sqlx::query!(
             r#"insert into known_devices (user_id, device_token_hash) values ($1, $2)
                on conflict (user_id, device_token_hash) do update set last_seen_at = now()"#,
+            user_id,
+            device_token_hash,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn mfa_confirmado(&self, user_id: Uuid, device_token_hash: &[u8]) -> Result<bool, RepoError> {
+        let fila = sqlx::query!(
+            r#"select 1 as "existe!" from known_devices
+               where user_id = $1 and device_token_hash = $2 and mfa_verified_at is not null"#,
+            user_id,
+            device_token_hash,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.is_some())
+    }
+
+    async fn marcar_mfa_confirmado(&self, user_id: Uuid, device_token_hash: &[u8]) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"update known_devices set mfa_verified_at = now() where user_id = $1 and device_token_hash = $2"#,
             user_id,
             device_token_hash,
         )
