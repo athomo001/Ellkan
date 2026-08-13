@@ -7,6 +7,7 @@
 // si algún día se agrega uno).
 
 import { cargarCrypto } from './wasm';
+import { sellarClavePrivadaEnWorker, abrirClavePrivadaEnWorker } from './argon2WorkerClient';
 import { bytesABase64, base64ABytes } from './b64';
 import { api } from '$lib/api/client';
 import { deviceTokenHashB64 } from './device';
@@ -32,7 +33,7 @@ export async function registrar(email: string, displayName: string, passphrase: 
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
 	const salt = wasm.generar_salt_kdf();
-	const blob = wasm.sellar_clave_privada(
+	const blob = await sellarClavePrivadaEnWorker(
 		passphrase,
 		salt,
 		identidad.x25519_private,
@@ -59,7 +60,7 @@ export async function crearUsuarioPorAdmin(email: string, displayName: string, p
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
 	const salt = wasm.generar_salt_kdf();
-	const blob = wasm.sellar_clave_privada(
+	const blob = await sellarClavePrivadaEnWorker(
 		passphrase,
 		salt,
 		identidad.x25519_private,
@@ -119,7 +120,7 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 		kdf_salt_b64: string;
 	}>('/auth/key-material', { email });
 
-	const abierta = wasm.abrir_clave_privada(
+	const abierta = await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
@@ -129,7 +130,7 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 
 	const challenge = await api.post<{ nonce_b64: string }>('/auth/challenge', { email });
 	const nonce = base64ABytes(challenge.nonce_b64);
-	const firma = wasm.firmar(abierta.ed25519_private, nonce);
+	const firma = wasm.firmar(abierta.ed25519Private, nonce);
 	const deviceTokenHash = await deviceTokenHashB64();
 
 	const verify = await api.post<{
@@ -145,10 +146,10 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 	});
 
 	const claves: ClavesDesbloqueadas = {
-		x25519Private: abierta.x25519_private,
-		ed25519Private: abierta.ed25519_private,
-		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519_private),
-		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519_private)
+		x25519Private: abierta.x25519Private,
+		ed25519Private: abierta.ed25519Private,
+		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
+		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
 	};
 
 	return {
@@ -186,14 +187,13 @@ export async function cerrarSesion(): Promise<void> {
  * nunca llega a `/auth/challenge`/`/auth/verify`. Tira si es incorrecta.
  */
 export async function verificarPassphrase(email: string, passphrase: string): Promise<void> {
-	const wasm = await cargarCrypto();
 	const material = await api.post<{
 		encrypted_private_key_blob_b64: string;
 		private_key_nonce_b64: string;
 		kdf_salt_b64: string;
 	}>('/auth/key-material', { email });
 
-	wasm.abrir_clave_privada(
+	await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
@@ -216,7 +216,7 @@ export async function desbloquearConPassphrase(email: string, passphrase: string
 		kdf_salt_b64: string;
 	}>('/auth/key-material', { email });
 
-	const abierta = wasm.abrir_clave_privada(
+	const abierta = await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
@@ -225,10 +225,10 @@ export async function desbloquearConPassphrase(email: string, passphrase: string
 	);
 
 	return {
-		x25519Private: abierta.x25519_private,
-		ed25519Private: abierta.ed25519_private,
-		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519_private),
-		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519_private)
+		x25519Private: abierta.x25519Private,
+		ed25519Private: abierta.ed25519Private,
+		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
+		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
 	};
 }
 
@@ -252,7 +252,7 @@ export async function cambiarPassphrase(
 		kdf_salt_b64: string;
 	}>('/auth/key-material', { email });
 
-	const abierta = wasm.abrir_clave_privada(
+	const abierta = await abrirClavePrivadaEnWorker(
 		passphraseActual,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
@@ -261,11 +261,11 @@ export async function cambiarPassphrase(
 	);
 
 	const nuevaSalt = wasm.generar_salt_kdf();
-	const nuevoBlob = wasm.sellar_clave_privada(
+	const nuevoBlob = await sellarClavePrivadaEnWorker(
 		passphraseNueva,
 		nuevaSalt,
-		abierta.x25519_private,
-		abierta.ed25519_private,
+		abierta.x25519Private,
+		abierta.ed25519Private,
 		aadClavePrivada(email)
 	);
 
