@@ -45,7 +45,7 @@ fn clave_privada_argon2id_hkdf_aead_roundtrip_en_navegador() {
     let aad = b"user_id:wasm-test";
     let blob = cifrar_clave_privada(&pass, [3u8; 16], &clave_privada, aad).unwrap();
     let recuperada = descifrar_clave_privada(&pass, &blob, aad).unwrap();
-    assert_eq!(recuperada, clave_privada);
+    assert_eq!(recuperada.as_slice(), &clave_privada);
 }
 
 #[wasm_bindgen_test]

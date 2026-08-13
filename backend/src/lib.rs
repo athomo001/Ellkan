@@ -504,13 +504,56 @@ pub fn construir_router(estado: AppState) -> Router {
         get(account_recovery::handlers::politica).put(account_recovery::handlers::actualizar_politica),
     );
 
+    // H-09 (auditoría 2026-08-12): `/requests`/`/requests/{id}/complete` son
+    // sin sesión (identificadas sólo por email/id), antes sólo cubiertas por
+    // el rate limit general por IP — un atacante podía floodear de
+    // solicitudes pendientes el email de una víctima (mail-bombing a los
+    // admins que las revisan). Mismo patrón de dos tiers que
+    // `recovery_kit_reset_router`: general para pedir/consultar estado, más
+    // estricto dedicado sobre `complete` (segundo factor en juego).
+    let account_recovery_requests_governor_conf = GovernorConfigBuilder::default()
+        .per_second(1)
+        .burst_size(5)
+        .finish()
+        .expect("configuración de rate limiting de account-recovery-requests válida");
+    let account_recovery_requests_limiter = account_recovery_requests_governor_conf.limiter().clone();
+    tokio::spawn(async move {
+        let mut intervalo = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            intervalo.tick().await;
+            account_recovery_requests_limiter.retain_recent();
+        }
+    });
+
+    let account_recovery_complete_governor_conf = GovernorConfigBuilder::default()
+        .period(Duration::from_secs(12))
+        .burst_size(5)
+        .finish()
+        .expect("configuración de rate limiting de account-recovery-complete válida");
+    let account_recovery_complete_limiter = account_recovery_complete_governor_conf.limiter().clone();
+    tokio::spawn(async move {
+        let mut intervalo = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            intervalo.tick().await;
+            account_recovery_complete_limiter.retain_recent();
+        }
+    });
+
     let account_recovery_router = Router::new()
         .route("/status", get(account_recovery::handlers::mi_estado))
         .route("/org-public-key", get(account_recovery::handlers::org_public_key))
         .route("/enroll", post(account_recovery::handlers::enrolar))
-        .route("/requests", post(account_recovery::handlers::crear_solicitud))
-        .route("/requests/{id}", get(account_recovery::handlers::estado_solicitud))
-        .route("/requests/{id}/complete", post(account_recovery::handlers::completar));
+        .merge(
+            Router::new()
+                .route("/requests", post(account_recovery::handlers::crear_solicitud))
+                .route("/requests/{id}", get(account_recovery::handlers::estado_solicitud))
+                .layer(GovernorLayer::new(account_recovery_requests_governor_conf)),
+        )
+        .merge(
+            Router::new()
+                .route("/requests/{id}/complete", post(account_recovery::handlers::completar))
+                .layer(GovernorLayer::new(account_recovery_complete_governor_conf)),
+        );
 
     let admin_account_recovery_requests_router = Router::new()
         .route("/", get(account_recovery::handlers::listar_solicitudes_pendientes))
@@ -582,7 +625,11 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_sso_config_router =
         Router::new().route("/", get(sso::handlers::config).put(sso::handlers::actualizar_config));
 
-    let admin_scim_tokens_router = Router::new().route("/", post(scim::handlers::crear_token));
+    // H-08 (auditoría 2026-08-12): antes sólo existía `POST` — no había
+    // forma de revocar un token SCIM comprometido vía API.
+    let admin_scim_tokens_router = Router::new()
+        .route("/", get(scim::handlers::listar_tokens).post(scim::handlers::crear_token))
+        .route("/{id}", delete(scim::handlers::revocar_token));
 
     let scim_users_router = Router::new()
         .route("/", get(scim::handlers::listar_usuarios).post(scim::handlers::crear_usuario))

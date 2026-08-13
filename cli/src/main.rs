@@ -59,7 +59,12 @@ enum Comando {
         #[arg(long)]
         email: String,
     },
-    /// Crea un recurso login/password (F-05, F-06, F-07)
+    /// Crea un recurso login/password (F-05, F-06, F-07). El password del
+    /// recurso se pide interactivamente (o vía `ELLKAN_RESOURCE_PASSWORD`
+    /// para scripting) — nunca como argumento de línea de comandos
+    /// (hallazgo de seguridad, auditoría 2026-08-12, H-04: un `--password`
+    /// queda visible para cualquier otro usuario vía `ps`/`/proc/*/cmdline`
+    /// y en el historial del shell).
     Create {
         #[arg(long)]
         name: String,
@@ -67,8 +72,6 @@ enum Comando {
         username: String,
         #[arg(long, default_value = "")]
         uri: String,
-        #[arg(long)]
-        password: String,
         #[arg(long, default_value = "")]
         notes: String,
     },
@@ -225,6 +228,18 @@ fn leer_passphrase(prompt: &str) -> anyhow::Result<SecretBox<String>> {
     }
     let valor = rpassword::prompt_password(prompt)?;
     Ok(SecretBox::new(Box::new(valor)))
+}
+
+/// H-04: mismo criterio que `leer_passphrase` — nunca como argumento de
+/// línea de comandos, sólo prompt interactivo o `ELLKAN_RESOURCE_PASSWORD`
+/// para scripting (que ya no queda en `ps`/`/proc/*/cmdline`, a diferencia
+/// de un `--password`; el `~/.bash_history` de la sesión que exportó la
+/// variable sigue siendo responsabilidad de quien scriptea).
+fn leer_password_de_recurso() -> anyhow::Result<String> {
+    if let Ok(valor) = std::env::var("ELLKAN_RESOURCE_PASSWORD") {
+        return Ok(valor);
+    }
+    Ok(rpassword::prompt_password("Password del recurso: ")?)
 }
 
 fn cliente_desde(cli: &Cli) -> anyhow::Result<Cliente> {
@@ -707,8 +722,9 @@ fn main() -> anyhow::Result<()> {
         )?,
         Comando::Login { email } => login(&cliente, email)?,
         Comando::VerifyEmail { email } => verificar_email(&cliente, email)?,
-        Comando::Create { name, username, uri, password, notes } => {
-            crear(&cliente, name, username, uri, password, notes)?
+        Comando::Create { name, username, uri, notes } => {
+            let password = leer_password_de_recurso()?;
+            crear(&cliente, name, username, uri, &password, notes)?
         }
         Comando::Share { resource_id, recipient_email, level } => {
             compartir(&cliente, *resource_id, recipient_email, level)?

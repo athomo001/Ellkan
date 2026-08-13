@@ -165,6 +165,18 @@ where
         resource_id: Uuid,
         folder_id: Option<Uuid>,
     ) -> Result<(), DomainError> {
+        // Hallazgo de seguridad (auditoría 2026-08-12, H-02): esta función
+        // sólo validaba autorización sobre la carpeta DESTINO, nunca sobre
+        // el recurso movido — un admin de grupo sin ningún permiso sobre
+        // `resource_id` podía "enmarcarlo" en una carpeta propia compartida
+        // con su grupo y de ahí borrarlo vía `ResourceService::eliminar`
+        // (que confía en `carpetas_de_recurso` sin volver a chequear
+        // ownership). Mismo nivel mínimo que el resto de las lecturas de
+        // recurso (`obtener`, `obtener_secreto`, `listar_destinatarios`).
+        if !self.permisos.tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str()).await? {
+            return Err(DomainError::PermissionDenied);
+        }
+
         if let Some(destino) = folder_id {
             self.carpetas
                 .buscar(destino)

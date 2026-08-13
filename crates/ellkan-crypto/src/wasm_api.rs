@@ -14,6 +14,7 @@
 
 use secrecy::SecretBox;
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroize;
 
 use crate::aead::{self, Envoltura};
 use crate::aleatoriedad::bytes_aleatorios;
@@ -103,16 +104,23 @@ impl BlobClavePrivada {
 pub fn sellar_clave_privada(
     passphrase: String,
     salt: Vec<u8>,
-    x25519_private: Vec<u8>,
-    ed25519_private: Vec<u8>,
+    mut x25519_private: Vec<u8>,
+    mut ed25519_private: Vec<u8>,
     aad: Vec<u8>,
 ) -> Result<BlobClavePrivada, JsValue> {
     let salt: [u8; 16] = salt.try_into().map_err(|_| err_js("salt debe ser de 16 bytes"))?;
     let mut privadas = Vec::with_capacity(64);
     privadas.extend_from_slice(&x25519_private);
     privadas.extend_from_slice(&ed25519_private);
+    // Hallazgo de seguridad (auditoría 2026-08-12, H-05): las claves
+    // privadas en claro quedaban en el heap sin zeroize al salir de scope
+    // — acá y en `privadas` más abajo.
+    x25519_private.zeroize();
+    ed25519_private.zeroize();
 
-    let blob = cifrar_clave_privada(&passphrase_de(passphrase), salt, &privadas, &aad).map_err(err_js)?;
+    let resultado = cifrar_clave_privada(&passphrase_de(passphrase), salt, &privadas, &aad).map_err(err_js);
+    privadas.zeroize();
+    let blob = resultado?;
     Ok(BlobClavePrivada { ciphertext: blob.envoltura.ciphertext, nonce: blob.envoltura.nonce.to_vec() })
 }
 

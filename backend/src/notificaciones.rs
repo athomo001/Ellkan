@@ -23,7 +23,7 @@ use uuid::Uuid;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
 use crate::error::RepoError;
-use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
 use crate::smtp_config::repository::SmtpConfigRepository;
 
 /// Fila lista para enviar — a diferencia del stub original, acá sí hace
@@ -155,7 +155,7 @@ where
 {
     let mut receptor = eventos.subscribe();
     tokio::spawn(async move {
-        while let Ok(evento) = receptor.recv().await {
+        while let Some(evento) = recibir_tolerando_lag(&mut receptor, "notificaciones").await {
             match evento {
                 DomainEvent::DispositivoNoReconocido { email, codigo, .. } => {
                     let asunto = "Ellkan: verificá este dispositivo nuevo";

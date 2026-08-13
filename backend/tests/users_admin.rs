@@ -325,3 +325,117 @@ async fn desactivar_invalida_una_sesion_ya_abierta_de_inmediato() {
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(cuerpo["active"], true);
 }
+
+/// Regresión H-32 (auditoría 2026-08-12): `purgar()` validaba con CAS
+/// (`rows_affected() != 1`) la transferencia de *managers* de grupo, pero no
+/// la de *owners* de recurso — sólo hacía un `SELECT` previo, sin revisar el
+/// `UPDATE` posterior. Ventana real: purgas concurrentes donde alguien
+/// transfiere ownership a un usuario que se está purgando en simultáneo — la
+/// ventana exacta (la fila de `permissions` desaparece ENTRE el `SELECT` y
+/// el `UPDATE` de la misma transacción) es angosta a propósito y no se puede
+/// forzar de forma determinística desde un test de integración sin
+/// instrumentar la transacción. Este test simula el mismo resultado final
+/// de forma secuencial (el destinatario ya no tiene ninguna fila de
+/// `permissions` para cuando se intenta transferirle el recurso) y confirma
+/// que el comportamiento observable es el que importa: rechazo explícito
+/// (409), nunca éxito silencioso sin transferencia real.
+#[tokio::test]
+async fn purgar_con_transferencia_a_un_destinatario_ya_purgado_falla_explicito() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin-h32@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let owner = common::registrar(&entorno, "owner-h32@test.ellkan").await;
+    let sesion_owner = common::login(&entorno, &owner).await;
+    let colaborador = common::registrar(&entorno, "colaborador-h32@test.ellkan").await;
+
+    let par = KeypairAcuerdo::generar();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/metadata-keys", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({
+            "id": uuid::Uuid::now_v7(),
+            "public_key_x25519_b64": B64.encode(par.publica().as_bytes()),
+            "fingerprint": "fp-h32",
+            "destinatarios": [],
+        }))
+        .send()
+        .await
+        .unwrap();
+    let metadata_key: Value = resp.json().await.unwrap();
+    let metadata_key_id = metadata_key["id"].as_str().unwrap();
+
+    let resource_id = uuid::Uuid::now_v7();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion_owner)
+        .json(&json!({
+            "id": resource_id,
+            "resource_type_slug": "login-password",
+            "metadata_ciphertext_b64": "AAAA",
+            "metadata_nonce_b64": "AAAA",
+            "sealed_dek_b64": "AAAA",
+            "secret_ciphertext_b64": "AAAA",
+            "secret_nonce_b64": "AAAA",
+            "metadata_key_id": metadata_key_id,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{resource_id}/share", entorno.base))
+        .bearer_auth(sesion_owner)
+        .json(&json!({
+            "recipient_user_id": colaborador.user_id,
+            "sealed_dek_b64": "AAAA",
+            "secret_ciphertext_b64": "AAAA",
+            "secret_nonce_b64": "AAAA",
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+
+    // El colaborador se purga primero (sin nada que lo bloquee: sólo tiene
+    // `read`, no es owner de nada) — esto borra su fila de `permissions`
+    // sobre el recurso, exactamente lo que la carrera real necesita.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/users/{}/purge", entorno.base, colaborador.user_id))
+        .bearer_auth(sesion_admin)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+
+    // Ahora se purga al owner transfiriéndole el recurso al colaborador —
+    // que ya no tiene ninguna fila de `permissions` sobre él. Antes de H-32
+    // esto reportaba éxito (200) sin haber transferido nada de verdad.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/users/{}/purge", entorno.base, owner.user_id))
+        .bearer_auth(sesion_admin)
+        .json(&json!({
+            "transfer": { "owners": [{ "resource_id": resource_id, "new_owner_user_id": colaborador.user_id }] }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409, "transferir a un destinatario sin permiso real debe rechazarse, no reportar éxito");
+
+    // Todo o nada: el owner original sigue existiendo, la purga no se aplicó a medias.
+    let existe: (bool,) = sqlx::query_as("select exists(select 1 from users where id = $1)")
+        .bind(owner.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert!(existe.0, "una purga fallida no debe borrar nada (todo o nada)");
+}

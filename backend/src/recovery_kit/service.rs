@@ -183,9 +183,15 @@ where
                 let codigo: u32 = mfa_code.trim().parse().map_err(|_| DomainError::InvalidCredentials)?;
                 let mut secreto = crate::mfa::service::descifrar_secreto(self.secrets_key, &credential)?;
                 let ahora = time::OffsetDateTime::now_utc().unix_timestamp() as u64;
-                let valido = totp::verificar_totp(&secreto, codigo, ahora);
+                let paso = totp::verificar_totp_paso(&secreto, codigo, ahora);
                 secreto.zeroize();
-                valido
+                // H-06: mismo criterio anti-replay que el login normal
+                // (`mfa::service::verificar_login_interno`) — un código ya
+                // usado no sirve para completar un segundo reset.
+                match paso {
+                    Some(paso) => self.totp.marcar_paso_aceptado(credential.id, paso as i64).await?,
+                    None => false,
+                }
             }
             None => match &fila.email_code_hash {
                 Some(hash_esperado) => secreto_coincide(hash_esperado, &hash_de_codigo(mfa_code.trim())),

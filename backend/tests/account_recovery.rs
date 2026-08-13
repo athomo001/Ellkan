@@ -130,6 +130,55 @@ async fn un_solo_admin_no_alcanza_umbral_de_dos_y_no_se_duplica() {
     assert_eq!(cuerpo["approvals_count"], 1, "aprobar dos veces el mismo admin no debe duplicarse");
 }
 
+/// Regresión de seguridad (auditoría 2026-08-12, H-27): `POST
+/// /account-recovery/requests` es sin sesión (sólo email) — sin este
+/// constraint, un atacante podía invocarlo repetidamente contra el email de
+/// una víctima, insertando una fila `pending` nueva cada vez y disparando
+/// una notificación real a los admins en cada una (mail-bombing).
+#[tokio::test]
+async fn segunda_solicitud_pendiente_para_el_mismo_escrow_es_rechazada() {
+    let entorno = common::levantar().await;
+
+    let victima = common::registrar(&entorno, "victima-dup@test.ellkan").await;
+    let sesion_victima = common::login(&entorno, &victima).await;
+    enrolar(&entorno, sesion_victima).await;
+
+    let pedir = || {
+        let entorno = &entorno;
+        let email = victima.email.clone();
+        async move {
+            let efimera = KeypairAcuerdo::generar();
+            entorno
+                .cliente
+                .post(format!("{}/account-recovery/requests", entorno.base))
+                .json(&json!({
+                    "email": email,
+                    "requester_public_key_x25519_b64": B64.encode(efimera.publica().as_bytes()),
+                }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    let resp = pedir().await;
+    assert_eq!(resp.status(), 200, "la primera solicitud debería aceptarse");
+
+    let resp = pedir().await;
+    assert_eq!(resp.status(), 409, "una segunda solicitud mientras la primera sigue pendiente debería rechazarse");
+
+    let count: (i64,) = sqlx::query_as(
+        "select count(*) from account_recovery_requests r
+         join account_recovery_escrow e on e.id = r.escrow_id
+         where e.user_id = $1 and r.status = 'pending'",
+    )
+    .bind(victima.user_id)
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(count.0, 1, "no debería haber quedado una segunda fila pending");
+}
+
 #[tokio::test]
 async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante() {
     let entorno = common::levantar().await;

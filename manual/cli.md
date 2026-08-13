@@ -30,8 +30,8 @@ Completa la verificación de email que `register` deja pendiente en cualquier in
 ### `ellkan-cli login --email <email>`
 Login por firma de nonce (nunca viaja una contraseña por la red). Si el dispositivo no es conocido todavía, el servidor manda un código de verificación por email — la CLI lo pide por prompt antes de completar el login (o `ELLKAN_DEVICE_CODE` para scripts). Si la cuenta tiene una passphrase provisoria (creada por un admin), la CLI la cambia en el momento usando la sesión parcial y avisa que hay que loguear de nuevo. Guarda la sesión.
 
-### `ellkan-cli create --name <nombre> --username <usuario> [--uri <uri>] --password <contraseña> [--notes <notas>]`
-Crea un recurso login/password. La metadata y el secreto se cifran client-side antes de mandarse.
+### `ellkan-cli create --name <nombre> --username <usuario> [--uri <uri>] [--notes <notas>]`
+Crea un recurso login/password. La metadata y el secreto se cifran client-side antes de mandarse. El password del recurso se pide por prompt interactivo (o `ELLKAN_RESOURCE_PASSWORD` para scripts) — nunca como argumento, para no dejarlo visible en `ps`/`/proc/*/cmdline` ni en el historial del shell.
 
 ### `ellkan-cli read <resource-id>`
 Descifra y muestra un recurso (metadata + secreto) por su UUID.

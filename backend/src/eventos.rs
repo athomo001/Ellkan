@@ -57,3 +57,28 @@ pub fn nuevo_canal() -> EmisorDeEventos {
     let (tx, _rx) = tokio::sync::broadcast::channel(256);
     tx
 }
+
+/// Hallazgo de seguridad (auditoría 2026-08-12, H-03): `broadcast::Receiver::recv()`
+/// devuelve `Err(RecvError::Lagged(n))` —no sólo `Closed`— cuando el
+/// consumidor se atrasa más que la capacidad del canal. Los tres
+/// consumidores (`audit::consumidor`, `notificaciones`, `metadata::rotacion`)
+/// usaban `while let Ok(evento) = receptor.recv().await`, que trataba
+/// `Lagged` igual que `Closed` y terminaba la tarea para siempre ante
+/// cualquier ráfaga de más de 256 eventos — sin log, sin reintento. Este
+/// helper es el único punto por el que los tres consumidores reciben
+/// eventos, así que el fix aplica a los tres a la vez.
+pub async fn recibir_tolerando_lag(
+    receptor: &mut tokio::sync::broadcast::Receiver<DomainEvent>,
+    consumidor: &str,
+) -> Option<DomainEvent> {
+    use tokio::sync::broadcast::error::RecvError;
+    loop {
+        match receptor.recv().await {
+            Ok(evento) => return Some(evento),
+            Err(RecvError::Lagged(eventos_perdidos)) => {
+                tracing::error!(consumidor, eventos_perdidos, "consumidor de eventos de dominio se atrasó, se perdieron eventos del bus");
+            }
+            Err(RecvError::Closed) => return None,
+        }
+    }
+}

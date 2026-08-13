@@ -1,9 +1,10 @@
 // Autor: Athan Espinoza
 
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::models::ScimUser;
+use super::models::{ScimTokenRow, ScimUser};
 
 #[derive(Debug, Serialize)]
 pub struct ScimUserResponse {
@@ -124,4 +125,19 @@ impl ScimErrorResponse {
 #[derive(Debug, Serialize)]
 pub struct ScimTokenResponse {
     pub token: String,
+}
+
+/// H-08: listado de tokens SCIM existentes, sin el token en claro ni su
+/// hash — sólo lo necesario para que un admin elija cuál revocar.
+#[derive(Debug, Serialize)]
+pub struct ScimTokenRowResponse {
+    pub id: Uuid,
+    pub created_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
+}
+
+impl From<ScimTokenRow> for ScimTokenRowResponse {
+    fn from(fila: ScimTokenRow) -> Self {
+        Self { id: fila.id, created_at: fila.created_at, revoked_at: fila.revoked_at }
+    }
 }

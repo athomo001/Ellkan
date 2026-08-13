@@ -268,6 +268,103 @@ async fn bob_puede_salir_de_un_recurso_compartido_sin_tocar_el_de_alice() {
     assert_eq!(resp.status(), 200, "el recurso de Alice no debería verse afectado por que Bob salga");
 }
 
+/// Regresión H-26 (auditoría 2026-08-12): dos únicos Owners revocándose
+/// mutuamente en simultáneo. Antes de `revocar_si_queda_otro_owner` (lock de
+/// fila), el check-then-act de "existe otro owner" podía dejar que las dos
+/// llamadas vieran al otro todavía activo y el recurso terminara sin ningún
+/// Owner, de forma permanente e irreversible.
+#[tokio::test]
+async fn dos_owners_revocandose_mutuamente_en_simultaneo_nunca_deja_el_recurso_sin_owner() {
+    let entorno = common::levantar().await;
+    let alice = common::registrar(&entorno, "alice-h26@test.ellkan").await;
+    let bob = common::registrar(&entorno, "bob-h26@test.ellkan").await;
+    let sesion_alice = common::login(&entorno, &alice).await;
+    let sesion_bob = common::login(&entorno, &bob).await;
+    common::promover_admin(&entorno.pool, alice.user_id).await;
+
+    let metadata_key_id = crear_metadata_key(&entorno, sesion_alice, &alice).await;
+    let (resource_id, dek) = crear_recurso_compartible(&entorno, sesion_alice, &alice, metadata_key_id).await;
+
+    // Alice comparte con Bob y lo promueve a co-Owner.
+    let publica_bob = *bob.x25519.publica();
+    let sealed_dek_bob = sellado::sellar_dek(&publica_bob, &dek);
+    let mut aad = Vec::new();
+    aad.extend_from_slice(resource_id.as_bytes());
+    aad.extend_from_slice(alice.user_id.as_bytes());
+    let secreto_env = aead::cifrar(&dek, br#"{"password":"pw"}"#, &aad).unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/share", entorno.base, resource_id))
+        .bearer_auth(sesion_alice)
+        .json(&json!({
+            "recipient_user_id": bob.user_id,
+            "sealed_dek_b64": B64.encode(&sealed_dek_bob),
+            "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+            "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}/permissions/user/{}", entorno.base, resource_id, bob.user_id))
+        .bearer_auth(sesion_alice)
+        .json(&json!({ "level": "owner" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Alice y Bob, los dos únicos Owners, se revocan mutuamente al mismo tiempo.
+    let revocar_a_bob = entorno
+        .cliente
+        .delete(format!("{}/resources/{}/permissions/user/{}", entorno.base, resource_id, bob.user_id))
+        .bearer_auth(sesion_alice)
+        .send();
+    let revocar_a_alice = entorno
+        .cliente
+        .delete(format!("{}/resources/{}/permissions/user/{}", entorno.base, resource_id, alice.user_id))
+        .bearer_auth(sesion_bob)
+        .send();
+    let (resp_bob, resp_alice) = tokio::join!(revocar_a_bob, revocar_a_alice);
+    let status_bob = resp_bob.unwrap().status();
+    let status_alice = resp_alice.unwrap().status();
+
+    let exitos = [status_bob, status_alice].iter().filter(|s| **s == 200).count();
+    let rechazos = [status_bob, status_alice].iter().filter(|s| **s == 400).count();
+    assert_eq!(exitos, 1, "exactamente una de las dos revocaciones concurrentes debería aplicarse");
+    assert_eq!(rechazos, 1, "la otra debería rechazarse por dejar al recurso sin ningún Owner");
+
+    // El recurso nunca se quedó sin Owner: queda exactamente uno de los dos.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/permissions", entorno.base, resource_id))
+        .bearer_auth(sesion_alice)
+        .send()
+        .await
+        .unwrap();
+    // Puede que Alice ya no tenga permiso (si fue la revocada) — si el GET
+    // da 403, listar con Bob en su lugar, quien seguro sigue siendo Owner.
+    let grantees: Value = if resp.status() == 200 {
+        resp.json().await.unwrap()
+    } else {
+        entorno
+            .cliente
+            .get(format!("{}/resources/{}/permissions", entorno.base, resource_id))
+            .bearer_auth(sesion_bob)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    };
+    let owners = grantees.as_array().unwrap().iter().filter(|g| g["level"] == "owner").count();
+    assert_eq!(owners, 1, "debe quedar exactamente un Owner, nunca cero");
+}
+
 #[tokio::test]
 async fn agregar_destinatario_a_metadata_key_existente_le_da_acceso_real() {
     let entorno = common::levantar().await;

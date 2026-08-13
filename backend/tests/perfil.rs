@@ -169,7 +169,7 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     // La passphrase nueva sí lo abre y recupera exactamente el mismo material.
     let abierto =
         clave_privada::descifrar_clave_privada(&nueva_passphrase, &blob_para_abrir, user.email.as_bytes()).unwrap();
-    assert_eq!(abierto, privadas.to_vec());
+    assert_eq!(abierto.as_slice(), privadas.as_slice());
 }
 
 #[tokio::test]

@@ -266,7 +266,16 @@ where
                 true,
             )
             .await
-            .map_err(crate::error::DomainError::Interno)?;
+            // H-41 (auditoría 2026-08-12): dos callbacks OIDC concurrentes
+            // para el mismo email nuevo pueden ambos llegar hasta acá; el
+            // constraint único de `users.email` evita el duplicado, pero el
+            // perdedor de la carrera recibía un 500 genérico (`Interno`) en
+            // vez de un 409 — `crear` ya mapea la violación a
+            // `RepoError::Conflict`, sólo hacía falta no perderlo acá.
+            .map_err(|e| match e {
+                crate::error::RepoError::Conflict => DomainError::Conflict,
+                otro => DomainError::Interno(otro),
+            })?;
 
         self.identities.vincular(nuevo.id, PROVIDER, sub, serde_json::json!({ "email": email })).await?;
         let _ = self.eventos.send(DomainEvent::Auditoria(

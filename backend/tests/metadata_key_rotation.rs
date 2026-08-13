@@ -267,3 +267,61 @@ async fn rotacion_completa_expira_la_saliente_y_migrar_via_rekey_funciona() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 }
+
+/// Regresión H-29 (auditoría 2026-08-12): dos `POST /admin/metadata-keys/rotate`
+/// concurrentes con exactamente 1 clave activa. Antes de que
+/// `iniciar_rotacion_atomico` tomara un lock de fila, el `Service` primero
+/// hacía `activas()` como query suelta — las dos llamadas podían ver "1
+/// activa" cada una y crear su propia entrante, terminando con 3+ claves
+/// activas y corrompiendo el invariante de `MaxNoOfActiveMetadataKeysRule`.
+#[tokio::test]
+async fn dos_rotaciones_concurrentes_nunca_superan_dos_claves_activas() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin-rot-h29@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion = common::login(&entorno, &admin).await;
+
+    let saliente_id = crear_metadata_key(&entorno, sesion).await;
+    // Igual que en `segunda_rotacion_simultanea_falla_explicito`: un recurso
+    // referenciando la saliente evita que el job de background la expire
+    // antes de que la carrera se ejerza.
+    crear_recurso_compartible(&entorno, sesion, &admin, saliente_id).await;
+
+    let par1 = KeypairAcuerdo::generar();
+    let rotacion_1 = entorno
+        .cliente
+        .post(format!("{}/admin/metadata-keys/rotate", entorno.base))
+        .bearer_auth(sesion)
+        .json(&json!({
+            "id": Uuid::now_v7(),
+            "public_key_x25519_b64": B64.encode(par1.publica().as_bytes()),
+            "fingerprint": "entrante-concurrente-1",
+            "destinatarios": [],
+        }))
+        .send();
+    let par2 = KeypairAcuerdo::generar();
+    let rotacion_2 = entorno
+        .cliente
+        .post(format!("{}/admin/metadata-keys/rotate", entorno.base))
+        .bearer_auth(sesion)
+        .json(&json!({
+            "id": Uuid::now_v7(),
+            "public_key_x25519_b64": B64.encode(par2.publica().as_bytes()),
+            "fingerprint": "entrante-concurrente-2",
+            "destinatarios": [],
+        }))
+        .send();
+    let (resp1, resp2) = tokio::join!(rotacion_1, rotacion_2);
+    let status1 = resp1.unwrap().status();
+    let status2 = resp2.unwrap().status();
+
+    let exitos = [status1, status2].iter().filter(|s| **s == 200).count();
+    let conflictos = [status1, status2].iter().filter(|s| **s == 409).count();
+    assert_eq!(exitos, 1, "exactamente una de las dos rotaciones concurrentes debería aplicarse");
+    assert_eq!(conflictos, 1, "la otra debería rechazarse con 409 (ya hay una rotación en curso)");
+
+    let resp = entorno.cliente.get(format!("{}/metadata-keys", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let claves: Value = resp.json().await.unwrap();
+    assert_eq!(claves.as_array().unwrap().len(), 2, "nunca deberían quedar 3+ claves activas simultáneas");
+}

@@ -170,7 +170,7 @@ impl UserPurgeRepository for PgUserPurgeRepository {
                 return Err(RepoError::Conflict);
             }
 
-            sqlx::query!(
+            let resultado = sqlx::query!(
                 r#"
                 update permissions set level = 'owner'
                 where subject_type = 'resource' and subject_id = $1 and grantee_type = 'user' and grantee_id = $2
@@ -180,6 +180,15 @@ impl UserPurgeRepository for PgUserPurgeRepository {
             )
             .execute(&mut *tx)
             .await?;
+            if resultado.rows_affected() != 1 {
+                // H-32 (auditoría 2026-08-12): mismo chequeo que ya tenía el
+                // loop de managers abajo — el SELECT previo confirma que el
+                // permiso existía, pero sin revisar `rows_affected()` acá una
+                // purga concurrente del propio `nuevo_owner` (que borra su
+                // fila de `permissions` antes de que este UPDATE corra)
+                // dejaba reportar éxito sin haber transferido nada.
+                return Err(RepoError::Conflict);
+            }
         }
 
         for (group_id, nuevo_manager) in &transferencia.managers {

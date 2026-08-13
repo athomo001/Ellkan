@@ -1,6 +1,17 @@
 // Autor: Athan Espinoza
 
+use time::OffsetDateTime;
 use uuid::Uuid;
+
+/// H-08 (auditoría 2026-08-12): nunca expone `token_hash` — sólo lo
+/// necesario para que un admin decida cuál revocar (el token en claro ya se
+/// mostró una única vez al crearlo, mismo criterio que el resto del sistema).
+#[derive(Debug, Clone)]
+pub struct ScimTokenRow {
+    pub id: Uuid,
+    pub created_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
+}
 
 #[derive(Debug, Clone)]
 pub struct ScimUser {

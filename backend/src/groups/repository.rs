@@ -61,7 +61,15 @@ pub trait GroupMemberRepository {
 
     /// Quita al miembro y revoca sus `secret_envelopes` para exactamente los
     /// recursos que el grupo comparte — sin re-cifrar nada de nadie más.
-    async fn quitar(&self, group_id: Uuid, user_id: Uuid, resource_ids_a_revocar: &[Uuid]) -> Result<(), RepoError>;
+    ///
+    /// H-28 (auditoría 2026-08-12): toma un lock de fila sobre
+    /// `group_members` del grupo antes de decidir si la baja dejaría al
+    /// grupo sin ningún manager — el `Service` antes hacía `contar_managers`/
+    /// `contar_miembros` como queries sueltas antes de llamar acá, con una
+    /// ventana de carrera real (dos bajas concurrentes de los dos únicos
+    /// managers podían pasar el chequeo cada una viendo al otro todavía
+    /// activo). `false` = se habría quedado sin manager, no se tocó nada.
+    async fn quitar(&self, group_id: Uuid, user_id: Uuid, resource_ids_a_revocar: &[Uuid]) -> Result<bool, RepoError>;
 
     async fn es_miembro(&self, group_id: Uuid, user_id: Uuid) -> Result<bool, RepoError>;
 
@@ -69,11 +77,9 @@ pub trait GroupMemberRepository {
 
     async fn es_manager_de_alguno(&self, user_id: Uuid, group_ids: &[Uuid]) -> Result<bool, RepoError>;
 
-    async fn contar_managers(&self, group_id: Uuid) -> Result<i64, RepoError>;
-
-    async fn contar_miembros(&self, group_id: Uuid) -> Result<i64, RepoError>;
-
-    async fn set_admin(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), RepoError>;
+    /// H-28: mismo criterio atómico que `quitar` — `false` si degradar a
+    /// este manager (el único) dejaría al grupo sin ninguno.
+    async fn set_admin(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<bool, RepoError>;
 
     async fn miembros_de(&self, group_id: Uuid) -> Result<Vec<Miembro>, RepoError>;
 
@@ -316,8 +322,43 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         Ok(())
     }
 
-    async fn quitar(&self, group_id: Uuid, user_id: Uuid, resource_ids_a_revocar: &[Uuid]) -> Result<(), RepoError> {
+    async fn quitar(&self, group_id: Uuid, user_id: Uuid, resource_ids_a_revocar: &[Uuid]) -> Result<bool, RepoError> {
         let mut tx = self.pool.begin().await?;
+
+        // Lock de fila sobre todos los miembros de este grupo — serializa
+        // cualquier otra baja/degradación de manager concurrente sobre el
+        // mismo grupo hasta que este commit/rollback termine.
+        sqlx::query!(r#"select 1 as "x!" from group_members where group_id = $1 for update"#, group_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        let miembro = sqlx::query!(
+            r#"select is_admin from group_members where group_id = $1 and user_id = $2"#,
+            group_id,
+            user_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(miembro) = miembro else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+
+        if miembro.is_admin {
+            let managers: i64 =
+                sqlx::query!(r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#, group_id)
+                    .fetch_one(&mut *tx)
+                    .await?
+                    .n;
+            let total: i64 = sqlx::query!(r#"select count(*) as "n!" from group_members where group_id = $1"#, group_id)
+                .fetch_one(&mut *tx)
+                .await?
+                .n;
+            if managers == 1 && total > 1 {
+                tx.rollback().await?;
+                return Ok(false);
+            }
+        }
 
         sqlx::query!(
             r#"delete from group_members where group_id = $1 and user_id = $2"#,
@@ -338,7 +379,7 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         }
 
         tx.commit().await?;
-        Ok(())
+        Ok(true)
     }
 
     async fn es_miembro(&self, group_id: Uuid, user_id: Uuid) -> Result<bool, RepoError> {
@@ -380,36 +421,51 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         Ok(fila.is_some())
     }
 
-    async fn contar_managers(&self, group_id: Uuid) -> Result<i64, RepoError> {
-        let fila = sqlx::query!(
-            r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#,
-            group_id,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(fila.n)
-    }
 
-    async fn contar_miembros(&self, group_id: Uuid) -> Result<i64, RepoError> {
-        let fila = sqlx::query!(
-            r#"select count(*) as "n!" from group_members where group_id = $1"#,
-            group_id,
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(fila.n)
-    }
+    async fn set_admin(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<bool, RepoError> {
+        let mut tx = self.pool.begin().await?;
 
-    async fn set_admin(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), RepoError> {
+        sqlx::query!(r#"select 1 as "x!" from group_members where group_id = $1 for update"#, group_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        if !is_admin {
+            let miembro = sqlx::query!(
+                r#"select is_admin from group_members where group_id = $1 and user_id = $2"#,
+                group_id,
+                user_id,
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some(miembro) = miembro else {
+                tx.rollback().await?;
+                return Ok(false);
+            };
+            if miembro.is_admin {
+                let managers: i64 = sqlx::query!(
+                    r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#,
+                    group_id,
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .n;
+                if managers == 1 {
+                    tx.rollback().await?;
+                    return Ok(false);
+                }
+            }
+        }
+
         sqlx::query!(
             r#"update group_members set is_admin = $3 where group_id = $1 and user_id = $2"#,
             group_id,
             user_id,
             is_admin,
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(())
+        tx.commit().await?;
+        Ok(true)
     }
 
     async fn miembros_de(&self, group_id: Uuid) -> Result<Vec<Miembro>, RepoError> {

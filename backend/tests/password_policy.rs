@@ -1,6 +1,8 @@
 // Autor: Athan Espinoza
 
-//! F-15: sólo admin lee/cambia la política, el piso de `min_passphrase_length`
+//! F-15: cualquier usuario autenticado puede leer la política (no es secreta,
+//! el cliente la necesita para el generador y para validar la propia
+//! passphrase), sólo admin puede cambiarla. El piso de `min_passphrase_length`
 //! (12) se exige server-side aunque el resto de la validación de entropía
 //! corra client-side, y los cambios persisten.
 
@@ -9,7 +11,7 @@ mod common;
 use serde_json::json;
 
 #[tokio::test]
-async fn no_admin_no_puede_leer_ni_cambiar_la_politica() {
+async fn no_admin_puede_leer_pero_no_cambiar_la_politica() {
     let entorno = common::levantar().await;
     let user = common::registrar(&entorno, "sin-admin@test.ellkan").await;
     let sesion = common::login(&entorno, &user).await;
@@ -21,7 +23,7 @@ async fn no_admin_no_puede_leer_ni_cambiar_la_politica() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 200);
 
     let resp = entorno
         .cliente

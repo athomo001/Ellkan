@@ -161,6 +161,55 @@ async fn visibilidad_de_usuarios_acotada_por_grupo() {
     assert!(contiene_email(&resultados, "gc-alice@test.ellkan"), "el admin de organización ve a todos");
 }
 
+/// Nota de diseño (auditoría 2026-08-12, H-10 — re-evaluado): la auditoría
+/// marcó como hallazgo que `sharing_policy.restrict_visibility_by_group` no
+/// se re-validara en `POST /resources/{id}/share` (sólo en `GET /users/search`).
+/// Un intento de aplicar ese chequeo ahí rompió varios tests preexistentes
+/// (`metadata_keys.rs::compartir_un_recurso_con_metadata_personal_funciona`,
+/// `users_admin.rs::purgar_unico_owner_...`, y el patrón se repite en
+/// `editar_recurso.rs`/`reports.rs`/`flujo_completo.rs`/`permisos_recurso.rs`)
+/// que comparten deliberadamente entre usuarios sin grupo en común. Conclusión:
+/// la política es de **descubrimiento** (oculta gente de la búsqueda/directorio),
+/// no de **autorización para compartir** — mismo criterio que "no aparecer en
+/// un directorio" no implica "no poder recibir algo de alguien que ya te
+/// conoce por otro medio". Este test documenta ese comportamiento intencional
+/// para que no se "corrija" por accidente sin una decisión de producto explícita.
+#[tokio::test]
+async fn compartir_recurso_funciona_aunque_la_busqueda_este_restringida_por_grupo() {
+    let entorno = common::levantar().await;
+    // Registra un admin primero (consume el bootstrap) para que alice/bob
+    // sean usuarios regulares, no el admin de organización que ve a todos.
+    let admin_bootstrap = common::registrar(&entorno, "gc-vis-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin_bootstrap.user_id).await;
+
+    let alice = common::registrar(&entorno, "gc-vis-alice@test.ellkan").await; // sin grupo
+    let bob = common::registrar(&entorno, "gc-vis-bob@test.ellkan").await; // sin grupo, grupos distintos
+    let sesion_alice = common::login(&entorno, &alice).await;
+
+    // Confirmado (mismo criterio que `visibilidad_de_usuarios_acotada_por_grupo`):
+    // sin grupo, alice no ve a bob en la búsqueda.
+    let resultados = buscar(&entorno, sesion_alice, "gc-vis-bob").await;
+    assert!(!contiene_email(&resultados, "gc-vis-bob@test.ellkan"), "sin grupo, alice no debería ver a bob en la búsqueda");
+
+    // Pero compartir directo (conociendo el user_id por otro medio) sigue
+    // funcionando — comportamiento intencional, no un bug.
+    let recurso = crear_recurso(&entorno, sesion_alice).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{recurso}/share", entorno.base))
+        .bearer_auth(sesion_alice)
+        .json(&json!({
+            "recipient_user_id": bob.user_id,
+            "sealed_dek_b64": "eA==",
+            "secret_ciphertext_b64": "eA==",
+            "secret_nonce_b64": "eA==",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+}
+
 /// 2026-08-13: excepciones a la visibilidad acotada por grupo — un grupo
 /// marcado `share_exempt` (ej. Soporte/TI que crean cuentas para otras
 /// áreas) ve a cualquiera, y sólo un admin de organización puede marcarlo
@@ -358,6 +407,82 @@ async fn cualquier_miembro_agrega_recursos_a_carpeta_de_grupo_pero_no_un_ajeno()
     assert_eq!(resp.status(), 403, "agregar a la carpeta nunca comparte el recurso en sí, sigue siendo un paso aparte");
 }
 
+/// Regresión de seguridad (auditoría 2026-08-12, H-02): `mover_recurso` sólo
+/// validaba autorización sobre la carpeta DESTINO, nunca sobre el recurso
+/// movido — un admin de grupo sin ningún permiso sobre un recurso ajeno
+/// podía "enmarcarlo" en una carpeta propia compartida con su grupo y de ahí
+/// borrarlo vía la excepción de `eliminar` para carpetas de grupo. La
+/// auditoría también notó que la suite de tests no cubría este escenario
+/// exacto (probaba "carpeta ajena", nunca "recurso ajeno") — este test
+/// cierra ese gap.
+#[tokio::test]
+async fn mover_recurso_ajeno_a_carpeta_de_grupo_propio_es_rechazado() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gc-idor-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let victima = common::registrar(&entorno, "gc-idor-victima@test.ellkan").await;
+    let mallory = common::registrar(&entorno, "gc-idor-mallory@test.ellkan").await; // admin de su propio grupo
+    let sesion_victima = common::login(&entorno, &victima).await;
+    let sesion_mallory = common::login(&entorno, &mallory).await;
+
+    // Mallory administra un grupo — nada que ver con Victima.
+    let g_mallory = crear_grupo(&entorno, sesion_admin, "G-mallory").await;
+    agregar_miembro(&entorno, sesion_admin, g_mallory, mallory.user_id, true).await;
+
+    // Victima crea un recurso 100% personal — nunca lo comparte con nadie.
+    let recurso_victima = crear_recurso(&entorno, sesion_victima).await;
+
+    // Mallory arma su trampa: carpeta propia, compartida con su propio grupo.
+    let folder_mallory = crear_carpeta_ok(&entorno, sesion_mallory, None).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/folders/{folder_mallory}/share", entorno.base))
+        .bearer_auth(sesion_mallory)
+        .json(&json!({
+            "grantee_type": "group",
+            "grantee_id": g_mallory,
+            "level": "read",
+            "member_envelopes": [
+                { "user_id": mallory.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+            ],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Mallory intenta "enmarcar" el recurso de Victima en su propia carpeta —
+    // sin ningún permiso (ni siquiera `read`) sobre ese recurso.
+    let resp = mover_recurso(&entorno, sesion_mallory, recurso_victima, Some(folder_mallory)).await;
+    assert_eq!(resp.status(), 403, "mover un recurso ajeno a una carpeta propia debería rechazarse, sin importar quién administre la carpeta destino");
+
+    // El recurso de Victima no quedó posicionado en la carpeta de Mallory.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources?folder_id={folder_mallory}", entorno.base))
+        .bearer_auth(sesion_mallory)
+        .send()
+        .await
+        .unwrap();
+    let listado: Value = resp.json().await.unwrap();
+    assert!(
+        listado.as_array().unwrap().iter().all(|r| r["id"] != json!(recurso_victima)),
+        "el recurso ajeno no debería aparecer en la carpeta de mallory tras el intento rechazado"
+    );
+
+    // Y por lo tanto Mallory tampoco puede borrarlo vía la excepción de carpeta de grupo.
+    let resp = entorno
+        .cliente
+        .delete(format!("{}/resources/{recurso_victima}", entorno.base))
+        .bearer_auth(sesion_mallory)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "mallory no debería poder borrar un recurso que nunca logró enmarcar");
+}
+
 #[tokio::test]
 async fn borrar_recurso_en_carpeta_de_grupo_exige_admin_de_ese_grupo_o_de_organizacion() {
     let entorno = common::levantar().await;
@@ -493,4 +618,65 @@ async fn incluir_subcarpetas_trae_tambien_los_recursos_de_las_subcarpetas() {
     let ids: Vec<String> = listado.as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
     assert!(ids.contains(&recurso_a.to_string()));
     assert!(ids.contains(&recurso_b.to_string()), "con incluir_subcarpetas, debería traer también lo de la subcarpeta");
+}
+
+/// Regresión H-28 (auditoría 2026-08-12): los dos únicos managers de un
+/// grupo (con un tercer miembro regular — sin eso, vaciar el grupo del todo
+/// es un estado válido aparte, ver nota en `GroupMemberRepository::quitar`)
+/// se quitan mutuamente como miembro en simultáneo. Antes de que
+/// `GroupMemberRepository::quitar` tomara un lock de fila sobre
+/// `group_members`, el chequeo de "único manager" del `Service` corría como
+/// dos queries sueltas — cada baja podía ver al otro manager todavía activo
+/// y el grupo terminaba con un miembro (carol) sin ningún manager.
+#[tokio::test]
+async fn dos_managers_quitandose_mutuamente_en_simultaneo_nunca_deja_miembros_sin_manager() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gc-h28-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let alice = common::registrar(&entorno, "gc-h28-alice@test.ellkan").await;
+    let bob = common::registrar(&entorno, "gc-h28-bob@test.ellkan").await;
+    let carol = common::registrar(&entorno, "gc-h28-carol@test.ellkan").await;
+    let sesion_alice = common::login(&entorno, &alice).await;
+    let sesion_bob = common::login(&entorno, &bob).await;
+
+    let grupo = crear_grupo(&entorno, sesion_admin, "G-h28").await;
+    agregar_miembro(&entorno, sesion_admin, grupo, alice.user_id, true).await;
+    agregar_miembro(&entorno, sesion_admin, grupo, bob.user_id, true).await;
+    agregar_miembro(&entorno, sesion_admin, grupo, carol.user_id, false).await;
+
+    // Alice y Bob, los dos únicos managers (carol es miembro regular, se
+    // queda), se quitan mutuamente al mismo tiempo.
+    let alice_quita_a_bob = entorno
+        .cliente
+        .delete(format!("{}/groups/{grupo}/members/{}", entorno.base, bob.user_id))
+        .bearer_auth(sesion_alice)
+        .send();
+    let bob_quita_a_alice = entorno
+        .cliente
+        .delete(format!("{}/groups/{grupo}/members/{}", entorno.base, alice.user_id))
+        .bearer_auth(sesion_bob)
+        .send();
+    let (resp_bob, resp_alice) = tokio::join!(alice_quita_a_bob, bob_quita_a_alice);
+    let status_bob = resp_bob.unwrap().status();
+    let status_alice = resp_alice.unwrap().status();
+
+    let exitos = [status_bob, status_alice].iter().filter(|s| **s == 200).count();
+    let rechazos = [status_bob, status_alice].iter().filter(|s| **s == 409).count();
+    assert_eq!(exitos, 1, "exactamente una de las dos bajas concurrentes debería aplicarse");
+    assert_eq!(rechazos, 1, "la otra debería rechazarse (GROUP_SOLE_MANAGER) por dejar al grupo sin manager");
+
+    // El grupo nunca se quedó sin manager: queda exactamente uno de los dos.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/groups/{grupo}", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let grupo_resp: Value = resp.json().await.unwrap();
+    let managers = grupo_resp["members"].as_array().unwrap().iter().filter(|m| m["is_admin"] == true).count();
+    assert_eq!(managers, 1, "debe quedar exactamente un manager, nunca cero");
 }

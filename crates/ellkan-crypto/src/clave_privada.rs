@@ -5,6 +5,8 @@
 //! cachea la clave privada ya descifrada — se reconstruye en cada operación
 //! desde `EncryptedPrivateKeyBlob` + la passphrase cacheada.
 
+use zeroize::Zeroizing;
+
 use crate::aead::{cifrar, descifrar, Envoltura, ErrorAead};
 use crate::derivacion::{contexto, derivar_clave_maestra, derivar_subclave, ErrorDerivacion};
 use crate::secretos::PassphraseSecreta;
@@ -40,16 +42,19 @@ pub fn cifrar_clave_privada(
 }
 
 /// Descifra el blob — reconstruye la clave privada en claro sólo para el
-/// instante de uso; el llamador es responsable de envolverla en un tipo que
-/// haga zeroize al salir de scope.
+/// instante de uso. Hallazgo de seguridad (auditoría 2026-08-12, H-05/H-13):
+/// antes devolvía `Vec<u8>` plano y delegaba el zeroize al llamador — un
+/// llamador (`wasm_api.rs::abrir_clave_privada`) no lo hacía. Devolver
+/// `Zeroizing<Vec<u8>>` hace el zeroize automático al salir de scope sin
+/// depender de que cada llamador se acuerde.
 pub fn descifrar_clave_privada(
     passphrase: &PassphraseSecreta,
     blob: &EncryptedPrivateKeyBlob,
     aad: &[u8],
-) -> Result<Vec<u8>, ErrorClavePrivada> {
+) -> Result<Zeroizing<Vec<u8>>, ErrorClavePrivada> {
     let maestra = derivar_clave_maestra(passphrase, &blob.salt)?;
     let subclave = derivar_subclave(&maestra, contexto::CIFRADO_CLAVE_PRIVADA);
-    Ok(descifrar(&subclave, &blob.envoltura, aad)?)
+    Ok(Zeroizing::new(descifrar(&subclave, &blob.envoltura, aad)?))
 }
 
 #[cfg(test)]
@@ -68,7 +73,7 @@ mod tests {
         let aad = b"user_id:1";
         let blob = cifrar_clave_privada(&pass, [1u8; 16], &clave_privada, aad).unwrap();
         let recuperada = descifrar_clave_privada(&pass, &blob, aad).unwrap();
-        assert_eq!(recuperada, clave_privada);
+        assert_eq!(recuperada.as_slice(), &clave_privada);
     }
 
     #[test]

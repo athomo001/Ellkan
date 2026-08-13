@@ -82,10 +82,23 @@ fn formatear_codigo(codigo: u32) -> String {
 /// reloj (RFC 6238 recomienda una ventana pequeña para tolerar desfasaje) —
 /// comparación en tiempo constante contra cada candidato de la ventana.
 pub fn verificar_totp(secreto: &[u8], codigo_recibido: u32, tiempo_unix: u64) -> bool {
+    verificar_totp_paso(secreto, codigo_recibido, tiempo_unix).is_some()
+}
+
+/// Como `verificar_totp`, pero devuelve el número de paso (contador RFC 6238)
+/// que matcheó en vez de sólo `bool` — hallazgo de seguridad (auditoría
+/// 2026-08-12, H-06): sin esto, un código observado (shoulder-surfing,
+/// captura de pantalla) puede reutilizarse en un segundo login concurrente
+/// mientras siga dentro de la ventana de ±90s, porque la única protección
+/// contra reuso era invalidar el *challenge*, no el código en sí. El
+/// llamador que necesita evitar el reuso persiste el paso más alto ya
+/// aceptado y rechaza cualquier `paso` menor o igual (ver
+/// `mfa::repository::TotpCredentialRepository::marcar_paso_aceptado`).
+pub fn verificar_totp_paso(secreto: &[u8], codigo_recibido: u32, tiempo_unix: u64) -> Option<u64> {
     let contador_actual = tiempo_unix / PASO_SEGUNDOS;
     let recibido = formatear_codigo(codigo_recibido);
     (contador_actual.saturating_sub(1)..=contador_actual + 1)
-        .any(|contador| secreto_coincide(formatear_codigo(hotp(secreto, contador)).as_bytes(), recibido.as_bytes()))
+        .find(|&contador| secreto_coincide(formatear_codigo(hotp(secreto, contador)).as_bytes(), recibido.as_bytes()))
 }
 
 /// Envuelve la passphrase con una clave derivada (HKDF, sin Argon2id) del

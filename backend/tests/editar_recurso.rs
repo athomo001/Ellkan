@@ -204,6 +204,75 @@ async fn usuario_sin_permiso_no_puede_editar() {
     assert_eq!(resp.status(), 403);
 }
 
+/// Regresión H-31 (auditoría 2026-08-12): `compartir` ahora avanza
+/// `resources.updated_at` (vía `tocar_updated_at`) — antes, otorgar acceso a
+/// un destinatario nuevo no lo tocaba, así que un `PUT` en vuelo con un
+/// `If-Match` tomado ANTES de esa compartición seguía pasando el lock
+/// optimista y el `envelopes` que mandaba (sin el destinatario nuevo)
+/// pisaba/borraba el `secret_envelope` recién creado. Con el fix, ese `PUT`
+/// tardío debe chocar como cualquier otra edición concurrente (409).
+#[tokio::test]
+async fn compartir_durante_una_edicion_en_vuelo_hace_que_el_put_viejo_choque_en_vez_de_pisar() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "editar-h31-owner@test.ellkan").await;
+    let sesion_owner = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion_owner, &owner).await;
+
+    // El "editor" abre el recurso y guarda su `updated_at` de referencia (T0).
+    let if_match_viejo = recurso.updated_at.clone();
+
+    // Mientras tanto, alguien más comparte el recurso con Bob — esto ahora
+    // avanza `updated_at` (T0 -> T1).
+    let bob = common::registrar(&entorno, "editar-h31-bob@test.ellkan").await;
+    let sesion_bob = common::login(&entorno, &bob).await;
+    let dek_bytes: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+    let dek = SecretBox::new(Box::new(dek_bytes));
+    let aad = aad_de(recurso.id, owner.user_id);
+    let secreto_env = aead::cifrar(&dek, br#"{"password":"pw-bob"}"#, &aad).unwrap();
+    let sealed_dek_bob = sellado::sellar_dek(bob.x25519.publica(), &dek);
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/share", entorno.base, recurso.id))
+        .bearer_auth(sesion_owner)
+        .json(&json!({
+            "recipient_user_id": bob.user_id,
+            "sealed_dek_b64": B64.encode(&sealed_dek_bob),
+            "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+            "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // El `PUT` del editor, armado con el `If-Match` viejo (T0, sin saber de
+    // Bob), llega recién ahora — debe chocar, no aplicar el envelope viejo
+    // (que sólo cubre al owner) pisando el de Bob.
+    let dek_nueva = SecretBox::new(Box::new([9u8; 32]));
+    let body = armar_put_body(&owner, recurso.id, &dek_nueva);
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion_owner)
+        .header("If-Match", &if_match_viejo)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409, "un PUT con If-Match anterior a una compartición debe chocar, no pisarla en silencio");
+
+    // Bob sigue teniendo su acceso intacto — nada se pisó.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/secret", entorno.base, recurso.id))
+        .bearer_auth(sesion_bob)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "bob no debería haber perdido su acceso recién otorgado");
+}
+
 #[tokio::test]
 async fn recipients_devuelve_al_unico_destinatario_de_un_recurso_personal() {
     let entorno = common::levantar().await;

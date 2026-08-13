@@ -383,6 +383,77 @@ async fn verificar_encuentra_su_propio_desafio_entre_varias_sesiones_parciales()
     assert!(!puede_operar(&entorno, sesion_b).await);
 }
 
+/// Regresión de seguridad (auditoría 2026-08-12, H-06): antes, un código
+/// TOTP observado (shoulder-surfing, captura de pantalla) podía reutilizarse
+/// en un segundo login concurrente mientras siguiera dentro de la ventana de
+/// ±90s — la única protección contra reuso era invalidar el *challenge* de
+/// sesión (distinto por cada intento de login), nunca el código en sí.
+#[tokio::test]
+async fn el_mismo_codigo_totp_no_sirve_dos_veces_aunque_siga_en_la_ventana_de_validez() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-admin-5@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    activar_mfa_requerido(&entorno, sesion_admin).await;
+
+    let usuario = common::registrar(&entorno, "mfa-replay@test.ellkan").await;
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    let sesion_setup: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/setup", entorno.base))
+        .bearer_auth(sesion_setup)
+        .send()
+        .await
+        .unwrap();
+    let setup: Value = resp.json().await.unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/confirm", entorno.base))
+        .bearer_auth(sesion_setup)
+        .json(&json!({ "code": generar_codigo_actual(&secreto).to_string() }))
+        .send()
+        .await
+        .unwrap();
+
+    // Dos intentos de login "concurrentes" (mismo atacante con el código
+    // observado, o dos logins legítimos casi a la vez) -> dos desafíos
+    // distintos para el mismo usuario.
+    let cuerpo_a = intentar_login(&entorno, &usuario).await;
+    let sesion_a: Uuid = cuerpo_a["session_id"].as_str().unwrap().parse().unwrap();
+    let cuerpo_b = intentar_login(&entorno, &usuario).await;
+    let sesion_b: Uuid = cuerpo_b["session_id"].as_str().unwrap().parse().unwrap();
+
+    let codigo = generar_codigo_actual(&secreto).to_string();
+
+    // El primer uso del código, contra su propio desafío, funciona.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_a)
+        .json(&json!({ "code": codigo }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el primer uso del código debería completar la sesión A");
+    assert!(puede_operar(&entorno, sesion_a).await);
+
+    // El mismo código, contra un desafío DISTINTO (nunca antes consumido),
+    // debe rechazarse igual — ya se usó para este mismo credential TOTP.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_b)
+        .json(&json!({ "code": codigo }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "un código TOTP ya aceptado no debería servir de nuevo, aunque el desafío sea otro y siga en ventana");
+    assert!(!puede_operar(&entorno, sesion_b).await);
+}
+
 #[tokio::test]
 async fn rate_limit_dedicado_de_mfa_verify() {
     let entorno = common::levantar().await;

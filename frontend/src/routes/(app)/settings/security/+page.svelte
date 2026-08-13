@@ -201,8 +201,8 @@
 		}
 	}
 
-	function revocar() {
-		desactivar(email);
+	async function revocar() {
+		await desactivar(email);
 		activo = false;
 		pasoSetup = 'inicial';
 	}

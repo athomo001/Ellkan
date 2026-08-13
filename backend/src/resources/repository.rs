@@ -72,6 +72,20 @@ pub trait ResourceRepository {
     /// — lo que el cliente necesita para re-sellar la DEK nueva al editar,
     /// mismo dato que ya resuelve `compartir` para un destinatario nuevo.
     async fn listar_destinatarios(&self, resource_id: Uuid) -> Result<Vec<Destinatario>, RepoError>;
+
+    /// H-31 (auditoría 2026-08-12): `compartir`/`revocar_permiso`/`cambiar_nivel`
+    /// otorgan o quitan acceso sin tocar `resources.updated_at` — el lock
+    /// optimista de `actualizar` (F-07) sólo detecta ediciones de metadata
+    /// concurrentes, no una compartición concurrente. Escenario real: Owner
+    /// abre el editor (`GET recipients` con `updated_at=T0`), alguien más
+    /// comparte con un destinatario nuevo mientras tanto, el Owner manda su
+    /// `PUT` con `expected_updated_at=T0` (sigue pasando el lock) y
+    /// `actualizar` borra+reinserta *todos* los `secret_envelopes` — el
+    /// destinatario recién agregado pierde el suyo sin ningún error. Llamar
+    /// esto desde los tres flujos hace que ese `PUT` tardío choque como
+    /// cualquier otra edición concurrente (409), en vez de pisar en
+    /// silencio.
+    async fn tocar_updated_at(&self, resource_id: Uuid) -> Result<(), RepoError>;
 }
 
 pub trait ResourceTypeRepository {
@@ -190,6 +204,35 @@ pub trait PermissionRepository {
         grantee_type: &str,
         grantee_id: Uuid,
     ) -> Result<(), RepoError>;
+
+    /// H-26 (auditoría 2026-08-12): versión atómica de `existe_otro_owner`
+    /// y `revocar` — el patrón *check-then-act* original tenía una ventana
+    /// de carrera real (dos revocaciones concurrentes de los dos únicos
+    /// Owners de un recurso podían dejarlo sin ninguno, de forma
+    /// permanente e irreversible vía API). Toma un lock de fila sobre los
+    /// `permissions` del `subject` antes de contar, así que dos llamadas
+    /// concurrentes se serializan — `false` = se habría quedado sin Owner,
+    /// no se tocó nada.
+    async fn revocar_si_queda_otro_owner(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+    ) -> Result<bool, RepoError>;
+
+    /// H-26: mismo criterio atómico que `revocar_si_queda_otro_owner`, para
+    /// el camino de `cambiar_nivel` (bajar de `owner` a otro nivel en vez de
+    /// borrar la fila). Si `nuevo_nivel == "owner"` no hay nada que proteger
+    /// (el conteo de Owners nunca baja), se aplica directo.
+    async fn cambiar_nivel_si_queda_otro_owner(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+        nuevo_nivel: &str,
+    ) -> Result<bool, RepoError>;
 }
 
 #[derive(Clone)]
@@ -421,6 +464,13 @@ impl ResourceRepository for PgResourceRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(filas.into_iter().map(|f| Destinatario { user_id: f.user_id, public_key_x25519: f.public_key_x25519 }).collect())
+    }
+
+    async fn tocar_updated_at(&self, resource_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"update resources set updated_at = now() where id = $1"#, resource_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 
@@ -703,5 +753,118 @@ impl PermissionRepository for PgPermissionRepository {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    async fn revocar_si_queda_otro_owner(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+    ) -> Result<bool, RepoError> {
+        let mut tx = self.pool.begin().await?;
+        // Lock de fila sobre todos los permisos de este subject — serializa
+        // cualquier otra revocación/cambio de nivel concurrente sobre el
+        // mismo subject hasta que este commit/rollback termine.
+        sqlx::query!(
+            r#"select 1 as "x!" from permissions where subject_type = $1 and subject_id = $2 for update"#,
+            subject_type,
+            subject_id,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let existe_otro = sqlx::query!(
+            r#"
+            select 1 as "existe!" from permissions
+            where subject_type = $1 and subject_id = $2 and level = 'owner'
+              and not (grantee_type = $3 and grantee_id = $4)
+            limit 1
+            "#,
+            subject_type,
+            subject_id,
+            grantee_type,
+            grantee_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+
+        if !existe_otro {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+
+        sqlx::query!(
+            r#"delete from permissions where subject_type = $1 and subject_id = $2 and grantee_type = $3 and grantee_id = $4"#,
+            subject_type,
+            subject_id,
+            grantee_type,
+            grantee_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    async fn cambiar_nivel_si_queda_otro_owner(
+        &self,
+        subject_type: &str,
+        subject_id: Uuid,
+        grantee_type: &str,
+        grantee_id: Uuid,
+        nuevo_nivel: &str,
+    ) -> Result<bool, RepoError> {
+        let mut tx = self.pool.begin().await?;
+
+        if nuevo_nivel != "owner" {
+            sqlx::query!(
+                r#"select 1 as "x!" from permissions where subject_type = $1 and subject_id = $2 for update"#,
+                subject_type,
+                subject_id,
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            let existe_otro = sqlx::query!(
+                r#"
+                select 1 as "existe!" from permissions
+                where subject_type = $1 and subject_id = $2 and level = 'owner'
+                  and not (grantee_type = $3 and grantee_id = $4)
+                limit 1
+                "#,
+                subject_type,
+                subject_id,
+                grantee_type,
+                grantee_id,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+
+            if !existe_otro {
+                tx.rollback().await?;
+                return Ok(false);
+            }
+        }
+
+        sqlx::query!(
+            r#"
+            insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)
+            values ($1, $2, $3, $4, $5)
+            on conflict (subject_type, subject_id, grantee_type, grantee_id)
+            do update set level = excluded.level
+            "#,
+            subject_type,
+            subject_id,
+            grantee_type,
+            grantee_id,
+            nuevo_nivel,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
     }
 }

@@ -42,6 +42,13 @@ pub trait TotpCredentialRepository {
     /// Soft-delete de cualquier credential confirmado previo — mantiene el
     /// invariante de "uno solo activo" cuando se confirma uno nuevo.
     async fn revocar_confirmados_de(&self, user_id: Uuid) -> Result<(), RepoError>;
+
+    /// H-06: registra `paso` (contador RFC 6238) como el último aceptado
+    /// para este credential — comparación-y-swap atómica (`where
+    /// ultimo_paso_aceptado is null or ultimo_paso_aceptado < $2`), así que
+    /// dos verificaciones concurrentes con el mismo código nunca aceptan
+    /// ambas. `false` = replay (ese paso, u uno posterior, ya se usó).
+    async fn marcar_paso_aceptado(&self, id: Uuid, paso: i64) -> Result<bool, RepoError>;
 }
 
 pub trait MfaChallengeRepository {
@@ -201,6 +208,18 @@ impl TotpCredentialRepository for PgTotpCredentialRepository {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    async fn marcar_paso_aceptado(&self, id: Uuid, paso: i64) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update user_totp_credentials set ultimo_paso_aceptado = $2
+               where id = $1 and (ultimo_paso_aceptado is null or ultimo_paso_aceptado < $2)"#,
+            id,
+            paso,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
     }
 }
 

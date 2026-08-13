@@ -265,9 +265,16 @@ where
                 let credential = self.totp.buscar_confirmado(user_id).await?.ok_or(DomainError::InvalidCredentials)?;
                 let mut secreto = descifrar_secreto(self.secrets_key, &credential)?;
                 let ahora = OffsetDateTime::now_utc().unix_timestamp() as u64;
-                let valido = totp::verificar_totp(&secreto, codigo, ahora);
+                let paso = totp::verificar_totp_paso(&secreto, codigo, ahora);
                 secreto.zeroize();
-                if !valido {
+                // H-06: un `paso` válido pero ya usado (por este mismo login
+                // u otro concurrente) se rechaza acá, no sólo por la
+                // ventana de tiempo — evita el reuso de un código observado.
+                let aceptado = match paso {
+                    Some(paso) => self.totp.marcar_paso_aceptado(credential.id, paso as i64).await?,
+                    None => false,
+                };
+                if !aceptado {
                     return Err(DomainError::InvalidCredentials);
                 }
             }

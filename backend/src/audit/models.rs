@@ -87,6 +87,10 @@ pub enum AuditEventType {
     SsoAccountLinked,
     SsoLinkRejectedUnverifiedEmail,
     ScimTokenCreated,
+    /// H-08 (auditoría 2026-08-12): antes no existía ningún camino para
+    /// revocar un token SCIM comprometido — la columna `revoked_at` existía
+    /// en el esquema desde F-18 pero nada la escribía.
+    ScimTokenRevoked,
     ScimUserCreated,
     ScimUserUpdated,
     ScimUserDeactivated,
@@ -200,6 +204,7 @@ impl AuditEventType {
             AuditEventType::SsoAccountLinked => "sso.account_linked",
             AuditEventType::SsoLinkRejectedUnverifiedEmail => "sso.link_rejected_unverified_email",
             AuditEventType::ScimTokenCreated => "scim.token_created",
+            AuditEventType::ScimTokenRevoked => "scim.token_revoked",
             AuditEventType::ScimUserCreated => "scim.user_created",
             AuditEventType::ScimUserUpdated => "scim.user_updated",
             AuditEventType::ScimUserDeactivated => "scim.user_deactivated",
@@ -294,6 +299,7 @@ impl AuditEventType {
             "sso.account_linked" => AuditEventType::SsoAccountLinked,
             "sso.link_rejected_unverified_email" => AuditEventType::SsoLinkRejectedUnverifiedEmail,
             "scim.token_created" => AuditEventType::ScimTokenCreated,
+            "scim.token_revoked" => AuditEventType::ScimTokenRevoked,
             "scim.user_created" => AuditEventType::ScimUserCreated,
             "scim.user_updated" => AuditEventType::ScimUserUpdated,
             "scim.user_deactivated" => AuditEventType::ScimUserDeactivated,

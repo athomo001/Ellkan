@@ -51,11 +51,12 @@ where
                 "public_key_x25519 debe ser de 32 bytes".into(),
             ));
         }
-        if self.claves.contar_activas().await? >= 2 {
+        // H-29 (auditoría 2026-08-12): check-y-alta atómicos (lock de fila)
+        // — antes, dos altas concurrentes podían ambas ver "menos de 2
+        // activas" y terminar con 3+, corrompiendo el tope de la regla.
+        let Some(clave) = self.claves.crear_si_no_excede(id, public_key_x25519, fingerprint, 2).await? else {
             return Err(DomainError::Conflict);
-        }
-
-        let clave = self.claves.crear(id, public_key_x25519, fingerprint).await?;
+        };
         for (user_id, sealed) in destinatarios {
             self.envelopes.insertar(clave.id, user_id, &sealed).await?;
         }
@@ -135,9 +136,14 @@ where
             ));
         }
 
-        let activas = self.claves.activas().await?;
-        let saliente = match activas.as_slice() {
-            [unica] => unica.clone(),
+        // Pre-chequeo sólo para el mensaje de error correcto en el caso
+        // común (sin carrera) — 0 activas y 2+ activas son errores
+        // distintos (400 vs. 409) para quien llama. La mutación real es
+        // atómica (`iniciar_rotacion_atomico`, H-29): si esto pasó pero el
+        // estado cambió antes de esa llamada (carrera real), se trata como
+        // 409 genérico — alguien más ya tocó el estado, hay que reintentar.
+        match self.claves.activas().await?.as_slice() {
+            [_unica] => {}
             [] => {
                 return Err(DomainError::ValidacionInvalida(
                     "no hay ninguna metadata key compartida activa para rotar".into(),
@@ -146,13 +152,19 @@ where
             _ => return Err(DomainError::Conflict),
         };
 
-        let total_pendiente = self.claves.contar_recursos_con_clave(saliente.id).await?;
+        // H-29: check-y-alta atómicos (lock de fila) — antes, dos
+        // `iniciar_rotacion` concurrentes podían ambas ver "1 activa" y
+        // crear su propia entrante, terminando con 3+ claves activas y
+        // corrompiendo `estado_rotacion()`.
+        let Some((saliente, entrante, _total_pendiente)) =
+            self.claves.iniciar_rotacion_atomico(id_entrante, public_key_x25519, fingerprint).await?
+        else {
+            return Err(DomainError::Conflict);
+        };
 
-        let entrante = self.claves.crear(id_entrante, public_key_x25519, fingerprint).await?;
         for (user_id, sealed) in destinatarios {
             self.envelopes.insertar(entrante.id, user_id, &sealed).await?;
         }
-        self.claves.marcar_pendientes_al_iniciar(saliente.id, total_pendiente).await?;
 
         // Publicado después de confirmar en la base — un consumidor lento o
         // caído nunca invalida la rotación ya iniciada.

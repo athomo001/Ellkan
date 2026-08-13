@@ -304,7 +304,14 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
             requester_public_key_x25519,
         )
         .fetch_one(&self.pool)
-        .await?;
+        .await
+        // H-27: `account_recovery_requests_pendiente_unica_idx` (migración
+        // 0044) rechaza una segunda solicitud pendiente para el mismo
+        // escrow — mismo criterio ya usado en `emergency_access`.
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+            _ => RepoError::Database(e),
+        })?;
 
         Ok(fila_a_request(
             fila.id,

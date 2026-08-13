@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into users (email, display_name, role_id, deleted_at)\n               values ('bootstrap-admin@test.ellkan', 'Bootstrap', (select id from roles where name = 'admin'), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "3216492a045e3c652dce75481b0a37319df659f9035dc3720e220e9c64be3b83"
+}

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use tracing::info;
 
-use crate::eventos::{DomainEvent, EmisorDeEventos};
+use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
 
 use super::repository::MetadataKeyRepository;
 
@@ -46,7 +46,7 @@ where
 {
     let mut receptor = eventos.subscribe();
     tokio::spawn(async move {
-        while let Ok(evento) = receptor.recv().await {
+        while let Some(evento) = recibir_tolerando_lag(&mut receptor, "metadata_rotacion").await {
             if let DomainEvent::MetadataKeyRotationStarted { saliente_id, .. } = evento {
                 tokio::spawn(vigilar_hasta_completar(claves.clone(), saliente_id));
             }

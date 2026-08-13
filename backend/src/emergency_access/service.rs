@@ -129,7 +129,16 @@ where
             ));
         }
 
-        self.requests.crear(id).await?;
+        // H-17 (auditoría 2026-08-12): `crear` ya mapea la violación del
+        // índice único parcial ("un solo pending por emergency_access") a
+        // `RepoError::Conflict` — pero el `?` genérico de acá lo envolvía en
+        // `DomainError::Interno` (500 sin explicación) en vez del 409 que
+        // realmente es. Mapeo explícito para que se vea como lo que es: dos
+        // solicitudes concurrentes, la segunda llega tarde.
+        self.requests.crear(id).await.map_err(|e| match e {
+            crate::error::RepoError::Conflict => DomainError::Conflict,
+            otro => DomainError::Interno(otro),
+        })?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::EmergencyAccessRequested, Some(actor_id))

@@ -200,7 +200,13 @@ where
         let user = self.usuarios.buscar_por_email(email).await?.ok_or(DomainError::NotFound)?;
         let escrow = self.escrow.buscar_por_usuario(user.id).await?.ok_or(DomainError::NotFound)?;
 
-        let solicitud = self.requests.crear(escrow.id, None, &requester_public_key_x25519).await?;
+        // H-27 (auditoría 2026-08-12): ya existe una solicitud pendiente
+        // para este escrow — 409 explícito en vez de dejar que el índice
+        // único (migración 0044) la rechace como error interno genérico.
+        let solicitud = self.requests.crear(escrow.id, None, &requester_public_key_x25519).await.map_err(|e| match e {
+            crate::error::RepoError::Conflict => DomainError::Conflict,
+            otro => DomainError::Interno(otro),
+        })?;
 
         // 2026-08-11: notificación acotada a los admins del/los grupo(s) del
         // solicitante — antes esto no mandaba ningún email a nadie (ver

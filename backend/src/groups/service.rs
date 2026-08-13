@@ -232,20 +232,17 @@ where
             return Err(DomainError::PermissionDenied);
         }
 
-        let miembro = self.miembros.miembro(group_id, user_id).await?.ok_or(DomainError::NotFound)?;
-        if miembro.is_admin {
-            let managers = self.miembros.contar_managers(group_id).await?;
-            let miembros_totales = self.miembros.contar_miembros(group_id).await?;
-            // "No-vacío" tras la baja: si quitar a este miembro deja el
-            // grupo con al menos otro integrante, el único manager no puede
-            // desaparecer sin dejar a alguien más a cargo.
-            if managers == 1 && miembros_totales > 1 {
-                return Err(DomainError::UnicoManagerDeGrupo);
-            }
-        }
+        self.miembros.miembro(group_id, user_id).await?.ok_or(DomainError::NotFound)?;
 
+        // H-28 (auditoría 2026-08-12): el chequeo de "único manager" ahora
+        // vive atómicamente dentro de `quitar` (lock de fila sobre
+        // `group_members`) — antes, dos bajas concurrentes de los dos
+        // únicos managers podían pasar el chequeo cada una viendo al otro
+        // todavía activo, dejando el grupo sin ningún manager.
         let recursos_compartidos = self.permisos.recursos_por_grantee("group", group_id).await?;
-        self.miembros.quitar(group_id, user_id, &recursos_compartidos).await?;
+        if !self.miembros.quitar(group_id, user_id, &recursos_compartidos).await? {
+            return Err(DomainError::UnicoManagerDeGrupo);
+        }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::GroupMemberRemoved, Some(actor_id))
@@ -270,16 +267,12 @@ where
             return Err(DomainError::PermissionDenied);
         }
 
-        let miembro = self.miembros.miembro(group_id, user_id).await?.ok_or(DomainError::NotFound)?;
+        self.miembros.miembro(group_id, user_id).await?.ok_or(DomainError::NotFound)?;
 
-        if miembro.is_admin && !is_admin {
-            let managers = self.miembros.contar_managers(group_id).await?;
-            if managers == 1 {
-                return Err(DomainError::UnicoManagerDeGrupo);
-            }
+        // H-28: mismo criterio atómico que `quitar_miembro`.
+        if !self.miembros.set_admin(group_id, user_id, is_admin).await? {
+            return Err(DomainError::UnicoManagerDeGrupo);
         }
-
-        self.miembros.set_admin(group_id, user_id, is_admin).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::GroupManagerChanged, Some(actor_id))

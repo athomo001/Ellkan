@@ -4,6 +4,25 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.29] - 2026-08-12
+
+### Arreglado: primera auditoría de seguridad interna — 3 hallazgos críticos y varios altos/medios corregidos
+
+Auditoría completa del código propio (backend, frontend, CLI, núcleo criptográfico) en tres pasadas independientes. Detalle técnico completo de los 43 hallazgos en `docs/auditoria-seguridad.md` (no público). Lo corregido en esta misma sesión:
+
+- **El "desbloqueo rápido local" con el código de la app autenticadora podía revelar tu contraseña maestra sin el código real** — guardaba el secreto necesario para descifrarla junto al propio dato cifrado en el navegador. Ahora ese secreto se cifra a su vez con una clave propia del dispositivo, que nunca se puede exportar.
+- **Un administrador de un grupo cualquiera podía llegar a borrar una contraseña ajena** moviéndola primero a una carpeta propia sin tener ningún permiso real sobre ella. Mover una contraseña a una carpeta ahora exige tener al menos permiso de lectura sobre ella.
+- **Una ráfaga grande de actividad (import masivo, compartir en lote) podía apagar en silencio el registro de auditoría, el envío de emails o la rotación de la clave organizacional**, sin ningún aviso de que había dejado de funcionar — corregido para los tres a la vez.
+- Cinco casos donde dos acciones simultáneas podían dejar datos en un estado inconsistente, ahora resueltos con bloqueos a nivel de base de datos: un recurso ya no puede quedar sin ningún dueño, un grupo ya no puede quedar sin ningún administrador, la rotación de la clave de metadata ya no puede duplicarse, compartir una contraseña justo mientras se la edita ya no pierde el acceso recién otorgado, y borrar un usuario ya no puede perder silenciosamente una transferencia de propiedad.
+- Los tokens de acceso de sincronización SCIM ahora se pueden listar y revocar — antes, uno filtrado quedaba válido para siempre.
+- Nuevo límite dedicado de intentos en las solicitudes de recuperación de cuenta, para que no se pueda inundar de avisos a los administradores.
+- Un código de la app autenticadora ya no se puede reutilizar dos veces dentro de su ventana de validez.
+- Cerrado un posible bypass del filtro de dominios permitidos en auto-registro con un email con dos `@`.
+- El password de una contraseña nueva creada por CLI ya no queda visible en la lista de procesos del sistema ni en el historial de la terminal.
+- Reforzada la limpieza de memoria de claves privadas en el cruce con WebAssembly, y cerrada una ventana breve donde el archivo de sesión de la CLI quedaba con permisos más abiertos de lo debido justo al crearse.
+
+Pendiente, sin impacto explotable con el código actual: si el login con passkey debería exigir también la política de MFA de la organización (es una decisión de producto, no un bug), actualizar una dependencia de passkeys que sigue en versión de prueba, y una mejora al esquema de base de datos para que un tipo de evento de auditoría nuevo mal escrito no pueda volver a perderse en silencio como ya pasó una vez.
+
 ## [0.1.28] - 2026-08-13
 
 ### Agregado: excepciones a la visibilidad de compartir por grupo

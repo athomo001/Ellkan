@@ -6,11 +6,20 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::ScimUser;
+use super::models::{ScimTokenRow, ScimUser};
 
 pub trait ScimTokenRepository {
     async fn crear(&self, id: Uuid, token_hash: &[u8]) -> Result<(), RepoError>;
     async fn valido(&self, token_hash: &[u8]) -> Result<bool, RepoError>;
+
+    /// H-08 (auditoría 2026-08-12): para que un admin pueda elegir cuál
+    /// revocar sin ver el token en claro (que ya se mostró una única vez
+    /// al crearlo).
+    async fn listar(&self) -> Result<Vec<ScimTokenRow>, RepoError>;
+
+    /// `true` si revocó algo — `false` si el id no existe o ya estaba
+    /// revocado (idempotente, nunca error).
+    async fn revocar(&self, id: Uuid) -> Result<bool, RepoError>;
 }
 
 pub trait ScimUserRepository {
@@ -55,6 +64,25 @@ impl ScimTokenRepository for PgScimTokenRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.is_some())
+    }
+
+    async fn listar(&self) -> Result<Vec<ScimTokenRow>, RepoError> {
+        let filas = sqlx::query!(
+            r#"select id, created_at, revoked_at from scim_tokens where organization_id = 1 order by created_at desc"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| ScimTokenRow { id: f.id, created_at: f.created_at, revoked_at: f.revoked_at }).collect())
+    }
+
+    async fn revocar(&self, id: Uuid) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update scim_tokens set revoked_at = now() where id = $1 and revoked_at is null"#,
+            id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
     }
 }
 

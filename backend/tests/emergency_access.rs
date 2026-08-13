@@ -269,3 +269,89 @@ async fn solicitud_vencida_se_resuelve_por_timeout_via_repositorio() {
         "tras el timeout, el contacto debe poder leer el material sin aprobación explícita"
     );
 }
+
+/// Regresión H-30 (auditoría 2026-08-12): el job de timeout (F-36) ignoraba
+/// el resultado de `resolver` (una CAS `where status = 'pending'`) — si el
+/// titular ya había aprobado/rechazado la solicitud en el ínterin (antes de
+/// que el job la procesara, pero después de que quedó "vencida"), el job
+/// seguía adelante igual y auditaba falsamente "otorgado por timeout" pese a
+/// una decisión real y distinta del titular. Este test ejerce exactamente
+/// la llamada que el job hace (`resolver(id, "granted_by_timeout")`) después
+/// de que el titular ya resolvió, y confirma que es un no-op.
+#[tokio::test]
+async fn el_job_de_timeout_no_pisa_una_resolucion_ya_hecha_por_el_titular() {
+    use ellkan_backend::emergency_access::repository::{
+        EmergencyAccessRequestRepository, PgEmergencyAccessRequestRepository,
+    };
+
+    let entorno = common::levantar().await;
+
+    let titular = common::registrar(&entorno, "titular-h30@test.ellkan").await;
+    let sesion_titular = common::login(&entorno, &titular).await;
+    let contacto = common::registrar(&entorno, "contacto-h30@test.ellkan").await;
+    let sesion_contacto = common::login(&entorno, &contacto).await;
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/emergency-access", entorno.base))
+        .bearer_auth(sesion_titular)
+        .json(&json!({
+            "grantee_id": contacto.user_id,
+            "access_level": "view",
+            "sealed_material_b64": B64.encode(b"x"),
+            "wait_time_days": 1,
+        }))
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    let id: uuid::Uuid = cuerpo["id"].as_str().unwrap().parse().unwrap();
+
+    entorno
+        .cliente
+        .post(format!("{}/me/emergency-access/{id}/accept", entorno.base))
+        .bearer_auth(sesion_contacto)
+        .send()
+        .await
+        .unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/me/emergency-access/{id}/request", entorno.base))
+        .bearer_auth(sesion_contacto)
+        .send()
+        .await
+        .unwrap();
+
+    // Simula que el plazo ya venció (mismo criterio que
+    // `solicitud_vencida_se_resuelve_por_timeout_via_repositorio`).
+    sqlx::query("update emergency_access_requests set requested_at = now() - interval '2 days' where emergency_access_id = $1")
+        .bind(id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+
+    // El titular, todavía a tiempo, la rechaza explícitamente ANTES de que
+    // el job la procese.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/emergency-access/{id}/reject", entorno.base))
+        .bearer_auth(sesion_titular)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // El job corre de todos modos (ya estaba "vencida" al momento de listar) —
+    // se llama directo al mismo método que usa `job.rs::spawn`.
+    let requests = PgEmergencyAccessRequestRepository { pool: entorno.pool.clone() };
+    let pisada = requests.resolver(id, "granted_by_timeout").await.unwrap();
+    assert!(!pisada, "resolver debe ser un no-op (CAS) si el titular ya resolvió la solicitud");
+
+    // El estado real sigue siendo el rechazo del titular, no "otorgado por timeout".
+    let (status,): (String,) = sqlx::query_as("select status from emergency_access_requests where emergency_access_id = $1")
+        .bind(id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "rejected", "el rechazo real del titular no debería haber sido pisado por el job");
+}

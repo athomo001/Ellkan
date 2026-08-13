@@ -18,7 +18,7 @@ use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 
 use super::dto::{
     CrearScimUserRequest, ListarScimQuery, PatchScimUserRequest, ScimErrorResponse, ScimListResponse,
-    ScimTokenResponse, ScimUserResponse,
+    ScimTokenResponse, ScimTokenRowResponse, ScimUserResponse,
 };
 use super::extractor::ScimAuth;
 use super::models::ResultadoCrearUsuario;
@@ -54,6 +54,28 @@ pub async fn crear_token(
     ));
 
     Ok(Json(ScimTokenResponse { token }))
+}
+
+/// `GET /admin/scim-tokens` — H-08 (auditoría 2026-08-12): sin el token en
+/// claro ni su hash, sólo lo necesario para elegir cuál revocar.
+pub async fn listar_tokens(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<Vec<ScimTokenRowResponse>>, ApiError> {
+    use super::repository::ScimTokenRepository;
+    let filas = state.scim_tokens.listar().await.map_err(crate::error::DomainError::from)?;
+    Ok(Json(filas.into_iter().map(ScimTokenRowResponse::from).collect()))
+}
+
+/// `DELETE /admin/scim-tokens/{id}` — H-08: revoca un token comprometido.
+/// Idempotente: revocar uno ya revocado (o inexistente) sigue devolviendo
+/// `204`, nunca error — el estado final deseado ("este id no es válido")
+/// ya se cumple.
+pub async fn revocar_token(State(state): State<AppState>, admin: AdminUser, Path(id): Path<Uuid>) -> Result<StatusCode, ApiError> {
+    use super::repository::ScimTokenRepository;
+    if state.scim_tokens.revocar(id).await.map_err(crate::error::DomainError::from)? {
+        let _ = state.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::ScimTokenRevoked, Some(admin.user_id)).con_sujeto("scim_token", id),
+        ));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn crear_usuario(

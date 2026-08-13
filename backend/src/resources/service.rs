@@ -242,6 +242,8 @@ where
         self.permisos
             .otorgar("resource", resource_id, "user", recipient_id, nivel.as_db_str())
             .await?;
+        // H-31: ver comentario en `ResourceRepository::tocar_updated_at`.
+        self.recursos.tocar_updated_at(resource_id).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(owner_id))
@@ -309,18 +311,26 @@ where
         if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
             return Err(DomainError::PermissionDenied);
         }
-        if nuevo_nivel != NivelPermiso::Owner
-            && !self.permisos.existe_otro_owner("resource", resource_id, grantee_type, grantee_id).await?
-        {
-            return Err(DomainError::ValidacionInvalida("el recurso se quedaría sin ningún Owner".into()));
-        }
 
         // Sólo usuarios por ahora (compartir con grupos sigue siendo el
         // mecanismo aparte de `GroupService`, F-12) — `otorgar` ya es upsert.
         if grantee_type != "user" {
             return Err(DomainError::ValidacionInvalida("cambiar nivel sólo soportado para destinatarios usuario".into()));
         }
-        self.permisos.otorgar("resource", resource_id, grantee_type, grantee_id, nuevo_nivel.as_db_str()).await?;
+        // H-26: check-y-mutación atómicos (lock de fila) — antes, dos
+        // llamadas concurrentes de "bajar a Alice" y "bajar a Bob" (los dos
+        // únicos Owners) podían pasar el chequeo de "existe otro owner" cada
+        // una viendo al otro todavía sin bajar, dejando el recurso sin
+        // ningún Owner de forma permanente.
+        if !self
+            .permisos
+            .cambiar_nivel_si_queda_otro_owner("resource", resource_id, grantee_type, grantee_id, nuevo_nivel.as_db_str())
+            .await?
+        {
+            return Err(DomainError::ValidacionInvalida("el recurso se quedaría sin ningún Owner".into()));
+        }
+        // H-31: ver comentario en `ResourceRepository::tocar_updated_at`.
+        self.recursos.tocar_updated_at(resource_id).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
@@ -345,10 +355,12 @@ where
         if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
             return Err(DomainError::PermissionDenied);
         }
-        if !self.permisos.existe_otro_owner("resource", resource_id, grantee_type, grantee_id).await? {
+        // H-26: ver comentario equivalente en `cambiar_nivel`.
+        if !self.permisos.revocar_si_queda_otro_owner("resource", resource_id, grantee_type, grantee_id).await? {
             return Err(DomainError::ValidacionInvalida("el recurso se quedaría sin ningún Owner".into()));
         }
-        self.permisos.revocar("resource", resource_id, grantee_type, grantee_id).await?;
+        // H-31: ver comentario en `ResourceRepository::tocar_updated_at`.
+        self.recursos.tocar_updated_at(resource_id).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
@@ -377,13 +389,16 @@ where
             )
         })?;
 
-        if propio.level == NivelPermiso::Owner.as_db_str()
-            && !self.permisos.existe_otro_owner("resource", resource_id, "user", actor_id).await?
-        {
-            return Err(DomainError::ValidacionInvalida("no podés salir: sos el único Owner de este recurso".into()));
+        if propio.level == NivelPermiso::Owner.as_db_str() {
+            // H-26: ver comentario equivalente en `cambiar_nivel`.
+            if !self.permisos.revocar_si_queda_otro_owner("resource", resource_id, "user", actor_id).await? {
+                return Err(DomainError::ValidacionInvalida("no podés salir: sos el único Owner de este recurso".into()));
+            }
+        } else {
+            self.permisos.revocar("resource", resource_id, "user", actor_id).await?;
         }
-
-        self.permisos.revocar("resource", resource_id, "user", actor_id).await?;
+        // H-31: ver comentario en `ResourceRepository::tocar_updated_at`.
+        self.recursos.tocar_updated_at(resource_id).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))

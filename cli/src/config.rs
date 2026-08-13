@@ -53,15 +53,29 @@ fn dir_config() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
-fn endurecer_permisos(_ruta: &std::path::Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(_ruta, std::fs::Permissions::from_mode(0o600))?;
-    }
-    // En Windows no existe el bit 0600 de POSIX — el ACL por defecto del
-    // perfil del usuario ya restringe el acceso a otras cuentas locales;
-    // endurecerlo más (ACL explícita) queda fuera de alcance de Fase 0.
+/// H-12 (auditoría 2026-08-12): `fs::write` + `chmod 0600` por separado
+/// dejaba una ventana TOCTOU — con el `umask` típico (022), el archivo
+/// nacía `0644` (legible por cualquier usuario del sistema) entre la
+/// creación y el chmod posterior. `sesion.json` guarda un `session_id`
+/// (bearer credential), así que esa ventana era una fuga real, no teórica.
+/// `OpenOptions::mode(0o600)` fija el modo en la misma syscall que crea el
+/// archivo — nunca existe un instante con permisos más laxos.
+#[cfg(unix)]
+fn escribir_archivo_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut archivo =
+        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(ruta)?;
+    archivo.write_all(contenido)?;
+    Ok(())
+}
+
+/// En Windows no existe el bit 0600 de POSIX — el ACL por defecto del
+/// perfil del usuario ya restringe el acceso a otras cuentas locales;
+/// endurecerlo más (ACL explícita) queda fuera de alcance de Fase 0.
+#[cfg(not(unix))]
+fn escribir_archivo_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
+    std::fs::write(ruta, contenido)?;
     Ok(())
 }
 
@@ -75,8 +89,7 @@ fn ruta_sesion() -> anyhow::Result<PathBuf> {
 
 pub fn guardar_perfil(perfil: &Perfil) -> anyhow::Result<()> {
     let ruta = ruta_perfil()?;
-    std::fs::write(&ruta, serde_json::to_vec_pretty(perfil)?)?;
-    endurecer_permisos(&ruta)?;
+    escribir_archivo_privado(&ruta, &serde_json::to_vec_pretty(perfil)?)?;
     Ok(())
 }
 
@@ -89,8 +102,7 @@ pub fn cargar_perfil() -> anyhow::Result<Perfil> {
 
 pub fn guardar_sesion(sesion: &Sesion) -> anyhow::Result<()> {
     let ruta = ruta_sesion()?;
-    std::fs::write(&ruta, serde_json::to_vec_pretty(sesion)?)?;
-    endurecer_permisos(&ruta)?;
+    escribir_archivo_privado(&ruta, &serde_json::to_vec_pretty(sesion)?)?;
     Ok(())
 }
 
@@ -124,4 +136,31 @@ pub fn resolver_client_key(desde_perfil: Option<&str>) -> Option<String> {
 
 pub fn resolver_ca_bundle(desde_perfil: Option<&str>) -> Option<String> {
     std::env::var("ELLKAN_CA_BUNDLE").ok().or_else(|| desde_perfil.map(str::to_string))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// H-12: `guardar_sesion` (y por extensión `guardar_perfil`, mismo
+    /// helper) crea el archivo ya en `0600` — no sólo lo termina así, sin
+    /// ventana intermedia con un modo más permisivo.
+    #[test]
+    fn guardar_sesion_crea_el_archivo_ya_en_0600() {
+        let dir = std::env::temp_dir().join(format!("ellkan-cli-test-{}", uuid::Uuid::now_v7()));
+        // SAFETY (test, single-threaded en este proceso a los efectos de esta
+        // variable — ningún otro test del crate toca ELLKAN_CONFIG_DIR):
+        // `set_var` es `unsafe` desde Rust 2024 por la posibilidad de carrera
+        // entre threads mutando el entorno del proceso.
+        unsafe { std::env::set_var("ELLKAN_CONFIG_DIR", &dir) };
+
+        guardar_sesion(&Sesion { session_id: uuid::Uuid::now_v7() }).unwrap();
+
+        let permisos = std::fs::metadata(dir.join("sesion.json")).unwrap().permissions();
+        assert_eq!(permisos.mode() & 0o777, 0o600);
+
+        unsafe { std::env::remove_var("ELLKAN_CONFIG_DIR") };
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

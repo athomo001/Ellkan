@@ -9,13 +9,36 @@
 // `declararStore` con `clearOn: ['logout']` borraría esto en cada logout,
 // pero el objetivo entero de F-38 es sobrevivir entre sesiones de login en
 // el mismo dispositivo (revocable explícitamente, nunca implícito).
+//
+// Hallazgo de seguridad (auditoría 2026-08-12, H-01): esto guardaba el
+// secreto TOTP crudo en `localStorage`, en el mismo objeto que el blob
+// cifrado de la passphrase que ese secreto puede desenvolver — cualquiera
+// con lectura de `localStorage` (backup de perfil robado, infostealer,
+// dispositivo compartido) podía calcular un código válido offline (TOTP no
+// es más que HMAC(secreto, tiempo), no hace falta ni siquiera adivinarlo) y
+// recuperar la passphrase maestra sin el código real. El backoff de intentos
+// nunca protegía nada porque no era parte de la operación criptográfica.
+//
+// Fix: el secreto ya no se guarda en claro en `localStorage`. Se envuelve
+// con una `CryptoKey` AES-GCM `extractable:false` generada por dispositivo y
+// guardada en IndexedDB — el navegador nunca permite exportar los bytes de
+// una clave no-extraíble, así que un volcado de `localStorage`/IndexedDB (el
+// escenario real de un backup robado o un infostealer que sólo lee archivos)
+// ya no alcanza para reconstruir el secreto. Esto no protege contra un
+// atacante con ejecución de JS activa en la página (una futura XSS) — igual
+// que ningún esquema 100% client-side puede protegerse de eso (mismo límite
+// ya aceptado para el bearer token de sesión, ver `session.ts`) — pero cierra
+// el vector real y más probable: exfiltración pasiva de storage.
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { base32Codificar } from './base32';
+import { obtenerClaveDeDispositivo, borrarClaveDeDispositivo } from './device-key';
 
 interface EstadoLocalTotp {
-	secretoB64: string;
+	/** Secreto TOTP cifrado con la clave de dispositivo, nunca en claro. */
+	secretoCifradoB64: string;
+	secretoIvB64: string;
 	cipherB64: string;
 	nonceB64: string;
 }
@@ -31,6 +54,10 @@ function claveStorage(email: string): string {
 
 function claveBackoff(email: string): string {
 	return `ellkan:totp-local-backoff:${email}`;
+}
+
+function claveDispositivo(email: string): string {
+	return `totp-local:${email}`;
 }
 
 function aad(email: string): Uint8Array {
@@ -51,9 +78,10 @@ export function estaActivo(email: string): boolean {
 	return leerEstado(email) !== null;
 }
 
-export function desactivar(email: string): void {
+export async function desactivar(email: string): Promise<void> {
 	localStorage.removeItem(claveStorage(email));
 	localStorage.removeItem(claveBackoff(email));
+	await borrarClaveDeDispositivo(claveDispositivo(email));
 }
 
 /** Genera un secreto nuevo (nunca reusa el de F-14) y la URI para el QR de setup. */
@@ -83,8 +111,14 @@ export async function confirmarYActivar(
 		throw new Error('Código incorrecto.');
 	}
 	const cifrado = wasm.totp_envolver_passphrase(secreto, passphrase, aad(email));
+
+	const claveDisp = await obtenerClaveDeDispositivo(claveDispositivo(email));
+	const secretoIv = crypto.getRandomValues(new Uint8Array(12));
+	const secretoCifrado = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: secretoIv }, claveDisp, secreto as BufferSource);
+
 	const estado: EstadoLocalTotp = {
-		secretoB64: bytesABase64(secreto),
+		secretoCifradoB64: bytesABase64(new Uint8Array(secretoCifrado)),
+		secretoIvB64: bytesABase64(secretoIv),
 		cipherB64: bytesABase64(cifrado.ciphertext),
 		nonceB64: bytesABase64(cifrado.nonce)
 	};
@@ -134,7 +168,13 @@ export async function desbloquear(email: string, codigo: string): Promise<string
 	}
 
 	const wasm = await cargarCrypto();
-	const secreto = base64ABytes(estado.secretoB64);
+	const claveDisp = await obtenerClaveDeDispositivo(claveDispositivo(email));
+	const secretoBuf = await crypto.subtle.decrypt(
+		{ name: 'AES-GCM', iv: base64ABytes(estado.secretoIvB64) as BufferSource },
+		claveDisp,
+		base64ABytes(estado.secretoCifradoB64) as BufferSource
+	);
+	const secreto = new Uint8Array(secretoBuf);
 	const ahoraUnix = Math.floor(ahoraMs / 1000);
 	const valido = wasm.totp_verificar(secreto, Number(codigo), BigInt(ahoraUnix));
 

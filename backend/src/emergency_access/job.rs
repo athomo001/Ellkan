@@ -39,9 +39,20 @@ pub fn spawn(
                 }
             };
             for (solicitud, granter_id) in vencidas {
-                if let Err(e) = requests.resolver(solicitud.id, "granted_by_timeout").await {
-                    tracing::error!(error = %e, request_id = %solicitud.id, "no se pudo resolver por timeout");
-                    continue;
+                // H-30 (auditoría 2026-08-12): `resolver` es una CAS
+                // (`where status = 'pending'`) — antes este job sólo miraba
+                // si hubo error de DB, ignorando que `Ok(false)` significa
+                // que el titular ya resolvió la solicitud (aceptar/rechazar)
+                // en el ínterin. Sin este chequeo, el job seguía adelante
+                // igual y auditaba falsamente "otorgado por timeout" pese a
+                // una decisión real y distinta del titular.
+                match requests.resolver(solicitud.id, "granted_by_timeout").await {
+                    Ok(true) => {}
+                    Ok(false) => continue,
+                    Err(e) => {
+                        tracing::error!(error = %e, request_id = %solicitud.id, "no se pudo resolver por timeout");
+                        continue;
+                    }
                 }
                 if let Err(e) = accesos.marcar_status(solicitud.emergency_access_id, "confirmed").await {
                     tracing::error!(error = %e, "no se pudo marcar emergency_access como confirmed");
