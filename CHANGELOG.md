@@ -4,6 +4,20 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
 
+## [0.1.30] - 2026-08-13
+
+### Agregado: primera versión usable de la extensión de navegador (Chrome/Firefox)
+
+- La extensión ya se puede instalar y usar de verdad: iniciar sesión, ver la lista real de tus contraseñas guardadas, buscarlas, y copiar cualquiera al portapapeles con un clic — antes el popup sólo servía para loguearse y no mostraba nada más.
+- El diseño del popup ahora usa la misma paleta oscura de la app (antes se veía sin ningún estilo, como una página sin CSS).
+- Si tenés que salir a buscar el código de verificación a tu email, la extensión ya no te hace empezar de nuevo al volver — retoma justo donde quedaste, en la misma pantalla del código.
+- El login de la extensión directamente no funcionaba antes de este arreglo (un chequeo de seguridad interno rechazaba siempre la conexión del propio popup) — corregido de raíz.
+
+### Conocido, no resuelto todavía
+
+- El portapapeles no se limpia solo después de copiar una contraseña desde la extensión (sí lo hace la app web) — queda para una próxima vuelta.
+- Autofill (completar automáticamente los campos de una página) todavía no existe en la extensión — por ahora es sólo ver y copiar.
+
 ## [0.1.29] - 2026-08-12
 
 ### Arreglado: primera auditoría de seguridad interna — 3 hallazgos críticos y varios altos/medios corregidos
