@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<title>Ellkan</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script type="module" crossorigin src="./assets/index-mQLqrBl4.js"></script>
+		<link rel="stylesheet" crossorigin href="./assets/index-DZJg07yM.css">
+	</head>
+	<body>
+		<div id="app">
+			<header class="encabezado">
+				<img src="../icons/icon-32.png" alt="" width="24" height="24" />
+				<h1>Ellkan</h1>
+			</header>
+
+			<section id="vista-cargando" class="vista">
+				<div class="spinner" aria-hidden="true"></div>
+				<p class="texto-secundario vista-cargando-texto">Cargando…</p>
+			</section>
+
+			<section id="vista-login" class="vista oculto">
+				<form id="form-login" novalidate>
+					<label for="campo-servidor">Servidor</label>
+					<input
+						type="url"
+						id="campo-servidor"
+						value="http://localhost:8080"
+						required
+						autocomplete="url"
+						autofocus
+					/>
+
+					<label for="campo-email">Email</label>
+					<input type="email" id="campo-email" required autocomplete="username" />
+
+					<label for="campo-passphrase">Contraseña</label>
+					<div class="campo-con-boton">
+						<input type="password" id="campo-passphrase" required autocomplete="current-password" />
+						<button type="button" id="boton-mostrar-passphrase" class="boton-mostrar" aria-label="Mostrar contraseña">
+							👁
+						</button>
+					</div>
+
+					<p class="error oculto" id="error-login"></p>
+
+					<button type="submit" id="boton-login">Iniciar sesión</button>
+				</form>
+			</section>
+
+			<section id="vista-dispositivo" class="vista oculto">
+				<p class="texto-secundario">Te enviamos un código a tu email para reconocer este dispositivo.</p>
+				<form id="form-dispositivo" novalidate>
+					<label for="campo-codigo">Código de verificación</label>
+					<input type="text" id="campo-codigo" inputmode="numeric" autocomplete="one-time-code" required />
+
+					<p class="error oculto" id="error-dispositivo"></p>
+
+					<button type="submit" id="boton-verificar">Verificar</button>
+					<button type="button" id="boton-cancelar-dispositivo" class="boton-secundario">Volver</button>
+				</form>
+			</section>
+
+			<section id="vista-desbloqueada" class="vista oculto">
+				<div class="tarjeta-sesion tarjeta-sesion-compacta">
+					<span class="punto-activo" aria-hidden="true"></span>
+					<p id="email-activo" class="email"></p>
+					<button type="button" id="boton-logout" class="boton-logout-icono" aria-label="Cerrar sesión" title="Cerrar sesión">
+						⏻
+					</button>
+				</div>
+
+				<div class="buscador-vault">
+					<input type="search" id="campo-buscar" placeholder="Buscar…" autocomplete="off" />
+				</div>
+
+				<p id="vault-error" class="error oculto"></p>
+				<div id="lista-vault" class="lista-vault"></div>
+				<p id="vault-vacio" class="texto-secundario oculto">
+					Todavía no hay contraseñas guardadas. Creá una desde la app web — la extensión por ahora sólo puede verlas y
+					copiarlas, no crear ni editar.
+				</p>
+			</section>
+
+			<section id="vista-no-soportado" class="vista oculto">
+				<p id="mensaje-no-soportado" class="texto-secundario"></p>
+				<button id="boton-volver" class="boton-secundario">Volver</button>
+			</section>
+		</div>
+	</body>
+</html>
