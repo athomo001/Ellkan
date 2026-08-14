@@ -1100,7 +1100,7 @@
 				signature_b64: bytesABase64(firma),
 				device_token_hash_b64: deviceTokenHash
 			});
-			await guardarClaves(serverUrl, email, abierta.x25519_private, abierta.ed25519_private);
+			await guardarClaves(serverUrl, email, verify.user_id, abierta.x25519_private, abierta.ed25519_private);
 			if (verify.estado === "completo" && verify.session_id) await SesionStorage.guardar("session_id", verify.session_id);
 			else if (verify.estado === "pendiente_dispositivo" && verify.device_challenge_id) await SesionStorage.guardar("device_challenge_id", verify.device_challenge_id);
 			return {
@@ -1117,6 +1117,7 @@
 			});
 			if (resp.session_id) {
 				await SesionStorage.guardar("session_id", resp.session_id);
+				if (resp.user_id) await SesionStorage.guardar("user_id", resp.user_id);
 				await SesionStorage.limpiar("device_challenge_id");
 			}
 			return {
@@ -1159,6 +1160,7 @@
 				"device_challenge_id",
 				"email",
 				"server_url",
+				"user_id",
 				"x25519_private",
 				"ed25519_private"
 			]) await SesionStorage.limpiar(clave);
@@ -1172,14 +1174,16 @@
 				"session_id",
 				"email",
 				"server_url",
+				"user_id",
 				"x25519_private",
 				"ed25519_private"
 			]) await SesionStorage.limpiar(clave);
 		}
 	};
-	async function guardarClaves(serverUrl, email, x25519Private, ed25519Private) {
+	async function guardarClaves(serverUrl, email, userId, x25519Private, ed25519Private) {
 		await SesionStorage.guardar("server_url", serverUrl);
 		await SesionStorage.guardar("email", email);
+		if (userId) await SesionStorage.guardar("user_id", userId);
 		await SesionStorage.guardar("x25519_private", bytesABase64(x25519Private));
 		await SesionStorage.guardar("ed25519_private", bytesABase64(ed25519Private));
 	}
@@ -1238,18 +1242,29 @@
 	async function sesionActiva() {
 		const serverUrl = await SesionStorage.leer("server_url");
 		const sessionId = await SesionStorage.leer("session_id");
+		const userId = await SesionStorage.leer("user_id");
 		const x25519PrivateB64 = await SesionStorage.leer("x25519_private");
-		if (!serverUrl || !sessionId || !x25519PrivateB64) throw new Error("no hay una sesión activa");
+		if (!serverUrl || !sessionId || !userId || !x25519PrivateB64) throw new Error("no hay una sesión activa");
 		return {
 			serverUrl,
 			sessionId,
+			userId,
 			x25519Private: base64ABytes(x25519PrivateB64)
 		};
 	}
-	async function get(serverUrl, path, sessionId) {
+	async function peticion(serverUrl, method, path, sessionId, body, extraHeaders) {
+		const headers = {
+			Authorization: `Bearer ${sessionId}`,
+			...extraHeaders
+		};
+		if (body !== void 0) headers["Content-Type"] = "application/json";
 		let resp;
 		try {
-			resp = await fetch(`${serverUrl}${path}`, { headers: { Authorization: `Bearer ${sessionId}` } });
+			resp = await fetch(`${serverUrl}${path}`, {
+				method,
+				headers,
+				body: body !== void 0 ? JSON.stringify(body) : void 0
+			});
 		} catch {
 			throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
 		}
@@ -1261,8 +1276,10 @@
 			} catch {}
 			throw new Error(mensaje);
 		}
+		if (resp.status === 204) return void 0;
 		return resp.json();
 	}
+	var get = (serverUrl, path, sessionId) => peticion(serverUrl, "GET", path, sessionId);
 	/** Mismo AAD que `resources/service.rs`/`recursos.ts`: `resource_id ||
 	* created_by` como bytes crudos de UUID (16+16), tiene que coincidir bit a
 	* bit con lo que el servidor esperaba cuando el cliente que creó el recurso
@@ -1272,6 +1289,20 @@
 		aad.set(uuidABytes(resourceId), 0);
 		aad.set(uuidABytes(createdBy), 16);
 		return aad;
+	}
+	/** F-06: unsealea la clave privada de cada `metadata_key` activa a la que
+	* este usuario tiene acceso — una sola llamada, reusada por `listar`
+	* (lazy) y por `crear`/`editar` (siempre la necesitan para decidir
+	* `user_key` vs `shared_key`). */
+	async function cargarClavesMetadataCompartidas(serverUrl, sessionId, x25519Private) {
+		const wasm = await cargarCrypto();
+		const activas = await get(serverUrl, "/metadata-keys", sessionId);
+		const mapa = /* @__PURE__ */ new Map();
+		for (const clave of activas) {
+			if (!clave.own_sealed_private_key_b64) continue;
+			mapa.set(clave.id, wasm.abrir_sellado(x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
+		}
+		return mapa;
 	}
 	var VaultService = {
 		async listar() {
@@ -1285,14 +1316,7 @@
 				const aad = aadDeRecurso(r.id, r.created_by);
 				let claveMetadata;
 				if (r.metadata_key_type === "shared_key" && r.metadata_key_id) {
-					if (!clavesMetadata) {
-						clavesMetadata = /* @__PURE__ */ new Map();
-						const activas = await get(serverUrl, "/metadata-keys", sessionId);
-						for (const clave of activas) {
-							if (!clave.own_sealed_private_key_b64) continue;
-							clavesMetadata.set(clave.id, wasm.abrir_sellado(x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
-						}
-					}
+					if (!clavesMetadata) clavesMetadata = await cargarClavesMetadataCompartidas(serverUrl, sessionId, x25519Private);
 					const clave = clavesMetadata.get(r.metadata_key_id);
 					if (!clave) continue;
 					claveMetadata = clave;
@@ -1308,7 +1332,12 @@
 						nombre: metadata.name ?? "",
 						usuario: metadata.username ?? "",
 						uri: metadata.uri ?? "",
-						resourceTypeSlug: r.resource_type_slug
+						resourceTypeSlug: r.resource_type_slug,
+						createdBy: r.created_by,
+						metadataKeyType: r.metadata_key_type,
+						metadataKeyId: r.metadata_key_id,
+						updatedAt: r.updated_at,
+						createdAt: r.created_at
 					});
 				} catch {
 					continue;
@@ -1316,7 +1345,11 @@
 			}
 			return resultado;
 		},
-		async revelarPassword(resourceId) {
+		/** Mismo criterio que `frontend/src/lib/crypto/recursos.ts::verSecreto`:
+		* una sola revelación trae password+notas+TOTP juntos (misma DEK, mismo
+		* fetch) — evita 3 llamadas separadas para 3 campos que ya vienen en el
+		* mismo blob cifrado. */
+		async revelarSecreto(resourceId) {
 			const wasm = await cargarCrypto();
 			const { serverUrl, sessionId, x25519Private } = await sesionActiva();
 			const recurso = await get(serverUrl, `/resources/${resourceId}`, sessionId);
@@ -1325,7 +1358,90 @@
 			const dek = wasm.abrir_sellado(x25519Private, base64ABytes(secreto.sealed_dek_b64));
 			const aad = aadDeRecurso(resourceId, recurso.created_by);
 			const bytes = wasm.descifrar_aead(dek, base64ABytes(secreto.secret_nonce_b64), base64ABytes(secreto.secret_ciphertext_b64), aad);
-			return JSON.parse(new TextDecoder().decode(bytes)).password ?? "";
+			const json = JSON.parse(new TextDecoder().decode(bytes));
+			return {
+				password: json.password ?? "",
+				notes: json.notes ?? "",
+				totpSecret: json.totp_secret
+			};
+		},
+		/** Mismo criterio que `frontend/src/lib/crypto/recursos.ts::crearRecurso`:
+		* si el usuario ya tiene acceso a alguna `metadata_key` compartida, el
+		* recurso nace `shared_key` (compartible más adelante desde la app web)
+		* — si no hay ninguna todavía, cae a `user_key` sin romper la creación. */
+		async crear(datos) {
+			const wasm = await cargarCrypto();
+			const { serverUrl, sessionId, userId, x25519Private } = await sesionActiva();
+			const x25519Public = wasm.clave_publica_x25519_de(x25519Private);
+			const resourceId = crypto.randomUUID();
+			const aad = aadDeRecurso(resourceId, userId);
+			const dek = wasm.generar_dek();
+			const primeraEntrada = (await cargarClavesMetadataCompartidas(serverUrl, sessionId, x25519Private)).entries().next();
+			const metadataKeyId = primeraEntrada.done ? null : primeraEntrada.value[0];
+			const claveMetadata = primeraEntrada.done ? dek : primeraEntrada.value[1];
+			const metadata = {
+				name: datos.nombre,
+				username: datos.usuario,
+				uri: datos.uri
+			};
+			const secretoJson = {
+				password: datos.password,
+				notes: datos.notas
+			};
+			if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
+			const metadataCifrada = wasm.cifrar_aead(claveMetadata, new TextEncoder().encode(JSON.stringify(metadata)), aad);
+			const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
+			const sealedDek = wasm.sellar_para(x25519Public, dek);
+			await peticion(serverUrl, "POST", "/resources", sessionId, {
+				id: resourceId,
+				resource_type_slug: (datos.tipo ?? "login-password") === "login-password" && datos.totpSecretBase32 ? "login-password-totp" : datos.tipo ?? "login-password",
+				metadata_ciphertext_b64: bytesABase64(metadataCifrada.ciphertext),
+				metadata_nonce_b64: bytesABase64(metadataCifrada.nonce),
+				sealed_dek_b64: bytesABase64(sealedDek),
+				secret_ciphertext_b64: bytesABase64(secretoCifrado.ciphertext),
+				secret_nonce_b64: bytesABase64(secretoCifrado.nonce),
+				...metadataKeyId ? { metadata_key_id: metadataKeyId } : {}
+			});
+		},
+		/** Mismo criterio que `frontend/src/lib/crypto/recursos.ts::editarRecurso`:
+		* re-sella una DEK nueva para **todos** los destinatarios actuales (no
+		* sólo para quien edita), con concurrencia optimista real (`If-Match`
+		* sobre `updatedAt`, que el caller vio en su último `listar()`). */
+		async editar(item, datos) {
+			const wasm = await cargarCrypto();
+			const { serverUrl, sessionId, x25519Private } = await sesionActiva();
+			const aad = aadDeRecurso(item.id, item.createdBy);
+			const dek = wasm.generar_dek();
+			let claveMetadata = dek;
+			if (item.metadataKeyType === "shared_key") {
+				if (!item.metadataKeyId) throw new Error("Falta la clave de metadata compartida de este recurso.");
+				const clave = (await cargarClavesMetadataCompartidas(serverUrl, sessionId, x25519Private)).get(item.metadataKeyId);
+				if (!clave) throw new Error("No tenés acceso a la clave de metadata compartida de este recurso.");
+				claveMetadata = clave;
+			}
+			const metadata = {
+				name: datos.nombre,
+				username: datos.usuario,
+				uri: datos.uri
+			};
+			const secretoJson = {
+				password: datos.password,
+				notes: datos.notas
+			};
+			if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
+			const metadataCifrada = wasm.cifrar_aead(claveMetadata, new TextEncoder().encode(JSON.stringify(metadata)), aad);
+			const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
+			const envelopes = (await get(serverUrl, `/resources/${item.id}/recipients`, sessionId)).map((d) => ({
+				recipient_user_id: d.user_id,
+				sealed_dek_b64: bytesABase64(wasm.sellar_para(base64ABytes(d.public_key_x25519_b64), dek)),
+				secret_ciphertext_b64: bytesABase64(secretoCifrado.ciphertext),
+				secret_nonce_b64: bytesABase64(secretoCifrado.nonce)
+			}));
+			return { updatedAt: (await peticion(serverUrl, "PUT", `/resources/${item.id}`, sessionId, {
+				metadata_ciphertext_b64: bytesABase64(metadataCifrada.ciphertext),
+				metadata_nonce_b64: bytesABase64(metadataCifrada.nonce),
+				envelopes
+			}, { "If-Match": item.updatedAt })).updated_at };
 		}
 	};
 	//#endregion
@@ -1335,15 +1451,64 @@
 		if (typeof p?.resourceId !== "string" || !p.resourceId) throw new Error("falta resourceId");
 		return p.resourceId;
 	}
+	function validarDatosRecurso(payload) {
+		const d = payload?.datos;
+		if (!d?.nombre || !d.password) throw new Error("faltan datos: nombre y contraseña son obligatorios");
+		return {
+			tipo: d.tipo,
+			nombre: d.nombre,
+			usuario: d.usuario ?? "",
+			uri: d.uri ?? "",
+			password: d.password,
+			notas: d.notas ?? "",
+			totpSecretBase32: d.totpSecretBase32
+		};
+	}
 	var VaultController = {
 		async listar() {
 			return VaultService.listar();
 		},
-		async revelarPassword(payload) {
+		async revelarSecreto(payload) {
 			const resourceId = validarResourceId(payload);
-			return { password: await VaultService.revelarPassword(resourceId) };
+			return VaultService.revelarSecreto(resourceId);
+		},
+		async crear(payload) {
+			return VaultService.crear(validarDatosRecurso(payload));
+		},
+		async editar(payload) {
+			const p = payload;
+			if (!p?.item) throw new Error("falta el ítem a editar");
+			return VaultService.editar(p.item, validarDatosRecurso(payload));
 		}
 	};
+	//#endregion
+	//#region src/background/services/autofill-service.ts
+	function hostnameDeUri(uri) {
+		if (!uri) return null;
+		try {
+			const conEsquema = /^[a-z]+:\/\//i.test(uri) ? uri : `https://${uri}`;
+			return new URL(conEsquema).hostname.toLowerCase();
+		} catch {
+			return null;
+		}
+	}
+	var AutofillService = { async buscarCoincidencias(hostname) {
+		const items = await VaultService.listar();
+		const host = hostname.toLowerCase();
+		return items.filter((i) => i.resourceTypeSlug === "login-password").filter((i) => hostnameDeUri(i.uri) === host).map((i) => ({
+			id: i.id,
+			nombre: i.nombre,
+			usuario: i.usuario,
+			uri: i.uri
+		}));
+	} };
+	//#endregion
+	//#region src/background/controllers/autofill-controller.ts
+	var AutofillController = { async buscarCoincidencias(payload) {
+		const p = payload;
+		if (typeof p?.hostname !== "string" || !p.hostname) throw new Error("falta hostname");
+		return AutofillService.buscarCoincidencias(p.hostname);
+	} };
 	//#endregion
 	//#region src/background/event.ts
 	var rutas = {
@@ -1355,7 +1520,10 @@
 		AUTH_CANCELAR_PENDIENTE_DISPOSITIVO: () => AuthController.cancelarPendienteDispositivo(),
 		AUTH_LOGOUT: () => AuthController.logout(),
 		VAULT_LISTAR: () => VaultController.listar(),
-		VAULT_REVELAR_PASSWORD: (payload) => VaultController.revelarPassword(payload)
+		VAULT_REVELAR_SECRETO: (payload) => VaultController.revelarSecreto(payload),
+		VAULT_CREAR: (payload) => VaultController.crear(payload),
+		VAULT_EDITAR: (payload) => VaultController.editar(payload),
+		AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias(payload)
 	};
 	function registrarEventos(port) {
 		port.onMessage.addListener(async (mensaje) => {

@@ -65,6 +65,7 @@ function mapStorage() {
 
 const { AuthController } = await import('./src/background/controllers/auth-controller.ts');
 const { VaultController } = await import('./src/background/controllers/vault-controller.ts');
+const { AutofillController } = await import('./src/background/controllers/autofill-controller.ts');
 
 const MAILHOG_URL = process.argv[3] ?? 'http://localhost:8025';
 
@@ -159,9 +160,55 @@ async function main() {
 	assert.equal(crm!.usuario, 'juan.perez');
 	console.log(`OK: VAULT_LISTAR descifra metadata real (${items.length} recurso(s), incluido "CRM Ventas")`);
 
-	const { password } = await VaultController.revelarPassword({ resourceId: crm!.id });
-	assert.equal(password, 'Rsc-Juan-Crm-41k', 'la contraseña revelada debe coincidir con la sembrada en docs/seed-test-users.md');
-	console.log('OK: VAULT_REVELAR_PASSWORD descifra el secreto real, coincide con el valor sembrado');
+	const secreto = await VaultController.revelarSecreto({ resourceId: crm!.id });
+	assert.equal(secreto.password, 'Rsc-Juan-Crm-41k', 'la contraseña revelada debe coincidir con la sembrada en docs/seed-test-users.md');
+	console.log('OK: VAULT_REVELAR_SECRETO descifra password+notas+TOTP juntos, coincide con el valor sembrado');
+
+	// --- Autofill (spec 06 §4.2): matching real por hostname contra el
+	// recurso sembrado ("CRM Ventas", uri crm.ellkan.local) — confirma que
+	// matchea el hostname exacto y que uno distinto no trae nada (no sólo
+	// que el código no explote). ---
+	const coincidenciasReales = await AutofillController.buscarCoincidencias({ hostname: 'crm.ellkan.local' });
+	assert.ok(
+		coincidenciasReales.some((c) => c.nombre === 'CRM Ventas'),
+		`se esperaba que "crm.ellkan.local" matcheara "CRM Ventas", vino: ${coincidenciasReales.map((c) => c.nombre).join(', ')}`
+	);
+	const sinCoincidencias = await AutofillController.buscarCoincidencias({ hostname: 'un-sitio-que-no-existe.cl' });
+	assert.equal(sinCoincidencias.length, 0, 'un hostname sin recursos guardados no debe matchear nada');
+	console.log('OK: AUTOFILL_BUSCAR matchea por hostname real contra el backend (crm.ellkan.local → "CRM Ventas", otro host → vacío)');
+
+	// --- Crear + editar (pedido explícito del usuario): recurso real de
+	// punta a punta, nunca sólo que el código no tire una excepción. Se
+	// borra al final (DELETE directo, VaultController no expone borrar
+	// todavía) para no ensuciar la DB de seed en cada corrida. ---
+	const nombreDePrueba = `self-check-crear-${Date.now()}`;
+	await VaultController.crear({
+		datos: { nombre: nombreDePrueba, usuario: 'test-user', uri: 'ejemplo.cl', password: 'PrimeraClave-123', notas: 'nota original' }
+	});
+	const itemsTrasCrear = await VaultController.listar();
+	const creado = itemsTrasCrear.find((i) => i.nombre === nombreDePrueba);
+	assert.ok(creado, 'el recurso recién creado debe aparecer en VAULT_LISTAR');
+	const secretoCreado = await VaultController.revelarSecreto({ resourceId: creado!.id });
+	assert.equal(secretoCreado.password, 'PrimeraClave-123', 'la contraseña creada debe descifrar igual a como se guardó');
+	assert.equal(secretoCreado.notes, 'nota original');
+	console.log('OK: VAULT_CREAR — recurso real creado, listado y descifrado de punta a punta');
+
+	const editado = await VaultController.editar({
+		item: creado,
+		datos: { nombre: nombreDePrueba, usuario: 'test-user', uri: 'ejemplo.cl', password: 'SegundaClave-456', notas: 'nota editada' }
+	});
+	assert.notEqual(editado.updatedAt, creado!.updatedAt, 'editar debe avanzar updated_at (lock optimista real)');
+	const secretoEditado = await VaultController.revelarSecreto({ resourceId: creado!.id });
+	assert.equal(secretoEditado.password, 'SegundaClave-456', 'tras editar, la contraseña revelada debe ser la nueva, no la vieja');
+	assert.equal(secretoEditado.notes, 'nota editada');
+	console.log('OK: VAULT_EDITAR — password/nota nuevos confirmados releyendo el secreto real (no sólo el valor devuelto)');
+
+	const sesionParaLimpiar = await AuthController.estadoSesion();
+	await fetchOriginal(`${SERVER_URL}/resources/${creado!.id}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${sesionParaLimpiar!.sessionId}` }
+	});
+	console.log('OK: recurso de prueba borrado — no queda residuo en la DB de seed');
 
 	await AuthController.logout();
 	const sesionTrasLogout = await AuthController.estadoSesion();

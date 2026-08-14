@@ -9,6 +9,7 @@ import type { MensajeRequest, MensajeResponse } from './types';
 import { SesionController } from './controllers/sesion-controller';
 import { AuthController } from './controllers/auth-controller';
 import { VaultController } from './controllers/vault-controller';
+import { AutofillController } from './controllers/autofill-controller';
 
 type Handler = (payload: unknown) => Promise<unknown>;
 
@@ -23,7 +24,10 @@ const rutas: Record<string, Handler> = {
 	AUTH_CANCELAR_PENDIENTE_DISPOSITIVO: () => AuthController.cancelarPendienteDispositivo(),
 	AUTH_LOGOUT: () => AuthController.logout(),
 	VAULT_LISTAR: () => VaultController.listar(),
-	VAULT_REVELAR_PASSWORD: (payload) => VaultController.revelarPassword(payload)
+	VAULT_REVELAR_SECRETO: (payload) => VaultController.revelarSecreto(payload),
+	VAULT_CREAR: (payload) => VaultController.crear(payload),
+	VAULT_EDITAR: (payload) => VaultController.editar(payload),
+	AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias(payload)
 };
 
 export function registrarEventos(port: chrome.runtime.Port): void {

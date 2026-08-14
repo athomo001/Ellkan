@@ -4,8 +4,8 @@
 		<meta charset="utf-8" />
 		<title>Ellkan</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<script type="module" crossorigin src="./assets/index-mQLqrBl4.js"></script>
-		<link rel="stylesheet" crossorigin href="./assets/index-DZJg07yM.css">
+		<script type="module" crossorigin src="./assets/index-Cd9h0Fkz.js"></script>
+		<link rel="stylesheet" crossorigin href="./assets/index-CloipALk.css">
 	</head>
 	<body>
 		<div id="app">
@@ -14,12 +14,12 @@
 				<h1>Ellkan</h1>
 			</header>
 
-			<section id="vista-cargando" class="vista">
+			<section id="vista-cargando" class="vista vista-angosta">
 				<div class="spinner" aria-hidden="true"></div>
 				<p class="texto-secundario vista-cargando-texto">Cargando…</p>
 			</section>
 
-			<section id="vista-login" class="vista oculto">
+			<section id="vista-login" class="vista vista-angosta oculto">
 				<form id="form-login" novalidate>
 					<label for="campo-servidor">Servidor</label>
 					<input
@@ -48,7 +48,7 @@
 				</form>
 			</section>
 
-			<section id="vista-dispositivo" class="vista oculto">
+			<section id="vista-dispositivo" class="vista vista-angosta oculto">
 				<p class="texto-secundario">Te enviamos un código a tu email para reconocer este dispositivo.</p>
 				<form id="form-dispositivo" novalidate>
 					<label for="campo-codigo">Código de verificación</label>
@@ -62,30 +62,207 @@
 			</section>
 
 			<section id="vista-desbloqueada" class="vista oculto">
-				<div class="tarjeta-sesion tarjeta-sesion-compacta">
-					<span class="punto-activo" aria-hidden="true"></span>
-					<p id="email-activo" class="email"></p>
-					<button type="button" id="boton-logout" class="boton-logout-icono" aria-label="Cerrar sesión" title="Cerrar sesión">
-						⏻
+				<div class="barra-superior-vault">
+					<button type="button" id="boton-cuenta" class="boton-hamburguesa" aria-label="Mi cuenta">☰</button>
+					<div class="buscador-vault">
+						<input type="search" id="campo-buscar" placeholder="Buscar…" autocomplete="off" />
+					</div>
+					<button type="button" id="boton-nuevo" class="boton-nuevo" aria-label="Agregar contraseña" title="Agregar contraseña">
+						+
 					</button>
 				</div>
 
-				<div class="buscador-vault">
-					<input type="search" id="campo-buscar" placeholder="Buscar…" autocomplete="off" />
+				<div class="tabs-vault" role="tablist">
+					<button type="button" id="tab-todos" class="tab-vault tab-vault-activo" role="tab" aria-selected="true">
+						▦ Todos
+					</button>
+					<button type="button" id="tab-reciente" class="tab-vault" role="tab" aria-selected="false">
+						🕒 Reciente
+					</button>
 				</div>
 
 				<p id="vault-error" class="error oculto"></p>
 				<div id="lista-vault" class="lista-vault"></div>
 				<p id="vault-vacio" class="texto-secundario oculto">
-					Todavía no hay contraseñas guardadas. Creá una desde la app web — la extensión por ahora sólo puede verlas y
-					copiarlas, no crear ni editar.
+					Todavía no hay contraseñas guardadas — tocá "+" para crear la primera.
 				</p>
 			</section>
 
-			<section id="vista-no-soportado" class="vista oculto">
+			<section id="vista-detalle-item" class="vista oculto">
+				<div class="detalle-header">
+					<button type="button" id="boton-volver-lista" class="boton-volver" aria-label="Volver a la lista">←</button>
+					<h2 id="detalle-titulo" class="detalle-titulo"></h2>
+					<button type="button" id="boton-editar-item" class="boton-campo" aria-label="Editar">✏️</button>
+				</div>
+
+				<div class="detalle-campo">
+					<span class="detalle-campo-label">Usuario</span>
+					<div class="detalle-campo-valor">
+						<span id="detalle-usuario" class="detalle-valor-texto"></span>
+						<button type="button" id="boton-copiar-usuario" class="boton-campo" aria-label="Copiar usuario">📋</button>
+					</div>
+				</div>
+
+				<div class="detalle-campo">
+					<span class="detalle-campo-label">
+						Contraseña
+						<span id="detalle-password-fortaleza" class="fortaleza-inline oculto"></span>
+					</span>
+					<div class="detalle-campo-valor">
+						<span id="detalle-password" class="detalle-valor-texto detalle-password">••••••••</span>
+						<button type="button" id="boton-revelar-password" class="boton-campo" aria-label="Mostrar contraseña">👁</button>
+						<button type="button" id="boton-copiar-password" class="boton-campo" aria-label="Copiar contraseña">📋</button>
+					</div>
+				</div>
+
+				<div id="detalle-sitio-bloque" class="detalle-campo oculto">
+					<span class="detalle-campo-label">Sitio web</span>
+					<div class="detalle-campo-valor">
+						<a id="detalle-sitio-link" class="detalle-valor-link" target="_blank" rel="noopener noreferrer"></a>
+					</div>
+				</div>
+
+				<div id="detalle-comando-bloque" class="detalle-campo oculto">
+					<span class="detalle-campo-label">Comando de conexión</span>
+					<div class="detalle-campo-valor">
+						<code id="detalle-comando" class="detalle-valor-codigo"></code>
+						<button type="button" id="boton-copiar-comando" class="boton-campo" aria-label="Copiar comando">📋</button>
+					</div>
+				</div>
+
+				<div id="detalle-totp-bloque" class="detalle-campo oculto">
+					<span class="detalle-campo-label">Clave TOTP</span>
+					<div class="detalle-campo-valor">
+						<span id="detalle-totp" class="detalle-valor-texto detalle-password">••••••••</span>
+						<button type="button" id="boton-copiar-totp" class="boton-campo" aria-label="Copiar clave TOTP">📋</button>
+					</div>
+				</div>
+
+				<div id="detalle-nota-bloque" class="detalle-campo oculto">
+					<span class="detalle-campo-label">Nota</span>
+					<p id="detalle-nota" class="detalle-nota"></p>
+				</div>
+
+				<p class="detalle-metadatos">
+					<span>Creado <span id="detalle-creado"></span></span>
+					<span>Última modificación <span id="detalle-modificado"></span></span>
+				</p>
+
+				<a id="detalle-abrir-web" class="boton-secundario detalle-abrir-web" target="_blank" rel="noopener noreferrer">
+					Abrir en la app web ↗
+				</a>
+			</section>
+
+			<section id="vista-form-recurso" class="vista oculto">
+				<div class="detalle-header">
+					<button type="button" id="boton-cancelar-form" class="boton-volver" aria-label="Cancelar">←</button>
+					<h2 id="form-titulo" class="detalle-titulo">Nueva contraseña</h2>
+				</div>
+				<form id="form-recurso" novalidate>
+					<label for="form-tipo">Tipo</label>
+					<select id="form-tipo">
+						<option value="login-password">Usuario y contraseña</option>
+						<option value="ssh">SSH</option>
+						<option value="ftp">FTP</option>
+						<option value="vnc">VNC</option>
+						<option value="telnet">Telnet</option>
+					</select>
+
+					<label for="form-nombre">Nombre</label>
+					<input type="text" id="form-nombre" required autocomplete="off" />
+
+					<label for="form-usuario">Usuario</label>
+					<input type="text" id="form-usuario" autocomplete="off" />
+
+					<label for="form-uri">Sitio web / host</label>
+					<input type="text" id="form-uri" autocomplete="off" />
+
+					<label for="form-password">Contraseña</label>
+					<div class="campo-con-boton campo-con-2-botones">
+						<input type="password" id="form-password" required autocomplete="new-password" />
+						<button type="button" id="boton-generar-password" class="boton-mostrar boton-generar" aria-label="Generar contraseña">
+							🎲
+						</button>
+						<button type="button" id="boton-mostrar-form-password" class="boton-mostrar" aria-label="Mostrar contraseña">
+							👁
+						</button>
+					</div>
+
+					<label for="form-totp">Clave TOTP (opcional)</label>
+					<input type="text" id="form-totp" autocomplete="off" placeholder="Base32, ej. JBSWY3DPEHPK3PXP" />
+
+					<label for="form-notas">Nota</label>
+					<textarea id="form-notas" rows="3"></textarea>
+
+					<p class="error oculto" id="error-form"></p>
+
+					<button type="submit" id="boton-guardar-form">Guardar</button>
+				</form>
+			</section>
+
+			<section id="vista-cuenta" class="vista oculto">
+				<div class="detalle-header">
+					<button type="button" id="boton-volver-cuenta" class="boton-volver" aria-label="Volver">←</button>
+					<h2 class="detalle-titulo">Mi cuenta</h2>
+				</div>
+				<div class="detalle-campo">
+					<span class="detalle-campo-label">Email</span>
+					<div class="detalle-campo-valor">
+						<span id="cuenta-email" class="detalle-valor-texto"></span>
+					</div>
+				</div>
+				<div class="detalle-campo">
+					<span class="detalle-campo-label">Servidor</span>
+					<div class="detalle-campo-valor">
+						<span id="cuenta-servidor" class="detalle-valor-texto"></span>
+					</div>
+				</div>
+				<a id="cuenta-abrir-web" class="boton-secundario detalle-abrir-web" target="_blank" rel="noopener noreferrer">
+					Ajustes completos en la app web ↗
+				</a>
+				<button type="button" id="boton-logout" class="boton-secundario boton-logout-cuenta">Cerrar sesión</button>
+			</section>
+
+			<section id="vista-no-soportado" class="vista vista-angosta oculto">
 				<p id="mensaje-no-soportado" class="texto-secundario"></p>
 				<button id="boton-volver" class="boton-secundario">Volver</button>
 			</section>
 		</div>
+
+		<div id="modal-generador" class="modal-overlay oculto">
+			<div class="modal-generador" role="dialog" aria-modal="true" aria-label="Generador de contraseñas">
+				<div class="modal-generador-header">
+					<h3>Generador de contraseñas</h3>
+					<button type="button" id="boton-cerrar-generador" class="boton-campo" aria-label="Cerrar">✕</button>
+				</div>
+
+				<div class="generador-preview">
+					<code id="generador-valor" class="generador-valor"></code>
+					<button type="button" id="boton-regenerar" class="boton-campo" aria-label="Generar de nuevo">🔄</button>
+				</div>
+				<p id="generador-fortaleza" class="generador-fortaleza"></p>
+
+				<label for="generador-largo">
+					Cantidad de caracteres: <span id="generador-largo-valor">21</span>
+				</label>
+				<input type="range" id="generador-largo" min="8" max="64" value="21" />
+
+				<label class="generador-toggle">
+					<span>Mayúsculas (A-Z)</span>
+					<input type="checkbox" id="generador-mayus" checked />
+				</label>
+				<label class="generador-toggle">
+					<span>Números (0-9)</span>
+					<input type="checkbox" id="generador-numeros" checked />
+				</label>
+				<label class="generador-toggle">
+					<span>Símbolos (!&amp;*)</span>
+					<input type="checkbox" id="generador-simbolos" checked />
+				</label>
+
+				<button type="button" id="boton-copiar-cerrar-generador">Copiar y cerrar</button>
+			</div>
+		</div>
+
 	</body>
 </html>
