@@ -104,7 +104,12 @@ export const AuthService = {
 		// `session_id` sólo se guarda acá si el login ya quedó completo;
 		// si falta verificar el dispositivo, `verificarDispositivo()` lo
 		// completa después sobre esta misma sesión ya guardada.
-		await guardarClaves(serverUrl, email, abierta.x25519_private, abierta.ed25519_private);
+		// user_id se guarda ya acá (no sólo cuando el login queda completo) —
+		// lo necesita `VaultService.crear()` para el AAD `resource_id||
+		// created_by` (mismo formato que `resources/service.rs`), y crear un
+		// recurso nuevo no depende de haber pasado la verificación de
+		// dispositivo, sólo de tener sesión completa.
+		await guardarClaves(serverUrl, email, verify.user_id, abierta.x25519_private, abierta.ed25519_private);
 		if (verify.estado === 'completo' && verify.session_id) {
 			await SesionStorage.guardar('session_id', verify.session_id);
 		} else if (verify.estado === 'pendiente_dispositivo' && verify.device_challenge_id) {
@@ -137,8 +142,12 @@ export const AuthService = {
 		);
 		if (resp.session_id) {
 			// Las claves privadas ya se desenvolvieron en `login()` — acá sólo
-			// falta completar la sesión con el `session_id` real.
+			// falta completar la sesión con el `session_id` real. `user_id`
+			// también llega recién acá (no en `login()`, que para el caso
+			// `pendiente_dispositivo` lo manda `None` — confirmado contra
+			// `backend/src/auth/handlers.rs`, sin asumir).
 			await SesionStorage.guardar('session_id', resp.session_id);
+			if (resp.user_id) await SesionStorage.guardar('user_id', resp.user_id);
 			await SesionStorage.limpiar('device_challenge_id');
 		}
 		return { estado: resp.estado, sessionId: resp.session_id };
@@ -169,7 +178,7 @@ export const AuthService = {
 	 * el servidor simplemente vence solo, no hace falta un endpoint de
 	 * cancelación explícito para esto. */
 	async cancelarPendienteDispositivo(): Promise<void> {
-		for (const clave of ['device_challenge_id', 'email', 'server_url', 'x25519_private', 'ed25519_private']) {
+		for (const clave of ['device_challenge_id', 'email', 'server_url', 'user_id', 'x25519_private', 'ed25519_private']) {
 			await SesionStorage.limpiar(clave);
 		}
 	},
@@ -185,7 +194,7 @@ export const AuthService = {
 				// esperando una respuesta del servidor que puede no llegar nunca.
 			}
 		}
-		for (const clave of ['session_id', 'email', 'server_url', 'x25519_private', 'ed25519_private']) {
+		for (const clave of ['session_id', 'email', 'server_url', 'user_id', 'x25519_private', 'ed25519_private']) {
 			await SesionStorage.limpiar(clave);
 		}
 	}
@@ -194,11 +203,13 @@ export const AuthService = {
 async function guardarClaves(
 	serverUrl: string,
 	email: string,
+	userId: string | undefined,
 	x25519Private: Uint8Array,
 	ed25519Private: Uint8Array
 ): Promise<void> {
 	await SesionStorage.guardar('server_url', serverUrl);
 	await SesionStorage.guardar('email', email);
+	if (userId) await SesionStorage.guardar('user_id', userId);
 	await SesionStorage.guardar('x25519_private', bytesABase64(x25519Private));
 	await SesionStorage.guardar('ed25519_private', bytesABase64(ed25519Private));
 }

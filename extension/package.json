@@ -1,7 +1,7 @@
 {
 	"name": "ellkan-extension",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.11",
 	"type": "module",
 	"scripts": {
 		"dev": "vite build --watch",
@@ -12,8 +12,12 @@
 		"check": "tsc --noEmit",
 		"check:self": "node run-self-check.mjs"
 	},
+	"dependencies": {
+		"zxcvbn": "^4.4.2"
+	},
 	"devDependencies": {
 		"@types/chrome": "^0.1.15",
+		"@types/zxcvbn": "^4.4.5",
 		"cross-env": "^10.1.0",
 		"typescript": "^6.0.3",
 		"vite": "^8.2.0"

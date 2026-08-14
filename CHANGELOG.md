@@ -2,21 +2,32 @@
 
 Autor: Athan Espinoza
 
-Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1).
+Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
 ## [0.1.30] - 2026-08-13
 
 ### Agregado: primera versión usable de la extensión de navegador (Chrome/Firefox)
 
 - La extensión ya se puede instalar y usar de verdad: iniciar sesión, ver la lista real de tus contraseñas guardadas, buscarlas, y copiar cualquiera al portapapeles con un clic — antes el popup sólo servía para loguearse y no mostraba nada más.
+- Cada contraseña tiene ahora su propia pantalla de detalle (usuario, contraseña oculta con opción de revelarla, y el sitio web como link directo o el comando de conexión copiable si es un tipo SSH/FTP/VNC/Telnet) — antes sólo se podía copiar la contraseña a ciegas desde la lista.
 - El diseño del popup ahora usa la misma paleta oscura de la app (antes se veía sin ningún estilo, como una página sin CSS).
 - Si tenés que salir a buscar el código de verificación a tu email, la extensión ya no te hace empezar de nuevo al volver — retoma justo donde quedaste, en la misma pantalla del código.
 - El login de la extensión directamente no funcionaba antes de este arreglo (un chequeo de seguridad interno rechazaba siempre la conexión del propio popup) — corregido de raíz.
+- El detalle de cada contraseña ahora también muestra la nota y la clave TOTP guardadas, si las tiene.
+- Ya se pueden crear contraseñas nuevas y editar las existentes directamente desde la extensión (antes sólo se podían ver) — con generador de contraseñas aleatorias incluido.
+- Nueva sección "Mi cuenta" en la extensión con tu email/servidor y acceso directo a los ajustes completos en la app web.
+- Primera versión de autofill: si entrás a un sitio para el que ya tenés una contraseña guardada y hacés clic en el campo de contraseña, la extensión te ofrece completarla — un clic más y usuario/contraseña se llenan solos, sin abrir el popup ni copiar/pegar.
+- Rediseño visual: favicons reales de cada sitio en la lista (antes un ícono genérico para todo), bordes redondeados tipo píldora, y el popup ahora se abre directamente ancho (lista y detalle lado a lado, sin tener que abrir una ventana aparte).
+- Generador de contraseñas rehecho como ventana propia: elegís el largo con un deslizador, activás/desactivás mayúsculas/números/símbolos, ves la contraseña coloreada por tipo de carácter y su nivel de seguridad real en vivo.
+- Ese mismo indicador de seguridad ("Débil"/"Media"/"Segura") ahora también aparece junto a la contraseña de cada ítem guardado, y el detalle muestra cuándo se creó y cuándo se modificó por última vez.
+- Nuevas pestañas "Todos"/"Reciente" arriba de la lista, con las contraseñas agrupadas por fecha (Hoy / Últimos 14 días / Más antiguo).
+- **Versión de la extensión actualizada de `0.0.10` a `0.1.11`** (corregido por el usuario: 11 iteraciones reales de la extensión hasta acá, no un simple salto de minor) — a partir de ahora se sube en cada actualización real, no queda fija como la del backend.
 
 ### Conocido, no resuelto todavía
 
 - El portapapeles no se limpia solo después de copiar una contraseña desde la extensión (sí lo hace la app web) — queda para una próxima vuelta.
-- Autofill (completar automáticamente los campos de una página) todavía no existe en la extensión — por ahora es sólo ver y copiar.
+- Borrar, compartir y organizar en carpetas/tags sigue siendo sólo desde la app web — la extensión ahora linkea directo a ella para eso.
+- El autofill de esta primera versión sólo reconoce el mismo sitio exacto (no subdominios relacionados) y no se probó todavía con clics reales sobre una página — se revisó el código con cuidado, pero falta esa verificación final antes de confiar en él a ciegas en un sitio importante.
 
 ## [0.1.29] - 2026-08-12
 

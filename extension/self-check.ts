@@ -110,6 +110,44 @@ async function main() {
 	assert.equal(popupSpoofDesconectado, true, 'un sender.id que no es el de la propia extensión debe rechazarse');
 	console.log('OK: QuickAccess rechaza un sender.id que no es el de la extensión');
 
+	// --- 6. `conexion.ts` (spec 06 §5bis, vista de detalle): puerto puro de
+	// `frontend/src/lib/crypto/recursos.ts::comandoDeConexion` — mismos casos
+	// que ya cubre esa función, más `urlAbrible` (nuevo acá). ---
+	const { comandoDeConexion, urlAbrible } = await import('./src/popup/conexion.ts');
+	assert.equal(comandoDeConexion('ssh', 'root', 'servidor.local'), 'ssh root@servidor.local');
+	assert.equal(comandoDeConexion('ssh', 'root', 'servidor.local:2222'), 'ssh root@servidor.local -p 2222');
+	assert.equal(comandoDeConexion('telnet', '', 'host.local'), 'telnet host.local');
+	assert.equal(comandoDeConexion('login-password', 'u', 'ejemplo.com'), null, 'login-password no tiene comando de conexión');
+	assert.equal(urlAbrible('login-password', 'ejemplo.com'), 'https://ejemplo.com', 'agrega esquema si falta');
+	assert.equal(urlAbrible('login-password', 'https://ejemplo.com'), 'https://ejemplo.com', 'no duplica el esquema');
+	assert.equal(urlAbrible('ssh', 'servidor.local'), null, 'ssh no es un link abrible, es un comando');
+	console.log('OK: conexion.ts (comandoDeConexion/urlAbrible) — mismos casos que recursos.ts');
+
+	// --- 7. `autofill-service.ts::hostnameDeUri` (spec 06 §4.2): base del
+	// matching `host` — sólo hostname exacto, nunca subdominios (eso sería
+	// `base_domain`, que necesita Public Suffix List real, sin implementar
+	// a propósito, ver comentario del archivo). ---
+	const { hostnameDeUri } = await import('./src/background/services/autofill-service.ts');
+	assert.equal(hostnameDeUri('ejemplo.com'), 'ejemplo.com', 'sin esquema, asume https y extrae el host igual');
+	assert.equal(hostnameDeUri('https://ejemplo.com/login'), 'ejemplo.com', 'ignora el path');
+	assert.equal(hostnameDeUri('https://EJEMPLO.com'), 'ejemplo.com', 'normaliza a minúsculas');
+	assert.notEqual(hostnameDeUri('sub.ejemplo.com'), hostnameDeUri('ejemplo.com'), 'un subdominio NO matchea el dominio raíz (estrategia host, no base_domain)');
+	assert.equal(hostnameDeUri(''), null, 'uri vacía no rompe, no matchea nada');
+	console.log('OK: autofill-service.ts (hostnameDeUri) — matching host exacto, sin falsos positivos de subdominio');
+
+	// --- 8. Generador de contraseñas + medidor de fortaleza (pedido explícito
+	// del usuario, modal del popup) — mismos módulos que ya usa la app web,
+	// sólo se confirma que siguen respetando longitud/reglas y que el
+	// medidor distingue débil de fuerte, no que el algoritmo de zxcvbn en sí
+	// sea correcto (eso ya lo verifica su propio paquete). ---
+	const { generarPassword } = await import('../frontend/src/lib/crypto/passwordGenerator.ts');
+	const { evaluarFortaleza } = await import('../frontend/src/lib/crypto/passwordStrength.ts');
+	const generada = generarPassword(21, { uppercase: true, lowercase: true, digits: true, symbols: true, exclude_ambiguous: true });
+	assert.equal(generada.length, 21, 'debe respetar el largo pedido');
+	assert.ok(/[A-Z]/.test(generada) && /[0-9]/.test(generada), 'con mayúsculas+dígitos habilitados, al menos un carácter de cada uno debe aparecer');
+	assert.ok(evaluarFortaleza('123').score < evaluarFortaleza(generada).score, 'una contraseña generada de 21 debe puntuar más fuerte que "123"');
+	console.log('OK: passwordGenerator/passwordStrength (mismos módulos de la app web) — largo y fortaleza correctos');
+
 	console.log('\nself-check: todo OK');
 }
 
