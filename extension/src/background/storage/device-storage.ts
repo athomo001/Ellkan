@@ -4,8 +4,15 @@
 // servidor, nunca el token en claro. Vive en `storage.local` (nunca
 // `storage.session`): tiene que sobrevivir a que se cierre el navegador —
 // es lo que le permite al servidor reconocer este dispositivo en el
-// próximo login sin repetir la verificación por email. Nunca se limpia en
-// logout, mismo criterio que `frontend/src/lib/crypto/device.ts`.
+// próximo login sin repetir la verificación por email/MFA.
+//
+// 2026-08-15: a diferencia de `frontend/src/lib/crypto/device.ts` (donde
+// nunca se limpia), acá SÍ se purga — pero únicamente en un logout
+// EXPLÍCITO (`AuthService.logout`), nunca en un lock por inactividad ni en
+// un reinicio de navegador. El pedido de sesión inteligente exige que el
+// próximo inicio tras un logout deliberado sea "desde cero" (incluida
+// verificación de dispositivo real), y eso sólo funciona si el dispositivo
+// deja de ser "conocido" para el servidor en ese momento puntual.
 
 import { BrowserApi } from '../../browser-api';
 
@@ -28,4 +35,11 @@ export async function deviceTokenHashB64(): Promise<string> {
 	let binario = '';
 	for (const b of bytes) binario += String.fromCharCode(b);
 	return btoa(binario);
+}
+
+/** Sólo desde un logout explícito (ver comentario de arriba) — el próximo
+ * `deviceTokenHashB64()` genera un token nuevo, así que el servidor vuelve
+ * a ver "dispositivo no reconocido". */
+export async function borrarTokenDeDispositivo(): Promise<void> {
+	await BrowserApi.storageLocalRemove(CLAVE);
 }

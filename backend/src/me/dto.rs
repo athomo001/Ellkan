@@ -29,6 +29,12 @@ pub struct ActualizarPreferenciasRequest {
 
 #[derive(Debug, Serialize)]
 pub struct PerfilResponse {
+    /// 2026-08-15: antes no se exponía (el extractor ya lo conoce por
+    /// sesión) — la extensión lo necesita del lado cliente para el AAD
+    /// `resource_id||created_by` al crear un recurso tras un login que pasó
+    /// por MFA (`POST /auth/mfa/verify` no devuelve `user_id`, a propósito,
+    /// mismo criterio de "un solo par de campos relevante" que `/auth/verify`).
+    pub id: Uuid,
     pub email: String,
     pub display_name: String,
     pub role: String,

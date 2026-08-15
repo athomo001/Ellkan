@@ -1027,12 +1027,12 @@
 	}
 	//#endregion
 	//#region src/background/storage/device-storage.ts
-	var CLAVE = "ellkan.device_token";
+	var CLAVE$1 = "ellkan.device_token";
 	async function tokenCrudo() {
-		const existente = (await BrowserApi.storageLocalGet(CLAVE))[CLAVE];
+		const existente = (await BrowserApi.storageLocalGet(CLAVE$1))[CLAVE$1];
 		if (existente) return new Uint8Array(existente);
 		const nuevo = crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(32));
-		await BrowserApi.storageLocalSet({ [CLAVE]: Array.from(nuevo) });
+		await BrowserApi.storageLocalSet({ [CLAVE$1]: Array.from(nuevo) });
 		return nuevo;
 	}
 	async function deviceTokenHashB64() {
@@ -1042,6 +1042,12 @@
 		let binario = "";
 		for (const b of bytes) binario += String.fromCharCode(b);
 		return btoa(binario);
+	}
+	/** Sólo desde un logout explícito (ver comentario de arriba) — el próximo
+	* `deviceTokenHashB64()` genera un token nuevo, así que el servidor vuelve
+	* a ver "dispositivo no reconocido". */
+	async function borrarTokenDeDispositivo() {
+		await BrowserApi.storageLocalRemove(CLAVE$1);
 	}
 	//#endregion
 	//#region src/background/storage/sesion-storage.ts
@@ -1058,19 +1064,54 @@
 		}
 	};
 	//#endregion
+	//#region src/background/storage/cuenta-storage.ts
+	var CLAVE = "ellkan.cuenta";
+	var CuentaStorage = {
+		async leer() {
+			return (await BrowserApi.storageLocalGet(CLAVE))[CLAVE] ?? null;
+		},
+		/** No pisa una cuenta ya guardada — sólo se llama tras un login exitoso,
+		* y `AuthService` ya decide de antemano si corresponde escribir. */
+		async guardar(serverUrl, email) {
+			await BrowserApi.storageLocalSet({ [CLAVE]: {
+				server_url: serverUrl,
+				email
+			} });
+		},
+		async marcarBloqueadaPorInactividad() {
+			const actual = await CuentaStorage.leer();
+			if (!actual) return;
+			await BrowserApi.storageLocalSet({ [CLAVE]: {
+				...actual,
+				locked_reason: "inactividad"
+			} });
+		},
+		async limpiarMarcaDeBloqueo() {
+			const actual = await CuentaStorage.leer();
+			if (!actual?.locked_reason) return;
+			const { locked_reason: _descartado, ...resto } = actual;
+			await BrowserApi.storageLocalSet({ [CLAVE]: resto });
+		},
+		/** Purga total — sólo desde `AuthService.logout()` (cierre de sesión
+		* explícito y deliberado), nunca desde un lock. */
+		async purgar() {
+			await BrowserApi.storageLocalRemove(CLAVE);
+		}
+	};
+	//#endregion
 	//#region src/background/services/auth-service.ts
 	function aadClavePrivada(email) {
 		return new TextEncoder().encode(email);
 	}
-	async function post(serverUrl, path, body, sessionId) {
+	async function pedido(method, serverUrl, path, body, sessionId) {
 		const headers = { "Content-Type": "application/json" };
 		if (sessionId) headers["Authorization"] = `Bearer ${sessionId}`;
 		let resp;
 		try {
 			resp = await fetch(`${serverUrl}${path}`, {
-				method: "POST",
+				method,
 				headers,
-				body: JSON.stringify(body)
+				body: body ? JSON.stringify(body) : void 0
 			});
 		} catch {
 			throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
@@ -1085,8 +1126,19 @@
 		}
 		return resp.json();
 	}
+	async function post(serverUrl, path, body, sessionId) {
+		return pedido("POST", serverUrl, path, body, sessionId);
+	}
+	async function get$1(serverUrl, path, sessionId) {
+		return pedido("GET", serverUrl, path, void 0, sessionId);
+	}
 	var AuthService = {
-		async login(serverUrl, email, passphrase) {
+		/** `forceMfa` (2026-08-15): sólo lo manda `LockService`/la vista de
+		* desbloqueo tras un lock por inactividad — fuerza un código MFA real
+		* aunque este dispositivo ya esté confiado (ver `resolver_tras_f02` en
+		* el backend). En un login normal (primera vez o tras reinicio del
+		* navegador) va en `false`: reinicio pide sólo la passphrase. */
+		async login(serverUrl, email, passphrase, forceMfa = false) {
 			const wasm = await cargarCrypto();
 			const material = await post(serverUrl, "/auth/key-material", { email });
 			const abierta = wasm.abrir_clave_privada(passphrase, base64ABytes(material.kdf_salt_b64), base64ABytes(material.private_key_nonce_b64), base64ABytes(material.encrypted_private_key_blob_b64), aadClavePrivada(email));
@@ -1098,11 +1150,13 @@
 				email,
 				nonce_b64: challenge.nonce_b64,
 				signature_b64: bytesABase64(firma),
-				device_token_hash_b64: deviceTokenHash
+				device_token_hash_b64: deviceTokenHash,
+				force_mfa: forceMfa
 			});
 			await guardarClaves(serverUrl, email, verify.user_id, abierta.x25519_private, abierta.ed25519_private);
 			if (verify.estado === "completo" && verify.session_id) await SesionStorage.guardar("session_id", verify.session_id);
 			else if (verify.estado === "pendiente_dispositivo" && verify.device_challenge_id) await SesionStorage.guardar("device_challenge_id", verify.device_challenge_id);
+			if (!await CuentaStorage.leer()) await CuentaStorage.guardar(serverUrl, email);
 			return {
 				estado: verify.estado,
 				sessionId: verify.session_id,
@@ -1124,6 +1178,25 @@
 				estado: resp.estado,
 				sessionId: resp.session_id
 			};
+		},
+		/** `POST /auth/mfa/verify` (2026-08-15) — cierra un gap real que ya
+		* existía antes de este pedido: `pendiente_mfa` sólo mostraba "hacelo
+		* desde la web". El Bearer es la sesión PARCIAL que devolvió `login()`
+		* (`sessionIdParcial`); si el código es correcto, esa misma sesión queda
+		* completa server-side (`marcar_mfa_verificada`) — no hay un
+		* `session_id` nuevo que guardar, es el mismo. `device_token_hash_b64`
+		* viaja también acá (spec 2026-08-13, recordar MFA en este dispositivo)
+		* — irrelevante si este login vino con `forceMfa` (el próximo forzado
+		* va a volver a pedir código igual), pero necesario para que un login
+		* NORMAL futuro sí se beneficie del dispositivo ya confiado. */
+		async verificarMfa(serverUrl, sessionIdParcial, codigo) {
+			await post(serverUrl, "/auth/mfa/verify", {
+				code: codigo,
+				device_token_hash_b64: await deviceTokenHashB64()
+			}, sessionIdParcial);
+			const perfil = await get$1(serverUrl, "/me", sessionIdParcial);
+			await SesionStorage.guardar("session_id", sessionIdParcial);
+			await SesionStorage.guardar("user_id", perfil.id);
 		},
 		async estadoSesion() {
 			const sessionId = await SesionStorage.leer("session_id");
@@ -1165,6 +1238,33 @@
 				"ed25519_private"
 			]) await SesionStorage.limpiar(clave);
 		},
+		/** Cuenta persistente (2026-08-15, `CuentaStorage`) — `main.ts` la usa
+		* para decidir qué pantalla mostrar al abrir el popup sin tener que
+		* volver a pedir servidor/email. `locked_reason: 'inactividad'` sólo lo
+		* pone `LockService`; su ausencia con `SesionStorage` vacío significa
+		* reinicio de navegador, no inactividad. */
+		async estadoCuenta() {
+			const cuenta = await CuentaStorage.leer();
+			if (!cuenta) return null;
+			return {
+				serverUrl: cuenta.server_url,
+				email: cuenta.email,
+				lockedPorInactividad: cuenta.locked_reason === "inactividad"
+			};
+		},
+		async limpiarMarcaDeBloqueo() {
+			await CuentaStorage.limpiarMarcaDeBloqueo();
+		},
+		/** Cierre de sesión EXPLÍCITO (click deliberado del usuario, spec
+		* 2026-08-15) — único punto que purga todo: servidor/email
+		* (`CuentaStorage`) y el token de dispositivo (`device-storage.ts`),
+		* además de lo que ya limpiaba `SesionStorage`. Un lock por inactividad
+		* o un reinicio de navegador NUNCA pasan por acá — ahí el objetivo es
+		* lo contrario, no volver a pedir nada salvo la passphrase (y el código
+		* MFA si corresponde). El próximo inicio tras esto exige el flujo
+		* completo desde cero: servidor + email + passphrase + verificación de
+		* dispositivo/MFA real, porque el dispositivo ya no es "conocido".
+		*/
 		async logout() {
 			const sesion = await AuthService.estadoSesion();
 			if (sesion) try {
@@ -1178,6 +1278,8 @@
 				"x25519_private",
 				"ed25519_private"
 			]) await SesionStorage.limpiar(clave);
+			await CuentaStorage.purgar();
+			await borrarTokenDeDispositivo();
 		}
 	};
 	async function guardarClaves(serverUrl, email, userId, x25519Private, ed25519Private) {
@@ -1195,7 +1297,17 @@
 		return {
 			serverUrl: p.serverUrl,
 			email: p.email,
-			passphrase: p.passphrase
+			passphrase: p.passphrase,
+			forceMfa: p.forceMfa
+		};
+	}
+	function validarPedidoVerificarMfa(payload) {
+		const p = payload;
+		if (!p?.serverUrl || !p.sessionIdParcial || !p.codigo) throw new Error("faltan datos: servidor, sessionIdParcial y código son obligatorios");
+		return {
+			serverUrl: p.serverUrl,
+			sessionIdParcial: p.sessionIdParcial,
+			codigo: p.codigo
 		};
 	}
 	function validarPedidoVerificarDispositivo(payload) {
@@ -1209,15 +1321,25 @@
 	}
 	var AuthController = {
 		async login(payload) {
-			const { serverUrl, email, passphrase } = validarPedidoLogin(payload);
-			return AuthService.login(serverUrl.replace(/\/+$/, ""), email, passphrase);
+			const { serverUrl, email, passphrase, forceMfa } = validarPedidoLogin(payload);
+			return AuthService.login(serverUrl.replace(/\/+$/, ""), email, passphrase, forceMfa);
 		},
 		async verificarDispositivo(payload) {
 			const { serverUrl, deviceChallengeId, codigo } = validarPedidoVerificarDispositivo(payload);
 			return AuthService.verificarDispositivo(serverUrl.replace(/\/+$/, ""), deviceChallengeId, codigo);
 		},
+		async verificarMfa(payload) {
+			const { serverUrl, sessionIdParcial, codigo } = validarPedidoVerificarMfa(payload);
+			return AuthService.verificarMfa(serverUrl.replace(/\/+$/, ""), sessionIdParcial, codigo);
+		},
 		async estadoSesion() {
 			return AuthService.estadoSesion();
+		},
+		async estadoCuenta() {
+			return AuthService.estadoCuenta();
+		},
+		async limpiarMarcaDeBloqueo() {
+			return AuthService.limpiarMarcaDeBloqueo();
 		},
 		async estadoPendienteDispositivo() {
 			return AuthService.estadoPendienteDispositivo();
@@ -1510,12 +1632,46 @@
 		return AutofillService.buscarCoincidencias(p.hostname);
 	} };
 	//#endregion
+	//#region src/background/services/lock-service.ts
+	var ALARMA = "ellkan.inactividad";
+	var MINUTOS_INACTIVIDAD = 360;
+	var LockService = {
+		/** Se llama en cada mensaje de puerto ya autenticado (`event.ts`) —
+		* reprograma la alarma, "actividad" es cualquier uso real de la
+		* extensión, no sólo abrir el popup. */
+		registrarActividad() {
+			BrowserApi.createAlarm(ALARMA, { delayInMinutes: MINUTOS_INACTIVIDAD });
+		},
+		async cancelar() {
+			await BrowserApi.clearAlarm(ALARMA);
+		},
+		/** Registrado una sola vez en `background/index.ts`. Si dispara con el
+		* service worker dormido, `chrome.alarms` lo despierta solo — no depende
+		* de que el popup esté abierto en ese momento. */
+		instalarListener() {
+			BrowserApi.onAlarm(async (alarm) => {
+				if (alarm.name !== ALARMA) return;
+				await CuentaStorage.marcarBloqueadaPorInactividad();
+				for (const clave of [
+					"session_id",
+					"user_id",
+					"x25519_private",
+					"ed25519_private",
+					"device_challenge_id"
+				]) await SesionStorage.limpiar(clave);
+			});
+		}
+	};
+	//#endregion
 	//#region src/background/event.ts
 	var rutas = {
 		PING: () => SesionController.ping(),
 		AUTH_LOGIN: (payload) => AuthController.login(payload),
 		AUTH_VERIFICAR_DISPOSITIVO: (payload) => AuthController.verificarDispositivo(payload),
+		AUTH_VERIFICAR_MFA: (payload) => AuthController.verificarMfa(payload),
 		AUTH_ESTADO_SESION: () => AuthController.estadoSesion(),
+		AUTH_ESTADO_CUENTA: () => AuthController.estadoCuenta(),
+		AUTH_LIMPIAR_MARCA_BLOQUEO: () => AuthController.limpiarMarcaDeBloqueo(),
 		AUTH_ESTADO_PENDIENTE_DISPOSITIVO: () => AuthController.estadoPendienteDispositivo(),
 		AUTH_CANCELAR_PENDIENTE_DISPOSITIVO: () => AuthController.cancelarPendienteDispositivo(),
 		AUTH_LOGOUT: () => AuthController.logout(),
@@ -1528,6 +1684,7 @@
 	function registrarEventos(port) {
 		port.onMessage.addListener(async (mensaje) => {
 			if (mensaje.tipo === "HANDSHAKE") return;
+			LockService.registrarActividad();
 			const handler = rutas[mensaje.tipo];
 			if (!handler) {
 				const respuesta = [
@@ -1585,5 +1742,6 @@
 	//#endregion
 	//#region src/background/index.ts
 	BrowserApi.onConnect((port) => attachPagemod(port));
+	LockService.instalarListener();
 	//#endregion
 })();

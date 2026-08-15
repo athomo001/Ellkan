@@ -207,7 +207,9 @@ pub async fn verify(
     let device_token_hash = b64::decode(&req.device_token_hash_b64)
         .map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
 
-    let resultado = servicio(&state).verify(&req.email, &nonce, &firma, &device_token_hash).await?;
+    let resultado = servicio(&state)
+        .verify(&req.email, &nonce, &firma, &device_token_hash, req.force_mfa)
+        .await?;
     Ok(Json(resultado_a_response(resultado)))
 }
 

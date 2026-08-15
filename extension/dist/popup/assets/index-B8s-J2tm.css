@@ -282,6 +282,25 @@ button[type='submit']:disabled {
 	flex-shrink: 0;
 }
 
+/* Sesión inteligente (2026-08-15): "Usar otra cuenta" en vista-desbloqueo. */
+.hint {
+	color: var(--ellkan-texto-secundario);
+	font-size: 12px;
+	text-align: center;
+	margin: 10px 0 0;
+}
+
+.link {
+	background: none;
+	border: none;
+	padding: 0;
+	font: inherit;
+	font-size: 12px;
+	color: var(--ellkan-teal);
+	cursor: pointer;
+	text-decoration: underline;
+}
+
 /* Vista de carga: spinner en vez de sólo texto — feedback inmediato de que
    algo está pasando mientras el service worker resuelve la sesión guardada. */
 .spinner {

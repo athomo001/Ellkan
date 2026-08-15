@@ -60,12 +60,72 @@
 				</form>
 			</section>
 
+			<!-- Sesión inteligente (2026-08-15): sesión bloqueada por inactividad
+			     (>6h) o por un reinicio del navegador — servidor/email ya se
+			     conocen (CuentaStorage), nunca se vuelven a pedir acá. -->
+			<section id="vista-desbloqueo" class="vista vista-angosta oculto">
+				<p class="texto-secundario">
+					<strong id="desbloqueo-email"></strong> — <span id="desbloqueo-servidor"></span>
+				</p>
+				<form id="form-desbloqueo" novalidate>
+					<label for="campo-desbloqueo-passphrase">Contraseña Master</label>
+					<div class="campo-con-boton">
+						<input
+							type="password"
+							id="campo-desbloqueo-passphrase"
+							required
+							autocomplete="current-password"
+							autofocus
+						/>
+						<button
+							type="button"
+							id="boton-mostrar-desbloqueo-passphrase"
+							class="boton-mostrar"
+							aria-label="Mostrar contraseña"
+						>
+							👁
+						</button>
+					</div>
+
+					<p class="error oculto" id="error-desbloqueo"></p>
+
+					<button type="submit" id="boton-desbloquear">Desbloquear</button>
+				</form>
+				<p class="hint">
+					<button type="button" id="boton-otra-cuenta" class="link">Usar otra cuenta</button>
+				</p>
+			</section>
+
+			<!-- Código MFA real (2026-08-15) — reusado desde login normal y desde
+			     desbloqueo, mismo `estado: "pendiente_mfa"` del backend en los dos
+			     casos (spec 03, POST /auth/mfa/verify). -->
+			<section id="vista-mfa" class="vista vista-angosta oculto">
+				<p class="texto-secundario">Ingresá el código de tu segundo factor (MFA).</p>
+				<form id="form-mfa" novalidate>
+					<label for="campo-mfa-codigo">Código</label>
+					<input type="text" id="campo-mfa-codigo" inputmode="numeric" autocomplete="one-time-code" required />
+
+					<p class="error oculto" id="error-mfa"></p>
+
+					<button type="submit" id="boton-verificar-mfa">Verificar</button>
+				</form>
+			</section>
+
 			<section id="vista-desbloqueada" class="vista oculto">
 				<div class="barra-superior-vault">
 					<button type="button" id="boton-cuenta" class="boton-hamburguesa" aria-label="Mi cuenta">☰</button>
 					<div class="buscador-vault">
 						<input type="search" id="campo-buscar" placeholder="Buscar…" autocomplete="off" />
 					</div>
+					<button
+						type="button"
+						id="boton-generador-header"
+						class="boton-hamburguesa"
+						aria-label="Generador de contraseñas"
+						title="Generador de contraseñas"
+					>
+						🎲
+					</button>
 					<button type="button" id="boton-nuevo" class="boton-nuevo" aria-label="Agregar contraseña" title="Agregar contraseña">
 						+
 					</button>
@@ -235,29 +295,70 @@
 					<button type="button" id="boton-cerrar-generador" class="boton-campo" aria-label="Cerrar">✕</button>
 				</div>
 
+				<div class="tabs-vault generador-modo" role="tablist">
+					<button type="button" id="tab-modo-aleatoria" class="tab-vault tab-vault-activo" role="tab" aria-selected="true">
+						🎲 Aleatoria
+					</button>
+					<button type="button" id="tab-modo-frase" class="tab-vault" role="tab" aria-selected="false">
+						📝 Frase de paso
+					</button>
+				</div>
+
 				<div class="generador-preview">
 					<code id="generador-valor" class="generador-valor"></code>
 					<button type="button" id="boton-regenerar" class="boton-campo" aria-label="Generar de nuevo">🔄</button>
 				</div>
 				<p id="generador-fortaleza" class="generador-fortaleza"></p>
 
-				<label for="generador-largo">
-					Cantidad de caracteres: <span id="generador-largo-valor">21</span>
-				</label>
-				<input type="range" id="generador-largo" min="8" max="64" value="21" />
+				<div id="controles-modo-aleatoria">
+					<label for="generador-largo">
+						Cantidad de caracteres: <span id="generador-largo-valor">21</span>
+					</label>
+					<input type="range" id="generador-largo" min="8" max="64" value="21" />
 
-				<label class="generador-toggle">
-					<span>Mayúsculas (A-Z)</span>
-					<input type="checkbox" id="generador-mayus" checked />
-				</label>
-				<label class="generador-toggle">
-					<span>Números (0-9)</span>
-					<input type="checkbox" id="generador-numeros" checked />
-				</label>
-				<label class="generador-toggle">
-					<span>Símbolos (!&amp;*)</span>
-					<input type="checkbox" id="generador-simbolos" checked />
-				</label>
+					<label class="generador-toggle">
+						<span>Mayúsculas (A-Z)</span>
+						<input type="checkbox" id="generador-mayus" checked />
+					</label>
+					<label class="generador-toggle">
+						<span>Números (0-9)</span>
+						<input type="checkbox" id="generador-numeros" checked />
+					</label>
+					<label class="generador-toggle">
+						<span>Símbolos (!&amp;*)</span>
+						<input type="checkbox" id="generador-simbolos" checked />
+					</label>
+					<label class="generador-toggle">
+						<span>Excluir caracteres ambiguos (0, O, l, 1, I)</span>
+						<input type="checkbox" id="generador-sin-ambiguos" />
+					</label>
+				</div>
+
+				<div id="controles-modo-frase" class="oculto">
+					<label for="generador-cantidad-palabras">
+						Cantidad de palabras: <span id="generador-cantidad-palabras-valor">5</span>
+					</label>
+					<input type="range" id="generador-cantidad-palabras" min="3" max="10" value="5" />
+
+					<label class="generador-toggle">
+						<span>Mayúsculas (TitleCase)</span>
+						<input type="checkbox" id="generador-frase-mayus" checked />
+					</label>
+					<label class="generador-toggle">
+						<span>Agregar números</span>
+						<input type="checkbox" id="generador-frase-numeros" checked />
+					</label>
+
+					<label for="generador-separador">Separador</label>
+					<select id="generador-separador">
+						<option value="-">Guiones (-)</option>
+						<option value=" ">Espacios ( )</option>
+						<option value=".">Puntos (.)</option>
+						<option value=",">Comas (,)</option>
+						<option value="_">Guiones bajos (_)</option>
+						<option value="aleatorio">Símbolos aleatorios (#, $, !, @)</option>
+					</select>
+				</div>
 
 				<button type="button" id="boton-copiar-cerrar-generador">Copiar y cerrar</button>
 			</div>

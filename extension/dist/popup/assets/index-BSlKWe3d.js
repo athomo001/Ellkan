@@ -3241,12 +3241,1308 @@ function evaluarFortaleza(password) {
 	};
 }
 //#endregion
+//#region src/popup/passphrase-generator.ts
+var DICCIONARIO_UNICO = [.../* @__PURE__ */ new Set([
+	"perro",
+	"gato",
+	"casa",
+	"arbol",
+	"rio",
+	"montana",
+	"sol",
+	"luna",
+	"estrella",
+	"nube",
+	"lluvia",
+	"viento",
+	"fuego",
+	"tierra",
+	"agua",
+	"piedra",
+	"arena",
+	"playa",
+	"mar",
+	"ola",
+	"barco",
+	"avion",
+	"tren",
+	"auto",
+	"bicicleta",
+	"camino",
+	"puente",
+	"ciudad",
+	"pueblo",
+	"calle",
+	"plaza",
+	"parque",
+	"jardin",
+	"flor",
+	"hoja",
+	"rama",
+	"raiz",
+	"semilla",
+	"fruta",
+	"manzana",
+	"naranja",
+	"platano",
+	"uva",
+	"fresa",
+	"limon",
+	"pan",
+	"leche",
+	"queso",
+	"huevo",
+	"arroz",
+	"sopa",
+	"carne",
+	"pescado",
+	"pollo",
+	"sal",
+	"azucar",
+	"miel",
+	"cafe",
+	"te",
+	"jugo",
+	"vino",
+	"agua",
+	"copa",
+	"plato",
+	"mesa",
+	"silla",
+	"cama",
+	"puerta",
+	"ventana",
+	"techo",
+	"piso",
+	"pared",
+	"escalera",
+	"llave",
+	"candado",
+	"libro",
+	"pluma",
+	"papel",
+	"carta",
+	"sobre",
+	"reloj",
+	"espejo",
+	"lampara",
+	"vela",
+	"fuego",
+	"humo",
+	"ceniza",
+	"carbon",
+	"metal",
+	"oro",
+	"plata",
+	"cobre",
+	"hierro",
+	"madera",
+	"vidrio",
+	"plastico",
+	"tela",
+	"lana",
+	"algodon",
+	"cuero",
+	"hilo",
+	"aguja",
+	"boton",
+	"cinta",
+	"caja",
+	"bolsa",
+	"maleta",
+	"mochila",
+	"cesta",
+	"canasta",
+	"martillo",
+	"clavo",
+	"tornillo",
+	"sierra",
+	"pincel",
+	"pintura",
+	"color",
+	"sombra",
+	"luz",
+	"oscuridad",
+	"dia",
+	"noche",
+	"manana",
+	"tarde",
+	"semana",
+	"mes",
+	"ano",
+	"hora",
+	"minuto",
+	"segundo",
+	"invierno",
+	"verano",
+	"otono",
+	"primavera",
+	"frio",
+	"calor",
+	"tibio",
+	"hielo",
+	"nieve",
+	"niebla",
+	"trueno",
+	"rayo",
+	"tormenta",
+	"arcoiris",
+	"cielo",
+	"horizonte",
+	"valle",
+	"colina",
+	"cueva",
+	"isla",
+	"desierto",
+	"selva",
+	"bosque",
+	"campo",
+	"granja",
+	"establo",
+	"corral",
+	"vaca",
+	"caballo",
+	"oveja",
+	"cerdo",
+	"cabra",
+	"gallina",
+	"pato",
+	"ganso",
+	"conejo",
+	"raton",
+	"ardilla",
+	"zorro",
+	"lobo",
+	"oso",
+	"ciervo",
+	"tigre",
+	"leon",
+	"elefante",
+	"jirafa",
+	"mono",
+	"serpiente",
+	"tortuga",
+	"rana",
+	"pez",
+	"tiburon",
+	"ballena",
+	"delfin",
+	"pulpo",
+	"cangrejo",
+	"estrella",
+	"abeja",
+	"hormiga",
+	"mariposa",
+	"arana",
+	"mosca",
+	"grillo",
+	"buho",
+	"aguila",
+	"halcon",
+	"cuervo",
+	"paloma",
+	"loro",
+	"pinguino",
+	"nino",
+	"nina",
+	"hombre",
+	"mujer",
+	"bebe",
+	"joven",
+	"anciano",
+	"amigo",
+	"vecino",
+	"familia",
+	"madre",
+	"padre",
+	"hijo",
+	"hija",
+	"hermano",
+	"hermana",
+	"abuelo",
+	"abuela",
+	"tio",
+	"tia",
+	"primo",
+	"prima",
+	"nieto",
+	"nieta",
+	"esposo",
+	"esposa",
+	"novio",
+	"novia",
+	"maestro",
+	"alumno",
+	"medico",
+	"enfermero",
+	"abogado",
+	"ingeniero",
+	"artista",
+	"musico",
+	"pintor",
+	"escritor",
+	"actor",
+	"cantante",
+	"cocinero",
+	"panadero",
+	"carpintero",
+	"herrero",
+	"pescador",
+	"granjero",
+	"soldado",
+	"policia",
+	"bombero",
+	"piloto",
+	"marinero",
+	"viajero",
+	"turista",
+	"vecindario",
+	"ciudadano",
+	"extranjero",
+	"presidente",
+	"rey",
+	"reina",
+	"principe",
+	"princesa",
+	"heroe",
+	"villano",
+	"mago",
+	"bruja",
+	"duende",
+	"gigante",
+	"enano",
+	"dragon",
+	"fantasma",
+	"sueno",
+	"pesadilla",
+	"recuerdo",
+	"esperanza",
+	"miedo",
+	"valor",
+	"coraje",
+	"paciencia",
+	"sabiduria",
+	"locura",
+	"alegria",
+	"tristeza",
+	"ira",
+	"calma",
+	"paz",
+	"guerra",
+	"victoria",
+	"derrota",
+	"triunfo",
+	"fracaso",
+	"inicio",
+	"final",
+	"camino",
+	"viaje",
+	"destino",
+	"origen",
+	"pasado",
+	"presente",
+	"futuro",
+	"eternidad",
+	"tiempo",
+	"espacio",
+	"universo",
+	"galaxia",
+	"planeta",
+	"cometa",
+	"satelite",
+	"orbita",
+	"atomo",
+	"molecula",
+	"energia",
+	"fuerza",
+	"poder",
+	"velocidad",
+	"distancia",
+	"altura",
+	"profundidad",
+	"anchura",
+	"peso",
+	"tamano",
+	"numero",
+	"letra",
+	"palabra",
+	"frase",
+	"historia",
+	"cuento",
+	"poema",
+	"cancion",
+	"melodia",
+	"ritmo",
+	"musica",
+	"baile",
+	"teatro",
+	"pelicula",
+	"pintura",
+	"escultura",
+	"fotografia",
+	"dibujo",
+	"diseno",
+	"arte",
+	"ciencia",
+	"tecnologia",
+	"maquina",
+	"robot",
+	"computadora",
+	"pantalla",
+	"teclado",
+	"boton",
+	"cable",
+	"bateria",
+	"motor",
+	"rueda",
+	"freno",
+	"volante",
+	"espejo",
+	"faro",
+	"tubo",
+	"tanque",
+	"deposito",
+	"valvula",
+	"fabrica",
+	"oficina",
+	"tienda",
+	"mercado",
+	"banco",
+	"hospital",
+	"escuela",
+	"universidad",
+	"biblioteca",
+	"museo",
+	"iglesia",
+	"templo",
+	"castillo",
+	"palacio",
+	"torre",
+	"muro",
+	"fortaleza",
+	"cabana",
+	"choza",
+	"tienda",
+	"mapa",
+	"brujula",
+	"linterna",
+	"cuerda",
+	"red",
+	"anzuelo",
+	"trampa",
+	"escudo",
+	"espada",
+	"lanza",
+	"arco",
+	"flecha",
+	"casco",
+	"armadura",
+	"bandera",
+	"moneda",
+	"tesoro",
+	"joya",
+	"diamante",
+	"perla",
+	"anillo",
+	"collar",
+	"pulsera",
+	"corona",
+	"cetro",
+	"trono",
+	"vela",
+	"ancla",
+	"remo",
+	"timon",
+	"faro",
+	"muelle",
+	"puerto",
+	"isla",
+	"archipielago",
+	"continente",
+	"oceano",
+	"laguna",
+	"pantano",
+	"glaciar",
+	"volcan",
+	"crater",
+	"cascada",
+	"manantial",
+	"arroyo",
+	"estanque",
+	"pozo",
+	"tunel",
+	"mina",
+	"cantera",
+	"ladrillo",
+	"cemento",
+	"asfalto",
+	"tejado",
+	"chimenea",
+	"balcon",
+	"patio",
+	"terraza",
+	"sotano",
+	"desvan",
+	"granero",
+	"molino",
+	"presa",
+	"canal",
+	"acueducto",
+	"represa",
+	"fabrica",
+	"almacen",
+	"deposito",
+	"bodega",
+	"cofre",
+	"baul",
+	"estuche",
+	"frasco",
+	"botella",
+	"jarra",
+	"cesto",
+	"canasto",
+	"saco",
+	"costal",
+	"manta",
+	"cobija",
+	"almohada",
+	"cortina",
+	"alfombra",
+	"tapete",
+	"espejo",
+	"marco",
+	"cuadro",
+	"retrato",
+	"estatua",
+	"monumento",
+	"fuente",
+	"banco",
+	"farol",
+	"semaforo",
+	"senal",
+	"cartel",
+	"letrero",
+	"anuncio",
+	"periodico",
+	"revista",
+	"carta",
+	"postal",
+	"sello",
+	"sobre",
+	"buzon",
+	"oficina",
+	"correo",
+	"paquete",
+	"regalo",
+	"sorpresa",
+	"fiesta",
+	"celebracion",
+	"cumpleanos",
+	"boda",
+	"funeral",
+	"festival",
+	"desfile",
+	"concierto",
+	"juego",
+	"juguete",
+	"pelota",
+	"muneca",
+	"cometa",
+	"trompo",
+	"dado",
+	"carta",
+	"tablero",
+	"ficha",
+	"alto",
+	"bajo",
+	"grande",
+	"pequeno",
+	"largo",
+	"corto",
+	"ancho",
+	"estrecho",
+	"grueso",
+	"delgado",
+	"rapido",
+	"lento",
+	"fuerte",
+	"debil",
+	"duro",
+	"blando",
+	"suave",
+	"aspero",
+	"pesado",
+	"ligero",
+	"claro",
+	"oscuro",
+	"brillante",
+	"opaco",
+	"limpio",
+	"sucio",
+	"seco",
+	"mojado",
+	"fresco",
+	"calido",
+	"dulce",
+	"amargo",
+	"acido",
+	"salado",
+	"picante",
+	"rico",
+	"pobre",
+	"nuevo",
+	"viejo",
+	"antiguo",
+	"moderno",
+	"bueno",
+	"malo",
+	"facil",
+	"dificil",
+	"simple",
+	"complejo",
+	"util",
+	"vacio",
+	"lleno",
+	"recto",
+	"curvo",
+	"redondo",
+	"cuadrado",
+	"plano",
+	"profundo",
+	"quieto",
+	"activo",
+	"silencioso",
+	"ruidoso",
+	"rojo",
+	"azul",
+	"verde",
+	"amarillo",
+	"blanco",
+	"negro",
+	"gris",
+	"dorado",
+	"plateado",
+	"morado",
+	"marron",
+	"violeta",
+	"celeste",
+	"rosado",
+	"turquesa",
+	"esmeralda",
+	"rubi",
+	"zafiro",
+	"bronce",
+	"acero",
+	"aluminio",
+	"plomo",
+	"estano",
+	"cuarzo",
+	"granito",
+	"marmol",
+	"yeso",
+	"arcilla",
+	"barro",
+	"arena",
+	"cabeza",
+	"brazo",
+	"pierna",
+	"mano",
+	"dedo",
+	"pie",
+	"ojo",
+	"oreja",
+	"nariz",
+	"boca",
+	"diente",
+	"lengua",
+	"labio",
+	"pecho",
+	"espalda",
+	"hombro",
+	"cuello",
+	"rodilla",
+	"codo",
+	"tobillo",
+	"sangre",
+	"hueso",
+	"musculo",
+	"piel",
+	"pelo",
+	"barba",
+	"bigote",
+	"ceja",
+	"pestana",
+	"unas",
+	"zapato",
+	"bota",
+	"sandalia",
+	"calcetin",
+	"pantalon",
+	"camisa",
+	"camiseta",
+	"chaqueta",
+	"abrigo",
+	"gorro",
+	"sombrero",
+	"guante",
+	"bufanda",
+	"cinturon",
+	"falda",
+	"vestido",
+	"traje",
+	"chaleco",
+	"capa",
+	"bolsillo",
+	"pera",
+	"cereza",
+	"durazno",
+	"ciruela",
+	"higo",
+	"mango",
+	"pina",
+	"sandia",
+	"melon",
+	"frambuesa",
+	"mora",
+	"arandano",
+	"kiwi",
+	"aguacate",
+	"tomate",
+	"patata",
+	"papa",
+	"zanahoria",
+	"lechuga",
+	"espinaca",
+	"cebolla",
+	"ajo",
+	"pepino",
+	"pimiento",
+	"calabaza",
+	"maiz",
+	"trigo",
+	"avena",
+	"cebada",
+	"lenteja",
+	"garbanzo",
+	"frijol",
+	"almendra",
+	"nuez",
+	"avellana",
+	"castana",
+	"cacahuate",
+	"pistacho",
+	"canela",
+	"pimienta",
+	"aceite",
+	"vinagre",
+	"mostaza",
+	"salsa",
+	"mantequilla",
+	"crema",
+	"yogur",
+	"tarta",
+	"pastel",
+	"galleta",
+	"helado",
+	"chocolate",
+	"caramelo",
+	"postre",
+	"guiso",
+	"asado",
+	"caldo",
+	"pure",
+	"ensalada",
+	"empanada",
+	"cuchara",
+	"tenedor",
+	"cuchillo",
+	"vaso",
+	"taza",
+	"tazon",
+	"tetera",
+	"sarten",
+	"olla",
+	"bandeja",
+	"tenaza",
+	"destornillador",
+	"taladro",
+	"tuerca",
+	"arandela",
+	"candelabro",
+	"antorcha",
+	"farola",
+	"foco",
+	"cable",
+	"enchufe",
+	"fusible",
+	"iman",
+	"resorte",
+	"palanca",
+	"polea",
+	"bomba",
+	"tuberia",
+	"grifo",
+	"ducha",
+	"esponja",
+	"jabon",
+	"cepillo",
+	"peine",
+	"espejo",
+	"toalla",
+	"sabana",
+	"funda",
+	"colchon",
+	"mueble",
+	"armario",
+	"estante",
+	"repisa",
+	"cajon",
+	"escritorio",
+	"sofa",
+	"sillon",
+	"banco",
+	"taburete",
+	"perchero",
+	"puerta",
+	"porton",
+	"cerrojo",
+	"bisagra",
+	"umbral",
+	"persiana",
+	"vidriera",
+	"pasillo",
+	"sala",
+	"cocina",
+	"comedor",
+	"dormitorio",
+	"bano",
+	"atico",
+	"cochera",
+	"garaje",
+	"porche",
+	"acera",
+	"sendero",
+	"calzada",
+	"avenida",
+	"bulevar",
+	"rotonda",
+	"callejon",
+	"autopista",
+	"camino",
+	"trocha",
+	"senda",
+	"pista",
+	"carril",
+	"senderismo",
+	"escalada",
+	"carrera",
+	"salto",
+	"vuelo",
+	"navegacion",
+	"pesca",
+	"caza",
+	"siembra",
+	"cosecha",
+	"toro",
+	"buey",
+	"ternero",
+	"cordero",
+	"oveja",
+	"chivo",
+	"burro",
+	"mula",
+	"yegua",
+	"potro",
+	"leopardo",
+	"pantera",
+	"guepardo",
+	"hiena",
+	"chacal",
+	"zorrillo",
+	"comadreja",
+	"nutria",
+	"castor",
+	"tejon",
+	"erizo",
+	"topo",
+	"murcielago",
+	"canguro",
+	"koala",
+	"panda",
+	"oso",
+	"foca",
+	"morsa",
+	"manati",
+	"pavo",
+	"cisne",
+	"flamenco",
+	"ciguena",
+	"garza",
+	"gaviota",
+	"pelicano",
+	"albatros",
+	"condor",
+	"halcon",
+	"lechuza",
+	"buitre",
+	"canario",
+	"gorrion",
+	"golondrina",
+	"colibri",
+	"carpintero",
+	"tucan",
+	"loro",
+	"perico",
+	"sardina",
+	"atun",
+	"salmon",
+	"trucha",
+	"bacalao",
+	"merluza",
+	"lenguado",
+	"raya",
+	"anguila",
+	"morena",
+	"calamar",
+	"medusa",
+	"estrella",
+	"erizo",
+	"ostra",
+	"almeja",
+	"mejillon",
+	"caracol",
+	"langosta",
+	"camaron",
+	"saltamontes",
+	"mantis",
+	"avispa",
+	"abejorro",
+	"luciernaga",
+	"escarabajo",
+	"chinche",
+	"pulga",
+	"garrapata",
+	"ciempiés",
+	"bosque",
+	"jungla",
+	"pradera",
+	"sabana",
+	"estepa",
+	"tundra",
+	"taiga",
+	"desierto",
+	"oasis",
+	"duna",
+	"acantilado",
+	"barranco",
+	"canon",
+	"abismo",
+	"cima",
+	"cumbre",
+	"pico",
+	"cresta",
+	"ladera",
+	"falda",
+	"llanura",
+	"meseta",
+	"paramo",
+	"vega",
+	"costa",
+	"litoral",
+	"ensenada",
+	"bahia",
+	"golfo",
+	"estrecho",
+	"cabo",
+	"peninsula",
+	"istmo",
+	"archipielago",
+	"arrecife",
+	"banco",
+	"bajada",
+	"subida",
+	"sendero",
+	"paso",
+	"tempestad",
+	"huracan",
+	"ciclon",
+	"tornado",
+	"tifon",
+	"brisa",
+	"vendaval",
+	"monzon",
+	"diluvio",
+	"granizo",
+	"rocio",
+	"escarcha",
+	"ventisca",
+	"neblina",
+	"bruma",
+	"relampago",
+	"crepusculo",
+	"aurora",
+	"ocaso",
+	"amanecer",
+	"galaxia",
+	"nebula",
+	"constelacion",
+	"asteroide",
+	"meteoro",
+	"orbita",
+	"eclipse",
+	"solsticio",
+	"equinoccio",
+	"zenit",
+	"nadir",
+	"cosmos",
+	"universo",
+	"gravedad",
+	"vacio",
+	"onda",
+	"frecuencia",
+	"vibracion",
+	"resonancia",
+	"pulso",
+	"atomo",
+	"electron",
+	"proton",
+	"neutron",
+	"molecula",
+	"elemento",
+	"compuesto",
+	"solucion",
+	"mezcla",
+	"cristal",
+	"vapor",
+	"gas",
+	"liquido",
+	"solido",
+	"plasma",
+	"fision",
+	"fusion",
+	"reaccion",
+	"energia",
+	"calor",
+	"optica",
+	"prisma",
+	"lente",
+	"reflejo",
+	"refraccion",
+	"difraccion",
+	"espectro",
+	"resplandor",
+	"fulgor",
+	"centella",
+	"codigo",
+	"dato",
+	"archivo",
+	"registro",
+	"servidor",
+	"memoria",
+	"circuito",
+	"chip",
+	"red",
+	"nodo",
+	"puerto",
+	"enlace",
+	"senal",
+	"antena",
+	"radar",
+	"sensor",
+	"camara",
+	"microfono",
+	"altavoz",
+	"pantalla",
+	"martillo",
+	"yunque",
+	"fragua",
+	"fuelle",
+	"crisol",
+	"molde",
+	"torno",
+	"prensa",
+	"taladro",
+	"soldador",
+	"balanza",
+	"bascula",
+	"metro",
+	"regla",
+	"compas",
+	"escuadra",
+	"nivel",
+	"termometro",
+	"barometro",
+	"cronometro",
+	"novela",
+	"cronica",
+	"ensayo",
+	"fabula",
+	"leyenda",
+	"mito",
+	"drama",
+	"comedia",
+	"tragedia",
+	"dialogo",
+	"monologo",
+	"prosa",
+	"verso",
+	"estrofa",
+	"rima",
+	"canto",
+	"himno",
+	"sonata",
+	"sinfonia",
+	"balada",
+	"ritmo",
+	"acorde",
+	"nota",
+	"escala",
+	"armonia",
+	"silencio",
+	"eco",
+	"sonido",
+	"acustica",
+	"timbre",
+	"danza",
+	"coreografia",
+	"escena",
+	"guion",
+	"decorado",
+	"vestuario",
+	"mascara",
+	"careta",
+	"telon",
+	"tramoya",
+	"palacio",
+	"catedral",
+	"alcazar",
+	"basilica",
+	"monasterio",
+	"convento",
+	"ermita",
+	"santuario",
+	"sinagoga",
+	"pagoda",
+	"castillo",
+	"alcazaba",
+	"muralla",
+	"torreon",
+	"almena",
+	"foso",
+	"puente",
+	"bastion",
+	"atalaya",
+	"fortin",
+	"plaza",
+	"paseo",
+	"rambla",
+	"avenida",
+	"calzada",
+	"viaducto",
+	"acueducto",
+	"tunel",
+	"pasarela",
+	"muelle",
+	"puerto",
+	"darsena",
+	"astillero",
+	"hangar",
+	"terminal",
+	"anden",
+	"estacion",
+	"apeadero",
+	"cochera",
+	"deposito",
+	"bodega",
+	"despensa",
+	"alacena",
+	"granero",
+	"silo",
+	"bodegon",
+	"taberna",
+	"posada",
+	"meson",
+	"hospedaje",
+	"albergue",
+	"refugio",
+	"choza",
+	"cabana",
+	"tienda",
+	"iglu",
+	"carpa",
+	"pabellon",
+	"quiosco",
+	"cenador",
+	"jardin",
+	"huerto",
+	"parterre",
+	"invernadero",
+	"vivero",
+	"arboleda",
+	"alameda",
+	"pinar",
+	"encinar",
+	"robledal",
+	"justicia",
+	"nobleza",
+	"lealtad",
+	"honor",
+	"valentia",
+	"bondad",
+	"pureza",
+	"sinceridad",
+	"modestia",
+	"humildad",
+	"orgullo",
+	"soberbia",
+	"codicia",
+	"envidia",
+	"pereza",
+	"gula",
+	"lujuria",
+	"venganza",
+	"rencor",
+	"traicion",
+	"asombro",
+	"curiosidad",
+	"duda",
+	"certeza",
+	"fe",
+	"esperanza",
+	"pasion",
+	"entusiasmo",
+	"anhelo",
+	"deseo",
+	"angustia",
+	"temor",
+	"panico",
+	"desconsuelo",
+	"dolor",
+	"pesar",
+	"alivio",
+	"consuelo",
+	"sosiego",
+	"serenidad",
+	"alegria",
+	"euforia",
+	"jubilo",
+	"placer",
+	"deleite",
+	"encanto",
+	"magia",
+	"misterio",
+	"secreto",
+	"enigma",
+	"acertijo",
+	"paradoja",
+	"laberinto",
+	"rumbo",
+	"derrota",
+	"travesia",
+	"expedicion",
+	"cruzada",
+	"hazana",
+	"proeza",
+	"naufragio",
+	"rescate",
+	"hallazgo",
+	"descubrimiento",
+	"invento",
+	"creacion",
+	"diseno",
+	"esbozo",
+	"bosquejo",
+	"trazo",
+	"linea",
+	"punto",
+	"vertice",
+	"arista",
+	"angulo",
+	"circulo",
+	"esfera",
+	"cilindro",
+	"cono",
+	"cubo",
+	"piramide",
+	"prisma",
+	"rombo",
+	"trapecio",
+	"poligono",
+	"espiral",
+	"helice",
+	"curva",
+	"onda",
+	"vector",
+	"norte",
+	"sur",
+	"este",
+	"oeste",
+	"oriente",
+	"occidente",
+	"cenit",
+	"nadir",
+	"rumbo",
+	"derrota",
+	"viento",
+	"brisas",
+	"vendaval",
+	"galerna",
+	"tramontana",
+	"mistral",
+	"siroco",
+	"alisio",
+	"monzon",
+	"levante",
+	"poniente",
+	"bora",
+	"pampero",
+	"chubasco",
+	"torbellino",
+	"remolino",
+	"vortice",
+	"tromba",
+	"marea",
+	"pleamar",
+	"bajamar",
+	"resaca",
+	"corriente",
+	"remanso",
+	"burbuja",
+	"espuma",
+	"gota",
+	"chorro",
+	"manantial",
+	"cascada"
+])];
+var SIMBOLOS_ALEATORIOS = "#$!@%&*";
+function palabraAleatoria() {
+	return DICCIONARIO_UNICO[indiceSinSesgo(DICCIONARIO_UNICO.length)];
+}
+function separadorPara(opciones) {
+	if (opciones.separator !== "aleatorio") return opciones.separator;
+	return SIMBOLOS_ALEATORIOS[indiceSinSesgo(7)];
+}
+function generarFraseDePaso(opciones) {
+	const cantidad = Math.min(10, Math.max(3, Math.round(opciones.wordCount)));
+	const palabras = [];
+	for (let i = 0; i < cantidad; i++) {
+		let palabra = palabraAleatoria();
+		if (opciones.capitalize) palabra = palabra[0].toUpperCase() + palabra.slice(1);
+		if (opciones.includeNumbers) palabra += String(indiceSinSesgo(10));
+		palabras.push(palabra);
+	}
+	if (opciones.separator === "aleatorio") return palabras.map((p, i) => i === 0 ? p : separadorPara(opciones) + p).join("");
+	return palabras.join(opciones.separator);
+}
+//#endregion
 //#region src/popup/main.ts
 var cliente = new PortClient("QuickAccess");
 var vistas = {
 	cargando: document.getElementById("vista-cargando"),
 	login: document.getElementById("vista-login"),
 	dispositivo: document.getElementById("vista-dispositivo"),
+	desbloqueo: document.getElementById("vista-desbloqueo"),
+	mfa: document.getElementById("vista-mfa"),
 	desbloqueada: document.getElementById("vista-desbloqueada"),
 	detalle: document.getElementById("vista-detalle-item"),
 	formulario: document.getElementById("vista-form-recurso"),
@@ -3289,6 +4585,23 @@ var campoCodigo = document.getElementById("campo-codigo");
 var errorDispositivo = document.getElementById("error-dispositivo");
 var botonVerificar = document.getElementById("boton-verificar");
 var botonCancelarDispositivo = document.getElementById("boton-cancelar-dispositivo");
+var desbloqueoEmail = document.getElementById("desbloqueo-email");
+var desbloqueoServidor = document.getElementById("desbloqueo-servidor");
+var formDesbloqueo = document.getElementById("form-desbloqueo");
+var campoDesbloqueoPassphrase = document.getElementById("campo-desbloqueo-passphrase");
+var botonMostrarDesbloqueoPassphrase = document.getElementById("boton-mostrar-desbloqueo-passphrase");
+var errorDesbloqueo = document.getElementById("error-desbloqueo");
+var botonDesbloquear = document.getElementById("boton-desbloquear");
+var botonOtraCuenta = document.getElementById("boton-otra-cuenta");
+botonMostrarDesbloqueoPassphrase.addEventListener("click", () => {
+	const oculto = campoDesbloqueoPassphrase.type === "password";
+	campoDesbloqueoPassphrase.type = oculto ? "text" : "password";
+	botonMostrarDesbloqueoPassphrase.textContent = oculto ? "🙈" : "👁";
+});
+var formMfa = document.getElementById("form-mfa");
+var campoMfaCodigo = document.getElementById("campo-mfa-codigo");
+var errorMfa = document.getElementById("error-mfa");
+var botonVerificarMfa = document.getElementById("boton-verificar-mfa");
 var botonLogout = document.getElementById("boton-logout");
 var botonCuenta = document.getElementById("boton-cuenta");
 var emailActual = "";
@@ -3587,7 +4900,7 @@ botonMostrarFormPassword.addEventListener("click", () => {
 	formPassword.type = oculto ? "text" : "password";
 	botonMostrarFormPassword.textContent = oculto ? "🙈" : "👁";
 });
-botonGenerarPassword.addEventListener("click", abrirGenerador);
+botonGenerarPassword.addEventListener("click", () => abrirGenerador(false));
 botonCancelarForm.addEventListener("click", () => {
 	mostrarVista(modoFormulario === "editar" && itemDetalleActual ? "detalle" : "desbloqueada");
 });
@@ -3627,6 +4940,7 @@ formRecurso.addEventListener("submit", async (evento) => {
 });
 var modalGenerador = document.getElementById("modal-generador");
 var botonCerrarGenerador = document.getElementById("boton-cerrar-generador");
+var botonGeneradorHeader = document.getElementById("boton-generador-header");
 var generadorValor = document.getElementById("generador-valor");
 var botonRegenerar = document.getElementById("boton-regenerar");
 var generadorFortaleza = document.getElementById("generador-fortaleza");
@@ -3635,15 +4949,35 @@ var generadorLargoValor = document.getElementById("generador-largo-valor");
 var generadorMayus = document.getElementById("generador-mayus");
 var generadorNumeros = document.getElementById("generador-numeros");
 var generadorSimbolos = document.getElementById("generador-simbolos");
+var generadorSinAmbiguos = document.getElementById("generador-sin-ambiguos");
 var botonCopiarCerrarGenerador = document.getElementById("boton-copiar-cerrar-generador");
+var tabModoAleatoria = document.getElementById("tab-modo-aleatoria");
+var tabModoFrase = document.getElementById("tab-modo-frase");
+var controlesModoAleatoria = document.getElementById("controles-modo-aleatoria");
+var controlesModoFrase = document.getElementById("controles-modo-frase");
+var generadorCantidadPalabras = document.getElementById("generador-cantidad-palabras");
+var generadorCantidadPalabrasValor = document.getElementById("generador-cantidad-palabras-valor");
+var generadorFraseMayus = document.getElementById("generador-frase-mayus");
+var generadorFraseNumeros = document.getElementById("generador-frase-numeros");
+var generadorSeparador = document.getElementById("generador-separador");
 var passwordGenerada = "";
+var modoGenerador = "aleatoria";
+var generadorOrigenStandalone = false;
 function reglasActuales() {
 	return {
 		uppercase: generadorMayus.checked,
 		lowercase: true,
 		digits: generadorNumeros.checked,
 		symbols: generadorSimbolos.checked,
-		exclude_ambiguous: true
+		exclude_ambiguous: generadorSinAmbiguos.checked
+	};
+}
+function opcionesFraseActuales() {
+	return {
+		wordCount: Number(generadorCantidadPalabras.value),
+		capitalize: generadorFraseMayus.checked,
+		includeNumbers: generadorFraseNumeros.checked,
+		separator: generadorSeparador.value
 	};
 }
 /** Un `<span>` por carácter con su propia clase (letra/número/símbolo) —
@@ -3680,16 +5014,30 @@ var ETIQUETA_FORTALEZA = {
 	}
 };
 function regenerar() {
-	passwordGenerada = generarPassword(Number(generadorLargo.value), reglasActuales());
+	passwordGenerada = modoGenerador === "aleatoria" ? generarPassword(Number(generadorLargo.value), reglasActuales()) : generarFraseDePaso(opcionesFraseActuales());
 	pintarPassword(passwordGenerada);
 	const { score } = evaluarFortaleza(passwordGenerada);
 	const etiqueta = ETIQUETA_FORTALEZA[score];
-	generadorFortaleza.textContent = `Contraseña · ${etiqueta.texto}`;
+	generadorFortaleza.textContent = `${modoGenerador === "aleatoria" ? "Contraseña" : "Frase"} · ${etiqueta.texto}`;
 	generadorFortaleza.className = `generador-fortaleza ${etiqueta.clase}`;
 }
-function abrirGenerador() {
-	generadorLargoValor.textContent = generadorLargo.value;
+function cambiarModoGenerador(nuevo) {
+	modoGenerador = nuevo;
+	tabModoAleatoria.classList.toggle("tab-vault-activo", nuevo === "aleatoria");
+	tabModoAleatoria.setAttribute("aria-selected", String(nuevo === "aleatoria"));
+	tabModoFrase.classList.toggle("tab-vault-activo", nuevo === "frase");
+	tabModoFrase.setAttribute("aria-selected", String(nuevo === "frase"));
+	controlesModoAleatoria.classList.toggle("oculto", nuevo !== "aleatoria");
+	controlesModoFrase.classList.toggle("oculto", nuevo !== "frase");
 	regenerar();
+}
+tabModoAleatoria.addEventListener("click", () => cambiarModoGenerador("aleatoria"));
+tabModoFrase.addEventListener("click", () => cambiarModoGenerador("frase"));
+function abrirGenerador(standalone) {
+	generadorOrigenStandalone = standalone;
+	generadorLargoValor.textContent = generadorLargo.value;
+	generadorCantidadPalabrasValor.textContent = generadorCantidadPalabras.value;
+	cambiarModoGenerador("aleatoria");
 	modalGenerador.classList.remove("oculto");
 }
 function cerrarGenerador() {
@@ -3702,8 +5050,17 @@ generadorLargo.addEventListener("input", () => {
 generadorMayus.addEventListener("change", regenerar);
 generadorNumeros.addEventListener("change", regenerar);
 generadorSimbolos.addEventListener("change", regenerar);
+generadorSinAmbiguos.addEventListener("change", regenerar);
+generadorCantidadPalabras.addEventListener("input", () => {
+	generadorCantidadPalabrasValor.textContent = generadorCantidadPalabras.value;
+	regenerar();
+});
+generadorFraseMayus.addEventListener("change", regenerar);
+generadorFraseNumeros.addEventListener("change", regenerar);
+generadorSeparador.addEventListener("change", regenerar);
 botonRegenerar.addEventListener("click", regenerar);
 botonCerrarGenerador.addEventListener("click", cerrarGenerador);
+botonGeneradorHeader.addEventListener("click", () => abrirGenerador(true));
 modalGenerador.addEventListener("click", (evento) => {
 	if (evento.target === modalGenerador) cerrarGenerador();
 });
@@ -3711,9 +5068,11 @@ document.addEventListener("keydown", (evento) => {
 	if (evento.key === "Escape" && !modalGenerador.classList.contains("oculto")) cerrarGenerador();
 });
 botonCopiarCerrarGenerador.addEventListener("click", async () => {
-	formPassword.value = passwordGenerada;
-	formPassword.type = "text";
-	botonMostrarFormPassword.textContent = "🙈";
+	if (!generadorOrigenStandalone) {
+		formPassword.value = passwordGenerada;
+		formPassword.type = "text";
+		botonMostrarFormPassword.textContent = "🙈";
+	}
 	try {
 		await navigator.clipboard.writeText(passwordGenerada);
 	} catch {}
@@ -3757,6 +5116,13 @@ tabReciente.addEventListener("click", () => cambiarPestana("reciente"));
 * que volver a iniciar sesión (comportamiento esperado, no un bug). */
 var servidorEnCurso = "";
 var deviceChallengeIdEnCurso = "";
+/** Mismo criterio para `pendiente_mfa` (2026-08-15) — la sesión PARCIAL que
+* hay que confirmar con `AUTH_VERIFICAR_MFA`. Se llega acá desde el login
+* normal (`vista-login`) o desde el desbloqueo tras un lock (`vista-
+* desbloqueo`) — mismo `estado` del backend en los dos casos, una sola
+* vista reusada. */
+var sessionIdParcialEnCurso = "";
+var emailEnCurso = "";
 function mostrarError(el, mensaje) {
 	el.textContent = mensaje;
 	el.classList.remove("oculto");
@@ -3765,13 +5131,12 @@ function ocultarError(el) {
 	el.classList.add("oculto");
 }
 var MENSAJE_POR_ESTADO_NO_SOPORTADO = {
-	pendiente_mfa: "Esta cuenta tiene un segundo factor (MFA) configurado — completá el login desde la web por ahora.",
 	requiere_configurar_mfa: "Esta organización exige configurar un segundo factor (MFA) — hacelo desde la web antes de usar la extensión.",
 	requiere_cambiar_passphrase: "Tu contraseña es provisoria y hay que cambiarla — hacelo desde la web antes de usar la extensión."
 };
-function manejarResultadoLogin(resultado, serverUrl) {
+function manejarResultadoLogin(resultado, serverUrl, email) {
 	if (resultado.estado === "completo") {
-		mostrarSesionActiva(campoEmail.value, serverUrl);
+		mostrarSesionActiva(email, serverUrl);
 		return;
 	}
 	if (resultado.estado === "pendiente_dispositivo" && resultado.deviceChallengeId) {
@@ -3782,6 +5147,15 @@ function manejarResultadoLogin(resultado, serverUrl) {
 		mostrarVista("dispositivo");
 		return;
 	}
+	if (resultado.estado === "pendiente_mfa" && resultado.sessionId) {
+		servidorEnCurso = serverUrl;
+		emailEnCurso = email;
+		sessionIdParcialEnCurso = resultado.sessionId;
+		campoMfaCodigo.value = "";
+		ocultarError(errorMfa);
+		mostrarVista("mfa");
+		return;
+	}
 	mensajeNoSoportado.textContent = MENSAJE_POR_ESTADO_NO_SOPORTADO[resultado.estado] ?? `Estado de login no manejado por la extensión todavía: "${resultado.estado}".`;
 	mostrarVista("noSoportado");
 }
@@ -3790,6 +5164,7 @@ function mostrarSesionActiva(email, serverUrl) {
 	servidorActual = serverUrl;
 	mostrarVista("desbloqueada");
 	cargarVault();
+	cliente.request("AUTH_LIMPIAR_MARCA_BLOQUEO");
 }
 formLogin.addEventListener("submit", async (evento) => {
 	evento.preventDefault();
@@ -3804,7 +5179,7 @@ formLogin.addEventListener("submit", async (evento) => {
 			serverUrl,
 			email,
 			passphrase
-		}), serverUrl);
+		}), serverUrl, email);
 	} catch (error) {
 		mostrarError(errorLogin, error instanceof Error ? error.message : "No se pudo iniciar sesión.");
 	} finally {
@@ -3835,12 +5210,60 @@ formDispositivo.addEventListener("submit", async (evento) => {
 		botonVerificar.textContent = "Verificar";
 	}
 });
-botonLogout.addEventListener("click", async () => {
-	botonLogout.disabled = true;
+formMfa.addEventListener("submit", async (evento) => {
+	evento.preventDefault();
+	ocultarError(errorMfa);
+	botonVerificarMfa.disabled = true;
+	botonVerificarMfa.textContent = "Verificando…";
+	try {
+		await cliente.request("AUTH_VERIFICAR_MFA", {
+			serverUrl: servidorEnCurso,
+			sessionIdParcial: sessionIdParcialEnCurso,
+			codigo: campoMfaCodigo.value.trim()
+		});
+		mostrarSesionActiva(emailEnCurso, servidorEnCurso);
+	} catch (error) {
+		mostrarError(errorMfa, error instanceof Error ? error.message : "Código incorrecto o vencido.");
+	} finally {
+		botonVerificarMfa.disabled = false;
+		botonVerificarMfa.textContent = "Verificar";
+	}
+});
+/** Reglas de sesión inteligentes (2026-08-15): reinicio de navegador pide
+* sólo la Contraseña Master (`forceMfa: false` — si el dispositivo ya está
+* confiado, el servidor no vuelve a pedir MFA); un lock por >6h de
+* inactividad fuerza un código MFA real si la cuenta lo tiene configurado
+* (`forceMfa: true`, ver `backend/src/auth/service.rs::resolver_tras_f02`).
+* Servidor/email nunca se piden acá — ya vienen de `AUTH_ESTADO_CUENTA`. */
+var cuentaBloqueadaPorInactividad = false;
+formDesbloqueo.addEventListener("submit", async (evento) => {
+	evento.preventDefault();
+	ocultarError(errorDesbloqueo);
+	const serverUrl = desbloqueoServidor.textContent ?? "";
+	const email = desbloqueoEmail.textContent ?? "";
+	const passphrase = campoDesbloqueoPassphrase.value;
+	botonDesbloquear.disabled = true;
+	botonDesbloquear.textContent = "Desbloqueando…";
+	try {
+		const resultado = await cliente.request("AUTH_LOGIN", {
+			serverUrl,
+			email,
+			passphrase,
+			forceMfa: cuentaBloqueadaPorInactividad
+		});
+		campoDesbloqueoPassphrase.value = "";
+		manejarResultadoLogin(resultado, serverUrl, email);
+	} catch (error) {
+		mostrarError(errorDesbloqueo, error instanceof Error ? error.message : "No se pudo desbloquear.");
+	} finally {
+		botonDesbloquear.disabled = false;
+		botonDesbloquear.textContent = "Desbloquear";
+	}
+});
+async function cerrarSesionYVolverALogin() {
 	try {
 		await cliente.request("AUTH_LOGOUT");
 	} finally {
-		botonLogout.disabled = false;
 		formLogin.reset();
 		campoServidor.value = "http://localhost:8080";
 		itemsVault = [];
@@ -3850,6 +5273,22 @@ botonLogout.addEventListener("click", async () => {
 		itemDetalleActual = null;
 		secretoRevelado = null;
 		mostrarVista("login");
+	}
+}
+botonLogout.addEventListener("click", async () => {
+	botonLogout.disabled = true;
+	try {
+		await cerrarSesionYVolverALogin();
+	} finally {
+		botonLogout.disabled = false;
+	}
+});
+botonOtraCuenta.addEventListener("click", async () => {
+	botonOtraCuenta.disabled = true;
+	try {
+		await cerrarSesionYVolverALogin();
+	} finally {
+		botonOtraCuenta.disabled = false;
 	}
 });
 botonVolver.addEventListener("click", () => {
@@ -3882,6 +5321,16 @@ botonCancelarDispositivo.addEventListener("click", async () => {
 			campoCodigo.value = "";
 			ocultarError(errorDispositivo);
 			mostrarVista("dispositivo");
+			return;
+		}
+		const cuenta = await cliente.request("AUTH_ESTADO_CUENTA");
+		if (cuenta) {
+			cuentaBloqueadaPorInactividad = cuenta.lockedPorInactividad;
+			desbloqueoEmail.textContent = cuenta.email;
+			desbloqueoServidor.textContent = cuenta.serverUrl;
+			campoDesbloqueoPassphrase.value = "";
+			ocultarError(errorDesbloqueo);
+			mostrarVista("desbloqueo");
 			return;
 		}
 		mostrarVista("login");

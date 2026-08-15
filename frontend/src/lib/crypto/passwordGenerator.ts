@@ -21,7 +21,10 @@ const DIGITS = '0123456789';
 const DIGITS_SIN_AMBIGUOS = '23456789'; // sin 0/1
 const SYMBOLS = '!@#$%^&*()-_=+[]{}';
 
-function indiceSinSesgo(rango: number): number {
+// Exportada: `extension/src/background/services/passphrase-generator.ts`
+// reusa este mismo muestreo sin sesgo para elegir palabras del diccionario,
+// en vez de reimplementar rejection sampling por segunda vez.
+export function indiceSinSesgo(rango: number): number {
 	const max = Math.floor(0x100000000 / rango) * rango;
 	const buf = new Uint32Array(1);
 	let n: number;
