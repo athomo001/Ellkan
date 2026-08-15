@@ -12,6 +12,16 @@
 
 A self-hosted password manager with a zero-knowledge architecture: the server never sees your private keys or your secrets in plaintext. Backend in Rust (Axum), encryption with modern primitives (X25519, Ed25519, XChaCha20-Poly1305, Argon2id), web frontend and browser extension share the same cryptographic core compiled to WebAssembly.
 
+## Screenshots
+
+| Vault | Admin panel | New item |
+| --- | --- | --- |
+| ![Vault](assets/screenshots/vault.jpg) | ![Admin](assets/screenshots/admin.jpg) | ![New item](assets/screenshots/nuevo-recurso.jpg) |
+
+| Extension — item detail | Extension — password generator |
+| --- | --- |
+| ![Extension: detail](assets/screenshots/extension-popup.png) | ![Extension: generator](assets/screenshots/extension-generador.png) |
+
 ## Tech stack
 
 ### Backend

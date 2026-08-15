@@ -12,6 +12,16 @@
 
 Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servidor nunca ve tus claves privadas ni tus secretos en claro. Backend en Rust (Axum), cifrado con primitivas modernas (X25519, Ed25519, XChaCha20-Poly1305, Argon2id), frontend web y extensión de navegador comparten el mismo núcleo criptográfico compilado a WebAssembly.
 
+## Capturas
+
+| Vault | Panel de administración | Nuevo recurso |
+| --- | --- | --- |
+| ![Vault](assets/screenshots/vault.jpg) | ![Administración](assets/screenshots/admin.jpg) | ![Nuevo recurso](assets/screenshots/nuevo-recurso.jpg) |
+
+| Extensión — detalle de un recurso | Extensión — generador de contraseñas |
+| --- | --- |
+| ![Extensión: detalle](assets/screenshots/extension-popup.png) | ![Extensión: generador](assets/screenshots/extension-generador.png) |
+
 ## Stack técnico
 
 ### Backend
