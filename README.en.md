@@ -120,6 +120,7 @@ Detailed manuals are currently Spanish-only:
 - [manual/funcionalidades.md](manual/funcionalidades.md) — what Ellkan does, by area.
 - [manual/cli.md](manual/cli.md) — full `ellkan-cli` reference.
 - [manual/instalacion.md](manual/instalacion.md) — TLS, backup/restore, troubleshooting, hardware requirements.
+- [extension/README.md](extension/README.md) — browser extension development, build, and packaging (Spanish only).
 
 ## FAQ
 
@@ -134,7 +135,7 @@ The key is never left sitting around in memory waiting for someone to grab it. E
 
 ## Status
 
-Actively in development. Backend and web frontend work end to end (registration, login, vault, groups, MFA, SSO/SCIM/LDAP, auditing, admin panel, export/backup) — the browser extension hasn't started yet.
+Actively in development. Backend and web frontend work end to end (registration, login, vault, groups, MFA, SSO/SCIM/LDAP, auditing, admin panel, export/backup). The browser extension (Chrome, Edge, Brave, Opera, Firefox) also works end to end — login, smart session handling, vault with autofill, password generator — see [extension/README.md](extension/README.md); Safari is still pending (requires native packaging via Xcode).
 
 ## License
 

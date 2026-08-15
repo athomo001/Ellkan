@@ -117,6 +117,7 @@ Los dos comandos son necesarios: `build` arma la imagen nueva, pero `up -d` es e
 - [manual/funcionalidades.md](manual/funcionalidades.md) — qué hace Ellkan, por área.
 - [manual/cli.md](manual/cli.md) — referencia completa de `ellkan-cli`.
 - [manual/instalacion.md](manual/instalacion.md) — TLS, backup/restauración, troubleshooting, requisitos de hardware.
+- [extension/README.md](extension/README.md) — desarrollo, build y empaquetado de la extensión de navegador.
 
 ## Preguntas frecuentes
 
@@ -131,7 +132,7 @@ La clave nunca queda "dando vueltas" guardada en la memoria, esperando a que alg
 
 ## Estado
 
-En desarrollo activo. Backend y frontend web funcionales de punta a punta (registro, login, vault, grupos, MFA, SSO/SCIM/LDAP, auditoría, panel de administración, exportación/backup) — la extensión de navegador todavía no arrancó.
+En desarrollo activo. Backend y frontend web funcionales de punta a punta (registro, login, vault, grupos, MFA, SSO/SCIM/LDAP, auditoría, panel de administración, exportación/backup). La extensión de navegador (Chrome, Edge, Brave, Opera, Firefox) también funciona de punta a punta — login, sesión inteligente, bóveda con autofill, generador de contraseñas — ver [extension/README.md](extension/README.md); Safari queda pendiente (exige empaquetado nativo vía Xcode).
 
 ## Licencia
 
