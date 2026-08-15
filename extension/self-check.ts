@@ -19,7 +19,14 @@ import assert from 'node:assert/strict';
 // importa. Este chequeo no ejercita nada de auth (eso es
 // `self-check-auth.ts`), así que un stub vacío alcanza con tal de que
 // exista.
-(globalThis as Record<string, unknown>).chrome = { storage: {}, runtime: { id: 'ellkan-extension-id-fake' } };
+// 2026-08-15: `event.ts` llama `LockService.registrarActividad()` en cada
+// mensaje (sesión inteligente, F-04) — necesita `chrome.alarms` aunque este
+// chequeo no ejercite el timeout de inactividad en sí mismo.
+(globalThis as Record<string, unknown>).chrome = {
+	storage: {},
+	runtime: { id: 'ellkan-extension-id-fake' },
+	alarms: { create: () => {}, clear: async () => true, onAlarm: { addListener: () => {} } }
+};
 
 const { PortManager } = await import('./src/background/port-manager.ts');
 const { attachPagemod } = await import('./src/background/pagemod.ts');
@@ -147,6 +154,25 @@ async function main() {
 	assert.ok(/[A-Z]/.test(generada) && /[0-9]/.test(generada), 'con mayúsculas+dígitos habilitados, al menos un carácter de cada uno debe aparecer');
 	assert.ok(evaluarFortaleza('123').score < evaluarFortaleza(generada).score, 'una contraseña generada de 21 debe puntuar más fuerte que "123"');
 	console.log('OK: passwordGenerator/passwordStrength (mismos módulos de la app web) — largo y fortaleza correctos');
+
+	// --- 9. Generador dual, modo 2: frases de paso en español (2026-08-15,
+	// sólo local — decisión confirmada con el usuario). ---
+	const { generarFraseDePaso } = await import('./src/popup/passphrase-generator.ts');
+	const frase5 = generarFraseDePaso({ wordCount: 5, capitalize: false, includeNumbers: false, separator: '-' });
+	assert.equal(frase5.split('-').length, 5, 'debe respetar la cantidad de palabras pedida');
+	assert.ok(/^[a-z-]+$/.test(frase5), 'sin mayúsculas/números pedidos, sólo minúsculas y el separador');
+
+	const fraseCapNum = generarFraseDePaso({ wordCount: 4, capitalize: true, includeNumbers: true, separator: '_' });
+	const palabras = fraseCapNum.split('_');
+	assert.equal(palabras.length, 4);
+	assert.ok(
+		palabras.every((p) => /^[A-Z][a-z]+[0-9]$/.test(p)),
+		'con capitalize+includeNumbers, cada palabra debe ir en TitleCase y terminar en un dígito'
+	);
+
+	const fueraDeRango = generarFraseDePaso({ wordCount: 99, capitalize: false, includeNumbers: false, separator: ' ' });
+	assert.equal(fueraDeRango.split(' ').length, 10, 'wordCount se acota al máximo de la spec (10)');
+	console.log('OK: passphrase-generator.ts (frases de paso español) — cantidad/capitalización/números/separador correctos');
 
 	console.log('\nself-check: todo OK');
 }

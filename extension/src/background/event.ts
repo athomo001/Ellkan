@@ -10,6 +10,7 @@ import { SesionController } from './controllers/sesion-controller';
 import { AuthController } from './controllers/auth-controller';
 import { VaultController } from './controllers/vault-controller';
 import { AutofillController } from './controllers/autofill-controller';
+import { LockService } from './services/lock-service';
 
 type Handler = (payload: unknown) => Promise<unknown>;
 
@@ -19,7 +20,10 @@ const rutas: Record<string, Handler> = {
 	PING: () => SesionController.ping(),
 	AUTH_LOGIN: (payload) => AuthController.login(payload),
 	AUTH_VERIFICAR_DISPOSITIVO: (payload) => AuthController.verificarDispositivo(payload),
+	AUTH_VERIFICAR_MFA: (payload) => AuthController.verificarMfa(payload),
 	AUTH_ESTADO_SESION: () => AuthController.estadoSesion(),
+	AUTH_ESTADO_CUENTA: () => AuthController.estadoCuenta(),
+	AUTH_LIMPIAR_MARCA_BLOQUEO: () => AuthController.limpiarMarcaDeBloqueo(),
 	AUTH_ESTADO_PENDIENTE_DISPOSITIVO: () => AuthController.estadoPendienteDispositivo(),
 	AUTH_CANCELAR_PENDIENTE_DISPOSITIVO: () => AuthController.cancelarPendienteDispositivo(),
 	AUTH_LOGOUT: () => AuthController.logout(),
@@ -33,6 +37,11 @@ const rutas: Record<string, Handler> = {
 export function registrarEventos(port: chrome.runtime.Port): void {
 	port.onMessage.addListener(async (mensaje: MensajeRequest) => {
 		if (mensaje.tipo === 'HANDSHAKE') return; // ya consumido por Pagemod
+
+		// Cualquier mensaje real por un puerto ya autenticado cuenta como
+		// actividad (2026-08-15) — reprograma el timeout de inactividad de
+		// F-04, no sólo abrir el popup.
+		LockService.registrarActividad();
 
 		const handler = rutas[mensaje.tipo];
 		if (!handler) {

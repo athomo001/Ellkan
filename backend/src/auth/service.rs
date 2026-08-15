@@ -242,12 +242,14 @@ where
         nonce: &[u8],
         signature: &[u8],
         device_token_hash: &[u8],
+        force_mfa: bool,
     ) -> Result<ResultadoVerify, DomainError> {
         let user_encontrado = self.usuarios.buscar_por_email(email).await?;
         let actor_conocido = user_encontrado.as_ref().map(|u| u.id);
 
-        let resultado =
-            self.verify_con_usuario(user_encontrado, email, nonce, signature, device_token_hash).await;
+        let resultado = self
+            .verify_con_usuario(user_encontrado, email, nonce, signature, device_token_hash, force_mfa)
+            .await;
 
         match &resultado {
             Ok(ResultadoVerify::SesionCompleta(sesion)) => {
@@ -283,6 +285,7 @@ where
         nonce: &[u8],
         signature: &[u8],
         device_token_hash: &[u8],
+        force_mfa: bool,
     ) -> Result<ResultadoVerify, DomainError> {
         let user = user.ok_or(DomainError::InvalidCredentials)?;
 
@@ -338,7 +341,7 @@ where
                     EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id))
                         .con_sujeto("user", user.id),
                 ));
-                return self.resolver_tras_f02(user, device_token_hash).await;
+                return self.resolver_tras_f02(user, device_token_hash, force_mfa).await;
             }
 
             let codigo = generar_codigo_device();
@@ -363,7 +366,7 @@ where
             return Ok(ResultadoVerify::PendienteDispositivo { device_challenge_id });
         }
 
-        self.resolver_tras_f02(user, device_token_hash).await
+        self.resolver_tras_f02(user, device_token_hash, force_mfa).await
     }
 
     /// F-14: una vez que F-02 (dispositivo conocido) ya se resolvió —ya sea
@@ -373,7 +376,12 @@ where
     /// vez. Compartido entre `verify_con_usuario` y
     /// `verify_device_con_desafio` — la decisión de MFA es la misma en los
     /// dos casos, sólo cambia cómo se llegó hasta acá.
-    pub(crate) async fn resolver_tras_f02(&self, user: User, device_token_hash: &[u8]) -> Result<ResultadoVerify, DomainError> {
+    pub(crate) async fn resolver_tras_f02(
+        &self,
+        user: User,
+        device_token_hash: &[u8],
+        force_mfa: bool,
+    ) -> Result<ResultadoVerify, DomainError> {
         // Passphrase provisoria (creada por un admin): se resuelve ANTES que
         // MFA, a propósito — nunca tiene sentido dejar que alguien configure
         // un segundo factor atado a una passphrase que todavía conoce otra
@@ -392,8 +400,14 @@ where
         // (ni Passbolt ni Proton lo repiten en cada login). Sólo aplica
         // cuando ya habría un credential que verificar; nunca salta la
         // configuración inicial (`DebeConfigurar`).
+        // 2026-08-15: `force_mfa` (extensión, tras un lock por inactividad)
+        // apaga este bypass puntualmente — el dispositivo sigue "conocido"
+        // (F-02 no se repite), pero si la organización tiene MFA activo se
+        // exige un código real de nuevo. Sin `require_mfa` activo, `decidir`
+        // sigue devolviendo `NoRequerido` igual: no hay nada que forzar.
         let decision = crate::mfa::service::decidir(&politica, tiene_confirmado, user.created_at);
-        let ya_confirmado_en_este_dispositivo = decision == DecisionMfa::DebeVerificar
+        let ya_confirmado_en_este_dispositivo = !force_mfa
+            && decision == DecisionMfa::DebeVerificar
             && self.dispositivos.mfa_confirmado(user.id, device_token_hash).await?;
 
         match if ya_confirmado_en_este_dispositivo { DecisionMfa::NoRequerido } else { decision } {
@@ -490,7 +504,9 @@ where
             .buscar_por_id(desafio.user_id)
             .await?
             .ok_or(DomainError::InvalidCredentials)?;
-        self.resolver_tras_f02(user, &desafio.device_token_hash).await
+        // Dispositivo recién verificado por F-02 — `force_mfa` no aplica acá,
+        // sólo tiene sentido en un re-login sobre un dispositivo ya conocido.
+        self.resolver_tras_f02(user, &desafio.device_token_hash, false).await
     }
 
     pub async fn logout(&self, session_id: Uuid, user_id: Uuid) -> Result<(), DomainError> {

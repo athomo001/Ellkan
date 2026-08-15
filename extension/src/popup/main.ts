@@ -12,6 +12,7 @@ import type { ItemVault, SecretoRevelado, DatosRecurso } from '../background/ser
 import { comandoDeConexion, urlAbrible, hostnameParaFavicon } from './conexion';
 import { generarPassword, type ReglasCharset } from '../../../frontend/src/lib/crypto/passwordGenerator';
 import { evaluarFortaleza } from '../../../frontend/src/lib/crypto/passwordStrength';
+import { generarFraseDePaso, type OpcionesFraseDePaso } from './passphrase-generator';
 
 const cliente = new PortClient('QuickAccess');
 
@@ -19,6 +20,8 @@ const vistas = {
 	cargando: document.getElementById('vista-cargando') as HTMLElement,
 	login: document.getElementById('vista-login') as HTMLElement,
 	dispositivo: document.getElementById('vista-dispositivo') as HTMLElement,
+	desbloqueo: document.getElementById('vista-desbloqueo') as HTMLElement,
+	mfa: document.getElementById('vista-mfa') as HTMLElement,
 	desbloqueada: document.getElementById('vista-desbloqueada') as HTMLElement,
 	detalle: document.getElementById('vista-detalle-item') as HTMLElement,
 	formulario: document.getElementById('vista-form-recurso') as HTMLElement,
@@ -65,6 +68,27 @@ const campoCodigo = document.getElementById('campo-codigo') as HTMLInputElement;
 const errorDispositivo = document.getElementById('error-dispositivo') as HTMLElement;
 const botonVerificar = document.getElementById('boton-verificar') as HTMLButtonElement;
 const botonCancelarDispositivo = document.getElementById('boton-cancelar-dispositivo') as HTMLButtonElement;
+
+// Sesión inteligente (2026-08-15): bloqueo por inactividad/reinicio.
+const desbloqueoEmail = document.getElementById('desbloqueo-email') as HTMLElement;
+const desbloqueoServidor = document.getElementById('desbloqueo-servidor') as HTMLElement;
+const formDesbloqueo = document.getElementById('form-desbloqueo') as HTMLFormElement;
+const campoDesbloqueoPassphrase = document.getElementById('campo-desbloqueo-passphrase') as HTMLInputElement;
+const botonMostrarDesbloqueoPassphrase = document.getElementById('boton-mostrar-desbloqueo-passphrase') as HTMLButtonElement;
+const errorDesbloqueo = document.getElementById('error-desbloqueo') as HTMLElement;
+const botonDesbloquear = document.getElementById('boton-desbloquear') as HTMLButtonElement;
+const botonOtraCuenta = document.getElementById('boton-otra-cuenta') as HTMLButtonElement;
+
+botonMostrarDesbloqueoPassphrase.addEventListener('click', () => {
+	const oculto = campoDesbloqueoPassphrase.type === 'password';
+	campoDesbloqueoPassphrase.type = oculto ? 'text' : 'password';
+	botonMostrarDesbloqueoPassphrase.textContent = oculto ? '🙈' : '👁';
+});
+
+const formMfa = document.getElementById('form-mfa') as HTMLFormElement;
+const campoMfaCodigo = document.getElementById('campo-mfa-codigo') as HTMLInputElement;
+const errorMfa = document.getElementById('error-mfa') as HTMLElement;
+const botonVerificarMfa = document.getElementById('boton-verificar-mfa') as HTMLButtonElement;
 
 const botonLogout = document.getElementById('boton-logout') as HTMLButtonElement;
 const botonCuenta = document.getElementById('boton-cuenta') as HTMLButtonElement;
@@ -444,7 +468,7 @@ botonMostrarFormPassword.addEventListener('click', () => {
 	botonMostrarFormPassword.textContent = oculto ? '🙈' : '👁';
 });
 
-botonGenerarPassword.addEventListener('click', abrirGenerador);
+botonGenerarPassword.addEventListener('click', () => abrirGenerador(false));
 
 botonCancelarForm.addEventListener('click', () => {
 	mostrarVista(modoFormulario === 'editar' && itemDetalleActual ? 'detalle' : 'desbloqueada');
@@ -491,6 +515,7 @@ formRecurso.addEventListener('submit', async (evento) => {
 // del usuario con esta especificación exacta. ---
 const modalGenerador = document.getElementById('modal-generador') as HTMLElement;
 const botonCerrarGenerador = document.getElementById('boton-cerrar-generador') as HTMLButtonElement;
+const botonGeneradorHeader = document.getElementById('boton-generador-header') as HTMLButtonElement;
 const generadorValor = document.getElementById('generador-valor') as HTMLElement;
 const botonRegenerar = document.getElementById('boton-regenerar') as HTMLButtonElement;
 const generadorFortaleza = document.getElementById('generador-fortaleza') as HTMLElement;
@@ -499,9 +524,27 @@ const generadorLargoValor = document.getElementById('generador-largo-valor') as 
 const generadorMayus = document.getElementById('generador-mayus') as HTMLInputElement;
 const generadorNumeros = document.getElementById('generador-numeros') as HTMLInputElement;
 const generadorSimbolos = document.getElementById('generador-simbolos') as HTMLInputElement;
+const generadorSinAmbiguos = document.getElementById('generador-sin-ambiguos') as HTMLInputElement;
 const botonCopiarCerrarGenerador = document.getElementById('boton-copiar-cerrar-generador') as HTMLButtonElement;
 
+// Modo 2: frases de paso memorizables en español (2026-08-15).
+const tabModoAleatoria = document.getElementById('tab-modo-aleatoria') as HTMLButtonElement;
+const tabModoFrase = document.getElementById('tab-modo-frase') as HTMLButtonElement;
+const controlesModoAleatoria = document.getElementById('controles-modo-aleatoria') as HTMLElement;
+const controlesModoFrase = document.getElementById('controles-modo-frase') as HTMLElement;
+const generadorCantidadPalabras = document.getElementById('generador-cantidad-palabras') as HTMLInputElement;
+const generadorCantidadPalabrasValor = document.getElementById('generador-cantidad-palabras-valor') as HTMLElement;
+const generadorFraseMayus = document.getElementById('generador-frase-mayus') as HTMLInputElement;
+const generadorFraseNumeros = document.getElementById('generador-frase-numeros') as HTMLInputElement;
+const generadorSeparador = document.getElementById('generador-separador') as HTMLSelectElement;
+
 let passwordGenerada = '';
+let modoGenerador: 'aleatoria' | 'frase' = 'aleatoria';
+// El modal se abre desde dos lugares distintos: el ícono del header (spec
+// 2026-08-15, sin formulario detrás — "Copiar y cerrar" sólo copia) y el
+// 🎲 dentro del formulario de crear/editar (comportamiento de siempre —
+// carga el valor en `formPassword` además de copiar).
+let generadorOrigenStandalone = false;
 
 function reglasActuales(): ReglasCharset {
 	return {
@@ -509,7 +552,16 @@ function reglasActuales(): ReglasCharset {
 		lowercase: true,
 		digits: generadorNumeros.checked,
 		symbols: generadorSimbolos.checked,
-		exclude_ambiguous: true
+		exclude_ambiguous: generadorSinAmbiguos.checked
+	};
+}
+
+function opcionesFraseActuales(): OpcionesFraseDePaso {
+	return {
+		wordCount: Number(generadorCantidadPalabras.value),
+		capitalize: generadorFraseMayus.checked,
+		includeNumbers: generadorFraseNumeros.checked,
+		separator: generadorSeparador.value as OpcionesFraseDePaso['separator']
 	};
 }
 
@@ -534,17 +586,35 @@ const ETIQUETA_FORTALEZA: Record<number, { texto: string; clase: string }> = {
 };
 
 function regenerar(): void {
-	passwordGenerada = generarPassword(Number(generadorLargo.value), reglasActuales());
+	passwordGenerada =
+		modoGenerador === 'aleatoria'
+			? generarPassword(Number(generadorLargo.value), reglasActuales())
+			: generarFraseDePaso(opcionesFraseActuales());
 	pintarPassword(passwordGenerada);
 	const { score } = evaluarFortaleza(passwordGenerada);
 	const etiqueta = ETIQUETA_FORTALEZA[score];
-	generadorFortaleza.textContent = `Contraseña · ${etiqueta.texto}`;
+	generadorFortaleza.textContent = `${modoGenerador === 'aleatoria' ? 'Contraseña' : 'Frase'} · ${etiqueta.texto}`;
 	generadorFortaleza.className = `generador-fortaleza ${etiqueta.clase}`;
 }
 
-function abrirGenerador(): void {
-	generadorLargoValor.textContent = generadorLargo.value;
+function cambiarModoGenerador(nuevo: 'aleatoria' | 'frase'): void {
+	modoGenerador = nuevo;
+	tabModoAleatoria.classList.toggle('tab-vault-activo', nuevo === 'aleatoria');
+	tabModoAleatoria.setAttribute('aria-selected', String(nuevo === 'aleatoria'));
+	tabModoFrase.classList.toggle('tab-vault-activo', nuevo === 'frase');
+	tabModoFrase.setAttribute('aria-selected', String(nuevo === 'frase'));
+	controlesModoAleatoria.classList.toggle('oculto', nuevo !== 'aleatoria');
+	controlesModoFrase.classList.toggle('oculto', nuevo !== 'frase');
 	regenerar();
+}
+tabModoAleatoria.addEventListener('click', () => cambiarModoGenerador('aleatoria'));
+tabModoFrase.addEventListener('click', () => cambiarModoGenerador('frase'));
+
+function abrirGenerador(standalone: boolean): void {
+	generadorOrigenStandalone = standalone;
+	generadorLargoValor.textContent = generadorLargo.value;
+	generadorCantidadPalabrasValor.textContent = generadorCantidadPalabras.value;
+	cambiarModoGenerador('aleatoria');
 	modalGenerador.classList.remove('oculto');
 }
 
@@ -559,8 +629,17 @@ generadorLargo.addEventListener('input', () => {
 generadorMayus.addEventListener('change', regenerar);
 generadorNumeros.addEventListener('change', regenerar);
 generadorSimbolos.addEventListener('change', regenerar);
+generadorSinAmbiguos.addEventListener('change', regenerar);
+generadorCantidadPalabras.addEventListener('input', () => {
+	generadorCantidadPalabrasValor.textContent = generadorCantidadPalabras.value;
+	regenerar();
+});
+generadorFraseMayus.addEventListener('change', regenerar);
+generadorFraseNumeros.addEventListener('change', regenerar);
+generadorSeparador.addEventListener('change', regenerar);
 botonRegenerar.addEventListener('click', regenerar);
 botonCerrarGenerador.addEventListener('click', cerrarGenerador);
+botonGeneradorHeader.addEventListener('click', () => abrirGenerador(true));
 modalGenerador.addEventListener('click', (evento) => {
 	if (evento.target === modalGenerador) cerrarGenerador(); // click en el backdrop, fuera de la tarjeta
 });
@@ -569,14 +648,19 @@ document.addEventListener('keydown', (evento) => {
 });
 
 botonCopiarCerrarGenerador.addEventListener('click', async () => {
-	formPassword.value = passwordGenerada;
-	formPassword.type = 'text';
-	botonMostrarFormPassword.textContent = '🙈';
+	// Abierto desde el ícono del header (spec 2026-08-15): no hay ningún
+	// formulario detrás, sólo copia. Abierto desde el 🎲 del formulario de
+	// recurso: comportamiento de siempre, también carga el campo.
+	if (!generadorOrigenStandalone) {
+		formPassword.value = passwordGenerada;
+		formPassword.type = 'text';
+		botonMostrarFormPassword.textContent = '🙈';
+	}
 	try {
 		await navigator.clipboard.writeText(passwordGenerada);
 	} catch {
-		// portapapeles sin permiso — la contraseña ya quedó cargada en el
-		// campo igual, no es un fallo bloqueante.
+		// portapapeles sin permiso — en el modo de formulario la contraseña
+		// ya quedó cargada en el campo igual, no es un fallo bloqueante.
 	}
 	cerrarGenerador();
 });
@@ -630,6 +714,14 @@ tabReciente.addEventListener('click', () => cambiarPestana('reciente'));
 let servidorEnCurso = '';
 let deviceChallengeIdEnCurso = '';
 
+/** Mismo criterio para `pendiente_mfa` (2026-08-15) — la sesión PARCIAL que
+ * hay que confirmar con `AUTH_VERIFICAR_MFA`. Se llega acá desde el login
+ * normal (`vista-login`) o desde el desbloqueo tras un lock (`vista-
+ * desbloqueo`) — mismo `estado` del backend en los dos casos, una sola
+ * vista reusada. */
+let sessionIdParcialEnCurso = '';
+let emailEnCurso = '';
+
 function mostrarError(el: HTMLElement, mensaje: string): void {
 	el.textContent = mensaje;
 	el.classList.remove('oculto');
@@ -639,14 +731,13 @@ function ocultarError(el: HTMLElement): void {
 }
 
 const MENSAJE_POR_ESTADO_NO_SOPORTADO: Record<string, string> = {
-	pendiente_mfa: 'Esta cuenta tiene un segundo factor (MFA) configurado — completá el login desde la web por ahora.',
 	requiere_configurar_mfa: 'Esta organización exige configurar un segundo factor (MFA) — hacelo desde la web antes de usar la extensión.',
 	requiere_cambiar_passphrase: 'Tu contraseña es provisoria y hay que cambiarla — hacelo desde la web antes de usar la extensión.'
 };
 
-function manejarResultadoLogin(resultado: ResultadoLogin, serverUrl: string): void {
+function manejarResultadoLogin(resultado: ResultadoLogin, serverUrl: string, email: string): void {
 	if (resultado.estado === 'completo') {
-		mostrarSesionActiva(campoEmail.value, serverUrl);
+		mostrarSesionActiva(email, serverUrl);
 		return;
 	}
 	if (resultado.estado === 'pendiente_dispositivo' && resultado.deviceChallengeId) {
@@ -655,6 +746,15 @@ function manejarResultadoLogin(resultado: ResultadoLogin, serverUrl: string): vo
 		campoCodigo.value = '';
 		ocultarError(errorDispositivo);
 		mostrarVista('dispositivo');
+		return;
+	}
+	if (resultado.estado === 'pendiente_mfa' && resultado.sessionId) {
+		servidorEnCurso = serverUrl;
+		emailEnCurso = email;
+		sessionIdParcialEnCurso = resultado.sessionId;
+		campoMfaCodigo.value = '';
+		ocultarError(errorMfa);
+		mostrarVista('mfa');
 		return;
 	}
 	const mensaje = MENSAJE_POR_ESTADO_NO_SOPORTADO[resultado.estado] ?? `Estado de login no manejado por la extensión todavía: "${resultado.estado}".`;
@@ -667,6 +767,10 @@ function mostrarSesionActiva(email: string, serverUrl: string): void {
 	servidorActual = serverUrl;
 	mostrarVista('desbloqueada');
 	void cargarVault();
+	// Se llegó a una sesión activa por cualquier camino (login normal,
+	// desbloqueo tras inactividad/reinicio, o MFA) — si había una marca de
+	// bloqueo por inactividad, ya no aplica. No-op si no había ninguna.
+	void cliente.request('AUTH_LIMPIAR_MARCA_BLOQUEO');
 }
 
 formLogin.addEventListener('submit', async (evento) => {
@@ -681,7 +785,7 @@ formLogin.addEventListener('submit', async (evento) => {
 	botonLogin.textContent = 'Iniciando sesión…';
 	try {
 		const resultado = await cliente.request<ResultadoLogin>('AUTH_LOGIN', { serverUrl, email, passphrase });
-		manejarResultadoLogin(resultado, serverUrl);
+		manejarResultadoLogin(resultado, serverUrl, email);
 	} catch (error) {
 		mostrarError(errorLogin, error instanceof Error ? error.message : 'No se pudo iniciar sesión.');
 	} finally {
@@ -718,12 +822,66 @@ formDispositivo.addEventListener('submit', async (evento) => {
 	}
 });
 
-botonLogout.addEventListener('click', async () => {
-	botonLogout.disabled = true;
+formMfa.addEventListener('submit', async (evento) => {
+	evento.preventDefault();
+	ocultarError(errorMfa);
+
+	botonVerificarMfa.disabled = true;
+	botonVerificarMfa.textContent = 'Verificando…';
+	try {
+		await cliente.request('AUTH_VERIFICAR_MFA', {
+			serverUrl: servidorEnCurso,
+			sessionIdParcial: sessionIdParcialEnCurso,
+			codigo: campoMfaCodigo.value.trim()
+		});
+		mostrarSesionActiva(emailEnCurso, servidorEnCurso);
+	} catch (error) {
+		mostrarError(errorMfa, error instanceof Error ? error.message : 'Código incorrecto o vencido.');
+	} finally {
+		botonVerificarMfa.disabled = false;
+		botonVerificarMfa.textContent = 'Verificar';
+	}
+});
+
+/** Reglas de sesión inteligentes (2026-08-15): reinicio de navegador pide
+ * sólo la Contraseña Master (`forceMfa: false` — si el dispositivo ya está
+ * confiado, el servidor no vuelve a pedir MFA); un lock por >6h de
+ * inactividad fuerza un código MFA real si la cuenta lo tiene configurado
+ * (`forceMfa: true`, ver `backend/src/auth/service.rs::resolver_tras_f02`).
+ * Servidor/email nunca se piden acá — ya vienen de `AUTH_ESTADO_CUENTA`. */
+let cuentaBloqueadaPorInactividad = false;
+
+formDesbloqueo.addEventListener('submit', async (evento) => {
+	evento.preventDefault();
+	ocultarError(errorDesbloqueo);
+
+	const serverUrl = desbloqueoServidor.textContent ?? '';
+	const email = desbloqueoEmail.textContent ?? '';
+	const passphrase = campoDesbloqueoPassphrase.value;
+
+	botonDesbloquear.disabled = true;
+	botonDesbloquear.textContent = 'Desbloqueando…';
+	try {
+		const resultado = await cliente.request<ResultadoLogin>('AUTH_LOGIN', {
+			serverUrl,
+			email,
+			passphrase,
+			forceMfa: cuentaBloqueadaPorInactividad
+		});
+		campoDesbloqueoPassphrase.value = '';
+		manejarResultadoLogin(resultado, serverUrl, email);
+	} catch (error) {
+		mostrarError(errorDesbloqueo, error instanceof Error ? error.message : 'No se pudo desbloquear.');
+	} finally {
+		botonDesbloquear.disabled = false;
+		botonDesbloquear.textContent = 'Desbloquear';
+	}
+});
+
+async function cerrarSesionYVolverALogin(): Promise<void> {
 	try {
 		await cliente.request('AUTH_LOGOUT');
 	} finally {
-		botonLogout.disabled = false;
 		formLogin.reset();
 		campoServidor.value = 'http://localhost:8080';
 		itemsVault = [];
@@ -733,6 +891,28 @@ botonLogout.addEventListener('click', async () => {
 		itemDetalleActual = null;
 		secretoRevelado = null;
 		mostrarVista('login');
+	}
+}
+
+botonLogout.addEventListener('click', async () => {
+	botonLogout.disabled = true;
+	try {
+		await cerrarSesionYVolverALogin();
+	} finally {
+		botonLogout.disabled = false;
+	}
+});
+
+// "Usar otra cuenta" desde la pantalla de desbloqueo (spec 2026-08-15) —
+// equivale a un cierre de sesión explícito: purga servidor/email/token de
+// dispositivo persistidos, porque el usuario está eligiendo activamente
+// entrar con una cuenta distinta, no reanudar la actual.
+botonOtraCuenta.addEventListener('click', async () => {
+	botonOtraCuenta.disabled = true;
+	try {
+		await cerrarSesionYVolverALogin();
+	} finally {
+		botonOtraCuenta.disabled = false;
 	}
 });
 
@@ -752,11 +932,13 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 	}
 });
 
-// --- Estado inicial: ¿ya hay una sesión activa, o quedó una verificación de
-// dispositivo a mitad de camino? El popup se cierra solo al perder el foco
-// (ej. cambiar de pestaña para leer el código del email) — sin este segundo
-// chequeo, reabrirlo forzaba a repetir el login entero aunque el desafío
-// siguiera vigente en el servidor (bug real reportado por el usuario). ---
+// --- Estado inicial: ¿ya hay una sesión activa, quedó una verificación de
+// dispositivo a mitad de camino, o hay una cuenta persistida esperando
+// desbloqueo (sesión inteligente, 2026-08-15)? El popup se cierra solo al
+// perder el foco (ej. cambiar de pestaña para leer el código del email) —
+// sin este chequeo, reabrirlo forzaba a repetir flujos enteros aunque el
+// estado siguiera vigente (bug real reportado por el usuario, para el caso
+// de dispositivo). ---
 (async () => {
 	try {
 		const sesion = await cliente.request<{ sessionId: string; email: string; serverUrl: string } | null>('AUTH_ESTADO_SESION');
@@ -779,10 +961,23 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 			return;
 		}
 
+		const cuenta = await cliente.request<{ serverUrl: string; email: string; lockedPorInactividad: boolean } | null>(
+			'AUTH_ESTADO_CUENTA'
+		);
+		if (cuenta) {
+			cuentaBloqueadaPorInactividad = cuenta.lockedPorInactividad;
+			desbloqueoEmail.textContent = cuenta.email;
+			desbloqueoServidor.textContent = cuenta.serverUrl;
+			campoDesbloqueoPassphrase.value = '';
+			ocultarError(errorDesbloqueo);
+			mostrarVista('desbloqueo');
+			return;
+		}
+
 		mostrarVista('login');
 	} catch {
-		// Sin sesión/desafío previo legible (o el service worker recién está
-		// arrancando) — arrancar igual desde el login es la salida segura.
+		// Sin sesión/desafío/cuenta previa legible (o el service worker recién
+		// está arrancando) — arrancar igual desde el login es la salida segura.
 		mostrarVista('login');
 	}
 })();

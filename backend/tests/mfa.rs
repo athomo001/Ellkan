@@ -277,6 +277,77 @@ async fn login_desde_dispositivo_que_ya_paso_mfa_no_lo_vuelve_a_pedir() {
     // Tercer login, mismo dispositivo: directo a completo, sin pedir MFA.
     let cuerpo = intentar_login(&entorno, &usuario).await;
     assert_eq!(cuerpo["estado"], "completo", "un dispositivo que ya pasó MFA no debería tener que repetirlo");
+
+    // 2026-08-15: `force_mfa` (extensión, re-login tras un lock por
+    // inactividad) apaga el bypass de "dispositivo ya confirmado" puntualmente
+    // — mismo dispositivo, pero vuelve a pedir el código real.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/challenge", entorno.base))
+        .json(&json!({ "email": usuario.email }))
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    let nonce = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
+    let firma = usuario.ed25519.firmante().sign(&nonce);
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/verify", entorno.base))
+        .json(&json!({
+            "email": usuario.email,
+            "nonce_b64": B64.encode(&nonce),
+            "signature_b64": B64.encode(firma.to_bytes()),
+            "device_token_hash_b64": device_token_hash_b64,
+            "force_mfa": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(
+        cuerpo["estado"], "pendiente_mfa",
+        "force_mfa debería forzar el desafío real incluso en un dispositivo ya confiado"
+    );
+}
+
+/// `force_mfa` no inventa un requisito que no existe — sin `require_mfa`
+/// activo en la política, sigue sin haber nada que forzar.
+#[tokio::test]
+async fn force_mfa_sin_politica_activa_no_cambia_nada() {
+    let entorno = common::levantar().await;
+    let usuario = common::registrar(&entorno, "force-mfa-sin-politica@test.ellkan").await;
+    common::login(&entorno, &usuario).await; // deja el dispositivo conocido
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/challenge", entorno.base))
+        .json(&json!({ "email": usuario.email }))
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    let nonce = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
+    let firma = usuario.ed25519.firmante().sign(&nonce);
+    let device_token_hash_b64 = B64.encode(Sha256::digest(usuario.device_token));
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/verify", entorno.base))
+        .json(&json!({
+            "email": usuario.email,
+            "nonce_b64": B64.encode(&nonce),
+            "signature_b64": B64.encode(firma.to_bytes()),
+            "device_token_hash_b64": device_token_hash_b64,
+            "force_mfa": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["estado"], "completo");
 }
 
 #[tokio::test]

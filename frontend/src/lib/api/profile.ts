@@ -7,6 +7,7 @@ import { api } from './client';
 import { sesion } from '$lib/state/session';
 
 export interface Perfil {
+	id: string;
 	email: string;
 	display_name: string;
 	role: string;

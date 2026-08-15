@@ -134,7 +134,7 @@ pub async fn callback(
     // nunca matchea ningún hash real de `known_devices`, así que esto
     // equivale a "MFA nunca recordado por SSO", el mismo comportamiento que
     // ya tenía antes de este cambio.
-    let resultado = auth_service(&state).resolver_tras_f02(user, &[]).await?;
+    let resultado = auth_service(&state).resolver_tras_f02(user, &[], false).await?;
 
     Ok(Json(match resultado {
         ResultadoVerify::SesionCompleta(s) => {

@@ -5,5 +5,7 @@
 
 import { BrowserApi } from '../browser-api';
 import { attachPagemod } from './pagemod';
+import { LockService } from './services/lock-service';
 
 BrowserApi.onConnect((port) => attachPagemod(port));
+LockService.instalarListener();

@@ -9,10 +9,16 @@ interface PedidoLogin {
 	serverUrl: string;
 	email: string;
 	passphrase: string;
+	forceMfa?: boolean;
 }
 interface PedidoVerificarDispositivo {
 	serverUrl: string;
 	deviceChallengeId: string;
+	codigo: string;
+}
+interface PedidoVerificarMfa {
+	serverUrl: string;
+	sessionIdParcial: string;
 	codigo: string;
 }
 
@@ -21,7 +27,15 @@ function validarPedidoLogin(payload: unknown): PedidoLogin {
 	if (!p?.serverUrl || !p.email || !p.passphrase) {
 		throw new Error('faltan datos: servidor, email y passphrase son obligatorios');
 	}
-	return { serverUrl: p.serverUrl, email: p.email, passphrase: p.passphrase };
+	return { serverUrl: p.serverUrl, email: p.email, passphrase: p.passphrase, forceMfa: p.forceMfa };
+}
+
+function validarPedidoVerificarMfa(payload: unknown): PedidoVerificarMfa {
+	const p = payload as Partial<PedidoVerificarMfa> | undefined;
+	if (!p?.serverUrl || !p.sessionIdParcial || !p.codigo) {
+		throw new Error('faltan datos: servidor, sessionIdParcial y código son obligatorios');
+	}
+	return { serverUrl: p.serverUrl, sessionIdParcial: p.sessionIdParcial, codigo: p.codigo };
 }
 
 function validarPedidoVerificarDispositivo(payload: unknown): PedidoVerificarDispositivo {
@@ -34,8 +48,8 @@ function validarPedidoVerificarDispositivo(payload: unknown): PedidoVerificarDis
 
 export const AuthController = {
 	async login(payload: unknown): Promise<ResultadoLogin> {
-		const { serverUrl, email, passphrase } = validarPedidoLogin(payload);
-		return AuthService.login(serverUrl.replace(/\/+$/, ''), email, passphrase);
+		const { serverUrl, email, passphrase, forceMfa } = validarPedidoLogin(payload);
+		return AuthService.login(serverUrl.replace(/\/+$/, ''), email, passphrase, forceMfa);
 	},
 
 	async verificarDispositivo(payload: unknown): Promise<{ estado: string; sessionId?: string }> {
@@ -43,8 +57,21 @@ export const AuthController = {
 		return AuthService.verificarDispositivo(serverUrl.replace(/\/+$/, ''), deviceChallengeId, codigo);
 	},
 
+	async verificarMfa(payload: unknown): Promise<void> {
+		const { serverUrl, sessionIdParcial, codigo } = validarPedidoVerificarMfa(payload);
+		return AuthService.verificarMfa(serverUrl.replace(/\/+$/, ''), sessionIdParcial, codigo);
+	},
+
 	async estadoSesion(): Promise<EstadoSesionActual | null> {
 		return AuthService.estadoSesion();
+	},
+
+	async estadoCuenta() {
+		return AuthService.estadoCuenta();
+	},
+
+	async limpiarMarcaDeBloqueo(): Promise<void> {
+		return AuthService.limpiarMarcaDeBloqueo();
 	},
 
 	async estadoPendienteDispositivo() {

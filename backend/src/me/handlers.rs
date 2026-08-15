@@ -65,6 +65,7 @@ pub async fn perfil(
 ) -> Result<Json<PerfilResponse>, ApiError> {
     let p = PerfilService { perfil: &state.preferencias_usuario }.obtener(user.user_id).await?;
     Ok(Json(PerfilResponse {
+        id: user.user_id,
         email: p.email,
         display_name: p.display_name,
         role: p.role,

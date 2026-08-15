@@ -4,6 +4,23 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.31] - 2026-08-15
+
+### Agregado: sesión inteligente + generador dual de contraseñas + empaquetado real (extensión v0.2.0)
+
+- La extensión ahora recuerda tu servidor y tu email para siempre — nunca más te los vuelve a pedir, salvo que cierres sesión a propósito.
+- Si cerrás el navegador y lo volvés a abrir, sólo te pide tu Contraseña Master (nada de servidor, email, ni un segundo código) para volver a entrar.
+- Si pasan más de 6 horas sin usar la extensión, se bloquea sola y al volver te pide Contraseña Master **más** un código de verificación (si tenés uno configurado) — más seguro que sólo la contraseña.
+- Cerrar sesión a propósito ahora sí borra todo de verdad (servidor, email, y el reconocimiento de este dispositivo) — la próxima vez que entres es un inicio completamente nuevo, como si fuera la primera vez.
+- El generador de contraseñas ahora tiene un ícono propio arriba de todo en el popup, accesible en cualquier momento (antes sólo aparecía al crear una contraseña nueva).
+- Nuevo modo "Frase de paso": genera frases fáciles de recordar en español (por ejemplo, combinaciones de palabras separadas por guiones), con cantidad de palabras, mayúsculas y números configurables — alternativa a las contraseñas aleatorias de siempre para cuando necesitás poder memorizarla.
+- El generador de contraseñas aleatorias ahora también permite excluir caracteres que se confunden fácilmente (0/O, l/1/I).
+- Nuevo script de empaquetado: la extensión ahora se genera lista para instalar en Chrome, Edge, Brave, Opera y Firefox con un solo comando (antes se armaba a mano cada vez).
+
+### Conocido, no resuelto todavía
+
+- La verificación de punta a punta contra un servidor real (login → bloqueo por inactividad → desbloqueo con código) quedó pendiente esta sesión por un problema del entorno de desarrollo (contenedores de base de datos parados) — el código compila y pasa todos los chequeos automáticos, falta la corrida final contra el servidor real.
+
 ## [0.1.30] - 2026-08-13
 
 ### Agregado: primera versión usable de la extensión de navegador (Chrome/Firefox)

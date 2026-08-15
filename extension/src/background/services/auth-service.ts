@@ -9,8 +9,9 @@
 
 import { cargarCrypto } from '../wasm';
 import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/b64';
-import { deviceTokenHashB64 } from '../storage/device-storage';
+import { deviceTokenHashB64, borrarTokenDeDispositivo } from '../storage/device-storage';
 import { SesionStorage } from '../storage/sesion-storage';
+import { CuentaStorage } from '../storage/cuenta-storage';
 
 function aadClavePrivada(email: string): Uint8Array {
 	return new TextEncoder().encode(email);
@@ -20,13 +21,19 @@ interface ErrorApi {
 	error?: { code?: string; message?: string };
 }
 
-async function post<T>(serverUrl: string, path: string, body: unknown, sessionId?: string): Promise<T> {
+async function pedido<T>(
+	method: 'GET' | 'POST',
+	serverUrl: string,
+	path: string,
+	body: unknown,
+	sessionId?: string
+): Promise<T> {
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 	if (sessionId) headers['Authorization'] = `Bearer ${sessionId}`;
 
 	let resp: Response;
 	try {
-		resp = await fetch(`${serverUrl}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+		resp = await fetch(`${serverUrl}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
 	} catch {
 		throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
 	}
@@ -42,6 +49,14 @@ async function post<T>(serverUrl: string, path: string, body: unknown, sessionId
 		throw new Error(mensaje);
 	}
 	return resp.json() as Promise<T>;
+}
+
+async function post<T>(serverUrl: string, path: string, body: unknown, sessionId?: string): Promise<T> {
+	return pedido<T>('POST', serverUrl, path, body, sessionId);
+}
+
+async function get<T>(serverUrl: string, path: string, sessionId?: string): Promise<T> {
+	return pedido<T>('GET', serverUrl, path, undefined, sessionId);
 }
 
 export interface ResultadoLogin {
@@ -63,7 +78,12 @@ export interface EstadoSesionActual {
 }
 
 export const AuthService = {
-	async login(serverUrl: string, email: string, passphrase: string): Promise<ResultadoLogin> {
+	/** `forceMfa` (2026-08-15): sólo lo manda `LockService`/la vista de
+	 * desbloqueo tras un lock por inactividad — fuerza un código MFA real
+	 * aunque este dispositivo ya esté confiado (ver `resolver_tras_f02` en
+	 * el backend). En un login normal (primera vez o tras reinicio del
+	 * navegador) va en `false`: reinicio pide sólo la passphrase. */
+	async login(serverUrl: string, email: string, passphrase: string, forceMfa = false): Promise<ResultadoLogin> {
 		const wasm = await cargarCrypto();
 
 		const material = await post<{
@@ -94,7 +114,8 @@ export const AuthService = {
 			email,
 			nonce_b64: challenge.nonce_b64,
 			signature_b64: bytesABase64(firma),
-			device_token_hash_b64: deviceTokenHash
+			device_token_hash_b64: deviceTokenHash,
+			force_mfa: forceMfa
 		});
 
 		// La firma ya se verificó cripográficamente en este punto (si no,
@@ -120,6 +141,16 @@ export const AuthService = {
 			// aunque las claves ya estuvieran desenvueltas y guardadas arriba.
 			// Mismo storage.session que las claves, misma garantía de limpieza.
 			await SesionStorage.guardar('device_challenge_id', verify.device_challenge_id);
+		}
+
+		// 2026-08-15: servidor+email persistentes (`storage.local`, sobreviven
+		// reinicios) — se escriben una única vez, en el primer login real de
+		// esta cuenta en este dispositivo. La firma Ed25519 ya se verificó
+		// arriba, así que en cualquier `estado` (incluido `pendiente_mfa`) el
+		// servidor/email ya son correctos — no hace falta esperar a que el
+		// login quede `completo` para dejar de volver a pedirlos.
+		if (!(await CuentaStorage.leer())) {
+			await CuentaStorage.guardar(serverUrl, email);
 		}
 
 		return {
@@ -153,6 +184,29 @@ export const AuthService = {
 		return { estado: resp.estado, sessionId: resp.session_id };
 	},
 
+	/** `POST /auth/mfa/verify` (2026-08-15) — cierra un gap real que ya
+	 * existía antes de este pedido: `pendiente_mfa` sólo mostraba "hacelo
+	 * desde la web". El Bearer es la sesión PARCIAL que devolvió `login()`
+	 * (`sessionIdParcial`); si el código es correcto, esa misma sesión queda
+	 * completa server-side (`marcar_mfa_verificada`) — no hay un
+	 * `session_id` nuevo que guardar, es el mismo. `device_token_hash_b64`
+	 * viaja también acá (spec 2026-08-13, recordar MFA en este dispositivo)
+	 * — irrelevante si este login vino con `forceMfa` (el próximo forzado
+	 * va a volver a pedir código igual), pero necesario para que un login
+	 * NORMAL futuro sí se beneficie del dispositivo ya confiado. */
+	async verificarMfa(serverUrl: string, sessionIdParcial: string, codigo: string): Promise<void> {
+		const deviceTokenHash = await deviceTokenHashB64();
+		await post(serverUrl, '/auth/mfa/verify', { code: codigo, device_token_hash_b64: deviceTokenHash }, sessionIdParcial);
+
+		// `POST /auth/mfa/verify` no devuelve `user_id` (mismo criterio que
+		// `/auth/verify` para `pendiente_mfa` — "un solo par de campos
+		// relevante a la vez") — `GET /me` sí, ya con la sesión completa.
+		const perfil = await get<{ id: string }>(serverUrl, '/me', sessionIdParcial);
+
+		await SesionStorage.guardar('session_id', sessionIdParcial);
+		await SesionStorage.guardar('user_id', perfil.id);
+	},
+
 	async estadoSesion(): Promise<EstadoSesionActual | null> {
 		const sessionId = await SesionStorage.leer('session_id');
 		const email = await SesionStorage.leer('email');
@@ -183,6 +237,31 @@ export const AuthService = {
 		}
 	},
 
+	/** Cuenta persistente (2026-08-15, `CuentaStorage`) — `main.ts` la usa
+	 * para decidir qué pantalla mostrar al abrir el popup sin tener que
+	 * volver a pedir servidor/email. `locked_reason: 'inactividad'` sólo lo
+	 * pone `LockService`; su ausencia con `SesionStorage` vacío significa
+	 * reinicio de navegador, no inactividad. */
+	async estadoCuenta(): Promise<{ serverUrl: string; email: string; lockedPorInactividad: boolean } | null> {
+		const cuenta = await CuentaStorage.leer();
+		if (!cuenta) return null;
+		return { serverUrl: cuenta.server_url, email: cuenta.email, lockedPorInactividad: cuenta.locked_reason === 'inactividad' };
+	},
+
+	async limpiarMarcaDeBloqueo(): Promise<void> {
+		await CuentaStorage.limpiarMarcaDeBloqueo();
+	},
+
+	/** Cierre de sesión EXPLÍCITO (click deliberado del usuario, spec
+	 * 2026-08-15) — único punto que purga todo: servidor/email
+	 * (`CuentaStorage`) y el token de dispositivo (`device-storage.ts`),
+	 * además de lo que ya limpiaba `SesionStorage`. Un lock por inactividad
+	 * o un reinicio de navegador NUNCA pasan por acá — ahí el objetivo es
+	 * lo contrario, no volver a pedir nada salvo la passphrase (y el código
+	 * MFA si corresponde). El próximo inicio tras esto exige el flujo
+	 * completo desde cero: servidor + email + passphrase + verificación de
+	 * dispositivo/MFA real, porque el dispositivo ya no es "conocido".
+	 */
 	async logout(): Promise<void> {
 		const sesion = await AuthService.estadoSesion();
 		if (sesion) {
@@ -197,6 +276,8 @@ export const AuthService = {
 		for (const clave of ['session_id', 'email', 'server_url', 'user_id', 'x25519_private', 'ed25519_private']) {
 			await SesionStorage.limpiar(clave);
 		}
+		await CuentaStorage.purgar();
+		await borrarTokenDeDispositivo();
 	}
 };
 

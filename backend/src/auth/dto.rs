@@ -75,6 +75,13 @@ pub struct VerifyRequest {
     /// Hash del token de dispositivo persistente del cliente (F-02) — nunca
     /// el token en claro, y nunca un User-Agent.
     pub device_token_hash_b64: String,
+    /// 2026-08-15: fuerza un desafío MFA real aunque este dispositivo ya
+    /// esté confirmado (`known_devices.mfa_verified_at`) — usado sólo por la
+    /// extensión de navegador al re-autenticar tras un bloqueo por
+    /// inactividad (nunca en un login normal). Si la organización no tiene
+    /// MFA activo, no cambia nada: no hay nada que forzar.
+    #[serde(default)]
+    pub force_mfa: bool,
 }
 
 /// `estado` es `"completo"` (con `session_id`/`user_id`), `"pendiente_dispositivo"`

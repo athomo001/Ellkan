@@ -1,7 +1,7 @@
 {
 	"name": "ellkan-extension",
 	"private": true,
-	"version": "0.1.11",
+	"version": "0.2.1",
 	"type": "module",
 	"scripts": {
 		"dev": "vite build --watch",
@@ -10,7 +10,9 @@
 		"build:firefox": "cross-env BROWSER=firefox vite build",
 		"build:safari": "cross-env BROWSER=safari vite build",
 		"check": "tsc --noEmit",
-		"check:self": "node run-self-check.mjs"
+		"check:self": "node run-self-check.mjs",
+		"package": "node package.mjs",
+		"version:set": "node version.mjs --set"
 	},
 	"dependencies": {
 		"zxcvbn": "^4.4.2"
