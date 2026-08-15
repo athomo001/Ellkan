@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mfa_policy set require_mfa = $1, allowed_methods = $2,\n               grace_period_days = $3, require_mfa_since = $4\n               where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "TextArray",
+        "Int4",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d70914dd4181c4e710f808ffc132a69d4a6f9553267104c3d9c9cbfa4c722fa"
+}

@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select id, user_id, token_hash, expires_at, consumed_at, email_code_hash, email_code_expires_at\n            from recovery_reset_tokens\n            where id = $1 and consumed_at is null and expires_at > now()\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "token_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "token_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "consumed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "consumed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "email_code_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "email_code_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "email_code_expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "recovery_reset_tokens",
+            "name": "email_code_expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "eef055a949623e9a15e71941d54c492051a9348efecaeb413166a4520fa31194"
+}

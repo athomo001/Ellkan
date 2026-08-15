@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select host, port, from_address, tls, username, password_ciphertext, password_nonce\n               from smtp_config where organization_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "host",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "host"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "port"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "from_address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "from_address"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "tls",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "tls"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "username",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "username"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "password_ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "password_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "password_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "smtp_config",
+            "name": "password_nonce"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "3d78905ee0f65169c8ecfeba4e771b56d22bcdd5e8db5e63989cc22a76628513"
+}

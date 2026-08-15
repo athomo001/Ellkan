@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select data_retention_days, audit_log_retention_days from organizations where id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data_retention_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "data_retention_days"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "audit_log_retention_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "audit_log_retention_days"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a6e7951b04ce1aa521ca6ca71f49c6275094a3dc8c4998ce859a1a0f3aa95949"
+}

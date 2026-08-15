@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select rp.permission from users u\n            join role_permissions rp on rp.role_id = u.role_id\n            where u.id = $1\n            order by rp.permission\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "permission",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "role_permissions",
+            "name": "permission"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b1f5ee5b8eb0fb8735d65e5b44ca149d23fc89588f5e135482d510c949a330fa"
+}

@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select require_mfa, allowed_methods, grace_period_days, require_mfa_since\n               from mfa_policy where organization_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "require_mfa",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "mfa_policy",
+            "name": "require_mfa"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "allowed_methods",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "mfa_policy",
+            "name": "allowed_methods"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "grace_period_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "mfa_policy",
+            "name": "grace_period_days"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "require_mfa_since",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mfa_policy",
+            "name": "require_mfa_since"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b6ce525a280962aab8299d5bb5b571b13e4d5ec238c374640419c28a2ba25b29"
+}

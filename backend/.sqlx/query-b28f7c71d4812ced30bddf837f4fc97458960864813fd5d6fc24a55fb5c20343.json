@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select id, escrow_id, requested_by, status, approvals,\n                   requester_public_key_x25519, sealed_private_key_for_requester, created_at\n            from account_recovery_requests where id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "escrow_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "escrow_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "requested_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "requested_by"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "approvals",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "approvals"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "requester_public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "requester_public_key_x25519"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "sealed_private_key_for_requester",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "sealed_private_key_for_requester"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b28f7c71d4812ced30bddf837f4fc97458960864813fd5d6fc24a55fb5c20343"
+}

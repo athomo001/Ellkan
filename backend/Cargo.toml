@@ -1,0 +1,97 @@
+[package]
+name = "ellkan-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+axum = { version = "0.8.9", features = ["macros"] }
+base32 = "0.5.1"
+base64 = "0.23.0"
+ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
+ellkan-crypto = { version = "0.1.0", path = "../crates/ellkan-crypto" }
+governor = "0.10.4"
+hex = "0.4.3"
+# F-02/F-14: envío real de SMTP desde el poller de `outbound_emails`
+# (`notificaciones.rs`) — sin autenticación/TLS por default (dev, contra un
+# relay local tipo Mailhog); `ELLKAN_SMTP_TLS=true` activa STARTTLS + auth
+# para producción. `tokio1-rustls-tls` para no arrastrar `native-tls`/OpenSSL.
+lettre = { version = "0.11.19", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
+# F-19: sincronización con directorios LDAP/Active Directory. `tls-rustls-ring`
+# en vez de sólo `tls-rustls` — el feature genérico no trae un crypto
+# provider por defecto y falla en runtime ("No crypto provider selected").
+ldap3 = { version = "0.12.1", default-features = false, features = ["tls-rustls-ring"] }
+# F-17: SSO/OIDC. Sin dependencia directa a `reqwest` — se usa el re-export
+# `openidconnect::reqwest::Client`, que ya trae su propia versión de
+# `reqwest` compatible con el trait `AsyncHttpClient` que pide `exchange_code`;
+# una dependencia directa a `reqwest` en otra versión produce dos impls
+# incompatibles del mismo trait.
+openidconnect = { version = "4.0.1", features = ["reqwest"] }
+opentelemetry = "0.32.0"
+# `reqwest-client` (async) en vez del `reqwest-blocking-client` por defecto —
+# un cliente bloqueante en un exportador de spans colgaría el runtime de tokio.
+opentelemetry-otlp = { version = "0.32.0", default-features = false, features = ["trace", "http-proto", "reqwest-client"] }
+opentelemetry_sdk = { version = "0.32.1", features = ["trace"] }
+# Múltiples dependencias traen `rustls` (ldap3 con el provider `ring` vía
+# `tls-rustls-ring`, `lettre`/`reqwest`/`hyper-rustls` con `aws-lc-rs` por
+# default) — sin instalar un `CryptoProvider` de proceso explícito, rustls
+# no puede elegir automáticamente entre los dos y entra en pánico en
+# runtime la primera vez que alguno de los dos lo necesita. Se fuerza
+# `ring` acá (mismo provider que ya elige `ldap3` explícitamente) una sola
+# vez al arrancar (`construir_estado`), antes de que cualquier cliente TLS
+# lo use.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+secrecy = "0.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "migrate", "json", "macros"] }
+thiserror = "2.0.19"
+time = { version = "0.3.54", features = ["serde"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.0", features = ["trace", "cors", "fs", "set-header"] }
+tower_governor = "0.8.0"
+tracing = "0.1.44"
+tracing-opentelemetry = "0.33.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.7"
+uuid = { version = "1.24.0", features = ["v7", "serde"] }
+zeroize = "1.9.0"
+# F-03: ceremonia WebAuthn (Kanidm). Fijado en `0.6.1-dev`, no en el `0.5.5`
+# marcado "stable" en crates.io, a propósito: `webauthn-authenticator-rs`
+# (dev-dependency, autenticador de software real para tests E2E) fija
+# `webauthn-rs-proto = "=0.6.1-dev"` sin flexibilidad — mezclar `0.5.5` acá
+# con `0.6.1-dev` en tests produciría dos tipos `CreationChallengeResponse`
+# (etc.) incompatibles entre sí en tiempo de compilación, aunque representen
+# el mismo JSON. Mismo proyecto/repo para ambas crates, versionado en
+# lockstep — no es una `-dev` de un tercero ajeno.
+# `default-features = false` para no arrastrar la feature `attestation`
+# (valida cadenas de certificados de fabricante vía openssl-sys) — Ellkan no
+# necesita verificar la cadena de atestación de hardware del autenticador,
+# sólo la firma de la ceremonia en sí. `danger-allow-state-serialisation`
+# habilita persistir `PasskeyRegistration`/`PasskeyAuthentication` — el
+# nombre "danger" es sobre exponer ese estado al cliente (ej. en una cookie,
+# lo que permitiría un replay); acá se persiste server-side en Postgres,
+# indexado por `user_id`, nunca viaja al cliente — exactamente el caso
+# "seguro" que la propia documentación de la crate describe.
+webauthn-rs = { version = "=0.6.1-dev", default-features = false, features = ["danger-allow-state-serialisation"] }
+# F-16: re-sellado del material de recuperación de cuenta hacia la clave
+# efímera del aprobador — mismo primitivo `crypto_box` que `ellkan_crypto::sellado`.
+# Misma versión que `ellkan-crypto` (3.0.0, feature `static_secrets`) — dos
+# versiones distintas producen dos tipos `PublicKey` incompatibles entre sí.
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+
+[dev-dependencies]
+base64 = "0.23.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "cookies", "query", "form"] }
+testcontainers = "0.27.3"
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+tokio = { version = "1.53.1", features = ["full", "test-util"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# Autenticador de software real (protocolo-compatible, no un mock) para
+# ejercitar la ceremonia WebAuthn de punta a punta sin navegador ni hardware.
+webauthn-authenticator-rs = { version = "0.6.1-dev", features = ["softpasskey"] }

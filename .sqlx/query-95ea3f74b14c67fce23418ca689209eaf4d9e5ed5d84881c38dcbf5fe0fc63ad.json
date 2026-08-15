@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select gm.user_id, g.name from group_members gm join groups g on g.id = gm.group_id order by g.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "group_members",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "95ea3f74b14c67fce23418ca689209eaf4d9e5ed5d84881c38dcbf5fe0fc63ad"
+}

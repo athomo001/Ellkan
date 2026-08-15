@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into scim_tokens (id, organization_id, token_hash) values ($1, 1, $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e27dc7dda75e1af4ae437dca46001c1f2908bed10afec2a26f224e4fc2f64ee"
+}

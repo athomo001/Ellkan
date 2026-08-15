@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select 1 as \"existe!\" from users u\n            join role_permissions rp on rp.role_id = u.role_id\n            where u.id = $1 and (rp.permission = $2 or rp.permission = '*')\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8c5afe4ff31a8ead54dfa1cd61ff54c688a57547516792ad9b81bfb246c2fd16"
+}

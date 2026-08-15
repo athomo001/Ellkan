@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into folders (id, name_ciphertext, name_nonce)\n            values ($1, $2, $3)\n            returning id, name_ciphertext, name_nonce\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folders",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name_ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "folders",
+            "name": "name_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "folders",
+            "name": "name_nonce"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7d7761b9b1bd2804456b1bef289589df4dedb5b86e4920fc1ad65929280af003"
+}

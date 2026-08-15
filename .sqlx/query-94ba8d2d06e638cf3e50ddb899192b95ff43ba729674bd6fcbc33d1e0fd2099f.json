@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce)\n            values ($1, $2, $3, $4, $5)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "94ba8d2d06e638cf3e50ddb899192b95ff43ba729674bd6fcbc33d1e0fd2099f"
+}

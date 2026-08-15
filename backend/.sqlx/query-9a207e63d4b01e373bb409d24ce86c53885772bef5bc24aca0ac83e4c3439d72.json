@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into audit_log_entries (actor_user_id, event_type, subject_type, subject_id, metadata)\n               values ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a207e63d4b01e373bb409d24ce86c53885772bef5bc24aca0ac83e4c3439d72"
+}

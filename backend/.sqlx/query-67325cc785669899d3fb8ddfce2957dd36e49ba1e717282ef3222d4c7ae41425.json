@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select ldap_url, bind_dn, require_starttls, base_dn, user_filter,\n                   attribute_mapping, last_sync_at\n            from directory_sync_config where organization_id = 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ldap_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "ldap_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bind_dn",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "bind_dn"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "require_starttls",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "require_starttls"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "base_dn",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "base_dn"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "user_filter",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "user_filter"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "attribute_mapping",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "attribute_mapping"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "last_sync_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "last_sync_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "67325cc785669899d3fb8ddfce2957dd36e49ba1e717282ef3222d4c7ae41425"
+}

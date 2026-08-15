@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set security_stamp = gen_random_uuid(), must_change_passphrase = false where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d7f1f37beda0da0312fdb86b2d1e09afefcf3ce920dd6b8940e98df9321b1b3d"
+}

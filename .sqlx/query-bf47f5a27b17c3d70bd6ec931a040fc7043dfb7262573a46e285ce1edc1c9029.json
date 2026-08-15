@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select\n                u.id, u.email, u.display_name, u.active,\n                (u.avatar_content_type is not null) as \"has_avatar!\",\n                coalesce((\n                    select array_agg(g.name order by g.name)\n                    from group_members gm join groups g on g.id = gm.group_id\n                    where gm.user_id = u.id and g.deleted_at is null\n                ), '{}') as \"groups!: Vec<String>\",\n                (select count(*) from resources r where r.created_by = u.id) as \"owned_resources_count!\",\n                (\n                    select count(*) from permissions p\n                    join resources r on r.id = p.subject_id\n                    where p.subject_type = 'resource' and p.grantee_type = 'user' and p.grantee_id = u.id\n                      and r.created_by is distinct from u.id\n                ) as \"shared_with_count!\"\n            from users u\n            where u.deleted_at is null\n              and ($1::uuid is null or u.id < $1)\n              and ($2::bool is null or u.active = $2)\n            order by u.id desc\n            limit $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "active"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "has_avatar!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "groups!: Vec<String>",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "owned_resources_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "shared_with_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "bf47f5a27b17c3d70bd6ec931a040fc7043dfb7262573a46e285ce1edc1c9029"
+}

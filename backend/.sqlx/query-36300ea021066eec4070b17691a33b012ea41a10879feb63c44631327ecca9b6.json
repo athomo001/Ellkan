@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select public_key_ed25519 from server_keys where id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "public_key_ed25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "server_keys",
+            "name": "public_key_ed25519"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "36300ea021066eec4070b17691a33b012ea41a10879feb63c44631327ecca9b6"
+}

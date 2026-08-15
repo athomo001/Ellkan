@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set active = false, security_stamp = gen_random_uuid()\n               where id = $1 and deleted_at is null and active",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32f9e4967a37543f66e4a4bf31ff0fd6ddda96502c88baf7ccee819520759b9b"
+}

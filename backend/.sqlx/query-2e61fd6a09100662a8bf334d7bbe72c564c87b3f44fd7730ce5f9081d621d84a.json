@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select required, grace_period_days, default_approval_threshold\n               from account_recovery_policy where organization_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "required",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_policy",
+            "name": "required"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "grace_period_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_policy",
+            "name": "grace_period_days"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "default_approval_threshold",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_policy",
+            "name": "default_approval_threshold"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2e61fd6a09100662a8bf334d7bbe72c564c87b3f44fd7730ce5f9081d621d84a"
+}

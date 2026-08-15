@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select user_id from sso_identities where provider = $1 and provider_user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "sso_identities",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ccca5fb76756c3a840299431828ac4bfdd3a6135d5e2e3d929ad220a7f5f2c71"
+}

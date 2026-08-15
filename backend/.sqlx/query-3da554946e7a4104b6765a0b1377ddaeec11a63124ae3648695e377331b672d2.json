@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update external_shares set view_count = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3da554946e7a4104b6765a0b1377ddaeec11a63124ae3648695e377331b672d2"
+}

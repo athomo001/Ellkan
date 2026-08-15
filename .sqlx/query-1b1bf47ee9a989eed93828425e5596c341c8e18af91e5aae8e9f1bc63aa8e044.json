@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select public_key_x25519, public_key_ed25519 from user_keys where user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "public_key_x25519"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "public_key_ed25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "public_key_ed25519"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1b1bf47ee9a989eed93828425e5596c341c8e18af91e5aae8e9f1bc63aa8e044"
+}

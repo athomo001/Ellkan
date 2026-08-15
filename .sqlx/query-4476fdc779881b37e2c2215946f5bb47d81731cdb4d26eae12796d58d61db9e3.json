@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select json_schema from resource_types where id = $1 and deleted_at is null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "json_schema",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "resource_types",
+            "name": "json_schema"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4476fdc779881b37e2c2215946f5bb47d81731cdb4d26eae12796d58d61db9e3"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update external_shares set revoked_at = now(), ciphertext = null\n               where id = $1 and revoked_at is null and burned_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ffd7a688de251036c18a80f02801cc317982acb260b3f62b5147cbf114921fd4"
+}

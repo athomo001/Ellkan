@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update self_registration_policy set enabled = $1, allowed_domains = $2 where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ac235633d003fb1d8ef061b934d709457d8ddc4c0d56f29852b294f90e7d742"
+}

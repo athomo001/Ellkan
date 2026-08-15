@@ -1,0 +1,558 @@
+<!-- Autor: Athan Espinoza -->
+<script lang="ts">
+	// F-20/F-40: no hay `GET /admin/users` (listado completo) en el backend
+	// — gap real (F-29, exportación masiva, sigue sin implementar en 1.6).
+	// Se busca por email vía `/users/{email}/public-key` (ya devuelve
+	// `user_id`) y de ahí se opera sobre ese usuario puntual.
+	import { onMount } from 'svelte';
+	import Card from '$lib/components/Card.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import TextField from '$lib/components/TextField.svelte';
+	import SecretField from '$lib/components/SecretField.svelte';
+	import Table from '$lib/components/Table.svelte';
+	import { usersAdminApi, obtenerAvatarUrlAdmin, groupsApi, type UsuarioAdmin, type PurgeDryRun, type Grupo } from '$lib/api/admin';
+	import { crearUsuarioPorAdmin } from '$lib/crypto/identity';
+	import { t } from '$lib/i18n';
+	import { ApiError } from '$lib/api/client';
+
+	// Parte C: misma ceremonia de F-01 que la pantalla pública de registro
+	// (`(anon)/register/+page.svelte::enviar`), pero contra `POST /admin/users`
+	// — salta la política de auto-registro y el requisito de SMTP configurado,
+	// la cuenta queda verificada de una. Corre en el propio navegador del
+	// admin: Ellkan es zero-knowledge, el servidor no puede generar la clave
+	// privada cifrada de otra persona. Crea sólo rol 'user' — promover a admin
+	// sigue exigiendo `ellkan-cli admin promote-to-admin` (frontera de
+	// seguridad deliberada, no se toca acá).
+	let nuevoEmail = $state('');
+	let nuevoNombre = $state('');
+	let creandoUsuario = $state(false);
+	let errorCrear = $state<string | undefined>();
+	let passphraseCreada = $state<string | undefined>();
+
+	// Punto 4 (feedback de uso real): asignar grupo(s) en el mismo alta, sin
+	// el paso aparte de siempre. Sólo grupos raíz (`GET /groups`) — cubre el
+	// caso pedido sin construir un aplanado recursivo de subgrupos que nadie
+	// pidió; un subgrupo puntual se sigue asignando después, a mano.
+	let gruposDisponibles = $state<Grupo[]>([]);
+	let gruposSeleccionados = $state<Set<string>>(new Set());
+	let advertenciasGrupos = $state<string[]>([]);
+
+	async function cargarGruposDisponibles() {
+		try {
+			gruposDisponibles = await groupsApi.listar();
+		} catch {
+			/* el form de creación sigue funcionando igual sin el selector si esto falla */
+		}
+	}
+	onMount(cargarGruposDisponibles);
+
+	function toggleGrupoSeleccionado(id: string) {
+		const nuevo = new Set(gruposSeleccionados);
+		if (nuevo.has(id)) nuevo.delete(id);
+		else nuevo.add(id);
+		gruposSeleccionados = nuevo;
+	}
+
+	function generarPassphraseTemporal(): string {
+		const bytes = crypto.getRandomValues(new Uint8Array(20));
+		return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, '').slice(0, 24);
+	}
+
+	async function crearUsuario(e: SubmitEvent) {
+		e.preventDefault();
+		errorCrear = undefined;
+		passphraseCreada = undefined;
+		advertenciasGrupos = [];
+		creandoUsuario = true;
+		try {
+			const passphrase = generarPassphraseTemporal();
+			const resultado = await crearUsuarioPorAdmin(nuevoEmail, nuevoNombre, passphrase);
+			passphraseCreada = passphrase;
+
+			// Grupo sin recursos compartidos todavía: `envelopes: []` alcanza
+			// (mismo criterio que `GroupService::agregar_miembro`). Si algún
+			// grupo seleccionado ya comparte recursos, la llamada falla con
+			// un 400 claro — se informa por grupo en vez de fallar en
+			// silencio o abortar la creación (el usuario ya se creó bien).
+			const advertencias: string[] = [];
+			for (const groupId of gruposSeleccionados) {
+				const grupo = gruposDisponibles.find((g) => g.id === groupId);
+				try {
+					await groupsApi.agregarMiembro(groupId, resultado.userId, false, []);
+				} catch {
+					advertencias.push($t.admin.usuarios.errorAgregarAGrupo(grupo?.name ?? groupId));
+				}
+			}
+			advertenciasGrupos = advertencias;
+
+			nuevoEmail = '';
+			nuevoNombre = '';
+			gruposSeleccionados = new Set();
+			await cargarListado(true);
+		} catch (err) {
+			errorCrear = err instanceof ApiError ? err.message : $t.admin.usuarios.errorCrear;
+		} finally {
+			creandoUsuario = false;
+		}
+	}
+
+	// F-29: listado completo paginado (cursor-based, mismo patrón que
+	// `AuditLogPage`) — además de la búsqueda por email de abajo, no en
+	// reemplazo (buscar por email sigue siendo el camino rápido a un
+	// usuario puntual).
+	let listado = $state<UsuarioAdmin[]>([]);
+	let cursorSiguiente = $state<string | undefined>();
+	let cargandoListado = $state(false);
+	let errorListado = $state<string | undefined>();
+
+	async function cargarListado(desdeCero = false) {
+		cargandoListado = true;
+		errorListado = undefined;
+		try {
+			const pagina = await usersAdminApi.listar(desdeCero ? undefined : cursorSiguiente);
+			listado = desdeCero ? pagina.items : [...listado, ...pagina.items];
+			cursorSiguiente = pagina.next_cursor ?? undefined;
+		} catch (err) {
+			errorListado = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			cargandoListado = false;
+		}
+	}
+
+	onMount(() => cargarListado(true));
+
+	// --- Borrado masivo ---
+	let seleccionados = $state<Set<string>>(new Set());
+	let purgandoMasivo = $state(false);
+	let resultadoMasivo = $state<{ ok: number; bloqueados: string[]; errores: string[] } | undefined>();
+
+	function toggleSeleccion(id: string) {
+		const nuevo = new Set(seleccionados);
+		if (nuevo.has(id)) nuevo.delete(id);
+		else nuevo.add(id);
+		seleccionados = nuevo;
+	}
+
+	function toggleSeleccionTodos() {
+		seleccionados = seleccionados.size === listado.length ? new Set() : new Set(listado.map((u) => u.id));
+	}
+
+	async function purgarSeleccionados() {
+		if (seleccionados.size === 0) return;
+		if (!confirm($t.admin.usuarios.purgaMasivaConfirmar(seleccionados.size))) return;
+		purgandoMasivo = true;
+		resultadoMasivo = undefined;
+		const bloqueados: string[] = [];
+		const errores: string[] = [];
+		let ok = 0;
+		// Secuencial, no Promise.all: cada purga es una transacción propia en
+		// el servidor y así el rate limiter general (2/s) nunca se satura
+		// con una tanda grande — también deja reportar exactamente cuál
+		// usuario falló y por qué, no sólo "algo falló".
+		for (const id of seleccionados) {
+			const u = listado.find((x) => x.id === id);
+			try {
+				await usersAdminApi.purgar(id);
+				ok++;
+			} catch (err) {
+				if (err instanceof ApiError && err.status === 409) {
+					bloqueados.push(u?.email ?? id);
+				} else {
+					errores.push(u?.email ?? id);
+				}
+			}
+		}
+		resultadoMasivo = { ok, bloqueados, errores };
+		seleccionados = new Set();
+		purgandoMasivo = false;
+		await cargarListado(true);
+	}
+
+	// Post-cierre bloque C: activar/desactivar en batch — reusa el mismo
+	// endpoint singular que ya usaba `toggleActivo` para un usuario puntual,
+	// en loop; la purga masiva de arriba ya tiene su propio flujo dedicado,
+	// no se toca.
+	let aplicandoActivoMasivo = $state(false);
+	async function aplicarActivoMasivo(active: boolean) {
+		if (seleccionados.size === 0) return;
+		aplicandoActivoMasivo = true;
+		for (const id of seleccionados) {
+			try {
+				await usersAdminApi.actualizarActivo(id, active);
+			} catch {
+				/* sigue con el resto — el usuario ve el resultado final al recargar la lista */
+			}
+		}
+		seleccionados = new Set();
+		aplicandoActivoMasivo = false;
+		await cargarListado(true);
+	}
+
+	// Avatares por fila — lazy y cacheado (`Map`), no todos de una vez: sólo
+	// se pide el de una fila que declara `has_avatar` (la mayoría no tiene).
+	let avatares = $state<Map<string, string>>(new Map());
+	async function avatarDe(u: UsuarioAdmin): Promise<string | undefined> {
+		if (!u.has_avatar) return undefined;
+		if (avatares.has(u.id)) return avatares.get(u.id);
+		const url = await obtenerAvatarUrlAdmin(u.id);
+		if (url) avatares = new Map(avatares).set(u.id, url);
+		return url ?? undefined;
+	}
+
+	let email = $state('');
+	let buscando = $state(false);
+	let error = $state<string | undefined>();
+	let usuario = $state<UsuarioAdmin | undefined>();
+
+	async function buscar(e: SubmitEvent) {
+		e.preventDefault();
+		error = undefined;
+		usuario = undefined;
+		dryRun = undefined;
+		buscando = true;
+		try {
+			const { user_id } = await usersAdminApi.buscarPorEmail(email);
+			usuario = await usersAdminApi.obtener(user_id);
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.admin.usuarios.errorBuscar;
+		} finally {
+			buscando = false;
+		}
+	}
+
+	async function seleccionarDeListado(fila: UsuarioAdmin) {
+		error = undefined;
+		dryRun = undefined;
+		usuario = fila;
+	}
+
+	let cambiandoActivo = $state(false);
+	async function toggleActivo() {
+		if (!usuario) return;
+		cambiandoActivo = true;
+		try {
+			usuario = await usersAdminApi.actualizarActivo(usuario.id, !usuario.active);
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			cambiandoActivo = false;
+		}
+	}
+
+	let dryRun = $state<PurgeDryRun | undefined>();
+	let cargandoDryRun = $state(false);
+	async function verDryRun() {
+		if (!usuario) return;
+		cargandoDryRun = true;
+		error = undefined;
+		try {
+			dryRun = await usersAdminApi.purgeDryRun(usuario.id);
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			cargandoDryRun = false;
+		}
+	}
+
+	let purgando = $state(false);
+	let purgaOk = $state<string | undefined>();
+	async function purgar() {
+		if (!usuario || !confirm($t.admin.usuarios.purgaConfirmar)) return;
+		purgando = true;
+		error = undefined;
+		try {
+			const r = await usersAdminApi.purgar(usuario.id);
+			purgaOk = $t.admin.usuarios.purgaOk(r.resources_huerfanos_eliminados);
+			usuario = undefined;
+			dryRun = undefined;
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		} finally {
+			purgando = false;
+		}
+	}
+</script>
+
+<h1>{$t.admin.usuarios.titulo}</h1>
+
+<Card>
+	<h2>{$t.admin.usuarios.crearTitulo}</h2>
+	<p class="hint">{$t.admin.usuarios.crearHint}</p>
+	<form onsubmit={crearUsuario} class="form-crear">
+		<TextField label={$t.admin.usuarios.nombre} bind:value={nuevoNombre} autocomplete="off" required />
+		<TextField label={$t.admin.usuarios.email} type="email" bind:value={nuevoEmail} autocomplete="off" required />
+		<Button type="submit" variant="primary" loading={creandoUsuario}>{$t.admin.usuarios.crear}</Button>
+	</form>
+	{#if gruposDisponibles.length > 0}
+		<div class="grupos-al-crear">
+			<p class="hint">{$t.admin.usuarios.gruposAlCrearHint}</p>
+			<ul class="lista-grupos-checkbox">
+				{#each gruposDisponibles as g (g.id)}
+					<li>
+						<label>
+							<input
+								type="checkbox"
+								checked={gruposSeleccionados.has(g.id)}
+								onchange={() => toggleGrupoSeleccionado(g.id)}
+							/>
+							{g.name}
+						</label>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+	{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
+	{#if passphraseCreada}
+		<div class="passphrase-creada">
+			<p class="ok">{$t.admin.usuarios.creadoOk}</p>
+			<SecretField label={$t.admin.usuarios.passphraseGenerada} valor={passphraseCreada} />
+		</div>
+	{/if}
+	{#each advertenciasGrupos as advertencia (advertencia)}
+		<p class="error">{advertencia}</p>
+	{/each}
+</Card>
+
+<Card>
+	<h2>{$t.admin.usuarios.listadoTitulo}</h2>
+	{#if errorListado}<p class="error">{errorListado}</p>{/if}
+
+	<div class="barra-masiva">
+		<Button variant="ghost" onclick={toggleSeleccionTodos} disabled={listado.length === 0}>
+			{seleccionados.size === listado.length && listado.length > 0
+				? $t.admin.usuarios.deseleccionarTodos
+				: $t.admin.usuarios.seleccionarTodos}
+		</Button>
+		{#if seleccionados.size > 0}
+			<Button variant="secondary" onclick={() => aplicarActivoMasivo(true)} loading={aplicandoActivoMasivo}>
+				{$t.admin.usuarios.activarSeleccionados}
+			</Button>
+			<Button variant="secondary" onclick={() => aplicarActivoMasivo(false)} loading={aplicandoActivoMasivo}>
+				{$t.admin.usuarios.desactivarSeleccionados}
+			</Button>
+			<Button variant="danger" onclick={purgarSeleccionados} loading={purgandoMasivo}>
+				{$t.admin.usuarios.purgarSeleccionados(seleccionados.size)}
+			</Button>
+		{/if}
+	</div>
+	{#if resultadoMasivo}
+		<p class="ok">{$t.admin.usuarios.purgaMasivaOk(resultadoMasivo.ok)}</p>
+		{#if resultadoMasivo.bloqueados.length}
+			<p class="error">{$t.admin.usuarios.purgaMasivaBloqueados}: {resultadoMasivo.bloqueados.join(', ')}</p>
+		{/if}
+		{#if resultadoMasivo.errores.length}
+			<p class="error">{$t.admin.usuarios.purgaMasivaErrores}: {resultadoMasivo.errores.join(', ')}</p>
+		{/if}
+	{/if}
+
+	<Table
+		columnas={[
+			{ key: 'sel', header: '' },
+			{ key: 'avatar', header: '' },
+			{ key: 'nombre', header: $t.admin.usuarios.nombre },
+			{ key: 'email', header: $t.admin.usuarios.email },
+			{ key: 'grupos', header: $t.admin.usuarios.colGrupos },
+			{ key: 'conteos', header: $t.admin.usuarios.colConteos },
+			{ key: 'estado', header: $t.admin.usuarios.estado }
+		]}
+		filas={listado}
+		claveFila={(f) => f.id}
+		cargando={cargandoListado}
+		textoCargando={$t.admin.comun.cargando}
+		vacio={$t.admin.usuarios.listadoVacio}
+		seleccionadaId={usuario?.id}
+		onSeleccionar={seleccionarDeListado}
+	>
+		{#snippet fila(f)}
+			<td onclick={(e) => e.stopPropagation()}>
+				<input type="checkbox" checked={seleccionados.has(f.id)} onchange={() => toggleSeleccion(f.id)} />
+			</td>
+			<td class="celda-avatar">
+				{#if f.has_avatar}
+					{#await avatarDe(f) then url}
+						{#if url}<img class="avatar-fila" src={url} alt="" />{/if}
+					{/await}
+				{:else}
+					<span class="avatar-inicial">{(f.display_name || f.email)[0]?.toUpperCase()}</span>
+				{/if}
+			</td>
+			<td>{f.display_name}</td>
+			<td>{f.email}</td>
+			<td class="secundario">{f.groups.length > 0 ? f.groups.join(', ') : '—'}</td>
+			<td class="secundario">{$t.admin.usuarios.conteoRecursos(f.owned_resources_count, f.shared_with_count)}</td>
+			<td>{f.active ? $t.admin.usuarios.activo : $t.admin.usuarios.inactivo}</td>
+		{/snippet}
+	</Table>
+	{#if cursorSiguiente}
+		<Button variant="secondary" onclick={() => cargarListado(false)} loading={cargandoListado}>
+			{$t.admin.auditoria.cargarMas}
+		</Button>
+	{/if}
+</Card>
+
+<Card>
+	<h2>{$t.admin.usuarios.buscarTitulo}</h2>
+	<p class="hint">{$t.admin.usuarios.hint}</p>
+	<form onsubmit={buscar} class="form">
+		<TextField label={$t.admin.usuarios.email} type="email" bind:value={email} required />
+		<Button type="submit" variant="primary" loading={buscando}>{$t.admin.comun.buscar}</Button>
+	</form>
+
+	{#if error}<p class="error">{error}</p>{/if}
+	{#if purgaOk}<p class="ok">{purgaOk}</p>{/if}
+
+	{#if usuario}
+		<div class="detalle">
+			<p><strong>{usuario.display_name}</strong> — {usuario.email}</p>
+			<p class="secundario">
+				{usuario.active ? $t.admin.usuarios.activo : $t.admin.usuarios.inactivo}
+			</p>
+			<div class="botones">
+				<Button variant="secondary" onclick={toggleActivo} loading={cambiandoActivo}>
+					{usuario.active ? $t.admin.usuarios.desactivarCuenta : $t.admin.usuarios.activarCuenta}
+				</Button>
+				<Button variant="ghost" onclick={verDryRun} loading={cargandoDryRun}>{$t.admin.usuarios.verBloqueosPurga}</Button>
+			</div>
+
+			{#if dryRun}
+				<div class="dryrun">
+					{#if dryRun.blocks_purge}
+						<p class="error">{$t.admin.usuarios.purgaBloqueada}</p>
+						{#if dryRun.blocked_groups.length}
+							<p class="secundario">{$t.admin.usuarios.gruposBloqueados}</p>
+							<ul>
+								{#each dryRun.blocked_groups as g (g.group_id)}<li>{g.name}</li>{/each}
+							</ul>
+						{/if}
+						{#if dryRun.blocked_resources.length}
+							<p class="secundario">{$t.admin.usuarios.recursosBloqueados}</p>
+							<ul>
+								{#each dryRun.blocked_resources as r (r)}<li>{r}</li>{/each}
+							</ul>
+						{/if}
+					{:else}
+						<p class="ok">{$t.admin.usuarios.sinBloqueos}</p>
+						<Button variant="danger" onclick={purgar} loading={purgando}>{$t.admin.usuarios.purgar}</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
+</Card>
+
+<style>
+	h1 {
+		margin: 0 0 var(--space-6) 0;
+		font-size: var(--text-2xl);
+		color: var(--text-primary);
+	}
+	h2 {
+		margin: 0 0 var(--space-3) 0;
+		font-size: var(--text-lg);
+		color: var(--text-primary);
+	}
+	:global(.card) + :global(.card) {
+		margin-top: var(--space-4);
+	}
+	.hint {
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+		margin: 0 0 var(--space-4) 0;
+	}
+	.barra-masiva {
+		display: flex;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+		margin-bottom: var(--space-3);
+	}
+	.celda-avatar {
+		width: 2rem;
+	}
+	.avatar-fila {
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 50%;
+		object-fit: cover;
+		display: block;
+	}
+	.avatar-inicial {
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 50%;
+		background: var(--bg-overlay);
+		color: var(--text-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: var(--text-xs);
+		font-weight: 600;
+	}
+	.form {
+		display: flex;
+		align-items: flex-end;
+		gap: var(--space-2);
+		max-width: 28rem;
+	}
+	.form-crear {
+		display: flex;
+		align-items: flex-end;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+		max-width: 34rem;
+	}
+	.form :global(.field),
+	.form-crear :global(.field) {
+		margin-bottom: 0;
+	}
+	.grupos-al-crear {
+		margin-top: var(--space-3);
+	}
+	.lista-grupos-checkbox {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+	}
+	.lista-grupos-checkbox label {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-primary);
+	}
+	.passphrase-creada {
+		margin-top: var(--space-3);
+		border-top: 1px solid var(--border-color);
+		padding-top: var(--space-3);
+	}
+	.detalle {
+		margin-top: var(--space-4);
+		border-top: 1px solid var(--border-color);
+		padding-top: var(--space-4);
+	}
+	.secundario {
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+	}
+	.botones {
+		display: flex;
+		gap: var(--space-2);
+		margin: var(--space-3) 0;
+	}
+	.dryrun {
+		margin-top: var(--space-3);
+		border-top: 1px solid var(--border-color);
+		padding-top: var(--space-3);
+	}
+	.error {
+		color: var(--danger);
+		font-size: var(--text-sm);
+	}
+	.ok {
+		color: var(--success);
+		font-size: var(--text-sm);
+	}
+</style>

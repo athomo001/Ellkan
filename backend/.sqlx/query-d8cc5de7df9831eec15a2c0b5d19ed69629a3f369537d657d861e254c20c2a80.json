@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select locale, theme, clipboard_clear_minutes, auto_lock_minutes\n               from users where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "locale"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "theme",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "theme"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "clipboard_clear_minutes",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "clipboard_clear_minutes"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "auto_lock_minutes",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "auto_lock_minutes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d8cc5de7df9831eec15a2c0b5d19ed69629a3f369537d657d861e254c20c2a80"
+}

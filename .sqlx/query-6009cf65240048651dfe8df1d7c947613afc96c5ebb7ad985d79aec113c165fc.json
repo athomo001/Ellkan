@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from resource_tags where resource_id = $1 and tag_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6009cf65240048651dfe8df1d7c947613afc96c5ebb7ad985d79aec113c165fc"
+}

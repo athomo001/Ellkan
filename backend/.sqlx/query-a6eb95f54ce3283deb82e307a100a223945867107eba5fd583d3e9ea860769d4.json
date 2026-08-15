@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into known_devices (user_id, device_token_hash) values ($1, $2)\n               on conflict (user_id, device_token_hash) do update set last_seen_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a6eb95f54ce3283deb82e307a100a223945867107eba5fd583d3e9ea860769d4"
+}

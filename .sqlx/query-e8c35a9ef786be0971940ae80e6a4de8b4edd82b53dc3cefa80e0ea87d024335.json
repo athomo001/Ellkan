@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            delete from folder_items where folder_id in (\n                select id from folders where deleted_at < now() - make_interval(days => $1)\n            ) or child_folder_id in (\n                select id from folders where deleted_at < now() - make_interval(days => $1)\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e8c35a9ef786be0971940ae80e6a4de8b4edd82b53dc3cefa80e0ea87d024335"
+}

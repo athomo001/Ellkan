@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into account_recovery_escrow\n                (user_id, sealed_private_key_for_org, org_recovery_key_id, approval_threshold)\n            values ($1, $2, $3, $4)\n            on conflict (user_id) do update set\n                sealed_private_key_for_org = excluded.sealed_private_key_for_org,\n                org_recovery_key_id = excluded.org_recovery_key_id,\n                approval_threshold = excluded.approval_threshold\n            returning id, user_id, sealed_private_key_for_org, org_recovery_key_id, approval_threshold, created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sealed_private_key_for_org",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "sealed_private_key_for_org"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "org_recovery_key_id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "org_recovery_key_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "approval_threshold",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "approval_threshold"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9f6a777dc3ff236dcf002716fd3275e4e5c8364e408b1bb5e33e4a4de2430f96"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update auth_challenges set consumed_at = now()\n            where user_id = $1 and nonce = $2\n              and consumed_at is null and expires_at > now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b256118830cf20397b8e8b75fbadb5cc5533b3d82f96d05116ae4b044cc33fc5"
+}

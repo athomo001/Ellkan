@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select level from permissions\n            where subject_type = 'resource' and subject_id = $1\n              and (\n                (grantee_type = 'user' and grantee_id = $2)\n                or (grantee_type = 'group' and grantee_id in (\n                    select group_id from group_members where user_id = $2\n                ))\n              )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "level",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "level"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cce3af61ac6ff396980c5cd74f974448c1ef930431ab41c291a0e7142abb70a3"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update organizations set data_retention_days = $1, audit_log_retention_days = $2 where id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a07c69e06ed49e50107e8d6388cc209dee5ae92ed308d80c4d0a643c8cb36c38"
+}

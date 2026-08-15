@@ -1,0 +1,116 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select ael.id, ael.actor_user_id, u.email as \"actor_email?\", ael.event_type,\n                   ael.subject_type, ael.subject_id, ael.metadata, ael.created_at\n            from audit_log_entries ael\n            left join users u on u.id = ael.actor_user_id\n            where ($1::uuid is null or ael.actor_user_id = $1)\n              and ($2::text is null or ael.event_type = $2)\n              and ($3::timestamptz is null or ael.created_at >= $3)\n              and ($4::timestamptz is null or ael.created_at <= $4)\n            order by ael.id asc\n            limit $5\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "actor_user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "actor_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "actor_email?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "event_type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "subject_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "subject_type"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "subject_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "subject_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "metadata",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "metadata"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "audit_log_entries",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "d2750155c933b146093c51c134cf5572f1aa651314b5bb04fbae5184fd1e65cf"
+}

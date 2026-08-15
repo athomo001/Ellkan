@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update account_recovery_requests set status = 'completed'\n               where id = $1 and status = 'approved'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a211e46842b4d23a3d0d9a14327672f6c26eb9d4c79717e94d91d5a4893e61fa"
+}

@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select ciphertext, password_protected, password_salt, max_views, view_count,\n                   expires_at, revoked_at, burned_at\n            from external_shares where id = $1 for update\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "password_protected",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "password_protected"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "password_salt",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "password_salt"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "max_views",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "max_views"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "view_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "view_count"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "revoked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "revoked_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "burned_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "burned_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "d21d373940b971e2d133a7cec048783a112406236ea0cde289c02894f3fcc373"
+}

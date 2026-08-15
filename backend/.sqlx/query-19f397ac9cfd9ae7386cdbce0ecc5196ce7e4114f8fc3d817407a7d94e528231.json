@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update organizations\n            set allow_peer_device_approval = $1, allow_admin_device_approval = $2\n            where id = 1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "19f397ac9cfd9ae7386cdbce0ecc5196ce7e4114f8fc3d817407a7d94e528231"
+}

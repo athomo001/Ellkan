@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, granter_id, grantee_id, access_level, sealed_material, wait_time_days, status, created_at\n               from emergency_access where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "granter_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "granter_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "grantee_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "grantee_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "access_level",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "access_level"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sealed_material",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "sealed_material"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "wait_time_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "wait_time_days"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e5a479df8fb93d024dc75c430553d01bf501fef92815df26ecb3ed3f75b5f960"
+}

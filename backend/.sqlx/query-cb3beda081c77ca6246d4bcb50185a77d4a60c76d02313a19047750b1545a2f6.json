@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update sso_config set issuer_url = $1, client_id = $2, jit_provisioning_enabled = $3\n            where organization_id = 1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cb3beda081c77ca6246d4bcb50185a77d4a60c76d02313a19047750b1545a2f6"
+}

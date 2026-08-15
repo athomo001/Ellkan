@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select p.grantee_type, p.grantee_id, p.level,\n                   case p.grantee_type when 'user' then u.email when 'group' then g.name end as \"label?\"\n            from permissions p\n            left join users u on p.grantee_type = 'user' and u.id = p.grantee_id\n            left join groups g on p.grantee_type = 'group' and g.id = p.grantee_id\n            where p.subject_type = $1 and p.subject_id = $2\n            order by p.level desc, p.grantee_type, p.grantee_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "grantee_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "grantee_type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "grantee_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "grantee_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "level",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "level"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "label?",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "3ca0c3937a145026c49676ad4f9a645aca5f5e42bb3fbdd1e5bbffa7fd2616db"
+}

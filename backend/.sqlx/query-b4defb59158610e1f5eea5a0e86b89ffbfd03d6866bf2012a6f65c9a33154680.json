@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                select 1 as \"existe!\" from permissions\n                where subject_type = 'resource' and subject_id = $1 and grantee_type = 'user' and grantee_id = $2\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b4defb59158610e1f5eea5a0e86b89ffbfd03d6866bf2012a6f65c9a33154680"
+}

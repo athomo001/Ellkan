@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into groups (name, managed_by_directory_sync)\n            values ($1, true)\n            on conflict (name) where parent_group_id is null and deleted_at is null\n                do update set name = excluded.name\n            returning id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fb1da8439c9420597bd4e7ae3fc94b0a9d864b93f25b6dac0a3acf6d7655d64c"
+}

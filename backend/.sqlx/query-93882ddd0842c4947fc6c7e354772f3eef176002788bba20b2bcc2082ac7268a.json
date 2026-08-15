@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update groups set deleted_at = now() where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93882ddd0842c4947fc6c7e354772f3eef176002788bba20b2bcc2082ac7268a"
+}

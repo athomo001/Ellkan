@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update trusted_devices set revoked_at = now(), sealed_user_private_key = null\n            where id = $1 and revoked_at is null\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78b895fa4ccf828129f7f6bee8ffc959bf60c339182348e626b852cc61a3c612"
+}

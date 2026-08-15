@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update account_recovery_requests set approvals = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3c7b35a966c60a0991a23a9a7dff9eac11f0d848d96906af56f0d42149e7a231"
+}

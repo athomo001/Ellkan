@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update group_members set is_admin = $3 where group_id = $1 and user_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65c71bda318ab7508448a8257714e009b6ae02fbfdaf4d243f3a0ccbc7b7ba23"
+}

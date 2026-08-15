@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select 1 as \"existe!\" from known_devices\n               where user_id = $1 and device_token_hash = $2 and mfa_verified_at is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a28a16010cc8aabc92568dee55d5c51a56a11c1c48c0fbb3e75ccab6bba6c304"
+}

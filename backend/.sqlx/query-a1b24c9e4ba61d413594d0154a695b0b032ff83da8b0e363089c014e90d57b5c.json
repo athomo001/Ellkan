@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select se.resource_id\n            from secret_envelopes se\n            where se.user_id = $1\n              and not exists (\n                  select 1 from secret_envelopes se2\n                  where se2.resource_id = se.resource_id and se2.user_id <> $1\n              )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "resource_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a1b24c9e4ba61d413594d0154a695b0b032ff83da8b0e363089c014e90d57b5c"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update sharing_policy set restrict_visibility_by_group = $1 where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09ac4692cfcf6fedef4aaf2a5f1fd7605819b9dcfa86cefe2b4979b49c82b4c1"
+}
