@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from secret_envelopes where resource_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a3369374f88b0630c5e8036fb3c909f54d10fe83a7daa0f7b62bdc32fb22cffb"
+}

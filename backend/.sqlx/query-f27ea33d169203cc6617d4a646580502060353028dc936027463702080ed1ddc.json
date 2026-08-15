@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from permissions where grantee_type = 'user' and grantee_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f27ea33d169203cc6617d4a646580502060353028dc936027463702080ed1ddc"
+}

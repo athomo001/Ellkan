@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select max_group_depth from organizations where id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max_group_depth",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "organizations",
+            "name": "max_group_depth"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1c7895a6ce497b57454e5699a29ffff6f061dc5f43e62d36f63a1d773a106654"
+}

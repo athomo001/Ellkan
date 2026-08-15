@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into server_keys (id, public_key_ed25519, private_key_ed25519) values (1, $1, $2)\n         on conflict (id) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e1732dd0169e683daf6f91175b06df2db34410eadb98ed615a3ab641b48ebf5b"
+}

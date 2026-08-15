@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update external_shares set burned_at = now(), ciphertext = null\n            where revoked_at is null and burned_at is null and expires_at <= now()\n            returning id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "external_shares",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d952f581e19d3f2cded7d8488661e063cfda596d1e2f3d20950ab2c7c3b60dc9"
+}

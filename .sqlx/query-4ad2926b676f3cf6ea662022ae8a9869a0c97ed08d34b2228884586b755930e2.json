@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update outbound_emails set status = 'enviado', sent_at = now()\n               where status = 'pendiente'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4ad2926b676f3cf6ea662022ae8a9869a0c97ed08d34b2228884586b755930e2"
+}

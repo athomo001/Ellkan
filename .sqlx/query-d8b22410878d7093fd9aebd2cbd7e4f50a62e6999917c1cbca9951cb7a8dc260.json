@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set avatar_bytes = null, avatar_content_type = null where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d8b22410878d7093fd9aebd2cbd7e4f50a62e6999917c1cbca9951cb7a8dc260"
+}

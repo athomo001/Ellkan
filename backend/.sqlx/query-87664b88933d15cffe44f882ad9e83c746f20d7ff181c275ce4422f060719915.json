@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            delete from webauthn_ceremony_state\n            where user_id = $1 and kind = $2 and expires_at > now()\n            returning state_json\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "webauthn_ceremony_state",
+            "name": "state_json"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "87664b88933d15cffe44f882ad9e83c746f20d7ff181c275ce4422f060719915"
+}

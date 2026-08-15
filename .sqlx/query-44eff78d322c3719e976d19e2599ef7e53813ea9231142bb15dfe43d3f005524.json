@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update organizations set emergency_access_enabled = $1 where id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "44eff78d322c3719e976d19e2599ef7e53813ea9231142bb15dfe43d3f005524"
+}

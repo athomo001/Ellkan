@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt\n            from user_keys uk\n            join users u on u.id = uk.user_id\n            where u.email = $1 and u.active and u.deleted_at is null and u.email_verified_at is not null\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "encrypted_private_key_blob",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "encrypted_private_key_blob"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "private_key_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "private_key_nonce"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kdf_salt",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "kdf_salt"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4749d1e94f7e95aa8d8ba0914e2000c408aa0b38ab17ae7e8f11973bd0628ff5"
+}

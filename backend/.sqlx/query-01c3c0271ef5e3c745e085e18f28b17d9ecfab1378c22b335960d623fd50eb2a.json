@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update device_challenges set consumed_at = now() where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01c3c0271ef5e3c745e085e18f28b17d9ecfab1378c22b335960d623fd50eb2a"
+}

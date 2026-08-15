@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from emergency_access where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1deba9d2f4e63137fe0c03f0e0f49d0933d26b0642a3a8bb3e664b2ae2f918b0"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update account_recovery_policy set\n                required = $1, grace_period_days = $2, default_approval_threshold = $3\n            where organization_id = 1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0069bce005f1c1720676e77deea81c752ffaa9c5be5a9918b68dc476e24ae0b7"
+}

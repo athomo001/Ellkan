@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update password_policy set\n                min_passphrase_length = $1,\n                min_passphrase_entropy_bits = $2,\n                passphrase_rotation_days = $3,\n                generator_default_length = $4,\n                generator_charset_rules = $5,\n                max_clipboard_clear_minutes = $6,\n                max_auto_lock_minutes = $7\n            where organization_id = 1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Jsonb",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9b236faa2c41fe749db1ed36de15979a34cb047f12e810e5b7e0e3e1e74d09d"
+}

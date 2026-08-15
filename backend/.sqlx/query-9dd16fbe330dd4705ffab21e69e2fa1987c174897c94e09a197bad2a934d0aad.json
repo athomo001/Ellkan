@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            with recursive ancestros as (\n                select id, parent_group_id from groups where id = $1\n                union all\n                select g.id, g.parent_group_id\n                from groups g\n                join ancestros a on g.id = a.parent_group_id\n            )\n            select id as \"id!\" from ancestros\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9dd16fbe330dd4705ffab21e69e2fa1987c174897c94e09a197bad2a934d0aad"
+}

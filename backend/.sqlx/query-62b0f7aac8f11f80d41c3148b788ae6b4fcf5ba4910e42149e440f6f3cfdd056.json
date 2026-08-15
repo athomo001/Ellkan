@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update outbound_emails set status = 'enviado', sent_at = now() where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "62b0f7aac8f11f80d41c3148b788ae6b4fcf5ba4910e42149e440f6f3cfdd056"
+}

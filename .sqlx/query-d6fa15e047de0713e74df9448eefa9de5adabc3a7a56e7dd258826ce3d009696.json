@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update emergency_access set status = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6fa15e047de0713e74df9448eefa9de5adabc3a7a56e7dd258826ce3d009696"
+}

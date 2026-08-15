@@ -12,6 +12,16 @@
 
 A self-hosted password manager with a zero-knowledge architecture: the server never sees your private keys or your secrets in plaintext. Backend in Rust (Axum), encryption with modern primitives (X25519, Ed25519, XChaCha20-Poly1305, Argon2id), web frontend and browser extension share the same cryptographic core compiled to WebAssembly.
 
+## Screenshots
+
+| Vault | Admin panel | New item |
+| --- | --- | --- |
+| ![Vault](assets/screenshots/vault.jpg) | ![Admin](assets/screenshots/admin.jpg) | ![New item](assets/screenshots/nuevo-recurso.jpg) |
+
+| Extension — item detail | Extension — password generator |
+| --- | --- |
+| ![Extension: detail](assets/screenshots/extension-popup.png) | ![Extension: generator](assets/screenshots/extension-generador.png) |
+
 ## Tech stack
 
 ### Backend
@@ -48,6 +58,80 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 | zeroize / secrecy | Secure wiping and redaction of secrets in memory |
 | subtle | Constant-time comparisons (timing-attack mitigation) |
 
+## Quickstart
+
+Requires Docker and Docker Compose.
+
+```bash
+git clone https://github.com/athomo001/Ellkan.git
+cd Ellkan
+cp .env.example .env
+set -a && source .env && set +a
+
+# Deployment secrets — see secrets/README.md for details on each one.
+# Reads POSTGRES_USER/POSTGRES_DB from the .env you just loaded — if you
+# changed them above, this builds the right DATABASE_URL on its own,
+# instead of you having to keep two places in sync by hand.
+openssl rand -hex 24 > secrets/postgres_password.txt
+openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
+echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
+
+docker compose up -d
+```
+
+The app is now at `http://localhost:${ELLKAN_PORT:-8080}`. The first admin is created via the CLI (no pre-built binaries yet — build it from source):
+
+```bash
+cargo build --release -p ellkan-cli
+
+# DATABASE_URL here is DIFFERENT from the one in secrets/database_url.txt:
+# that one uses Docker's internal hostname (ellkan-db), which only
+# resolves inside the container network — this one points at the port
+# docker-compose exposes on 127.0.0.1 so the CLI (running on the host)
+# can reach it.
+DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
+  ./target/release/ellkan-cli admin create-user \
+  --email you@example.com --display-name "Your name" --role admin
+
+./target/release/ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email you@example.com
+```
+
+`--role admin` promotes directly (over SQL, never through HTTP — no HTTP route lets an account self-assign admin) and marks this device as known, so the `login` above works right away without waiting on any email — no SMTP needed to get started. Once inside, configure a real relay at `/admin/smtp` so device verification for any other login/user arrives by email for real.
+
+See [manual/cli.md](manual/cli.md#comandos) for the rest of the commands.
+
+By default the backend serves plain HTTP — for TLS (terminated by Ellkan itself, no reverse proxy needed, or with one), backup/restore, and troubleshooting, see [manual/instalacion.md](manual/instalacion.md) (Spanish only, see disclaimer below).
+
+### Updating / rebuilding after a change
+
+```bash
+git pull
+docker compose build ellkan
+docker compose up -d ellkan
+```
+
+Both commands are needed: `build` creates the new image, but `up -d` is the one that actually replaces the running container — forgetting this second step is the most common mistake. If you still don't see the change after this, it's probably the browser serving the old bundle from its own cache (`Ctrl+Shift+R`/`Cmd+Shift+R`, or try a private window); if that's not enough either, see [Reconstruir sin caché](manual/instalacion.md#reconstruir-sin-caché-cuando-un-cambio-no-aparece) in the manual (Spanish only) for the extra step to force a build with no cached layers at all.
+
+> **`docker compose build ellkan` can take several minutes, every time** (not just the first) — the build compiles the Rust backend in release mode from scratch (the whole dependency tree, not just what you changed) plus the cryptographic core to WebAssembly, with no build cache between runs. That's expected, it doesn't mean it's stuck.
+
+### Hardware requirements (reasoned estimate, not measured under real load — details and assumptions in [manual/instalacion.md](manual/instalacion.md#requisitos-de-hardware--estimación-razonada-no-medida-con-carga-real))
+
+| | Minimum | Recommended |
+| --- | --- | --- |
+| CPU | 1 vCPU | 2 vCPU |
+| RAM | 512 MB | 2 GB |
+| Disk | 1 GB + data | 10 GB + data |
+| Concurrent active users | ~10-20 | ~50-100 |
+
+## Documentation
+
+Detailed manuals are currently Spanish-only:
+
+- [manual/funcionalidades.md](manual/funcionalidades.md) — what Ellkan does, by area.
+- [manual/cli.md](manual/cli.md) — full `ellkan-cli` reference.
+- [manual/instalacion.md](manual/instalacion.md) — TLS, backup/restore, troubleshooting, hardware requirements.
+- [extension/README.md](extension/README.md) — browser extension development, build, and packaging (Spanish only).
+
 ## FAQ
 
 **Can the server see my passwords?**
@@ -61,7 +145,7 @@ The key is never left sitting around in memory waiting for someone to grab it. E
 
 ## Status
 
-Actively in development, early stage.
+Actively in development. Backend and web frontend work end to end (registration, login, vault, groups, MFA, SSO/SCIM/LDAP, auditing, admin panel, export/backup). The browser extension (Chrome, Edge, Brave, Opera, Firefox) also works end to end — login, smart session handling, vault with autofill, password generator — see [extension/README.md](extension/README.md); Safari is still pending (requires native packaging via Xcode).
 
 ## License
 

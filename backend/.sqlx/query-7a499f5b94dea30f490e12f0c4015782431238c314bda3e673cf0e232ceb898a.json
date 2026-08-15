@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select bind_password_encrypted, bind_password_nonce from directory_sync_config where organization_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bind_password_encrypted",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "bind_password_encrypted"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bind_password_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "bind_password_nonce"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "7a499f5b94dea30f490e12f0c4015782431238c314bda3e673cf0e232ceb898a"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update directory_sync_config set last_sync_at = now() where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d304e5ae6502a0b9c189e69a253e0d608efd873759b3f9f105ec54fd1bc47069"
+}

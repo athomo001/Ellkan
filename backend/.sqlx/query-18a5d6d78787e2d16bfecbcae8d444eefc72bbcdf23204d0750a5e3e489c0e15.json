@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into webauthn_ceremony_state (user_id, kind, state_json, expires_at)\n            values ($1, $2, $3, $4)\n            on conflict (user_id, kind) do update\n                set state_json = excluded.state_json, expires_at = excluded.expires_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18a5d6d78787e2d16bfecbcae8d444eefc72bbcdf23204d0750a5e3e489c0e15"
+}

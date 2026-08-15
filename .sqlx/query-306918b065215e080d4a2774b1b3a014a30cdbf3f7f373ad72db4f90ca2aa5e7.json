@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into recovery_kits (user_id, kit_public_key_x25519, sealed_identity_material)\n            values ($1, $2, $3)\n            on conflict (user_id) do update set\n                kit_public_key_x25519 = excluded.kit_public_key_x25519,\n                sealed_identity_material = excluded.sealed_identity_material,\n                must_rotate = false,\n                updated_at = now()\n            returning id, user_id, kit_public_key_x25519, sealed_identity_material, must_rotate, created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "recovery_kits",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "recovery_kits",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kit_public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "recovery_kits",
+            "name": "kit_public_key_x25519"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "sealed_identity_material",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "recovery_kits",
+            "name": "sealed_identity_material"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "must_rotate",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "recovery_kits",
+            "name": "must_rotate"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "recovery_kits",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "306918b065215e080d4a2774b1b3a014a30cdbf3f7f373ad72db4f90ca2aa5e7"
+}

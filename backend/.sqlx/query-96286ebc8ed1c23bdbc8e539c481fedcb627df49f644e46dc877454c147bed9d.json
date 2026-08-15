@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select permission from role_permissions where role_id = $1 order by permission",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "permission",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "role_permissions",
+            "name": "permission"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "96286ebc8ed1c23bdbc8e539c481fedcb627df49f644e46dc877454c147bed9d"
+}

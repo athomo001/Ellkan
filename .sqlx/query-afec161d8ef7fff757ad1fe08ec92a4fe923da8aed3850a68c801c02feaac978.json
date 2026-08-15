@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select export_enabled, allowed_formats, import_enabled from export_policy where organization_id = 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "export_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "export_policy",
+            "name": "export_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "allowed_formats",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "export_policy",
+            "name": "allowed_formats"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "import_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "export_policy",
+            "name": "import_enabled"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "afec161d8ef7fff757ad1fe08ec92a4fe923da8aed3850a68c801c02feaac978"
+}

@@ -1,0 +1,24 @@
+# Sin este archivo, `COPY frontend ./` (backend/Dockerfile) copia el
+# `node_modules`/build local del host encima de lo que el propio build
+# instala limpio adentro del contenedor — rompe `pnpm run build` con un
+# mismatch de dependencias (visto en vivo: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY).
+node_modules/
+**/node_modules/
+.svelte-kit/
+/frontend/build/
+/frontend/.pnpm-store/
+
+# Rust
+/target/
+**/target/
+
+# Investigación local, nunca debe entrar a una imagen
+/passbolt/
+/bitwarden/
+
+# Nada de esto lo necesita el build
+.git/
+*.log
+docs/
+spec/
+.agents/
