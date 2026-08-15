@@ -91,6 +91,18 @@ Ver [manual/cli.md](manual/cli.md#comandos) para el resto de los comandos.
 
 Por defecto el backend sirve HTTP plano — para TLS (terminado por el propio Ellkan, sin reverse proxy aparte, o con uno), backup/restauración y solución de problemas comunes, ver [manual/instalacion.md](manual/instalacion.md).
 
+### Actualizar / reconstruir tras un cambio
+
+```bash
+git pull
+docker compose build ellkan
+docker compose up -d ellkan
+```
+
+Los dos comandos son necesarios: `build` arma la imagen nueva, pero `up -d` es el que efectivamente reemplaza el contenedor corriendo — olvidarse de este segundo paso es el error más común. Si después de esto no ves el cambio, probablemente sea el navegador sirviendo el bundle viejo desde su propia caché (`Ctrl+Shift+R`/`Cmd+Shift+R`, o probar en una ventana privada); si eso tampoco alcanza, ver [Reconstruir sin caché](manual/instalacion.md#reconstruir-sin-caché-cuando-un-cambio-no-aparece) en el manual, con el paso extra para un build sin ninguna capa cacheada.
+
+> **`docker compose build ellkan` puede tardar varios minutos, cada vez** (no sólo la primera) — el build compila el backend en Rust en modo release desde cero (todo el árbol de dependencias, no sólo lo que cambiaste) más el núcleo criptográfico a WebAssembly, sin caché de compilación entre builds. Es esperado, no significa que quedó colgado.
+
 ### Requisitos de hardware (estimación, no medida con carga real — detalle y supuestos en [manual/instalacion.md](manual/instalacion.md#requisitos-de-hardware--estimación-razonada-no-medida-con-carga-real))
 
 | | Mínimo | Recomendado |

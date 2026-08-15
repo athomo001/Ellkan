@@ -718,6 +718,18 @@ button[type='submit']:disabled {
 	font-weight: 600;
 }
 
+/* Bloques de controles por modo (Aleatoria/Frase de paso) — `<div>` planos,
+   no `<form>`, así que sin esto no heredaban el `display:flex;gap` que le da
+   su espaciado consistente a cada `form` del resto del popup (label con
+   `margin-top`, sin nada del otro lado) — quedaba un `label` pegado
+   directo al `select`/`input` siguiente (ej. "Separador" con el combobox de
+   abajo). Mismo `gap` que usa `form`, mismo criterio en todo el popup. */
+.generador-controles {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
 /* Vista previa con color distinto por tipo de carácter (letra/número/
    símbolo) — pedido explícito del usuario, "colores diferenciados por tipo
    de carácter si es posible". */
