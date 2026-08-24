@@ -399,6 +399,11 @@
 	let nombre = $state('');
 	let usuario = $state('');
 	let uri = $state('');
+	/** F-07 tipos host:puerto (ssh/ftp/vnc/telnet) — dos campos separados en
+	 * el form para que el usuario no tenga que tipear el `:` a mano, se
+	 * combinan en un solo `uri` recién al armar el payload en crear(). */
+	let hostNuevo = $state('');
+	let puertoNuevo = $state('');
 	let password = $state('');
 	let notas = $state('');
 	let totpSecretBase32 = $state('');
@@ -411,13 +416,14 @@
 		errorCrear = undefined;
 		creando = true;
 		try {
+			const uriFinal = tipoNuevo === 'login-password' ? uri : hostNuevo + (puertoNuevo ? `:${puertoNuevo}` : '');
 			await crearRecurso(
-				{ tipo: tipoNuevo, nombre, usuario, uri, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
+				{ tipo: tipoNuevo, nombre, usuario, uri: uriFinal, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
 				$clavesDesbloqueadas,
 				$sesion.userId
 			);
 			tipoNuevo = 'login-password';
-			nombre = usuario = uri = password = notas = totpSecretBase32 = '';
+			nombre = usuario = uri = hostNuevo = puertoNuevo = password = notas = totpSecretBase32 = '';
 			mostrarCrear = false;
 			await cargar();
 		} catch (err) {
@@ -1658,7 +1664,14 @@
 			</label>
 			<TextField label={$t.vault.nombre} bind:value={nombre} required />
 			<TextField label={$t.vault.usuario} bind:value={usuario} />
-			<TextField label={tipoNuevo === 'login-password' ? $t.vault.uri : $t.vault.uriHostPuerto} bind:value={uri} />
+			{#if tipoNuevo === 'login-password'}
+				<TextField label={$t.vault.uri} bind:value={uri} />
+			{:else}
+				<div class="host-puerto">
+					<TextField label={$t.vault.host} bind:value={hostNuevo} />
+					<TextField label={$t.vault.puerto} type="number" bind:value={puertoNuevo} />
+				</div>
+			{/if}
 			<div class="con-generar">
 				<TextField label={$t.vault.password} type="password" bind:value={password} required />
 				<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
@@ -1838,6 +1851,16 @@
 	.con-generar :global(.field) {
 		flex: 1;
 		margin-bottom: 0;
+	}
+	.host-puerto {
+		display: flex;
+		gap: var(--space-2);
+	}
+	.host-puerto :global(.field:first-child) {
+		flex: 3;
+	}
+	.host-puerto :global(.field:last-child) {
+		flex: 1;
 	}
 	.botones {
 		display: flex;
