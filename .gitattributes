@@ -1,0 +1,8 @@
+# Autor: Athan Espinoza
+
+# El repo vive en un disco NTFS montado por FUSE (ntfs-3g) — algo en ese
+# camino (editor/SO en el lado Windows del dual-boot, backup/sync) convirtió
+# casi todo el árbol de LF a CRLF de una sola pasada (2026-08-24, ~596
+# archivos con diff 100% ruido de fin de línea, sin cambios reales). Esto
+# fuerza LF en checkout/commit para que no vuelva a pasar desapercibido.
+* text=auto eol=lf
