@@ -1,0 +1,3 @@
+Estás recuperando tu cuenta de Ellkan con tu recovery kit.
+Código de verificación: {{ codigo }}
+Ingresalo para completar la recuperación. Si no fuiste vos, ignorá este email.

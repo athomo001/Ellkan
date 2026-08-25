@@ -224,7 +224,7 @@ pub struct PgExternalSharePolicyRepository {
 impl ExternalSharePolicyRepository for PgExternalSharePolicyRepository {
     async fn obtener(&self) -> Result<ExternalSharePolicy, RepoError> {
         let fila = sqlx::query!(
-            r#"select enabled, max_expiration_hours, require_password
+            r#"select enabled, max_expiration_hours, require_password, allow_link, allow_file
                from external_share_policy where organization_id = 1"#,
         )
         .fetch_one(&self.pool)
@@ -233,17 +233,22 @@ impl ExternalSharePolicyRepository for PgExternalSharePolicyRepository {
             enabled: fila.enabled,
             max_expiration_hours: fila.max_expiration_hours,
             require_password: fila.require_password,
+            allow_link: fila.allow_link,
+            allow_file: fila.allow_file,
         })
     }
 
     async fn actualizar(&self, policy: &ExternalSharePolicy) -> Result<(), RepoError> {
         sqlx::query!(
             r#"update external_share_policy
-               set enabled = $1, max_expiration_hours = $2, require_password = $3
+               set enabled = $1, max_expiration_hours = $2, require_password = $3,
+                   allow_link = $4, allow_file = $5
                where organization_id = 1"#,
             policy.enabled,
             policy.max_expiration_hours,
             policy.require_password,
+            policy.allow_link,
+            policy.allow_file,
         )
         .execute(&self.pool)
         .await?;

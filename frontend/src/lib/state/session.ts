@@ -6,6 +6,7 @@
 // lock/logout — nunca tocan disco.
 
 import { declararStore } from './declarative-store';
+import type { ExternalSharePolicy } from '$lib/api/externalShares';
 
 export interface ClavesDesbloqueadas {
 	x25519Private: Uint8Array;
@@ -68,6 +69,21 @@ export const esAdmin = declararStore<boolean | null>('esAdmin', null, {
  * ambos derivados de la misma llamada).
  */
 export const permisos = declararStore<Set<string>>('permisos', new Set(), {
+	ubicacion: 'memory',
+	clearOn: ['logout']
+});
+
+/**
+ * F-26, hallazgo real de uso 2026-08-24: el nav principal y el Vault cada
+ * uno mostraba/ocultaba "Compartir externo" con su propio criterio (uno de
+ * los dos ni siquiera consultaba la política) — mismo criterio que
+ * `esAdmin`/`permisos`, se resuelve una sola vez por sesión en
+ * `(app)/+layout.svelte` y lo reusan los dos en vez de que cada uno dispare
+ * su propio `GET /external-share-policy`. `null` = todavía no se probó —
+ * mientras tanto, ningún lado debería mostrar el botón/link (ver
+ * `puedeCompartirExterno` derivado de esto, nunca default a `true`).
+ */
+export const externalSharePolicy = declararStore<ExternalSharePolicy | null>('externalSharePolicy', null, {
 	ubicacion: 'memory',
 	clearOn: ['logout']
 });

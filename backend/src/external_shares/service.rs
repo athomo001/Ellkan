@@ -47,7 +47,7 @@ where
         expires_in_hours: i32,
     ) -> Result<FilaExternalShare, DomainError> {
         let politica = self.policy.obtener().await?;
-        if !politica.enabled {
+        if !politica.enabled || !politica.allow_link {
             return Err(DomainError::PermissionDenied);
         }
         if politica.require_password && !password_protected {
@@ -162,12 +162,23 @@ where
         enabled: bool,
         max_expiration_hours: i32,
         require_password: bool,
+        allow_link: bool,
+        allow_file: bool,
     ) -> Result<ExternalSharePolicy, DomainError> {
         if max_expiration_hours < 1 {
             return Err(DomainError::ValidacionInvalida("max_expiration_hours debe ser al menos 1".into()));
         }
+        // Sólo importa si queda alguna forma habilitada cuando `enabled` en
+        // sí sigue prendido — con todo apagado (`enabled = false`) no hay
+        // ninguna combinación inválida de `allow_link`/`allow_file`, porque
+        // ninguna de las dos formas está disponible de todos modos.
+        if enabled && !allow_link && !allow_file {
+            return Err(DomainError::ValidacionInvalida(
+                "tiene que quedar habilitada al menos una forma de compartir externo (link o archivo)".into(),
+            ));
+        }
 
-        let nueva = ExternalSharePolicy { enabled, max_expiration_hours, require_password };
+        let nueva = ExternalSharePolicy { enabled, max_expiration_hours, require_password, allow_link, allow_file };
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -176,6 +187,8 @@ where
                     "enabled": nueva.enabled,
                     "max_expiration_hours": nueva.max_expiration_hours,
                     "require_password": nueva.require_password,
+                    "allow_link": nueva.allow_link,
+                    "allow_file": nueva.allow_file,
                 }),
             ),
         ));

@@ -56,6 +56,11 @@ WORKDIR /app
 
 COPY --from=builder /build/target/release/ellkan-backend /app/ellkan-backend
 COPY --from=frontend-builder /build/build /app/frontend
+# Plantillas de email (ver `notificaciones::cargar_plantillas`) — a
+# diferencia del binario y el frontend, éstas SÍ se leen de disco en
+# runtime a propósito: un operador puede montar un volumen encima de
+# `/app/templates` para personalizar los correos sin reconstruir la imagen.
+COPY backend/templates /app/templates
 
 # Las migraciones quedan embebidas en el binario en tiempo de compilación
 # (`sqlx::migrate!`), no se leen de disco en runtime — nada que copiar acá.

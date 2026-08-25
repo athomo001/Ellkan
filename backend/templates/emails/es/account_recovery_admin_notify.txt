@@ -1,0 +1,2 @@
+Hay una solicitud de recuperación de cuenta pendiente para {{ target_email }}.
+Revisala en el panel de administración.

@@ -79,6 +79,8 @@ echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@e
 docker compose up -d
 ```
 
+> **Esto es sólo para la primera vez.** Para cualquier cambio posterior (`git pull`, o código propio) `docker compose up -d` solo **no alcanza** — sigue usando la imagen vieja. Hace falta `docker compose build ellkan` antes — ver [Actualizar / reconstruir tras un cambio](#actualizar--reconstruir-tras-un-cambio) más abajo.
+
 La app queda en `http://localhost:${ELLKAN_PORT:-8080}`. El primer admin se crea vía CLI (todavía no hay binarios pre-compilados — se compila desde el código):
 
 ```bash

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update external_share_policy\n               set enabled = $1, max_expiration_hours = $2, require_password = $3,\n                   allow_link = $4, allow_file = $5\n               where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int4",
+        "Bool",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b40aebb06532e321535f6aa83040dc1c3a7af0e85adba4b91014856995cfac6a"
+}

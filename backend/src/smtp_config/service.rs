@@ -109,7 +109,7 @@ where
 
         let id = self
             .emails
-            .encolar(to, "Ellkan — email de prueba", "Generado desde /admin/smtp para verificar la configuración SMTP.")
+            .encolar(to, "Ellkan — email de prueba", "Generado desde /admin/smtp para verificar la configuración SMTP.", None)
             .await?;
 
         for _ in 0..INTENTOS_POLLING {

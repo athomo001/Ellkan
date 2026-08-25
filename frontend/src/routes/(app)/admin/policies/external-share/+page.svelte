@@ -18,6 +18,8 @@
 	let enabled = $state(true);
 	let maxExpirationHours = $state('168');
 	let requirePassword = $state(false);
+	let allowLink = $state(true);
+	let allowFile = $state(true);
 
 	onMount(async () => {
 		try {
@@ -25,6 +27,8 @@
 			enabled = p.enabled;
 			maxExpirationHours = String(p.max_expiration_hours);
 			requirePassword = p.require_password;
+			allowLink = p.allow_link;
+			allowFile = p.allow_file;
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
 		} finally {
@@ -41,7 +45,9 @@
 			const p: ExternalSharePolicy = {
 				enabled,
 				max_expiration_hours: Number(maxExpirationHours),
-				require_password: requirePassword
+				require_password: requirePassword,
+				allow_link: allowLink,
+				allow_file: allowFile
 			};
 			await adminExternalSharePolicyApi.actualizar(p);
 			guardado = true;
@@ -63,6 +69,7 @@
 				<input type="checkbox" bind:checked={enabled} />
 				{$t.admin.politicaExternalShare.enabled}
 			</label>
+			<p class="hint">{$t.admin.politicaExternalShare.enabledHint}</p>
 
 			<TextField
 				label={$t.admin.politicaExternalShare.maxExpirationHours}
@@ -75,6 +82,16 @@
 				<input type="checkbox" bind:checked={requirePassword} />
 				{$t.admin.politicaExternalShare.requirePassword}
 			</label>
+
+			<label class="check">
+				<input type="checkbox" bind:checked={allowLink} />
+				{$t.admin.politicaExternalShare.allowLink}
+			</label>
+			<label class="check">
+				<input type="checkbox" bind:checked={allowFile} />
+				{$t.admin.politicaExternalShare.allowFile}
+			</label>
+			<p class="hint">{$t.admin.politicaExternalShare.allowFileHint}</p>
 
 			{#if error}<p class="error">{error}</p>{/if}
 			{#if guardado}<p class="ok">{$t.admin.comun.guardado}</p>{/if}
@@ -100,7 +117,12 @@
 		gap: var(--space-2);
 		font-size: var(--text-sm);
 		color: var(--text-primary);
-		margin-bottom: var(--space-4);
+		margin-bottom: var(--space-1);
+	}
+	.hint {
+		margin: 0 0 var(--space-4) 0;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
 	}
 	.error {
 		color: var(--danger);

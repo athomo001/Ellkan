@@ -36,6 +36,13 @@ rand = "0.10.2"
 rand_core = "0.10.1"
 secrecy = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
+# Compartir externo por archivo (alternativa a F-26 que no depende de que el
+# servidor sea alcanzable desde afuera, ver docs/activeContext.md) — .7z con
+# AES-256 + header cifrado (nombres de archivo también quedan ilegibles sin
+# la contraseña) en vez de ZIP: misma versión de `getrandom` (0.4/`wasm_js`)
+# que ya fija este crate, sin override nuevo, y sin las libs C de bzip2/lzma
+# (pure Rust de punta a punta, compila a wasm32 sin fricción — verificado).
+sevenz-rust2 = { version = "0.22.0", default-features = false, features = ["aes256", "compress"] }
 sha1 = "0.11.0"
 sha2 = "0.11.0"
 subtle = "2.6.1"
