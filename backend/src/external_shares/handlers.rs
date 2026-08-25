@@ -94,7 +94,24 @@ pub async fn obtener(
     }))
 }
 
+/// No-admin — el Vault necesita saber si mostrar el botón de "Compartir
+/// externo" y qué método(s) ofrecer, mismo patrón que `export::handlers::politica`
+/// (no-admin) vs `politica_admin` (sólo el panel de administración).
 pub async fn politica(
+    State(state): State<AppState>,
+    _usuario: AuthenticatedUser,
+) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
+    let p = servicio(&state).politica().await?;
+    Ok(Json(ExternalSharePolicyResponse {
+        enabled: p.enabled,
+        max_expiration_hours: p.max_expiration_hours,
+        require_password: p.require_password,
+        allow_link: p.allow_link,
+        allow_file: p.allow_file,
+    }))
+}
+
+pub async fn politica_admin(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
@@ -103,6 +120,8 @@ pub async fn politica(
         enabled: p.enabled,
         max_expiration_hours: p.max_expiration_hours,
         require_password: p.require_password,
+        allow_link: p.allow_link,
+        allow_file: p.allow_file,
     }))
 }
 
@@ -112,11 +131,20 @@ pub async fn actualizar_politica(
     Json(req): Json<ActualizarExternalSharePolicyRequest>,
 ) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
     let p = servicio(&state)
-        .actualizar_politica(admin.user_id, req.enabled, req.max_expiration_hours, req.require_password)
+        .actualizar_politica(
+            admin.user_id,
+            req.enabled,
+            req.max_expiration_hours,
+            req.require_password,
+            req.allow_link,
+            req.allow_file,
+        )
         .await?;
     Ok(Json(ExternalSharePolicyResponse {
         enabled: p.enabled,
         max_expiration_hours: p.max_expiration_hours,
         require_password: p.require_password,
+        allow_link: p.allow_link,
+        allow_file: p.allow_file,
     }))
 }

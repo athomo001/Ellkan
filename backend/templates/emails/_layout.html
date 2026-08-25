@@ -1,0 +1,46 @@
+<!--
+Autor: Athan Espinoza
+
+Layout compartido por los dos locales (es/en) — sólo aporta el "chrome"
+visual (header/footer de marca), nunca texto propio: todo el copy vive en
+cada plantilla de contenido para no mezclar dos idiomas en un mismo
+archivo. Tablas + estilos inline a propósito (no un <link> externo ni CSS
+moderno tipo flexbox) — es lo único que renderiza consistente entre
+Gmail/Outlook/Apple Mail, que ignoran o recortan CSS que no sea así.
+Paleta de marca: fondo #102335, teal #187890, dorado #E0B860
+(docs/activeContext.md, muestreada del logo).
+-->
+<!DOCTYPE html>
+<html lang="{{ locale }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Ellkan</title>
+</head>
+<body style="margin:0; padding:0; background-color:#EEF2F5; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EEF2F5;">
+<tr>
+<td align="center" style="padding:32px 16px;">
+<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="width:480px; max-width:100%; background-color:#FFFFFF; border-radius:12px; overflow:hidden;">
+<tr>
+<td style="background-color:#102335; padding:24px 32px;">
+<span style="font-size:20px; font-weight:700; letter-spacing:0.5px; color:#E0B860;">Ellkan</span>
+</td>
+</tr>
+<tr>
+<td style="padding:32px; color:#1B2733; font-size:15px; line-height:1.6;">
+{% block contenido %}{% endblock %}
+</td>
+</tr>
+<tr>
+<td style="padding:20px 32px; background-color:#F7F9FA; border-top:1px solid #E5EAEE;">
+<span style="font-size:12px; color:#7A8794;">Ellkan — self-hosted, zero-knowledge</span>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

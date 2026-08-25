@@ -35,6 +35,18 @@ Las dos variables tienen que estar juntas — con sólo una, el binario falla al
 
 No hay una tercera opción real: el canal tiene que cerrarse en algún punto entre el navegador/extensión y el servidor. La Opción A es la más liviana porque no agrega contenedor ni proceso nuevo.
 
+## Compartir externo (F-26): el link no sirve de nada si nadie de afuera puede alcanzarlo
+
+`/admin/policies/external-share` tiene un toggle **"Compartir externo habilitado"** — activarlo sólo prende la lógica del lado del servidor (crear/expirar/quemar el share). No hace que el link sea alcanzable desde afuera de tu red. Si Ellkan vive detrás de VPN/LAN (lo recomendado para un password manager), un destinatario externo que abre `https://tu-ellkan/s/{id}#{clave}` se encuentra con lo mismo que cualquier otra página interna: la conexión no llega, no es un error de la app.
+
+El link necesita dos cosas del lado del servidor para que alguien de afuera lo pueda abrir: el bundle estático de la SPA y el endpoint `GET /external-shares/{id}` — todo lo demás (`/admin`, `/vault`, `/auth/*`) puede seguir cerrado. Tres formas de resolverlo, de más a menos exposición:
+
+1. **Exponer la instancia entera a internet** — la más simple, pero el resto de la superficie (login, admin) queda alcanzable también, protegida sólo por su propia auth/rate-limit.
+2. **Reverse proxy con allowlist de rutas** (Caddy/nginx/Traefik) — dejá pasar sólo `/s/*`, los assets estáticos (`/_app/*` o el hash que arme el build) y `GET /external-shares/*`; bloqueá el resto ahí mismo, antes de que llegue a Ellkan.
+3. **Túnel saliente** (Cloudflare Tunnel, Tailscale Funnel, `frp`/`chisel` self-hosted) — Ellkan inicia la conexión hacia afuera, sin abrir ningún puerto entrante en tu firewall. Combinable con la allowlist del punto 2 en el proxy que recibe del túnel.
+
+Si tu instancia va a quedar completamente cerrada y no vas a implementar ninguna de las tres, dejá el toggle **apagado** — mostrarlo prendido sin que el link funcione es peor que no tener el feature.
+
 ## Backup y restauración
 
 Comandos completos en [manual/cli.md](cli.md#comandos) (`ellkan-cli admin backup create`/`backup restore`). Puntos operativos que no están ahí:

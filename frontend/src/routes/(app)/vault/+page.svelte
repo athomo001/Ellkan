@@ -58,8 +58,8 @@
 	import { passwordPolicyApi, groupsApi } from '$lib/api/admin';
 	import { misGruposApi, type GrupoDeUsuario } from '$lib/api/profile';
 	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
-	import { externalSharesApi } from '$lib/api/externalShares';
-	import { cifrarContenidoDeShare } from '$lib/crypto/externalShare';
+	import { externalSharesApi, externalSharePolicyApi, type ExternalSharePolicy } from '$lib/api/externalShares';
+	import { cifrarContenidoDeShare, crearArchivoCompartido } from '$lib/crypto/externalShare';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
 	import { copiarConLimpieza } from '$lib/clipboard';
 	import { exportPolicyApi, adminExportPolicyApi, type ExportPolicy } from '$lib/api/exportPolicy';
@@ -370,6 +370,14 @@
 		misGruposApi.listar().then((g) => (misGrupos = g)).catch(() => {
 			/* sin grupos no rompe nada, sólo queda sin poder compartir carpetas */
 		});
+		externalSharePolicyApi
+			.obtener()
+			.then((p) => (externalSharePolicyEstado = p))
+			.catch(() => {
+				/* hallazgo real 2026-08-24: sin esto el botón de "Compartir externo"
+				 * seguía visible aunque el admin lo hubiera apagado — sin política
+				 * legible, queda oculto por default en vez de mostrarlo igual. */
+			});
 		passwordPolicyApi
 			.obtener()
 			.then((p) => {
@@ -399,6 +407,11 @@
 	let nombre = $state('');
 	let usuario = $state('');
 	let uri = $state('');
+	/** F-07 tipos host:puerto (ssh/ftp/vnc/telnet) — dos campos separados en
+	 * el form para que el usuario no tenga que tipear el `:` a mano, se
+	 * combinan en un solo `uri` recién al armar el payload en crear(). */
+	let hostNuevo = $state('');
+	let puertoNuevo = $state('');
 	let password = $state('');
 	let notas = $state('');
 	let totpSecretBase32 = $state('');
@@ -411,13 +424,14 @@
 		errorCrear = undefined;
 		creando = true;
 		try {
+			const uriFinal = tipoNuevo === 'login-password' ? uri : hostNuevo + (puertoNuevo ? `:${puertoNuevo}` : '');
 			await crearRecurso(
-				{ tipo: tipoNuevo, nombre, usuario, uri, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
+				{ tipo: tipoNuevo, nombre, usuario, uri: uriFinal, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
 				$clavesDesbloqueadas,
 				$sesion.userId
 			);
 			tipoNuevo = 'login-password';
-			nombre = usuario = uri = password = notas = totpSecretBase32 = '';
+			nombre = usuario = uri = hostNuevo = puertoNuevo = password = notas = totpSecretBase32 = '';
 			mostrarCrear = false;
 			await cargar();
 		} catch (err) {
@@ -742,6 +756,112 @@
 	let externoCreando = $state(false);
 	let externoError = $state<string | undefined>();
 	let externoLink = $state<string | undefined>();
+
+	/** Segunda forma de compartir externo (pedido explícito 2026-08-24): un
+	 * .7z cifrado con AES-256 descargado directo, sin pasar por el servidor
+	 * ni depender de que la instancia sea alcanzable desde afuera — la
+	 * contraseña la elige quien comparte y se la pasa al destinatario por
+	 * otro canal. Estado separado del de "por link" porque son dos flujos
+	 * sin campos en común (acá no hay expiración/cupo de vistas, no hay
+	 * nada que trackear del lado del servidor). */
+	let externalSharePolicyEstado = $state<ExternalSharePolicy | undefined>();
+	const puedeCompartirExterno = $derived(!!externalSharePolicyEstado?.enabled);
+	const puedeExternoPorLink = $derived(puedeCompartirExterno && !!externalSharePolicyEstado?.allow_link);
+	const puedeExternoPorArchivo = $derived(puedeCompartirExterno && !!externalSharePolicyEstado?.allow_file);
+
+	let modoExterno = $state<'link' | 'archivo'>('link');
+	let archivoPassword = $state('');
+	let archivoGenerando = $state(false);
+	let archivoError = $state<string | undefined>();
+	let archivoListo = $state(false);
+
+	/** Un bloque de texto por recurso — usado tanto para compartir uno solo
+	 * como para el .7z en lote (pedido explícito 2026-08-24): sólo incluye
+	 * los campos que el recurso realmente tiene, nunca una línea vacía
+	 * "Notas: " para algo que no existe. */
+	function bloqueDeRecurso(
+		nombre: string,
+		usuario: string,
+		uri: string,
+		password: string,
+		notas: string,
+		totpSecret?: string
+	): string {
+		const lineas = [`${$t.vault.archivoLabelRecurso}: ${nombre}`];
+		if (usuario) lineas.push(`${$t.vault.archivoLabelUsuario}: ${usuario}`);
+		if (uri) lineas.push(`${$t.vault.archivoLabelHost}: ${uri}`);
+		lineas.push(`${$t.vault.archivoLabelPassword}: ${password}`);
+		if (notas) lineas.push(`${$t.vault.archivoLabelNotas}: ${notas}`);
+		if (totpSecret) lineas.push(`${$t.vault.archivoLabelTotp}: ${totpSecret}`);
+		return lineas.join('\n');
+	}
+
+	async function descargarArchivoCifrado(e: SubmitEvent) {
+		e.preventDefault();
+		if (!seleccionado || !$clavesDesbloqueadas) return;
+		archivoError = undefined;
+		archivoListo = false;
+		archivoGenerando = true;
+		try {
+			const secreto = await verSecreto(seleccionado, $clavesDesbloqueadas);
+			const contenido = bloqueDeRecurso(
+				seleccionado.nombre,
+				seleccionado.usuario,
+				seleccionado.uri,
+				secreto.password,
+				secreto.notes,
+				secreto.totpSecret
+			);
+			const bytes = await crearArchivoCompartido(contenido, archivoPassword);
+			descargarArchivo({ blob: new Blob([bytes]), filename: `${seleccionado.nombre || 'ellkan'}.7z` });
+			archivoListo = true;
+		} catch (err) {
+			archivoError = err instanceof ApiError ? err.message : $t.vault.errorExterno;
+		} finally {
+			archivoGenerando = false;
+		}
+	}
+
+	// --- compartir por .7z en lote (pedido explícito 2026-08-24) — mismo
+	// mecanismo de arriba, un bloque por recurso seleccionado dentro de un
+	// solo archivo, separados con una línea divisoria para que quede claro
+	// dónde termina uno y empieza el otro al abrirlo. ---
+	let mostrarModalArchivoLote = $state(false);
+	let archivoLotePassword = $state('');
+	let archivoLoteGenerando = $state(false);
+	let archivoLoteError = $state<string | undefined>();
+	let archivoLoteListo = $state(false);
+
+	function abrirModalArchivoLote() {
+		archivoLotePassword = '';
+		archivoLoteError = undefined;
+		archivoLoteListo = false;
+		mostrarModalArchivoLote = true;
+	}
+
+	async function descargarArchivoCifradoDeSeleccion(e: SubmitEvent) {
+		e.preventDefault();
+		if (seleccionados.size === 0 || !$clavesDesbloqueadas) return;
+		archivoLoteError = undefined;
+		archivoLoteListo = false;
+		archivoLoteGenerando = true;
+		try {
+			const elegidos = recursos.filter((r) => seleccionados.has(r.id));
+			const bloques: string[] = [];
+			for (const r of elegidos) {
+				const secreto = await verSecreto(r, $clavesDesbloqueadas);
+				bloques.push(bloqueDeRecurso(r.nombre, r.usuario, r.uri, secreto.password, secreto.notes, secreto.totpSecret));
+			}
+			const contenido = bloques.join('\n\n----------------------------------------\n\n');
+			const bytes = await crearArchivoCompartido(contenido, archivoLotePassword);
+			descargarArchivo({ blob: new Blob([bytes]), filename: 'ellkan.7z' });
+			archivoLoteListo = true;
+		} catch (err) {
+			archivoLoteError = err instanceof ApiError ? err.message : $t.vault.errorExterno;
+		} finally {
+			archivoLoteGenerando = false;
+		}
+	}
 
 	async function crearExterno(e: SubmitEvent) {
 		e.preventDefault();
@@ -1245,6 +1365,12 @@
 								<Icon path={ICONO_COMPARTIR} size={14} />
 								{$t.vault.compartirLote.boton}
 							</Button>
+							{#if puedeExternoPorArchivo}
+								<Button variant="secondary" onclick={abrirModalArchivoLote}>
+									<Icon path={ICONO_COMPARTIR} size={14} />
+									{$t.vault.externoArchivoLoteBoton}
+								</Button>
+							{/if}
 							{#if recursos.filter((r) => seleccionados.has(r.id) && r.puedeBorrar).length > 0}
 								{#if confirmandoEliminarSeleccion}
 									<Button variant="danger" onclick={eliminarSeleccion} loading={aplicandoMasivo}>
@@ -1411,7 +1537,18 @@
 						<div class="panel-acciones">
 							<Button variant="ghost" onclick={empezarEditar}>{$t.vault.editar}</Button>
 							<Button variant="ghost" onclick={() => abrirModalCompartir(seleccionado!)}>{$t.vault.compartir}</Button>
-							<Button variant="ghost" onclick={() => (panelModo = 'externo')}>{$t.vault.compartirExterno}</Button>
+							{#if puedeCompartirExterno}
+								<Button
+									variant="ghost"
+									onclick={() => {
+										panelModo = 'externo';
+										modoExterno = puedeExternoPorLink ? 'link' : 'archivo';
+										archivoPassword = '';
+										archivoError = undefined;
+										archivoListo = false;
+									}}>{$t.vault.compartirExterno}</Button
+								>
+							{/if}
 							{#if seleccionado.puedeBorrar}
 								{#if confirmandoEliminar === seleccionado.id}
 									<Button variant="ghost" onclick={confirmarEliminarRecurso} loading={eliminando}>
@@ -1456,22 +1593,57 @@
 							</form>
 						{/if}
 					{:else if panelModo === 'externo'}
-						<form onsubmit={crearExterno}>
-							<TextField label={$t.vault.externoExpiraHoras} type="number" bind:value={externoExpiraHoras} required />
-							<TextField label={$t.vault.externoMaxVistas} type="number" bind:value={externoMaxVistas} required />
-							<TextField label={$t.vault.externoPassphrase} type="password" bind:value={externoPassphrase} />
-							{#if externoError}<p class="error">{externoError}</p>{/if}
-							{#if externoLink}
-								<p class="hint">{$t.vault.externoLinkListo}</p>
-								<SecretField label={$t.vault.compartirExterno} valor={externoLink} />
-								<Button type="button" variant="ghost" onclick={() => (panelModo = 'detalle')}>{$t.vault.cancelar}</Button>
-							{:else}
+						{#if puedeExternoPorLink && puedeExternoPorArchivo}
+							<div class="tabs-externo">
+								<button
+									type="button"
+									class="tab"
+									class:activo={modoExterno === 'link'}
+									onclick={() => (modoExterno = 'link')}>{$t.vault.externoModoLink}</button
+								>
+								<button
+									type="button"
+									class="tab"
+									class:activo={modoExterno === 'archivo'}
+									onclick={() => (modoExterno = 'archivo')}>{$t.vault.externoModoArchivo}</button
+								>
+							</div>
+						{/if}
+						{#if modoExterno === 'link' && puedeExternoPorLink}
+							<form onsubmit={crearExterno}>
+								<TextField label={$t.vault.externoExpiraHoras} type="number" bind:value={externoExpiraHoras} required />
+								<TextField label={$t.vault.externoMaxVistas} type="number" bind:value={externoMaxVistas} required />
+								<TextField label={$t.vault.externoPassphrase} type="password" bind:value={externoPassphrase} />
+								{#if externoError}<p class="error">{externoError}</p>{/if}
+								{#if externoLink}
+									<p class="hint">{$t.vault.externoLinkListo}</p>
+									<SecretField label={$t.vault.compartirExterno} valor={externoLink} />
+									<Button type="button" variant="ghost" onclick={() => (panelModo = 'detalle')}>{$t.vault.cancelar}</Button>
+								{:else}
+									<div class="botones">
+										<Button type="submit" variant="primary" loading={externoCreando}>{$t.vault.externoCrear}</Button>
+										<Button type="button" variant="ghost" onclick={() => (panelModo = 'detalle')}>{$t.vault.cancelar}</Button>
+									</div>
+								{/if}
+							</form>
+						{:else if puedeExternoPorArchivo}
+							<form onsubmit={descargarArchivoCifrado}>
+								<p class="hint">{$t.vault.externoArchivoHint}</p>
+								<TextField
+									label={$t.vault.externoArchivoPassword}
+									type="password"
+									bind:value={archivoPassword}
+									required
+								/>
+								{#if archivoError}<p class="error">{archivoError}</p>{/if}
+								{#if archivoListo}<p class="hint">{$t.vault.externoArchivoListo}</p>{/if}
 								<div class="botones">
-									<Button type="submit" variant="primary" loading={externoCreando}>{$t.vault.externoCrear}</Button>
+									<Button type="submit" variant="primary" loading={archivoGenerando}>{$t.vault.externoArchivoDescargar}</Button
+									>
 									<Button type="button" variant="ghost" onclick={() => (panelModo = 'detalle')}>{$t.vault.cancelar}</Button>
 								</div>
-							{/if}
-						</form>
+							</form>
+						{/if}
 					{/if}
 				</div>
 			</Card>
@@ -1643,6 +1815,25 @@
 	</Modal>
 {/if}
 
+{#if mostrarModalArchivoLote}
+	<Modal
+		titulo={$t.vault.externoArchivoLoteBoton}
+		subtitulo={$t.vault.conteoSeleccionados(seleccionados.size)}
+		onCerrar={() => (mostrarModalArchivoLote = false)}
+	>
+		<form onsubmit={descargarArchivoCifradoDeSeleccion}>
+			<p class="hint">{$t.vault.externoArchivoHint}</p>
+			<TextField label={$t.vault.externoArchivoPassword} type="password" bind:value={archivoLotePassword} required />
+			{#if archivoLoteError}<p class="error">{archivoLoteError}</p>{/if}
+			{#if archivoLoteListo}<p class="hint">{$t.vault.externoArchivoListo}</p>{/if}
+			<div class="botones">
+				<Button type="submit" variant="primary" loading={archivoLoteGenerando}>{$t.vault.externoArchivoDescargar}</Button>
+				<Button type="button" variant="ghost" onclick={() => (mostrarModalArchivoLote = false)}>{$t.vault.cancelar}</Button>
+			</div>
+		</form>
+	</Modal>
+{/if}
+
 {#if mostrarCrear}
 	<Modal titulo={$t.vault.nuevoRecurso} onCerrar={() => (mostrarCrear = false)}>
 		<form onsubmit={crear} class="crear">
@@ -1658,7 +1849,14 @@
 			</label>
 			<TextField label={$t.vault.nombre} bind:value={nombre} required />
 			<TextField label={$t.vault.usuario} bind:value={usuario} />
-			<TextField label={tipoNuevo === 'login-password' ? $t.vault.uri : $t.vault.uriHostPuerto} bind:value={uri} />
+			{#if tipoNuevo === 'login-password'}
+				<TextField label={$t.vault.uri} bind:value={uri} />
+			{:else}
+				<div class="host-puerto">
+					<TextField label={$t.vault.host} bind:value={hostNuevo} />
+					<TextField label={$t.vault.puerto} type="number" bind:value={puertoNuevo} />
+				</div>
+			{/if}
 			<div class="con-generar">
 				<TextField label={$t.vault.password} type="password" bind:value={password} required />
 				<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
@@ -1839,9 +2037,38 @@
 		flex: 1;
 		margin-bottom: 0;
 	}
+	.host-puerto {
+		display: flex;
+		gap: var(--space-2);
+	}
+	.host-puerto :global(.field:first-child) {
+		flex: 3;
+	}
+	.host-puerto :global(.field:last-child) {
+		flex: 1;
+	}
 	.botones {
 		display: flex;
 		gap: var(--space-2);
+	}
+	.tabs-externo {
+		display: flex;
+		gap: var(--space-1);
+		margin-bottom: var(--space-4);
+		border-bottom: 1px solid var(--border-color);
+	}
+	.tabs-externo .tab {
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		padding: var(--space-2) var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+	.tabs-externo .tab.activo {
+		color: var(--text-primary);
+		border-bottom-color: var(--accent-primary);
 	}
 	:global(.secundario) {
 		color: var(--text-muted);

@@ -1,0 +1,4 @@
+You requested to recover access to your Ellkan account.
+Open this link and follow the steps (you'll need your recovery kit):
+{{ link }}
+This link expires in 1 hour. If this wasn't you, ignore this email — your account is still safe.

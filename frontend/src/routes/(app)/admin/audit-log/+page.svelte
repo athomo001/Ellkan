@@ -65,8 +65,8 @@
 	<form onsubmit={filtrar} class="filtros">
 		<TextField label={$t.admin.auditoria.actorUserId} bind:value={actorUserId} />
 		<TextField label={$t.admin.auditoria.tipoEvento} bind:value={eventType} />
-		<TextField label={$t.admin.auditoria.desde} type="text" bind:value={desde} hint="YYYY-MM-DD" />
-		<TextField label={$t.admin.auditoria.hasta} type="text" bind:value={hasta} hint="YYYY-MM-DD" />
+		<TextField label={$t.admin.auditoria.desde} type="date" bind:value={desde} />
+		<TextField label={$t.admin.auditoria.hasta} type="date" bind:value={hasta} />
 		<Button type="submit" variant="primary" loading={cargando}>{$t.admin.auditoria.filtrar}</Button>
 	</form>
 

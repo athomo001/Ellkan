@@ -52,6 +52,8 @@ pub struct ExternalSharePolicyResponse {
     pub enabled: bool,
     pub max_expiration_hours: i32,
     pub require_password: bool,
+    pub allow_link: bool,
+    pub allow_file: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,4 +61,6 @@ pub struct ActualizarExternalSharePolicyRequest {
     pub enabled: bool,
     pub max_expiration_hours: i32,
     pub require_password: bool,
+    pub allow_link: bool,
+    pub allow_file: bool,
 }

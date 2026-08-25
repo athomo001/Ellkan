@@ -244,13 +244,59 @@ fn instalar_crypto_provider_tls() {
     });
 }
 
+/// `sqlx::migrate!` valida que el archivo de cada migración YA aplicada
+/// siga siendo byte-a-byte igual al que se corrió la primera vez (SHA-384
+/// del contenido, guardado en `_sqlx_migrations.checksum`) — un mecanismo
+/// de seguridad real, no un capricho: evita que una migración vieja se
+/// edite por error y el schema real termine divergiendo en silencio de lo
+/// que el código cree que existe.
+///
+/// El problema (hallazgo real 2026-08-24, ver docs/activeContext.md): en un
+/// filesystem inestable (NTFS/FUSE en este caso), el contenido de un
+/// archivo puede volver a ser exactamente el mismo de siempre — confirmado
+/// con `git diff` sin ninguna diferencia — y sin embargo el checksum
+/// calculado ya no coincide con el que quedó guardado en una base vieja, lo
+/// que deja el proceso crasheando en loop para siempre sin que nadie haya
+/// tocado ninguna migración a propósito. Reparado antes a mano vía SQL
+/// (`update _sqlx_migrations set checksum = ...`); esto automatiza
+/// exactamente ese mismo arreglo, pero sólo si `ELLKAN_MIGRATE_REPAIR_CHECKSUMS=true`
+/// — el comportamiento estricto de siempre sigue siendo el default para
+/// cualquier instancia que no lo prenda a propósito, no hay motivo para
+/// bajar la guardia en todos lados por un problema de un disco puntual.
+async fn reparar_checksums_de_migraciones(pool: &sqlx::PgPool, migrator: &sqlx::migrate::Migrator) {
+    if std::env::var("ELLKAN_MIGRATE_REPAIR_CHECKSUMS").as_deref() != Ok("true") {
+        return;
+    }
+    for m in migrator.iter() {
+        let resultado = sqlx::query("update _sqlx_migrations set checksum = $1 where version = $2 and checksum <> $1")
+            .bind(&m.checksum[..])
+            .bind(m.version)
+            .execute(pool)
+            .await;
+        match resultado {
+            Ok(r) if r.rows_affected() > 0 => {
+                tracing::warn!(
+                    version = m.version,
+                    "checksum de una migración ya aplicada no coincidía con el archivo actual — \
+                     corregido automáticamente (ELLKAN_MIGRATE_REPAIR_CHECKSUMS=true)"
+                );
+            }
+            // `_sqlx_migrations` puede no existir todavía (primer arranque real) o el checksum
+            // ya coincidir — ninguno de los dos casos es un problema, `migrate!` sigue después.
+            Ok(_) | Err(_) => {}
+        }
+    }
+}
+
 pub async fn construir_estado(
     database_url: &str,
     secrets_key: ellkan_crypto::secretos::ClaveSecreta32,
 ) -> anyhow::Result<AppState> {
     instalar_crypto_provider_tls();
     let pool = sqlx::PgPool::connect(database_url).await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    let migrator = sqlx::migrate!("./migrations");
+    reparar_checksums_de_migraciones(&pool, &migrator).await;
+    migrator.run(&pool).await?;
     let server_public_key = cargar_o_generar_server_key(&pool).await?;
     Ok(AppState::nuevo(pool, server_public_key, secrets_key))
 }
@@ -291,7 +337,7 @@ pub fn construir_router(estado: AppState) -> Router {
     // (ver notificaciones.rs). A diferencia de la versión anterior por
     // variable de entorno, la config se relee de la base en cada tick, así
     // que un cambio del admin aplica sin reiniciar el proceso.
-    notificaciones::spawn_consumidor_de_eventos(&estado.eventos, estado.emails.clone());
+    notificaciones::spawn_consumidor_de_eventos(&estado.eventos, estado.emails.clone(), estado.usuarios.clone());
     notificaciones::spawn_poller_de_envio(
         estado.emails.clone(),
         estado.smtp_config.clone(),
@@ -657,8 +703,12 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let admin_external_share_policy_router = Router::new().route(
         "/",
-        get(external_shares::handlers::politica).put(external_shares::handlers::actualizar_politica),
+        get(external_shares::handlers::politica_admin).put(external_shares::handlers::actualizar_politica),
     );
+    // No-admin — el Vault la consulta para decidir si mostrar "Compartir
+    // externo" y qué método(s), mismo patrón que `/export-policy` vs
+    // `/admin/export-policy`.
+    let external_share_policy_router = Router::new().route("/", get(external_shares::handlers::politica));
 
     // F-26: `GET /{id}` es el único endpoint sin sesión de toda la API —
     // necesita su propio rate limit por IP, más estricto que el general
@@ -741,6 +791,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/directory-sync", admin_directory_sync_router)
         .nest("/admin/users", admin_users_router)
         .nest("/admin/external-share-policy", admin_external_share_policy_router)
+        .nest("/external-share-policy", external_share_policy_router)
         .nest("/external-shares", external_shares_router)
         .nest("/export-policy", export_policy_router)
         .nest("/admin/export-policy", admin_export_policy_router)

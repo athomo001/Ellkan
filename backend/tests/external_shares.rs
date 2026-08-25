@@ -212,7 +212,7 @@ async fn politica_deshabilitada_bloquea_la_creacion() {
         .cliente
         .put(format!("{}/admin/external-share-policy", entorno.base))
         .bearer_auth(sesion_admin)
-        .json(&json!({ "enabled": false, "max_expiration_hours": 168, "require_password": false }))
+        .json(&json!({ "enabled": false, "max_expiration_hours": 168, "require_password": false, "allow_link": true, "allow_file": true }))
         .send()
         .await
         .unwrap();
@@ -242,7 +242,7 @@ async fn politica_de_passphrase_obligatoria_rechaza_un_share_sin_password_protec
         .cliente
         .put(format!("{}/admin/external-share-policy", entorno.base))
         .bearer_auth(sesion_admin)
-        .json(&json!({ "enabled": true, "max_expiration_hours": 168, "require_password": true }))
+        .json(&json!({ "enabled": true, "max_expiration_hours": 168, "require_password": true, "allow_link": true, "allow_file": true }))
         .send()
         .await
         .unwrap();
@@ -292,4 +292,79 @@ async fn expires_in_hours_por_encima_del_maximo_de_politica_se_rechaza() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 400, "999_999 horas supera el default de política (168)");
+}
+
+/// `allow_link=false` (distinto de `enabled=false`): el archivo .7z sigue
+/// permitido (no pasa por acá, nunca toca el servidor), pero crear un link
+/// se rechaza igual que si toda la política estuviera apagada.
+#[tokio::test]
+async fn allow_link_en_false_bloquea_la_creacion_de_link() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "adminsololink@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/admin/external-share-policy", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "enabled": true, "max_expiration_hours": 168, "require_password": false, "allow_link": false, "allow_file": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let user = common::registrar(&entorno, "creadorsololink@test.ellkan").await;
+    let sesion = common::login(&entorno, &user).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/external-shares", entorno.base))
+        .bearer_auth(sesion)
+        .json(&json!({ "ciphertext_b64": ciphertext_de_prueba(), "expires_in_hours": 72 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+/// `allow_link=false` y `allow_file=false` a la vez no es un estado válido
+/// de la política (no quedaría ninguna forma de compartir externo) — el
+/// backend lo rechaza, no lo acepta en silencio.
+#[tokio::test]
+async fn allow_link_y_allow_file_ambos_en_false_se_rechaza() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "adminningunmetodo@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/admin/external-share-policy", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "enabled": true, "max_expiration_hours": 168, "require_password": false, "allow_link": false, "allow_file": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+/// `GET /external-share-policy` (no-admin) — el Vault la necesita para
+/// decidir qué mostrar, sin requerir rol de admin.
+#[tokio::test]
+async fn politica_no_admin_es_legible_por_cualquier_usuario_autenticado() {
+    let entorno = common::levantar().await;
+    let user = common::registrar(&entorno, "usuarionoadmin@test.ellkan").await;
+    let sesion = common::login(&entorno, &user).await;
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/external-share-policy", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["allow_link"], true);
+    assert_eq!(cuerpo["allow_file"], true);
 }

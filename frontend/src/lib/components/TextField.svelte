@@ -22,7 +22,7 @@
 		id = `field-${Math.random().toString(36).slice(2)}`
 	}: {
 		label: string;
-		type?: 'text' | 'email' | 'password' | 'number';
+		type?: 'text' | 'email' | 'password' | 'number' | 'date';
 		value?: string;
 		error?: string;
 		hint?: string;
