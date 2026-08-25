@@ -1,0 +1,3 @@
+Creaste una cuenta en Ellkan.
+Código de verificación: {{ codigo }}
+Ingresalo para poder iniciar sesión. Si no fuiste, ignorá este email.

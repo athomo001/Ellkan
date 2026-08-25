@@ -10,7 +10,8 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
-	import { sesion, preferencias, esAdmin, permisos } from '$lib/state/session';
+	import { sesion, preferencias, esAdmin, permisos, externalSharePolicy } from '$lib/state/session';
+	import { externalSharePolicyApi } from '$lib/api/externalShares';
 	import { cargarPreferencias, alternarTema as alternarTemaLocal, guardarPreferencias } from '$lib/api/preferences';
 	import { cerrarSesion } from '$lib/crypto/identity';
 	import { limpiarStoresEn } from '$lib/state/declarative-store';
@@ -68,6 +69,20 @@
 					// vuelve a intentarlo en vez de quedar mal-cacheado en
 					// "false" para siempre.
 					if (err instanceof ApiError && err.status === 401) esAdmin.set(false);
+				});
+		}
+	});
+
+	// F-26: mismo criterio que el `$effect` de arriba — se resuelve una sola
+	// vez por sesión (ver comentario de `externalSharePolicy` en session.ts).
+	$effect(() => {
+		if ($sesion.sessionId && $externalSharePolicy === null) {
+			externalSharePolicyApi
+				.obtener()
+				.then((p) => externalSharePolicy.set(p))
+				.catch(() => {
+					/* sin política legible, el nav/Vault quedan sin mostrar el
+					 * link — más seguro que asumir habilitado por default. */
 				});
 		}
 	});
@@ -182,7 +197,9 @@
 	const enlaces = $derived([
 		{ href: '/vault', label: $t.appShell.vault, icono: ICONOS.vault },
 		{ href: '/settings/profile', label: $t.appShell.miCuenta, icono: ICONOS.perfil },
-		{ href: '/settings/external-shares', label: $t.settingsExternalShares.titulo, icono: ICONOS.compartir },
+		...($externalSharePolicy?.enabled
+			? [{ href: '/settings/external-shares', label: $t.settingsExternalShares.titulo, icono: ICONOS.compartir }]
+			: []),
 		...($esAdmin ? [{ href: '/admin', label: $t.appShell.administracion, icono: ICONOS.admin }] : [])
 	]);
 

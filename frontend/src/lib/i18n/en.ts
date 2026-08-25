@@ -181,6 +181,7 @@ const en: Diccionario = {
 		usuario: 'Username',
 		uri: 'URI',
 		comandoConexion: 'Connection command',
+		host: 'Host',
 		puerto: 'Port',
 		password: 'Password',
 		generarPassword: 'Generate',
@@ -192,7 +193,6 @@ const en: Diccionario = {
 		tipoSsh: 'SSH',
 		tipoVnc: 'VNC',
 		tipoTelnet: 'Telnet',
-		uriHostPuerto: 'Host:port',
 		crear: 'Create',
 		cancelar: 'Cancel',
 		verSecreto: 'View secret',
@@ -226,6 +226,20 @@ const en: Diccionario = {
 		externoExpiraHoras: 'Expires in (hours)',
 		externoMaxVistas: 'Maximum views',
 		externoCrear: 'Create link',
+		externoModoLink: 'By link',
+		externoModoArchivo: 'By .7z file',
+		externoArchivoHint:
+			"Generates an encrypted .7z file (AES-256) that downloads straight to your computer, never touching the server. Pick a password and hand it to the recipient through another channel (a call, another messaging app, in person).",
+		externoArchivoPassword: 'File password',
+		externoArchivoDescargar: 'Download .7z',
+		externoArchivoLoteBoton: 'Share as .7z',
+		archivoLabelRecurso: 'Resource',
+		archivoLabelUsuario: 'Username',
+		archivoLabelHost: 'Host/URI',
+		archivoLabelPassword: 'Password',
+		archivoLabelNotas: 'Notes',
+		archivoLabelTotp: 'TOTP (secret)',
+		externoArchivoListo: "File downloaded. The password isn't stored anywhere — let the recipient know it through another channel.",
 		externoLinkListo: 'Link ready — copy it now, it will not be shown again:',
 		errorExterno: 'Could not create the external link.',
 		seleccionarTodos: 'Select all',
@@ -379,7 +393,7 @@ const en: Diccionario = {
 		recoveryErrorHabilitar: 'Could not enable account recovery.',
 		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.',
 		dispositivosTitulo: 'Trusted devices',
-		dispositivosHint: 'Devices marked as trusted (F-37) — revoking one here deletes the sealed key for that device only, others are unaffected.',
+		dispositivosHint: 'Devices marked as trusted — revoking one here deletes the sealed key for that device only, others are unaffected.',
 		dispositivosSinDispositivos: "You don't have any active trusted devices.",
 		dispositivosRevocar: 'Revoke',
 		dispositivosError: 'Could not load the device list.'
@@ -690,8 +704,14 @@ const en: Diccionario = {
 		politicaExternalShare: {
 			titulo: 'External Sharing Policy',
 			enabled: 'External sharing enabled',
+			enabledHint:
+				"This toggle only turns on the server-side logic — it doesn't make the link reachable from outside your network. If Ellkan sits behind a VPN/LAN, an external recipient won't be able to open it unless you expose the public route (reverse proxy with an allowlist, or an outbound tunnel). Full detail in manual/instalacion.md.",
 			maxExpirationHours: 'Maximum allowed expiration (hours)',
-			requirePassword: 'Require an additional password on every new link'
+			requirePassword: 'Require an additional password on every new link',
+			allowLink: 'Allow sharing by link',
+			allowFile: 'Allow sharing by .7z file',
+			allowFileHint:
+				"Unlike the other toggles on this page, this one isn't a real technical barrier — the .7z is generated in the browser and never touches the server, so there's no request to reject. It only controls whether the Vault offers that button."
 		},
 		politicaExport: {
 			titulo: 'Export policy',

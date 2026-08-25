@@ -1,0 +1,3 @@
+Alguien (con tu contraseña) está iniciando sesión en Ellkan.
+Código de verificación: {{ codigo }}
+Ingresalo para completar el inicio de sesión. Si no fuiste vos, cambiá tu contraseña ahora.

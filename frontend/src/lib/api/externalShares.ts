@@ -34,11 +34,23 @@ export interface ExternalSharePolicy {
 	enabled: boolean;
 	max_expiration_hours: number;
 	require_password: boolean;
+	/** A diferencia de `enabled`/`require_password`, `allow_file` no es una
+	 * barrera técnica real — el .7z nunca toca el servidor, así que sólo
+	 * controla qué botón muestra el Vault. */
+	allow_link: boolean;
+	allow_file: boolean;
 }
 
 export const adminExternalSharePolicyApi = {
 	obtener: () => api.get<ExternalSharePolicy>('/admin/external-share-policy'),
 	actualizar: (p: ExternalSharePolicy) => api.put<ExternalSharePolicy>('/admin/external-share-policy', p)
+};
+
+/** No-admin — el Vault la consulta para decidir si mostrar "Compartir
+ * externo" y qué método(s) ofrecer, mismo patrón que `exportPolicyApi` vs
+ * `adminExportPolicyApi`. */
+export const externalSharePolicyApi = {
+	obtener: () => api.get<ExternalSharePolicy>('/external-share-policy')
 };
 
 export const externalSharesApi = {

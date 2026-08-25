@@ -1,0 +1,3 @@
+Detectamos un inicio de sesión desde un dispositivo no reconocido.
+Código de verificación: {{ codigo }}
+Si no fuiste vos, ignorá este email.

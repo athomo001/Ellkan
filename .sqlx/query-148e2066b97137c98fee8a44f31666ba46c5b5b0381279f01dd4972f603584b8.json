@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select enabled, max_expiration_hours, require_password\n               from external_share_policy where organization_id = 1",
+  "query": "select enabled, max_expiration_hours, require_password, allow_link, allow_file\n               from external_share_policy where organization_id = 1",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,28 @@
             "name": "require_password"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "allow_link",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "external_share_policy",
+            "name": "allow_link"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "allow_file",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "external_share_policy",
+            "name": "allow_file"
+          }
+        }
       }
     ],
     "parameters": {
@@ -43,8 +65,10 @@
     "nullable": [
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "628daf0ebe758169432aadb59bdfa6c85c5c2dbed37937bf97cd463dbf26f9fe"
+  "hash": "148e2066b97137c98fee8a44f31666ba46c5b5b0381279f01dd4972f603584b8"
 }

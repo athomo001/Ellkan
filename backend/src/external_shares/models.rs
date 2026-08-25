@@ -64,4 +64,11 @@ pub struct ExternalSharePolicy {
     pub enabled: bool,
     pub max_expiration_hours: i32,
     pub require_password: bool,
+    /// A diferencia de `enabled`/`require_password`, estos dos NO son una
+    /// barrera técnica real para `allow_file` — el archivo .7z se genera
+    /// 100% client-side, nunca toca el servidor, así que no hay ningún
+    /// request que rechazar. Es una política de qué botón ofrece la UI,
+    /// documentado así en `ExternalShareService::crear` y en el frontend.
+    pub allow_link: bool,
+    pub allow_file: bool,
 }

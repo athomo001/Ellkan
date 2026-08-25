@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "insert into outbound_emails (recipient, subject, body) values ($1, $2, $3) returning id",
+  "query": "insert into outbound_emails (recipient, subject, body, html_body) values ($1, $2, $3, $4) returning id",
   "describe": {
     "columns": [
       {
@@ -19,6 +19,7 @@
       "Left": [
         "Text",
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -26,5 +27,5 @@
       false
     ]
   },
-  "hash": "788fd21cbb6ba8c40a6058f42581d6c88f404c35e3f7a17b57ec41c9dcf0b2f7"
+  "hash": "c1eec6dc4bf441e9b6309280fdda9237dfa1543bb28658da34d961dbd4169e81"
 }

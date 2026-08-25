@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select locale from users where email = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "locale"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5e551b90d7b3aef0d0f09a737b3fe124fffd68ff22ee15e65cf74953542944c5"
+}

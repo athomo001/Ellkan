@@ -1,0 +1,2 @@
+There's a pending account recovery request for {{ target_email }}.
+Review it in the admin panel.
