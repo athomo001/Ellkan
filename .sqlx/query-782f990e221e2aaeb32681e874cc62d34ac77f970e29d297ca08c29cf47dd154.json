@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, recipient, subject, body from outbound_emails\n               where status = 'pendiente' order by created_at limit $1",
+  "query": "select id, recipient, subject, body, html_body from outbound_emails\n               where status = 'pendiente' order by created_at limit $1",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,17 @@
             "name": "body"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "html_body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outbound_emails",
+            "name": "html_body"
+          }
+        }
       }
     ],
     "parameters": {
@@ -57,8 +68,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "92ead9bb1ead0f090e599e3493f910449dbe90ed9019bf6c45252753d54d5d4f"
+  "hash": "782f990e221e2aaeb32681e874cc62d34ac77f970e29d297ca08c29cf47dd154"
 }

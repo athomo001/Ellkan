@@ -94,3 +94,17 @@ export function claveFragmentoDeUrl(): string | null {
 	const hash = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
 	return hash.length > 0 ? hash : null;
 }
+
+/** Segunda forma de compartir externo (2026-08-24, pedido explícito): un
+ * `.7z` con AES-256 + header cifrado, generado 100% client-side — a
+ * diferencia de `cifrarContenidoDeShare`, esto no toca el servidor para
+ * nada, ni siquiera como blob opaco, así que no depende de que la instancia
+ * sea alcanzable desde afuera. `passwordArchivo` la elige quien comparte y
+ * se la pasa al destinatario por otro canal (nunca la misma passphrase que
+ * la cuenta de Ellkan). `contenido` ya viene armado por el llamador (un
+ * recurso o varios, ver `bloqueDeRecurso` en la página del Vault) — esta
+ * función sólo empaqueta y cifra, no decide qué campos incluir.*/
+export async function crearArchivoCompartido(contenido: string, passwordArchivo: string): Promise<Uint8Array> {
+	const wasm = await cargarCrypto();
+	return wasm.crear_archivo_7z_cifrado('ellkan.txt', new TextEncoder().encode(contenido), passwordArchivo);
+}

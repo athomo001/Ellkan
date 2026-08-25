@@ -18,6 +18,12 @@ services:
       # variable (`ELLKAN_PORT`, `.env`) controla los dos, nunca puede
       # desincronizarse entre sí.
       BIND_ADDR: "0.0.0.0:${ELLKAN_PORT:-8080}"
+      # Prendido acá a propósito, no por default en el código (ver
+      # `reparar_checksums_de_migraciones` en backend/src/lib.rs) — este
+      # disco (NTFS/FUSE) ya hizo que un checksum de migración ya aplicada
+      # dejara de coincidir con el archivo, sin que nadie tocara nada, y
+      # sin esto el backend queda crasheando en loop para siempre.
+      ELLKAN_MIGRATE_REPAIR_CHECKSUMS: "true"
     secrets:
       - database_url
       - ellkan_secrets_key

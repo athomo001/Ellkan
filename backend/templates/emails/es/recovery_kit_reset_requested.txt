@@ -1,0 +1,4 @@
+Pediste recuperar el acceso a tu cuenta de Ellkan.
+Abrí este link y seguí los pasos (vas a necesitar tu recovery kit):
+{{ link }}
+Este link vence en 1 hora. Si no fuiste vos, ignorá este email — tu cuenta sigue segura.

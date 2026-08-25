@@ -349,3 +349,25 @@ pub fn prf_desenvolver_passphrase(
         .map_err(|_| err_js("no se pudo recuperar la passphrase (output de PRF incorrecto o datos corruptos)"))?;
     Ok(passphrase.expose_secret().clone())
 }
+
+/// Compartir externo por archivo — alternativa a F-26 que no depende de que
+/// el servidor sea alcanzable desde afuera (ver docs/activeContext.md):
+/// `.7z` con AES-256 + header cifrado (los nombres de archivo también
+/// quedan ilegibles sin la contraseña), generado 100% client-side. Nunca
+/// toca el servidor, ni siquiera como blob opaco — la contraseña la elige
+/// quien comparte y se la pasa al destinatario por otro canal.
+#[wasm_bindgen]
+pub fn crear_archivo_7z_cifrado(nombre_archivo: String, contenido: Vec<u8>, password: String) -> Result<Vec<u8>, JsValue> {
+    use sevenz_rust2::encoder_options::AesEncoderOptions;
+    use sevenz_rust2::{ArchiveEntry, ArchiveWriter, EncoderConfiguration, Password};
+    use std::io::Cursor;
+
+    let mut writer = ArchiveWriter::new(Cursor::new(Vec::new())).map_err(err_js)?;
+    let aes_conf: EncoderConfiguration = AesEncoderOptions::new(Password::new(&password)).into();
+    writer.set_content_methods(vec![aes_conf]);
+    writer.set_encrypt_header(true);
+    let entrada = ArchiveEntry::new_file(&nombre_archivo);
+    writer.push_archive_entry(entrada, Some(Cursor::new(contenido))).map_err(err_js)?;
+    let salida = writer.finish().map_err(err_js)?;
+    Ok(salida.into_inner())
+}

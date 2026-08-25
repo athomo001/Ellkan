@@ -227,6 +227,20 @@ const es = {
 		externoExpiraHoras: 'Expira en (horas)',
 		externoMaxVistas: 'Máximo de vistas',
 		externoCrear: 'Crear link',
+		externoModoLink: 'Por link',
+		externoModoArchivo: 'Por archivo .7z',
+		externoArchivoHint:
+			'Genera un archivo .7z cifrado (AES-256) que se descarga directo a tu equipo, sin pasar por el servidor. Elegí una contraseña y pasásela al destinatario por otro canal (llamada, otra app de mensajería, en persona).',
+		externoArchivoPassword: 'Contraseña del archivo',
+		externoArchivoDescargar: 'Descargar .7z',
+		externoArchivoLoteBoton: 'Compartir por .7z',
+		archivoLabelRecurso: 'Recurso',
+		archivoLabelUsuario: 'Usuario',
+		archivoLabelHost: 'Host/URI',
+		archivoLabelPassword: 'Contraseña',
+		archivoLabelNotas: 'Notas',
+		archivoLabelTotp: 'TOTP (secreto)',
+		externoArchivoListo: 'Archivo descargado. La contraseña no queda guardada en ningún lado, avisale al destinatario por otro canal.',
 		externoLinkListo: 'Link listo — copialo ahora, no se vuelve a mostrar:',
 		errorExterno: 'No se pudo crear el link externo.',
 		seleccionarTodos: 'Seleccionar todos',
@@ -382,7 +396,7 @@ const es = {
 		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',
 		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.',
 		dispositivosTitulo: 'Dispositivos de confianza',
-		dispositivosHint: 'Dispositivos marcados como confiables (F-37) — revocar uno acá borra la clave sellada para ese dispositivo, no afecta a los demás.',
+		dispositivosHint: 'Dispositivos marcados como confiables — revocar uno acá borra la clave sellada para ese dispositivo, no afecta a los demás.',
 		dispositivosSinDispositivos: 'No tenés dispositivos de confianza activos.',
 		dispositivosRevocar: 'Revocar',
 		dispositivosError: 'No se pudo cargar la lista de dispositivos.'
@@ -699,8 +713,14 @@ const es = {
 		politicaExternalShare: {
 			titulo: 'Política de Compartir Externo',
 			enabled: 'Compartir externo habilitado',
+			enabledHint:
+				'Este toggle sólo prende la lógica del servidor — no hace que el link sea alcanzable desde afuera de tu red. Si Ellkan está detrás de VPN/LAN, un destinatario externo no va a poder abrirlo salvo que expongas la ruta pública (reverse proxy con allowlist o túnel saliente). Detalle completo en manual/instalacion.md.',
 			maxExpirationHours: 'Expiración máxima permitida (horas)',
-			requirePassword: 'Exigir contraseña adicional en todo link nuevo'
+			requirePassword: 'Exigir contraseña adicional en todo link nuevo',
+			allowLink: 'Permitir compartir por link',
+			allowFile: 'Permitir compartir por archivo .7z',
+			allowFileHint:
+				'A diferencia de los demás toggles de esta página, este no es una barrera técnica real — el .7z se genera en el navegador y nunca toca el servidor, así que no hay ningún pedido que rechazar. Sólo controla si el Vault ofrece ese botón.'
 		},
 		politicaExport: {
 			titulo: 'Política de exportación',

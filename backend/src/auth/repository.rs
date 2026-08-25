@@ -743,3 +743,13 @@ impl DeviceChallengeRepository for PgDeviceChallengeRepository {
         Ok(())
     }
 }
+
+impl crate::notificaciones::LocaleRepository for PgUserRepository {
+    /// A propósito sin el filtro `active and deleted_at is null and
+    /// email_verified_at is not null` de `buscar_por_email` — ver el
+    /// comentario del trait en `notificaciones.rs`.
+    async fn locale_de_email(&self, email: &str) -> Result<Option<String>, RepoError> {
+        let fila = sqlx::query!(r#"select locale from users where email = $1"#, email).fetch_optional(&self.pool).await?;
+        Ok(fila.map(|f| f.locale))
+    }
+}
