@@ -22,6 +22,7 @@
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { uuidABytes } from './uuid';
+import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './matching';
 import { leerDeCache, guardarEnCache } from '$lib/cache/metadataCache';
 import { api } from '$lib/api/client';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
@@ -69,6 +70,10 @@ interface MetadataJson {
 	name?: string;
 	username?: string;
 	uri?: string;
+	/** Estrategia de matching URI↔recurso para el autofill de la extensión
+	 * (spec 06 §4.2) — ausente = `host`. Cifrada junto al resto de la
+	 * metadata, el servidor nunca la ve. */
+	matching?: string;
 }
 
 /**
@@ -97,6 +102,9 @@ export interface Recurso {
 	nombre: string;
 	usuario: string;
 	uri: string;
+	/** Estrategia de matching para autofill — siempre normalizada (`host` por
+	 * default). La usa la extensión; el frontend web sólo la muestra/edita. */
+	matching: EstrategiaMatch;
 	resourceTypeSlug: string;
 	metadataKeyType: 'user_key' | 'shared_key';
 	/** Sólo poblado para `user_key` — ya se necesitó para descifrar la metadata, se reusa al revelar el secreto. */
@@ -147,6 +155,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 			nombre: string;
 			usuario: string;
 			uri: string;
+			matching?: string;
 			dekPropiaB64?: string;
 		}>(r.id, r.metadata_nonce_b64);
 		if (enCache) {
@@ -156,6 +165,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				nombre: enCache.nombre,
 				usuario: enCache.usuario,
 				uri: enCache.uri,
+				matching: normalizarEstrategia(enCache.matching),
 				resourceTypeSlug: r.resource_type_slug,
 				metadataKeyType: r.metadata_key_type,
 				dekPropia: enCache.dekPropiaB64 ? base64ABytes(enCache.dekPropiaB64) : undefined,
@@ -194,12 +204,14 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 			const nombre = metadata.name ?? '';
 			const usuario = metadata.username ?? '';
 			const uri = metadata.uri ?? '';
+			const matching = normalizarEstrategia(metadata.matching);
 			resultado.push({
 				id: r.id,
 				createdBy: r.created_by,
 				nombre,
 				usuario,
 				uri,
+				matching,
 				resourceTypeSlug: r.resource_type_slug,
 				metadataKeyType: r.metadata_key_type,
 				dekPropia,
@@ -212,6 +224,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				nombre,
 				usuario,
 				uri,
+				matching,
 				dekPropiaB64: dekPropia ? bytesABase64(dekPropia) : undefined
 			});
 		} catch {
@@ -330,6 +343,9 @@ export interface NuevoRecurso {
 	password: string;
 	notas: string;
 	totpSecretBase32?: string;
+	/** Estrategia de matching para autofill (spec 06 §4.2). Omitida = `host`.
+	 * En `editarRecurso`, omitirla preserva la que ya tenía el recurso. */
+	matching?: EstrategiaMatch;
 }
 
 /**
@@ -356,7 +372,10 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 	const metadataKeyId = primeraEntrada.done ? null : primeraEntrada.value[0];
 	const claveMetadata = primeraEntrada.done ? dek : primeraEntrada.value[1];
 
-	const metadata = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	// Sólo se guarda `matching` si no es el default — metadata mínima, y un
+	// recurso viejo sin el campo sigue comportándose igual.
+	if (datos.matching && datos.matching !== ESTRATEGIA_MATCH_DEFAULT) metadata.matching = datos.matching;
 	const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
 	if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
@@ -411,7 +430,12 @@ export async function editarRecurso(
 		claveMetadata = clave;
 	}
 
-	const metadata = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	// Preserva la estrategia del recurso si el editor no la cambió — sin esto,
+	// editar cualquier otro campo borraría un `exact`/`base_domain`/`never`
+	// elegido antes (mismo cuidado que el resto de campos reconstruidos).
+	const matching = datos.matching ?? recurso.matching;
+	if (matching !== ESTRATEGIA_MATCH_DEFAULT) metadata.matching = matching;
 	const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
 	if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
@@ -443,6 +467,7 @@ export async function editarRecurso(
 		nombre: datos.nombre,
 		usuario: datos.usuario,
 		uri: datos.uri,
+		matching,
 		dekPropia: recurso.metadataKeyType === 'user_key' ? dek : recurso.dekPropia,
 		updated_at: actualizado.updated_at
 	};

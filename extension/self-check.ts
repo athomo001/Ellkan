@@ -142,6 +142,277 @@ async function main() {
 	assert.equal(hostnameDeUri(''), null, 'uri vacía no rompe, no matchea nada');
 	console.log('OK: autofill-service.ts (hostnameDeUri) — matching host exacto, sin falsos positivos de subdominio');
 
+	// --- 7b. `uri-match.ts` (spec 05 §2.2): las 4 estrategias de matching por
+	// recurso, con el TEST DEDICADO contra dominios multi-tenant reales que
+	// exige la spec (hallazgo BWN-08-020: `*.github.io` NO es un solo
+	// dominio). ---
+	const { coincideUri, normalizarEstrategia } = await import('./src/background/services/uri-match.ts');
+
+	// `host` (default): hostname+puerto exactos, cualquier path; subdominio no cuenta.
+	assert.ok(coincideUri('host', 'ejemplo.com', 'https://ejemplo.com/login'), 'host: mismo hostname, distinto path → matchea');
+	assert.ok(!coincideUri('host', 'ejemplo.com', 'https://app.ejemplo.com/'), 'host: subdominio NO matchea');
+	assert.ok(!coincideUri('host', 'https://ejemplo.com', 'https://ejemplo.com:8443/'), 'host: puerto distinto NO matchea');
+
+	// `exact`: origen + path exactos (ignora query/hash y barra final).
+	assert.ok(coincideUri('exact', 'https://ejemplo.com/login/', 'https://ejemplo.com/login?x=1'), 'exact: mismo path (barra final y query no cuentan) → matchea');
+	assert.ok(!coincideUri('exact', 'https://ejemplo.com/login', 'https://ejemplo.com/otra'), 'exact: path distinto NO matchea');
+
+	// `base_domain`: mismo dominio registrable vía PSL real.
+	assert.ok(coincideUri('base_domain', 'https://www.ejemplo.com', 'https://app.ejemplo.com/x'), 'base_domain: dos subdominios del mismo eTLD+1 → matchea');
+	assert.ok(coincideUri('base_domain', 'https://ejemplo.co.uk', 'https://mail.ejemplo.co.uk'), 'base_domain: eTLD compuesto (.co.uk) resuelto bien');
+	// El corazón de BWN-08-020: la sección PRIVATE de la PSL tiene que estar activa.
+	assert.ok(!coincideUri('base_domain', 'https://alice.github.io', 'https://bob.github.io'), 'base_domain: alice.github.io NO matchea bob.github.io (PSL PRIVATE)');
+	assert.ok(!coincideUri('base_domain', 'https://mi-app.vercel.app', 'https://otra-app.vercel.app'), 'base_domain: *.vercel.app son dominios distintos');
+	assert.ok(!coincideUri('base_domain', 'https://x.pages.dev', 'https://y.pages.dev'), 'base_domain: *.pages.dev son dominios distintos');
+	assert.ok(coincideUri('base_domain', 'https://alice.github.io/repo', 'https://alice.github.io/repo/sub'), 'base_domain: el MISMO subdominio de github.io sí matchea');
+
+	// `never`: nunca, aunque el resto coincida perfecto.
+	assert.ok(!coincideUri('never', 'https://ejemplo.com/login', 'https://ejemplo.com/login'), 'never: nunca ofrece autofill');
+
+	// URIs basura no rompen y no matchean.
+	assert.ok(!coincideUri('host', '', 'https://ejemplo.com'), 'uri guardada vacía → no matchea');
+	assert.ok(!coincideUri('base_domain', 'no es una url', 'https://ejemplo.com'), 'uri guardada inválida → no matchea');
+
+	// Normalización: cualquier string raro cae al default `host`.
+	assert.equal(normalizarEstrategia('exact'), 'exact');
+	assert.equal(normalizarEstrategia('cualquier-cosa'), 'host', 'valor desconocido → host (default)');
+	assert.equal(normalizarEstrategia(undefined), 'host', 'ausente → host (default)');
+	console.log('OK: uri-match.ts — 4 estrategias + PSL real (github.io/vercel.app/pages.dev no son un solo dominio, BWN-08-020)');
+
+	// --- 7c. `origin-guard.ts` (BWN-08-011): la revalidación de origen del
+	// content script como función pura testeable, tal como pide el checkbox
+	// dedicado. ---
+	const { mismoOrigenParaFill } = await import('./src/content/origin-guard.ts');
+	assert.ok(mismoOrigenParaFill('https://ejemplo.com', 'https://ejemplo.com/login?x=1'), 'mismo origen, distinto path → OK rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'http://ejemplo.com/login'), 'cambio https→http es cambio de origen → NO rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'https://otro.ejemplo.com/'), 'subdominio distinto es otro origen → NO rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'https://ejemplo.com:8443/'), 'puerto distinto es otro origen → NO rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'no-es-una-url'), 'href actual imposible de parsear → falla cerrado');
+	assert.ok(!mismoOrigenParaFill('', 'https://ejemplo.com'), 'sin origen pedido → falla cerrado');
+	console.log('OK: origin-guard.ts (mismoOrigenParaFill) — revalidación de origen exacta, falla cerrado (BWN-08-011)');
+
+	// --- 7d. `field-detection.ts` (spec 06 §4.1): clasificación y emparejado
+	// de campos de login como lógica pura sobre descriptores — la parte del
+	// recorrido del DOM vive en `content/index.ts` y necesita un navegador. ---
+	const { clasificarCampo, emparejarLogins, esCampoVisible } = await import('./src/content/field-detection.ts');
+
+	type Campo = Parameters<typeof clasificarCampo>[0];
+	const campo = (o: Partial<Campo>): Campo => ({
+		opid: o.opid ?? 'x',
+		type: o.type ?? 'text',
+		autocomplete: o.autocomplete ?? '',
+		name: o.name ?? '',
+		id: o.id ?? '',
+		placeholder: o.placeholder ?? '',
+		ariaLabel: o.ariaLabel ?? '',
+		visible: o.visible ?? true,
+		formOpid: o.formOpid ?? null,
+		ordenDom: o.ordenDom ?? 0
+	});
+
+	assert.equal(clasificarCampo(campo({ type: 'password' })), 'password');
+	assert.equal(clasificarCampo(campo({ type: 'text', autocomplete: 'one-time-code' })), 'totp', 'autocomplete one-time-code → totp');
+	assert.equal(clasificarCampo(campo({ type: 'text', name: 'otp_code' })), 'totp', 'name con "otp" → totp');
+	assert.equal(clasificarCampo(campo({ type: 'email' })), 'username', 'type email → username');
+	assert.equal(clasificarCampo(campo({ type: 'text', name: 'username' })), 'username', 'name username → username');
+	assert.equal(clasificarCampo(campo({ type: 'text', name: 'search' })), 'otro', 'un text cualquiera → otro');
+
+	// Login simple: usuario + password en el mismo form.
+	let pares = emparejarLogins([
+		campo({ opid: 'u', type: 'text', name: 'user', formOpid: 'f1', ordenDom: 0 }),
+		campo({ opid: 'p', type: 'password', formOpid: 'f1', ordenDom: 1 })
+	]);
+	assert.deepEqual(pares, [{ formOpid: 'f1', usuario: 'u', password: 'p', totp: null }], 'login simple emparejado');
+
+	// Honeypot: un password invisible NO se ofrece.
+	pares = emparejarLogins([
+		campo({ opid: 'trap', type: 'password', visible: false, formOpid: 'f1', ordenDom: 0 }),
+		campo({ opid: 'u', type: 'text', name: 'email', formOpid: 'f2', ordenDom: 1 }),
+		campo({ opid: 'p', type: 'password', formOpid: 'f2', ordenDom: 2 })
+	]);
+	assert.deepEqual(pares.map((x) => x.password), ['p'], 'el password invisible (honeypot) se descarta');
+
+	// Registro / cambio de contraseña: 2 passwords visibles en un form → no es login.
+	pares = emparejarLogins([
+		campo({ opid: 'p1', type: 'password', formOpid: 'reg', ordenDom: 0 }),
+		campo({ opid: 'p2', type: 'password', formOpid: 'reg', ordenDom: 1 })
+	]);
+	assert.equal(pares.length, 0, 'form con 2 passwords visibles no se empareja');
+
+	// Con TOTP.
+	pares = emparejarLogins([
+		campo({ opid: 'u', type: 'text', name: 'user', formOpid: 'f', ordenDom: 0 }),
+		campo({ opid: 'p', type: 'password', formOpid: 'f', ordenDom: 1 }),
+		campo({ opid: 't', type: 'text', autocomplete: 'one-time-code', formOpid: 'f', ordenDom: 2 })
+	]);
+	assert.deepEqual(pares, [{ formOpid: 'f', usuario: 'u', password: 'p', totp: 't' }], 'usuario + password + totp');
+
+	// Sin <form>: se empareja por cercanía (ordenDom). Un usuario DESPUÉS del password se ignora.
+	pares = emparejarLogins([
+		campo({ opid: 'p', type: 'password', formOpid: null, ordenDom: 0 }),
+		campo({ opid: 'u', type: 'text', name: 'user', formOpid: null, ordenDom: 1 })
+	]);
+	assert.deepEqual(pares, [{ formOpid: null, usuario: null, password: 'p', totp: null }], 'usuario después del password no cuenta');
+
+	assert.ok(!esCampoVisible({ width: 0, height: 0 }, { display: 'block', visibility: 'visible', opacity: '1' }), 'tamaño 0 → invisible');
+	assert.ok(!esCampoVisible({ width: 120, height: 20 }, { display: 'none', visibility: 'visible', opacity: '1' }), 'display none → invisible');
+	assert.ok(!esCampoVisible({ width: 120, height: 20 }, { display: 'block', visibility: 'visible', opacity: '0' }), 'opacity 0 → invisible');
+	assert.ok(esCampoVisible({ width: 120, height: 20 }, { display: 'block', visibility: 'visible', opacity: '1' }), 'campo normal → visible');
+	console.log('OK: field-detection.ts — clasificación + emparejado de login (honeypot y registro descartados, TOTP incluido)');
+
+	// --- 7e. `autofill-script.ts` (spec 06 §4.3): acciones tipadas por `opid`
+	// e intérprete con resolver inyectado (sin DOM). ---
+	const { ejecutarScript, scriptParaLogin } = await import('./src/content/autofill-script.ts');
+
+	assert.deepEqual(
+		scriptParaLogin({ usuario: 'u', password: 'p', totp: null, valores: { usuario: 'ana', password: 's3cr3t' } }),
+		[
+			{ tipo: 'focus_by_opid', opid: 'u' },
+			{ tipo: 'fill_by_opid', opid: 'u', valor: 'ana' },
+			{ tipo: 'focus_by_opid', opid: 'p' },
+			{ tipo: 'fill_by_opid', opid: 'p', valor: 's3cr3t' }
+		],
+		'script usuario+password'
+	);
+	assert.equal(
+		scriptParaLogin({ usuario: null, password: 'p', totp: null, valores: { usuario: '', password: 'x' } }).length,
+		2,
+		'sin campo de usuario → sólo foco+relleno del password'
+	);
+	assert.equal(
+		scriptParaLogin({ usuario: 'u', password: 'p', totp: 't', valores: { usuario: 'a', password: 'b', totp: '123456' } }).length,
+		6,
+		'con TOTP y valor → 6 acciones'
+	);
+	assert.equal(
+		scriptParaLogin({ usuario: 'u', password: 'p', totp: 't', valores: { usuario: 'a', password: 'b' } }).length,
+		4,
+		'con opid de TOTP pero SIN valor → no se rellena TOTP'
+	);
+
+	// Intérprete: registra llamadas, saltea opids que no resuelven y errores puntuales.
+	const llamadas: string[] = [];
+	function objetivo(nombre: string, tira = false) {
+		return {
+			focus: () => llamadas.push(`focus:${nombre}`),
+			click: () => llamadas.push(`click:${nombre}`),
+			rellenar: (v: string) => {
+				if (tira) throw new Error('elemento en estado raro');
+				llamadas.push(`fill:${nombre}=${v}`);
+			}
+		};
+	}
+	const mapa: Record<string, ReturnType<typeof objetivo>> = { u: objetivo('u'), p: objetivo('p'), bomba: objetivo('bomba', true) };
+	const res = ejecutarScript(
+		[
+			{ tipo: 'focus_by_opid', opid: 'u' },
+			{ tipo: 'fill_by_opid', opid: 'u', valor: 'ana' },
+			{ tipo: 'fill_by_opid', opid: 'no-existe', valor: 'x' },
+			{ tipo: 'fill_by_opid', opid: 'bomba', valor: 'y' },
+			{ tipo: 'fill_by_opid', opid: 'p', valor: 's3cr3t' }
+		],
+		(opid) => mapa[opid] ?? null
+	);
+	assert.deepEqual(llamadas, ['focus:u', 'fill:u=ana', 'fill:p=s3cr3t'], 'ejecuta lo resoluble, en orden');
+	assert.deepEqual(res, { ejecutadas: 3, salteadas: 2 }, 'cuenta bien ejecutadas vs. salteadas (opid muerto + error)');
+	console.log('OK: autofill-script.ts — acciones por opid, intérprete tolerante a opid muerto y a errores puntuales');
+
+	// --- 10. `frame-ancestors 'none'` en TODA página propia de la extensión
+	// (spec 05 §2.1, PBL-08-001) — se resuelve el manifest fuente para los 3
+	// navegadores y se valida la CSP + que ningún .html se exponga por
+	// `web_accessible_resources` (esquivaría esa CSP, BWN-08-019). ---
+	const { problemasDeCsp, htmlExpuestoEnWAR, problemasPorNavegador } = await import('./src/manifest-check.ts');
+	const { resolverManifest } = await import('./manifest-resolve.mjs');
+	const { readFileSync } = await import('node:fs');
+	// `process.cwd()` es `extension/` cuando corre `pnpm check:self` (el bundle
+	// se ejecuta desde ahí) — leer el fuente por ruta absoluta evita el
+	// problema de `import.meta.url` reescrito dentro del bundle del self-check.
+	const fuente = JSON.parse(readFileSync(`${process.cwd()}/manifest.source.json`, 'utf8'));
+	for (const navegador of ['chrome', 'firefox', 'safari']) {
+		const m = resolverManifest(fuente, navegador);
+		const problemas = problemasDeCsp(m);
+		assert.deepEqual(problemas, [], `CSP de páginas de extensión OK para ${navegador} (${problemas.join('; ')})`);
+		assert.deepEqual(htmlExpuestoEnWAR(m), [], `ningún .html en web_accessible_resources para ${navegador}`);
+		assert.ok(
+			typeof m.action?.default_popup === 'string' && m.action.default_popup.endsWith('.html'),
+			`${navegador}: el popup es una página .html cubierta por la CSP`
+		);
+		// Diferencias reales MV3 por navegador (spec 06 §1/§7): el manifest
+		// RESUELTO tiene que quedar bien formado para el destino.
+		const probNav = problemasPorNavegador(m, navegador);
+		assert.deepEqual(probNav, [], `manifest MV3 bien formado para ${navegador} (${probNav.join('; ')})`);
+	}
+	// Un manifest de prueba con la directiva mal puesta debe ser detectado —
+	// confirma que el chequeo no pasa por vacuidad.
+	assert.ok(
+		problemasDeCsp({ content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'" } }).some((p) => p.includes('frame-ancestors')),
+		'un manifest SIN frame-ancestors debe fallar el chequeo'
+	);
+	assert.deepEqual(
+		htmlExpuestoEnWAR({ web_accessible_resources: [{ resources: ['menu.html', 'x.png'], matches: ['<all_urls>'] }] }),
+		['menu.html'],
+		'un .html en web_accessible_resources debe ser detectado'
+	);
+	assert.ok(
+		problemasPorNavegador({ manifest_version: 3, background: { scripts: ['background.js'] } }, 'chrome').some((p) => p.includes('service_worker')),
+		'chrome sin background.service_worker debe fallar'
+	);
+	assert.ok(
+		problemasPorNavegador({ manifest_version: 3, background: { scripts: ['background.js'] } }, 'firefox').some((p) => p.includes('gecko.id')),
+		'firefox sin gecko.id debe fallar'
+	);
+	console.log('OK: manifest-check.ts — frame-ancestors + CSP + shape MV3 por navegador (chrome service_worker / firefox scripts+gecko.id)');
+
+	// --- 11. `save-prompt.ts` (spec 06 §5): decidir SI ofrecer guardar una
+	// credencial tras un submit. La barra en sí va por shadow root cerrado sin
+	// iframe (misma mitigación BWN-08-019 que el menú). ---
+	const { decidirGuardado } = await import('./src/content/save-prompt.ts');
+	assert.deepEqual(
+		decidirGuardado({ usuario: 'ana', password: 's3cr3t' }, []),
+		{ ofrecer: true, modo: 'nuevo' },
+		'credencial nueva, sin coincidencias → ofrecer guardar'
+	);
+	assert.deepEqual(
+		decidirGuardado({ usuario: 'ana', password: '' }, []),
+		{ ofrecer: false, modo: null },
+		'sin contraseña → no ofrecer'
+	);
+	assert.deepEqual(
+		decidirGuardado({ usuario: 'Ana', password: 's3cr3t' }, [{ usuario: 'ana' }]),
+		{ ofrecer: false, modo: null },
+		'ya hay una entrada para ese usuario (case-insensitive) → no ofrecer (MVP: sin "actualizar")'
+	);
+	assert.deepEqual(
+		decidirGuardado({ usuario: 'otra', password: 's3cr3t' }, [{ usuario: 'ana' }]),
+		{ ofrecer: true, modo: 'nuevo' },
+		'hay entradas del sitio pero para otro usuario → ofrecer guardar la nueva'
+	);
+	console.log('OK: save-prompt.ts — ofrece guardar sólo credenciales nuevas (con contraseña, usuario no repetido)');
+
+	// --- 12. `totp-local-service.ts::siguienteBackoff` (F-38, spec 05 §2.1):
+	// backoff tras códigos fallidos como decisión pura. ---
+	const { siguienteBackoff, INTENTOS_ANTES_DE_BLOQUEAR, BLOQUEO_MS } = await import(
+		'./src/background/services/totp-local-service.ts'
+	);
+	const t0 = 1_000_000;
+	let est = { fallosConsecutivos: 0, bloqueadoHastaMs: null as number | null };
+	// Dos fallos: cuenta pero no bloquea todavía.
+	est = siguienteBackoff(est, false, t0).nuevo;
+	est = siguienteBackoff(est, false, t0).nuevo;
+	assert.deepEqual(est, { fallosConsecutivos: 2, bloqueadoHastaMs: null }, '2 fallos: sin bloqueo aún');
+	// Tercer fallo: bloqueo por 30s.
+	const r3 = siguienteBackoff(est, false, t0);
+	assert.equal(r3.nuevo.fallosConsecutivos, INTENTOS_ANTES_DE_BLOQUEAR);
+	assert.equal(r3.nuevo.bloqueadoHastaMs, t0 + BLOQUEO_MS, 'al 3er fallo se bloquea 30s');
+	// Intentar durante el bloqueo: aborta con segundos restantes, sin tocar el estado.
+	const durante = siguienteBackoff(r3.nuevo, true, t0 + 10_000);
+	assert.equal(durante.bloqueadoSegundos, 20, 'durante el bloqueo informa los segundos que faltan');
+	assert.deepEqual(durante.nuevo, r3.nuevo, 'durante el bloqueo no muta el estado');
+	// Pasado el bloqueo, un código válido resetea todo.
+	const ok = siguienteBackoff(r3.nuevo, true, t0 + BLOQUEO_MS + 1);
+	assert.deepEqual(ok.nuevo, { fallosConsecutivos: 0, bloqueadoHastaMs: null }, 'código válido tras el bloqueo resetea');
+	console.log('OK: totp-local-service.ts (siguienteBackoff) — 3 fallos → 30s de bloqueo, reset al acertar (F-38)');
+
 	// --- 8. Generador de contraseñas + medidor de fortaleza (pedido explícito
 	// del usuario, modal del popup) — mismos módulos que ya usa la app web,
 	// sólo se confirma que siguen respetando longitud/reglas y que el
