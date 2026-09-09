@@ -1,25 +1,24 @@
 /* Autor: Athan Espinoza */
 
-/* Paleta real de Ellkan (spec: fondo #102335, teal #187890, dorado #E0B860,
-   ver docs/activeContext.md) — mismos tokens que el frontend web, para que
-   el popup no se sienta como una superficie aparte (spec 06 §5, "sistema de
-   diseño compartido"). */
+/* Sistema de diseño compartido con el frontend web (F-30, spec 06 §5). Los
+   valores canónicos viven en `extension/src/design-tokens.ts` (que a su vez
+   copia la paleta OSCURA de `frontend/src/lib/styles/tokens.css` — la
+   extensión es dark-only). Acá se declaran como custom properties porque un
+   popup MV3 no puede importar el `.css`/los componentes de SvelteKit sin
+   arrastrar su runtime; por eso se comparten TOKENS, no componentes Svelte.
+   Si cambia un color de marca: se toca en los tres lugares en el mismo
+   commit. */
 :root {
-	--ellkan-fondo: #102335;
-	--ellkan-fondo-tarjeta: #16314a;
-	--ellkan-borde: #1f3f5c;
-	--ellkan-teal: #187890;
-	--ellkan-dorado: #e0b860;
-	--ellkan-texto: #e6edf3;
-	--ellkan-texto-secundario: #9db2c4;
-	--ellkan-error: #f28b82;
-	/* Semánticos (pedido explícito del usuario, "mantén la lógica de colores
-	   funcional para alertas y estados") — mismo valor que ya usaba el punto
-	   de sesión activa, ahora nombrado para reusar en fortaleza de
-	   contraseña y estados de éxito en general, sin inventar un color nuevo
-	   fuera de la paleta. */
-	--ellkan-exito: #4ade80;
-	--ellkan-advertencia: #f5a623;
+	--ellkan-fondo: #102335; /* --bg-base */
+	--ellkan-fondo-tarjeta: #16293c; /* --bg-raised */
+	--ellkan-borde: #26405a; /* --border-color */
+	--ellkan-teal: #187890; /* --color-teal / --accent-primary */
+	--ellkan-dorado: #e0b860; /* --color-gold / --accent-secondary */
+	--ellkan-texto: #f8f8f8; /* --text-primary */
+	--ellkan-texto-secundario: #a9b8c7; /* --text-secondary */
+	--ellkan-error: #e2695f; /* --danger */
+	--ellkan-exito: #4caf7d; /* --success */
+	--ellkan-advertencia: #e0b860; /* --warning (dorado) */
 }
 
 * {
