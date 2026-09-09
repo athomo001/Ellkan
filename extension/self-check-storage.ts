@@ -73,6 +73,7 @@ const localMock = mapStorage();
 
 const { SesionStorage } = await import('./src/background/storage/sesion-storage.ts');
 const { MetadataCache } = await import('./src/background/storage/metadata-cache.ts');
+const { cargarCrypto } = await import('./src/background/wasm.ts');
 
 async function main() {
 	// --- Nivel 2: passphrase/DEKs en storage.session ---
@@ -98,6 +99,35 @@ async function main() {
 	assert.equal(trasPerderLaClave, null, 'sin la clave efímera, debe leer null (nunca intentar "recuperar")');
 	assert.equal(localMock._datos.size, 0, 'el residuo huérfano debe purgarse, no quedar sin uso');
 	console.log('OK: sin clave efímera, el residuo cifrado se purga en vez de reintentarse');
+
+	// --- F-38 (desbloqueo rápido local con TOTP): round-trip criptográfico
+	// real con el mismo wasm que usa `TotpLocalService`. No se ejercita el
+	// service completo porque `device-key.ts` necesita IndexedDB (no hay en
+	// Node) — pero la parte crítica es esta: envolver/desenvolver la
+	// passphrase con el secreto TOTP, y que un código o secreto equivocado
+	// no descifre. ---
+	const wasm = await cargarCrypto();
+	const secreto = wasm.totp_generar_secreto();
+	const ahora = BigInt(Math.floor(Date.now() / 1000));
+	const codigo = wasm.totp_codigo_actual(secreto, ahora);
+	assert.ok(wasm.totp_verificar(secreto, codigo, ahora), 'el código actual verifica contra su propio secreto');
+	assert.ok(!wasm.totp_verificar(secreto, (codigo + 1) % 1_000_000, ahora), 'un código equivocado no verifica');
+
+	const aadF38 = new TextEncoder().encode('totp-local:ana@ejemplo.com');
+	const envuelto = wasm.totp_envolver_passphrase(secreto, 'passphrase-maestra-de-prueba', aadF38);
+	const recuperada = wasm.totp_desenvolver_passphrase(secreto, envuelto.nonce, envuelto.ciphertext, aadF38);
+	assert.equal(recuperada, 'passphrase-maestra-de-prueba', 'desenvolver con el secreto correcto recupera la passphrase');
+
+	const otroSecreto = wasm.totp_generar_secreto();
+	assert.throws(
+		() => wasm.totp_desenvolver_passphrase(otroSecreto, envuelto.nonce, envuelto.ciphertext, aadF38),
+		'otro secreto TOTP no puede desenvolver la passphrase'
+	);
+	assert.throws(
+		() => wasm.totp_desenvolver_passphrase(secreto, envuelto.nonce, envuelto.ciphertext, new TextEncoder().encode('otro-aad')),
+		'un AAD distinto (otro email) no puede desenvolver'
+	);
+	console.log('OK: F-38 TOTP local — envolver/desenvolver passphrase real (código y secreto equivocados rechazados)');
 
 	console.log('\nself-check-storage: todo OK');
 }

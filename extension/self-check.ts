@@ -389,6 +389,30 @@ async function main() {
 	);
 	console.log('OK: save-prompt.ts — ofrece guardar sólo credenciales nuevas (con contraseña, usuario no repetido)');
 
+	// --- 12. `totp-local-service.ts::siguienteBackoff` (F-38, spec 05 §2.1):
+	// backoff tras códigos fallidos como decisión pura. ---
+	const { siguienteBackoff, INTENTOS_ANTES_DE_BLOQUEAR, BLOQUEO_MS } = await import(
+		'./src/background/services/totp-local-service.ts'
+	);
+	const t0 = 1_000_000;
+	let est = { fallosConsecutivos: 0, bloqueadoHastaMs: null as number | null };
+	// Dos fallos: cuenta pero no bloquea todavía.
+	est = siguienteBackoff(est, false, t0).nuevo;
+	est = siguienteBackoff(est, false, t0).nuevo;
+	assert.deepEqual(est, { fallosConsecutivos: 2, bloqueadoHastaMs: null }, '2 fallos: sin bloqueo aún');
+	// Tercer fallo: bloqueo por 30s.
+	const r3 = siguienteBackoff(est, false, t0);
+	assert.equal(r3.nuevo.fallosConsecutivos, INTENTOS_ANTES_DE_BLOQUEAR);
+	assert.equal(r3.nuevo.bloqueadoHastaMs, t0 + BLOQUEO_MS, 'al 3er fallo se bloquea 30s');
+	// Intentar durante el bloqueo: aborta con segundos restantes, sin tocar el estado.
+	const durante = siguienteBackoff(r3.nuevo, true, t0 + 10_000);
+	assert.equal(durante.bloqueadoSegundos, 20, 'durante el bloqueo informa los segundos que faltan');
+	assert.deepEqual(durante.nuevo, r3.nuevo, 'durante el bloqueo no muta el estado');
+	// Pasado el bloqueo, un código válido resetea todo.
+	const ok = siguienteBackoff(r3.nuevo, true, t0 + BLOQUEO_MS + 1);
+	assert.deepEqual(ok.nuevo, { fallosConsecutivos: 0, bloqueadoHastaMs: null }, 'código válido tras el bloqueo resetea');
+	console.log('OK: totp-local-service.ts (siguienteBackoff) — 3 fallos → 30s de bloqueo, reset al acertar (F-38)');
+
 	// --- 8. Generador de contraseñas + medidor de fortaleza (pedido explícito
 	// del usuario, modal del popup) — mismos módulos que ya usa la app web,
 	// sólo se confirma que siguen respetando longitud/reglas y que el
