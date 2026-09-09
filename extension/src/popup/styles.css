@@ -831,6 +831,27 @@ button[type='submit']:disabled {
 	accent-color: var(--ellkan-teal);
 }
 
+/* F-38: desbloqueo rápido local con TOTP (bloque en "Mi cuenta"). */
+.f38-bloque {
+	gap: 6px;
+}
+.f38-secreto {
+	display: block;
+	font-family: var(--font-mono, monospace);
+	font-size: 12px;
+	background: var(--ellkan-fondo);
+	border: 1px solid var(--ellkan-borde);
+	border-radius: 6px;
+	padding: 8px 10px;
+	margin: 4px 0 8px;
+	word-break: break-all;
+	user-select: all;
+}
+.f38-botones {
+	display: flex;
+	gap: 8px;
+}
+
 /* Regla genérica de ocultamiento — a propósito al final del archivo: mismo
    nivel de especificidad (una sola clase) que `.error`/`.texto-secundario`/
    otras que también pueden llevar `oculto` combinada, así que el orden de

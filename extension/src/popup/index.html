@@ -68,29 +68,38 @@
 					<strong id="desbloqueo-email"></strong> — <span id="desbloqueo-servidor"></span>
 				</p>
 				<form id="form-desbloqueo" novalidate>
-					<label for="campo-desbloqueo-passphrase">Contraseña Master</label>
-					<div class="campo-con-boton">
-						<input
-							type="password"
-							id="campo-desbloqueo-passphrase"
-							required
-							autocomplete="current-password"
-							autofocus
-						/>
-						<button
-							type="button"
-							id="boton-mostrar-desbloqueo-passphrase"
-							class="boton-mostrar"
-							aria-label="Mostrar contraseña"
-						>
-							👁
-						</button>
+					<div id="desbloqueo-campo-passphrase">
+						<label for="campo-desbloqueo-passphrase">Contraseña Master</label>
+						<div class="campo-con-boton">
+							<input
+								type="password"
+								id="campo-desbloqueo-passphrase"
+								autocomplete="current-password"
+								autofocus
+							/>
+							<button
+								type="button"
+								id="boton-mostrar-desbloqueo-passphrase"
+								class="boton-mostrar"
+								aria-label="Mostrar contraseña"
+							>
+								👁
+							</button>
+						</div>
+					</div>
+
+					<div id="desbloqueo-campo-codigo" class="oculto">
+						<label for="campo-desbloqueo-codigo">Código de 6 dígitos</label>
+						<input type="text" id="campo-desbloqueo-codigo" inputmode="numeric" autocomplete="one-time-code" />
 					</div>
 
 					<p class="error oculto" id="error-desbloqueo"></p>
 
 					<button type="submit" id="boton-desbloquear">Desbloquear</button>
 				</form>
+				<p class="hint">
+					<button type="button" id="boton-desbloqueo-modo" class="link oculto">Usar un código en vez de la contraseña</button>
+				</p>
 				<p class="hint">
 					<button type="button" id="boton-otra-cuenta" class="link">Usar otra cuenta</button>
 				</p>
@@ -253,6 +262,18 @@
 					<label for="form-notas">Nota</label>
 					<textarea id="form-notas" rows="3"></textarea>
 
+					<!-- Estrategia de matching URI↔recurso para autofill (spec 06 §4.2).
+					     Sólo relevante para login-password; se muestra/oculta según el tipo. -->
+					<div id="form-matching-bloque">
+						<label for="form-matching">Coincidencia de URL (autofill)</label>
+						<select id="form-matching">
+							<option value="host">Host — mismo dominio y puerto</option>
+							<option value="exact">Exacta — misma dirección y ruta</option>
+							<option value="base_domain">Dominio base — incluye subdominios</option>
+							<option value="never">Nunca — no autocompletar</option>
+						</select>
+					</div>
+
 					<p class="error oculto" id="error-form"></p>
 
 					<button type="submit" id="boton-guardar-form">Guardar</button>
@@ -276,6 +297,34 @@
 						<span id="cuenta-servidor" class="detalle-valor-texto"></span>
 					</div>
 				</div>
+				<!-- F-38: desbloqueo rápido local con TOTP. El secreto y la crypto
+				     viven en el service worker (background/services/totp-local-service.ts);
+				     acá sólo la UI. -->
+				<div class="detalle-campo f38-bloque">
+					<span class="detalle-campo-label">Desbloqueo rápido (código)</span>
+					<p class="hint" id="f38-estado-texto">Cargando…</p>
+
+					<button type="button" id="boton-f38-activar" class="boton-secundario oculto">Activar</button>
+					<button type="button" id="boton-f38-desactivar" class="boton-secundario oculto">Desactivar</button>
+
+					<form id="form-f38-setup" class="oculto" novalidate>
+						<p class="hint">
+							Agregá este secreto a tu app de autenticación (distinto del de login), después
+							confirmá con un código y tu Contraseña Master.
+						</p>
+						<code id="f38-secreto" class="f38-secreto"></code>
+						<label for="campo-f38-passphrase">Contraseña Master</label>
+						<input type="password" id="campo-f38-passphrase" autocomplete="current-password" required />
+						<label for="campo-f38-codigo">Código de 6 dígitos</label>
+						<input type="text" id="campo-f38-codigo" inputmode="numeric" autocomplete="one-time-code" required />
+						<p class="error oculto" id="error-f38"></p>
+						<div class="f38-botones">
+							<button type="submit" id="boton-f38-confirmar">Confirmar</button>
+							<button type="button" id="boton-f38-cancelar" class="boton-secundario">Cancelar</button>
+						</div>
+					</form>
+				</div>
+
 				<a id="cuenta-abrir-web" class="boton-secundario detalle-abrir-web" target="_blank" rel="noopener noreferrer">
 					Ajustes completos en la app web ↗
 				</a>

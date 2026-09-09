@@ -14,7 +14,7 @@
 //   node version.mjs --set 1.0  -> 1.0.0
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const raiz = dirname(fileURLToPath(import.meta.url));
@@ -127,8 +127,11 @@ export function actualizarVersion() {
 	return nuevaVersion;
 }
 
-// Sólo corre si se invoca directo (`node version.mjs`), no cuando
-// `package.mjs` importa `actualizarVersion` para llamarla él mismo.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Sólo corre si se invoca directo (`node version.mjs`), no cuando otro
+// módulo importa `actualizarVersion`/`aplicarVersion` para llamarla él mismo.
+// `pathToFileURL` en vez de `` `file://${argv[1]}` ``: en Windows `argv[1]`
+// trae backslashes y hace falta `file:///` (tres barras) — la comparación
+// literal fallaba siempre ahí y `node version.mjs --set X` era un no-op.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	console.log(`Versión: ${actualizarVersion()}`);
 }

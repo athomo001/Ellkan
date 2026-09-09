@@ -29,6 +29,12 @@ node_modules/
 *.wasm
 pkg/
 
+# Build de la extensión — `node build.mjs`/`cli.mjs` lo regeneran; su
+# contenido cambia según el último `BROWSER` usado (chrome vs firefox), así
+# que trackearlo sólo generaba diffs enormes y sin sentido. Los artefactos
+# instalables (`.zip`/`.xpi`/`.crx`) sí se siguen versionando.
+/extension/dist/
+
 # Secretos de despliegue (convención *_FILE, sección 2.5 de spec/09-guia-de-codificacion-segura.md)
 /secrets/*
 !/secrets/README.md
