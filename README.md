@@ -11,10 +11,6 @@
 </p>
 
 **Ellkan** — del mapudungún *elkan*, "esconder, ocultar".
-<a href="https://www.buymeacoffee.com/athomo"><img src="https://img.buymeacoffee.com/button-api/?text=Comprame%20un%20cafecito&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
-
-**ADVERTENCIA** : desarrollo en fase beta
-
 
 > [!WARNING]
 > **Desarrollo en fase beta.** La interfaz, el esquema de datos y la API pueden cambiar entre versiones sin migración automática. Todavía no lo uses como tu único gestor de contraseñas productivo para tu empresa.
