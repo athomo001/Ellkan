@@ -6,11 +6,14 @@
 <p align="center">Zero-knowledge, self-hosted password manager.</p>
 <p align="center"><a href="README.md">Español</a> · <b>English</b> (this file)</p>
 
+<p align="center">
+  <a href="https://www.buymeacoffee.com/athomo"><img alt="Buy Me a Coffee" height="60" src="https://img.buymeacoffee.com/button-api/?text=Buy%20Me%20a%20Coffee&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
+</p>
+
 **Ellkan** — from Mapudungun *elkan*, "to hide, to conceal."
 
-<p align="center">
-  <a href="https://www.buymeacoffee.com/athomo"><img alt="Buy Me a Coffee" height="38" src="https://img.buymeacoffee.com/button-api/?text=Buy%20Me%20a%20Coffee&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
-</p>
+> [!WARNING]
+> **Beta software.** The UI, data schema and API may change between versions without an automatic migration path. Don't rely on it yet as your organization's only password manager.
 
 ## What Ellkan is
 

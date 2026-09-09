@@ -7,7 +7,7 @@
 <p align="center"><b>Español</b> (este archivo) · <a href="README.en.md">English</a></p>
 
 <p align="center">
-  <a href="https://www.buymeacoffee.com/athomo"><img alt="Comprame un cafecito" height="38" src="https://img.buymeacoffee.com/button-api/?text=Comprame%20un%20Cafecito&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
+  <a href="https://www.buymeacoffee.com/athomo"><img alt="Comprame un cafecito" height="60" src="https://img.buymeacoffee.com/button-api/?text=Comprame%20un%20cafecito&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
 </p>
 
 **Ellkan** — del mapudungún *elkan*, "esconder, ocultar".
@@ -17,7 +17,7 @@
 
 
 > [!WARNING]
-> **Desarrollo en fase beta.** La interfaz, el esquema de datos y la API pueden cambiar entre versiones sin migración automática. Todavía no lo uses como tu único gestor de contraseñas.
+> **Desarrollo en fase beta.** La interfaz, el esquema de datos y la API pueden cambiar entre versiones sin migración automática. Todavía no lo uses como tu único gestor de contraseñas productivo para tu empresa.
 
 ## Qué es Ellkan
 
