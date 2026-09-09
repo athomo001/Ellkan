@@ -9,9 +9,10 @@
 // corremos `vite.build()` tres veces contra el mismo `dist/`.
 
 import { build } from 'vite';
-import { readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { resolverManifest, manifestFuente } from './manifest-resolve.mjs';
 
 const raiz = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(raiz, 'dist');
@@ -21,33 +22,12 @@ if (!['chrome', 'firefox', 'safari'].includes(browser)) {
 	throw new Error(`BROWSER debe ser chrome|firefox|safari, no "${browser}"`);
 }
 
-/** Resuelve claves `__<browser>__foo` del manifest fuente (spec 06 §1):
- * - Si el navegador actual matchea, la clave reemplaza a `foo` (o la borra
- *   si el valor es `null`).
- * - Las claves `__<otro-navegador>__*` se descartan enteras. */
-function resolverManifest(fuente, navegador) {
-	const resultado = {};
-	for (const [clave, valor] of Object.entries(fuente)) {
-		const match = clave.match(/^__(\w+)__(.+)$/);
-		if (match) {
-			const [, navegadorDeLaClave, claveReal] = match;
-			if (navegadorDeLaClave !== navegador) continue;
-			if (valor === null) {
-				delete resultado[claveReal];
-			} else {
-				resultado[claveReal] = valor;
-			}
-			continue;
-		}
-		if (!(clave in resultado)) resultado[clave] = valor;
-	}
-	return resultado;
-}
+// `resolverManifest` (spec 06 §1) vive en `manifest-resolve.mjs` para
+// compartirlo con `self-check.ts` (test de `frame-ancestors`).
 
 mkdirSync(dist, { recursive: true });
 
-const manifestFuente = JSON.parse(readFileSync(resolve(raiz, 'manifest.source.json'), 'utf8'));
-const manifestResuelto = resolverManifest(manifestFuente, browser);
+const manifestResuelto = resolverManifest(manifestFuente(), browser);
 writeFileSync(resolve(dist, 'manifest.json'), JSON.stringify(manifestResuelto, null, 2));
 
 cpSync(resolve(raiz, 'public'), dist, { recursive: true });

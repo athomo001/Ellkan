@@ -134,6 +134,8 @@ const formTipo = document.getElementById('form-tipo') as HTMLSelectElement;
 const formNombre = document.getElementById('form-nombre') as HTMLInputElement;
 const formUsuario = document.getElementById('form-usuario') as HTMLInputElement;
 const formUri = document.getElementById('form-uri') as HTMLInputElement;
+const formMatching = document.getElementById('form-matching') as HTMLSelectElement;
+const formMatchingBloque = document.getElementById('form-matching-bloque') as HTMLElement;
 const formPassword = document.getElementById('form-password') as HTMLInputElement;
 const botonGenerarPassword = document.getElementById('boton-generar-password') as HTMLButtonElement;
 const botonMostrarFormPassword = document.getElementById('boton-mostrar-form-password') as HTMLButtonElement;
@@ -147,6 +149,22 @@ const botonVolverCuenta = document.getElementById('boton-volver-cuenta') as HTML
 const cuentaEmail = document.getElementById('cuenta-email') as HTMLElement;
 const cuentaServidor = document.getElementById('cuenta-servidor') as HTMLElement;
 const cuentaAbrirWeb = document.getElementById('cuenta-abrir-web') as HTMLAnchorElement;
+
+// F-38 (desbloqueo rápido con código) — refs de "Mi cuenta" y de la pantalla
+// de desbloqueo. Toda la crypto vive en el service worker (rutas `F38_*`).
+const f38EstadoTexto = document.getElementById('f38-estado-texto') as HTMLElement;
+const botonF38Activar = document.getElementById('boton-f38-activar') as HTMLButtonElement;
+const botonF38Desactivar = document.getElementById('boton-f38-desactivar') as HTMLButtonElement;
+const formF38Setup = document.getElementById('form-f38-setup') as HTMLFormElement;
+const f38Secreto = document.getElementById('f38-secreto') as HTMLElement;
+const campoF38Passphrase = document.getElementById('campo-f38-passphrase') as HTMLInputElement;
+const campoF38Codigo = document.getElementById('campo-f38-codigo') as HTMLInputElement;
+const errorF38 = document.getElementById('error-f38') as HTMLElement;
+const botonF38Cancelar = document.getElementById('boton-f38-cancelar') as HTMLButtonElement;
+const desbloqueoCampoPassphrase = document.getElementById('desbloqueo-campo-passphrase') as HTMLElement;
+const desbloqueoCampoCodigo = document.getElementById('desbloqueo-campo-codigo') as HTMLElement;
+const campoDesbloqueoCodigo = document.getElementById('campo-desbloqueo-codigo') as HTMLInputElement;
+const botonDesbloqueoModo = document.getElementById('boton-desbloqueo-modo') as HTMLButtonElement;
 
 const ICONO_POR_TIPO: Record<string, string> = {
 	'login-password': '🔑',
@@ -421,11 +439,19 @@ botonVolverLista.addEventListener('click', () => {
 // guardar. ---
 let modoFormulario: 'crear' | 'editar' = 'crear';
 
+/** El `<select>` de matching sólo tiene sentido para un login web. */
+function actualizarVisibilidadMatching(): void {
+	formMatchingBloque.classList.toggle('oculto', !formTipo.value.startsWith('login-password'));
+}
+formTipo.addEventListener('change', actualizarVisibilidadMatching);
+
 function abrirFormularioCrear(): void {
 	modoFormulario = 'crear';
 	formTitulo.textContent = 'Nueva contraseña';
 	formRecurso.reset();
 	formTipo.value = 'login-password';
+	formMatching.value = 'host';
+	actualizarVisibilidadMatching();
 	formPassword.type = 'password';
 	botonMostrarFormPassword.textContent = '👁';
 	ocultarError(errorForm);
@@ -446,6 +472,8 @@ async function abrirFormularioEditar(): Promise<void> {
 		formNombre.value = item.nombre;
 		formUsuario.value = item.usuario;
 		formUri.value = item.uri;
+		formMatching.value = item.matching;
+		actualizarVisibilidadMatching();
 		formPassword.value = secreto.password;
 		formPassword.type = 'password';
 		botonMostrarFormPassword.textContent = '👁';
@@ -485,7 +513,10 @@ formRecurso.addEventListener('submit', async (evento) => {
 		uri: formUri.value.trim(),
 		password: formPassword.value,
 		notas: formNotas.value,
-		totpSecretBase32: formTotp.value.trim() || undefined
+		totpSecretBase32: formTotp.value.trim() || undefined,
+		matching: formTipo.value.startsWith('login-password')
+			? (formMatching.value as DatosRecurso['matching'])
+			: undefined
 	};
 
 	botonGuardarForm.disabled = true;
@@ -672,11 +703,115 @@ botonCuenta.addEventListener('click', () => {
 	cuentaEmail.textContent = emailActual;
 	cuentaServidor.textContent = servidorActual;
 	cuentaAbrirWeb.href = `${servidorActual}/settings`;
+	void refrescarEstadoF38();
 	mostrarVista('cuenta');
 });
 
 botonVolverCuenta.addEventListener('click', () => {
 	mostrarVista('desbloqueada');
+});
+
+// --- F-38: desbloqueo rápido local con TOTP (spec 05 §2.1) ---------------
+let secretoF38EnSetup = '';
+
+async function refrescarEstadoF38(): Promise<void> {
+	ocultarError(errorF38);
+	formF38Setup.classList.add('oculto');
+	botonF38Activar.classList.add('oculto');
+	botonF38Desactivar.classList.add('oculto');
+	try {
+		const { activo } = await cliente.request<{ activo: boolean }>('F38_ESTADO');
+		f38EstadoTexto.textContent = activo
+			? 'Activo en este dispositivo — al desbloquear podés usar un código en vez de la Contraseña Master.'
+			: 'No activo. Podés desbloquear con un código de tu app de autenticación en vez de escribir la Contraseña Master.';
+		(activo ? botonF38Desactivar : botonF38Activar).classList.remove('oculto');
+	} catch {
+		f38EstadoTexto.textContent = 'No se pudo consultar el estado.';
+	}
+}
+
+botonF38Activar.addEventListener('click', async () => {
+	ocultarError(errorF38);
+	botonF38Activar.disabled = true;
+	try {
+		const setup = await cliente.request<{ secretoB64: string; secretoBase32: string; otpauthUri: string }>('F38_GENERAR_SETUP');
+		secretoF38EnSetup = setup.secretoB64;
+		f38Secreto.textContent = setup.secretoBase32;
+		campoF38Passphrase.value = '';
+		campoF38Codigo.value = '';
+		botonF38Activar.classList.add('oculto');
+		formF38Setup.classList.remove('oculto');
+	} catch (error) {
+		mostrarError(errorF38, error instanceof Error ? error.message : 'No se pudo generar el secreto.');
+	} finally {
+		botonF38Activar.disabled = false;
+	}
+});
+
+botonF38Cancelar.addEventListener('click', () => {
+	secretoF38EnSetup = '';
+	void refrescarEstadoF38();
+});
+
+formF38Setup.addEventListener('submit', async (evento) => {
+	evento.preventDefault();
+	ocultarError(errorF38);
+	const botonConfirmar = document.getElementById('boton-f38-confirmar') as HTMLButtonElement;
+	botonConfirmar.disabled = true;
+	try {
+		await cliente.request('F38_CONFIRMAR', {
+			secretoB64: secretoF38EnSetup,
+			codigo: campoF38Codigo.value.trim(),
+			passphrase: campoF38Passphrase.value
+		});
+		secretoF38EnSetup = '';
+		campoF38Passphrase.value = '';
+		await refrescarEstadoF38();
+	} catch (error) {
+		mostrarError(errorF38, error instanceof Error ? error.message : 'No se pudo activar.');
+	} finally {
+		botonConfirmar.disabled = false;
+	}
+});
+
+botonF38Desactivar.addEventListener('click', async () => {
+	botonF38Desactivar.disabled = true;
+	try {
+		await cliente.request('F38_DESACTIVAR');
+		await refrescarEstadoF38();
+	} catch (error) {
+		mostrarError(errorF38, error instanceof Error ? error.message : 'No se pudo desactivar.');
+	} finally {
+		botonF38Desactivar.disabled = false;
+	}
+});
+
+// Pantalla de desbloqueo: si F-38 está activo, se ofrece el toggle a "código".
+let desbloqueoModoCodigo = false;
+
+async function prepararDesbloqueoF38(): Promise<void> {
+	desbloqueoModoCodigo = false;
+	desbloqueoCampoPassphrase.classList.remove('oculto');
+	desbloqueoCampoCodigo.classList.add('oculto');
+	botonDesbloqueoModo.classList.add('oculto');
+	botonDesbloqueoModo.textContent = 'Usar un código en vez de la contraseña';
+	try {
+		const { activo } = await cliente.request<{ activo: boolean }>('F38_ESTADO');
+		if (activo) botonDesbloqueoModo.classList.remove('oculto');
+	} catch {
+		// sin estado legible → sólo contraseña, sin toggle
+	}
+}
+
+botonDesbloqueoModo.addEventListener('click', () => {
+	desbloqueoModoCodigo = !desbloqueoModoCodigo;
+	desbloqueoCampoPassphrase.classList.toggle('oculto', desbloqueoModoCodigo);
+	desbloqueoCampoCodigo.classList.toggle('oculto', !desbloqueoModoCodigo);
+	botonDesbloqueoModo.textContent = desbloqueoModoCodigo
+		? 'Usar la Contraseña Master'
+		: 'Usar un código en vez de la contraseña';
+	ocultarError(errorDesbloqueo);
+	(desbloqueoModoCodigo ? campoDesbloqueoCodigo : campoDesbloqueoPassphrase).focus();
 });
 
 async function cargarVault(): Promise<void> {
@@ -857,18 +992,25 @@ formDesbloqueo.addEventListener('submit', async (evento) => {
 
 	const serverUrl = desbloqueoServidor.textContent ?? '';
 	const email = desbloqueoEmail.textContent ?? '';
-	const passphrase = campoDesbloqueoPassphrase.value;
 
 	botonDesbloquear.disabled = true;
 	botonDesbloquear.textContent = 'Desbloqueando…';
 	try {
-		const resultado = await cliente.request<ResultadoLogin>('AUTH_LOGIN', {
-			serverUrl,
-			email,
-			passphrase,
-			forceMfa: cuentaBloqueadaPorInactividad
-		});
-		campoDesbloqueoPassphrase.value = '';
+		let resultado: ResultadoLogin;
+		if (desbloqueoModoCodigo) {
+			// F-38: el service worker reconstruye la passphrase desde el código
+			// y corre el login real (mismo resultado que `AUTH_LOGIN`).
+			resultado = await cliente.request<ResultadoLogin>('F38_DESBLOQUEAR', { codigo: campoDesbloqueoCodigo.value.trim() });
+			campoDesbloqueoCodigo.value = '';
+		} else {
+			resultado = await cliente.request<ResultadoLogin>('AUTH_LOGIN', {
+				serverUrl,
+				email,
+				passphrase: campoDesbloqueoPassphrase.value,
+				forceMfa: cuentaBloqueadaPorInactividad
+			});
+			campoDesbloqueoPassphrase.value = '';
+		}
 		manejarResultadoLogin(resultado, serverUrl, email);
 	} catch (error) {
 		mostrarError(errorDesbloqueo, error instanceof Error ? error.message : 'No se pudo desbloquear.');
@@ -970,6 +1112,7 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 			desbloqueoServidor.textContent = cuenta.serverUrl;
 			campoDesbloqueoPassphrase.value = '';
 			ocultarError(errorDesbloqueo);
+			await prepararDesbloqueoF38();
 			mostrarVista('desbloqueo');
 			return;
 		}

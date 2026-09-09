@@ -2,13 +2,22 @@
 
 # `kdbxweb` (F-27, export/import KDBX) trae `@xmldom/xmldom@^0.7.4` como
 # dependencia transitiva, resuelto a 0.7.13 — vulnerable a inyección de
-# nodos XML (GHSA-j759-j44w-7fr8 y relacionados, `pnpm audit`). Se fuerza
-# la versión parcheada acá porque pnpm v10+ dejó de leer `pnpm.overrides`
-# desde `package.json`. Fijada exactamente en `0.8.13` (el primer patch),
-# no `>=0.8.13`: desde 0.9.0, `DOMParser` tira un `TypeError` explícito si
-# recibe `errorHandler` como objeto en vez de función — y `kdbxweb` (sin
-# actualizar hace tiempo) sigue pasando el objeto viejo, rompiendo en
-# runtime cualquier `0.9.x`, verificado corriendo el roundtrip real de un
-# KDBX contra este código.
+# nodos XML (GHSA-j759-j44w-7fr8 y una segunda tanda de advisories 2025:
+# ReDoS, parsing cuadrático, bypasses de `requireWellFormed`). Se fuerza la
+# versión parcheada acá porque pnpm v10+ dejó de leer `pnpm.overrides` desde
+# `package.json`.
+#
+# Fijada en la serie `0.8.x` (2026-09-09: `0.8.15`, primer patch que cubre
+# toda la segunda tanda — vuln range `>=0.7.0 <=0.8.14`), NO `0.9.x`: desde
+# 0.9.0, `DOMParser` tira un `TypeError` si recibe `errorHandler` como objeto
+# en vez de función, y `kdbxweb` (sin actualizar hace tiempo) sigue pasando
+# el objeto viejo — rompe en runtime cualquier `0.9.x`, verificado antes con
+# el roundtrip real de un KDBX. `0.8.15` mantiene esa API, sólo trae los
+# fixes de seguridad.
+#
+# `nanoid` (transitiva de `vite`/`postcss`, sólo build-time — no se envía al
+# cliente): loop potencialmente infinito con `size <= 0` en `<3.3.18`. Patch
+# bump seguro.
 overrides:
-  '@xmldom/xmldom': '0.8.13'
+  '@xmldom/xmldom': '0.8.15'
+  'nanoid': '^3.3.18'

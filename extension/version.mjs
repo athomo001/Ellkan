@@ -14,7 +14,7 @@
 //   node version.mjs --set 1.0  -> 1.0.0
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const raiz = dirname(fileURLToPath(import.meta.url));
@@ -55,6 +55,60 @@ function versionFijada(xy) {
 	return `${xy}.0`;
 }
 
+// --- API extendida para `cli.mjs` (2026-09-08) -----------------------------
+// `node version.mjs` directo y `package.mjs` siguen usando sólo patch / `--set
+// x.y` (intactos, abajo). El CLI nuevo necesita además minor, major y versión
+// exacta `x.y.z`.
+
+/** Próxima versión a partir de la actual (`x.y.z`) y un spec libre, SIN escribir:
+ *   'patch' | undefined -> 0.2.3 -> 0.2.4   (default, igual que hoy)
+ *   'minor'             -> 0.2.3 -> 0.3.0
+ *   'major'             -> 0.2.3 -> 1.0.0
+ *   'x.y'               -> '0.4'   -> 0.4.0
+ *   'x.y.z'             -> '1.2.3' -> 1.2.3  (exacta)
+ *   'keep'             -> no cambia nada */
+export function resolverVersion(actual, spec) {
+	const partes = actual.split('.').map(Number);
+	if (partes.length !== 3 || partes.some(Number.isNaN)) {
+		throw new Error(`versión actual "${actual}" no tiene forma x.y.z`);
+	}
+	const [may, min] = partes;
+	switch (spec) {
+		case undefined:
+		case 'patch':
+			return bumpPatch(actual);
+		case 'keep':
+			return actual;
+		case 'minor':
+			return `${may}.${min + 1}.0`;
+		case 'major':
+			return `${may + 1}.0.0`;
+		default:
+			if (/^\d+\.\d+$/.test(spec)) return `${spec}.0`;
+			if (/^\d+\.\d+\.\d+$/.test(spec)) return spec;
+			throw new Error(`versión "${spec}" inválida: usá patch|minor|major, "x.y" o "x.y.z"`);
+	}
+}
+
+/** Versión actual declarada en `package.json`. */
+export function versionActual() {
+	return leerJson(rutaPackageJson).version;
+}
+
+/** Como `actualizarVersion`, pero con un spec explícito (ver `resolverVersion`).
+ * Escribe la nueva versión en `package.json` + `manifest.source.json` (salvo que
+ * no cambie) y la devuelve. */
+export function aplicarVersion(spec) {
+	const actual = versionActual();
+	const nueva = resolverVersion(actual, spec);
+	if (nueva !== actual) {
+		for (const ruta of [rutaPackageJson, rutaManifest]) {
+			escribirVersion(ruta, nueva);
+		}
+	}
+	return nueva;
+}
+
 function calcularNuevaVersion() {
 	const actual = leerJson(rutaPackageJson).version;
 	if (process.argv[2] === '--set') {
@@ -73,8 +127,11 @@ export function actualizarVersion() {
 	return nuevaVersion;
 }
 
-// Sólo corre si se invoca directo (`node version.mjs`), no cuando
-// `package.mjs` importa `actualizarVersion` para llamarla él mismo.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Sólo corre si se invoca directo (`node version.mjs`), no cuando otro
+// módulo importa `actualizarVersion`/`aplicarVersion` para llamarla él mismo.
+// `pathToFileURL` en vez de `` `file://${argv[1]}` ``: en Windows `argv[1]`
+// trae backslashes y hace falta `file:///` (tres barras) — la comparación
+// literal fallaba siempre ahí y `node version.mjs --set X` era un no-op.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	console.log(`Versión: ${actualizarVersion()}`);
 }

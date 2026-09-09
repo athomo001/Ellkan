@@ -4,6 +4,29 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.32] - 2026-09-09
+
+### Agregado: autofill completo, "guardar contraseña", desbloqueo con código y CLI de empaquetado (extensión v0.3.0)
+
+- **Autocompletar más inteligente**: la extensión ahora entiende mejor los formularios de login — encuentra el campo de usuario aunque el formulario esté armado de forma rara, ignora campos-trampa invisibles que ponen algunos sitios, y no se confunde con formularios de registro o de cambio de contraseña (donde no tiene sentido ofrecer autocompletar).
+- **Elegís cómo coincide cada contraseña con los sitios**: por cada contraseña guardada podés decidir si se ofrece para autocompletar sólo en la dirección exacta, en todo el dominio (por ejemplo cualquier página de `ejemplo.com`), incluyendo subdominios, o nunca. El default sigue siendo "mismo dominio y puerto", como antes. Se configura al crear o editar la contraseña, tanto en la app web como en la extensión.
+- **Los subdominios de servicios de hosting ya no se mezclan**: si guardabas algo para `tu-usuario.github.io` (o `.vercel.app`, `.pages.dev`, etc.), la opción "incluir subdominios" ya no lo ofrece por error en el sitio de otra persona — cada uno es un dominio distinto.
+- **Ofrecer guardar una contraseña nueva**: cuando iniciás sesión en un sitio para el que no tenés nada guardado, la extensión te ofrece una barra arriba de la página para guardarla en Ellkan con un clic.
+- **Desbloqueo rápido con un código**: podés activar (en "Mi cuenta" de la extensión) un código de 6 dígitos de tu app de autenticación para desbloquear la extensión sin tener que escribir tu Contraseña Master entera. Es opcional, por dispositivo, y el código nunca sale de tu equipo. Tras 3 códigos incorrectos seguidos hay que esperar 30 segundos.
+- **El menú de sugerencias y la barra de guardar son más seguros**: se dibujan directamente sobre la página, aislados, sin ninguna dirección web propia que un sitio malicioso pudiera cargar y manipular para engañarte (cierra un tipo de ataque de "clic robado" documentado en auditorías de otros gestores).
+- **Los colores de la extensión ahora salen de una única fuente compartida con la app web** — antes tenían copias que ya empezaban a diferir un poco.
+- **Nuevo comando para empaquetar la extensión** (`node cli.mjs`, para desarrolladores): elegís qué navegadores generar, cómo subir la versión, y una opción de "prueba en seco" que muestra qué haría sin escribir nada. `pnpm run package` sin argumentos sigue funcionando igual que antes.
+- Al iniciar sesión con un login que tiene código TOTP guardado, la extensión ahora también lo ofrece para autocompletar (antes se salteaba ese tipo de contraseña).
+
+### Corregido
+
+- **Dependencias con vulnerabilidades conocidas actualizadas** en el frontend (la librería que maneja los archivos `.kdbx` de exportación traía versiones viejas de dos paquetes internos con fallos de seguridad reportados) — verificado que exportar e importar un `.kdbx` sigue funcionando igual.
+
+### Conocido, no resuelto todavía
+
+- La extensión sigue sin probarse con clics reales en un navegador dentro de este entorno de desarrollo (todo lo nuevo pasa los chequeos automáticos y las pruebas de lógica, falta el pase manual). El empaquetado y la prueba en Firefox/Safari, y la comparación visual entre navegadores, quedan pendientes por el mismo motivo.
+- El desbloqueo rápido con código: la parte criptográfica está verificada de punta a punta, falta ejercitar la pantalla del popup con clics reales.
+
 ## [0.1.31] - 2026-08-15
 
 ### Agregado: sesión inteligente + generador dual de contraseñas + empaquetado real (extensión v0.2.0)

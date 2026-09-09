@@ -28,13 +28,31 @@ BROWSER=safari node build.mjs
 
 Para probar un cambio en un navegador real sin empaquetar: `node build.mjs` y después cargar `dist/` como extensión sin empaquetar (`chrome://extensions` → modo desarrollador → "Cargar descomprimida", o el equivalente en cada navegador).
 
-## Empaquetar para todos los navegadores
+## Empaquetar
 
 ```bash
-pnpm run package
+pnpm run package                 # los 6 artefactos, bump de patch (equivale a: node cli.mjs)
+node cli.mjs -b firefox          # sólo uno
+node cli.mjs -b chrome,edge      # sólo esos (coma o -b repetido; también posicionales)
+node cli.mjs --version minor     # sube la minor y empaqueta todo
+node cli.mjs --dry-run           # muestra qué haría, sin escribir nada
+node cli.mjs --help              # todas las banderas
 ```
 
-Genera, en la raíz de `extension/`:
+`cli.mjs` es el punto de entrada con banderas; `pnpm run package` lo llama sin argumentos (mismo resultado que antes). `pnpm run package -- <banderas>` también sirve.
+
+| Bandera | Efecto |
+|---|---|
+| `-b, --browser <lista>` | Navegadores a empaquetar (coma o `-b` repetido), o `all`. Default: `all`. También como posicionales: `node cli.mjs firefox chrome`. |
+| `-v, --version <spec>` | `patch` (default) · `minor` · `major` · `x.y` · `x.y.z` · `keep` |
+| `--keep` | Atajo de `--version keep` — no toca la versión |
+| `--no-crx` | No firmar el `.crx` de Chrome |
+| `-o, --out <dir>` | Carpeta de salida (default: `extension/`) |
+| `-n, --dry-run` | Mostrar el plan sin construir ni escribir |
+| `--check` | Correr antes `pnpm check` + `pnpm check:self`; aborta si fallan |
+| `-l, --list` | Listar navegadores y cuáles se automatizan |
+
+Genera, en la raíz de `extension/` (o en `--out`):
 
 | Archivo | Navegador |
 |---|---|
@@ -45,7 +63,7 @@ Genera, en la raíz de `extension/`:
 | `ellkan-firefox.xpi` | Firefox |
 | `ellkan-chrome.crx` | Chrome, firmado (opcional — sólo si Chrome está instalado en la máquina) |
 
-Edge/Brave/Opera son Chromium con Manifest V3 sin ninguna diferencia de manifest respecto a Chrome hoy, así que los 4 `.zip` salen del mismo build — no hay un build separado por cada uno. Safari queda afuera de este script: requiere empaquetado nativo vía Xcode/Swift, no automatizable desde acá.
+Edge/Brave/Opera son Chromium con Manifest V3 sin ninguna diferencia de manifest respecto a Chrome hoy, así que sus `.zip` salen del mismo build — no hay un build separado por cada uno. Safari queda afuera del script: requiere empaquetado nativo vía Xcode/Swift, no automatizable desde acá (`node cli.mjs -b safari` sólo recuerda el paso manual).
 
 ### Versionamiento automático
 
@@ -55,7 +73,16 @@ Edge/Brave/Opera son Chromium con Manifest V3 sin ninguna diferencia de manifest
 pnpm run package   # ej. 0.1.34 -> 0.1.35, y ese 0.1.35 es el que queda empaquetado
 ```
 
-Para cambiar de versión mayor/minor (`x.y`) con reset del patch a `0`, correr esto **antes** de empaquetar:
+Para subir mayor/minor con reset del patch a `0`, o fijar una versión exacta, se hace en la misma corrida del empaquetado:
+
+```bash
+node cli.mjs --version minor    # 0.2.7 -> 0.3.0 y empaqueta
+node cli.mjs --version major    # 0.2.7 -> 1.0.0 y empaqueta
+node cli.mjs --version 1.4.2    # fija exacta y empaqueta
+node cli.mjs --keep             # empaqueta sin tocar la versión
+```
+
+O por separado, **antes** de empaquetar (equivalente para `x.y`):
 
 ```bash
 node version.mjs --set 0.2   # cualquier versión actual -> 0.2.0
@@ -74,9 +101,10 @@ extension/
 ├── manifest.source.json   Manifest único — claves con prefijo __chrome__/__firefox__/__safari__
 │                          se resuelven según el navegador de destino al buildear.
 ├── build.mjs              Resuelve el manifest + arma background.js/content.js/popup/ en dist/.
-├── package.mjs            Corre build.mjs por navegador y arma los .zip/.xpi/.crx de arriba —
-│                          bumpea la versión sola antes de construir (ver version.mjs).
-├── version.mjs            Bump automático del patch, o --set x.y para fijar versión con reset.
+├── cli.mjs                Punto de entrada con banderas (-b, --version, --no-crx, --out,
+│                          --dry-run, --check, --list). Empaqueta todos los navegadores o los pedidos.
+├── package.mjs            Compatibilidad: `pnpm run package` / `node package.mjs` → delega en cli.mjs.
+├── version.mjs            Bump patch/minor/major o fijar x.y / x.y.z (resolverVersion/aplicarVersion).
 │
 ├── src/
 │   ├── background/        Service worker — toda la lógica real corre acá.
