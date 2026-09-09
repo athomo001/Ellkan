@@ -13,6 +13,7 @@ import { cargarCrypto } from '../wasm';
 import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/b64';
 import { uuidABytes } from '../../../../frontend/src/lib/crypto/uuid';
 import { SesionStorage } from '../storage/sesion-storage';
+import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './uri-match';
 
 interface ErrorApi {
 	error?: { code?: string; message?: string };
@@ -90,6 +91,10 @@ interface MetadataJson {
 	name?: string;
 	username?: string;
 	uri?: string;
+	/** Estrategia de matching URI↔recurso para autofill (spec 06 §4.2) —
+	 * ausente = `host` (default histórico). Vive en la metadata cifrada, el
+	 * servidor nunca la ve. */
+	matching?: string;
 }
 
 interface SecretoJson {
@@ -109,6 +114,9 @@ export interface ItemVault {
 	nombre: string;
 	usuario: string;
 	uri: string;
+	/** Estrategia de matching para autofill — siempre normalizada a un valor
+	 * válido (`host` por default). */
+	matching: EstrategiaMatch;
 	resourceTypeSlug: string;
 	createdBy: string;
 	metadataKeyType: 'user_key' | 'shared_key';
@@ -127,6 +135,9 @@ export interface DatosRecurso {
 	password: string;
 	notas: string;
 	totpSecretBase32?: string;
+	/** Estrategia de matching para autofill (spec 06 §4.2). Omitida al crear
+	 * = `host`. */
+	matching?: EstrategiaMatch;
 }
 
 /** F-06: unsealea la clave privada de cada `metadata_key` activa a la que
@@ -190,6 +201,7 @@ export const VaultService = {
 					nombre: metadata.name ?? '',
 					usuario: metadata.username ?? '',
 					uri: metadata.uri ?? '',
+					matching: normalizarEstrategia(metadata.matching),
 					resourceTypeSlug: r.resource_type_slug,
 					createdBy: r.created_by,
 					metadataKeyType: r.metadata_key_type,
@@ -243,7 +255,10 @@ export const VaultService = {
 		const metadataKeyId = primeraEntrada.done ? null : primeraEntrada.value[0];
 		const claveMetadata = primeraEntrada.done ? dek : primeraEntrada.value[1];
 
-		const metadata = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+		const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+		// Sólo se persiste `matching` si no es el default (`host`) — mantiene la
+		// metadata mínima y hace que un recurso viejo sin el campo siga igual.
+		if (datos.matching && datos.matching !== ESTRATEGIA_MATCH_DEFAULT) metadata.matching = datos.matching;
 		const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
 		if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
@@ -285,7 +300,12 @@ export const VaultService = {
 			claveMetadata = clave;
 		}
 
-		const metadata = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+		const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+		// Preserva la estrategia del recurso si el editor no la cambió — sin
+		// esto, editar desde el popup borraría un `exact`/`base_domain`/`never`
+		// elegido antes (mismo cuidado que el resto de campos reconstruidos).
+		const matching = datos.matching ?? item.matching;
+		if (matching !== ESTRATEGIA_MATCH_DEFAULT) metadata.matching = matching;
 		const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
 		if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
