@@ -43,6 +43,7 @@
 		type TipoRecurso,
 		type UsuarioBusqueda
 	} from '$lib/crypto/recursos';
+	import type { EstrategiaMatch } from '$lib/crypto/matching';
 	import {
 		listarArbolCarpetas,
 		crearCarpeta,
@@ -415,6 +416,10 @@
 	let password = $state('');
 	let notas = $state('');
 	let totpSecretBase32 = $state('');
+	/** Estrategia de matching URI↔recurso para autofill (spec 06 §4.2) — sólo
+	 * tiene sentido para `login-password`; los demás tipos no autocompletan
+	 * en una página web. */
+	let matchingNuevo = $state<EstrategiaMatch>('host');
 	let creando = $state(false);
 	let errorCrear = $state<string | undefined>();
 
@@ -426,11 +431,21 @@
 		try {
 			const uriFinal = tipoNuevo === 'login-password' ? uri : hostNuevo + (puertoNuevo ? `:${puertoNuevo}` : '');
 			await crearRecurso(
-				{ tipo: tipoNuevo, nombre, usuario, uri: uriFinal, password, notas, totpSecretBase32: totpSecretBase32 || undefined },
+				{
+					tipo: tipoNuevo,
+					nombre,
+					usuario,
+					uri: uriFinal,
+					password,
+					notas,
+					totpSecretBase32: totpSecretBase32 || undefined,
+					matching: tipoNuevo === 'login-password' ? matchingNuevo : undefined
+				},
 				$clavesDesbloqueadas,
 				$sesion.userId
 			);
 			tipoNuevo = 'login-password';
+			matchingNuevo = 'host';
 			nombre = usuario = uri = hostNuevo = puertoNuevo = password = notas = totpSecretBase32 = '';
 			mostrarCrear = false;
 			await cargar();
@@ -553,6 +568,7 @@
 	let editPassword = $state('');
 	let editNotas = $state('');
 	let editTotp = $state('');
+	let editMatching = $state<EstrategiaMatch>('host');
 	let cargandoParaEditar = $state(false);
 	let guardandoEdicion = $state(false);
 	let errorEditar = $state<string | undefined>();
@@ -570,6 +586,7 @@
 			editPassword = secreto.password;
 			editNotas = secreto.notes;
 			editTotp = secreto.totpSecret ?? '';
+			editMatching = seleccionado.matching;
 		} catch (err) {
 			errorEditar = err instanceof ApiError ? err.message : $t.vault.errorVerSecreto;
 		} finally {
@@ -591,7 +608,8 @@
 					uri: editUri,
 					password: editPassword,
 					notas: editNotas,
-					totpSecretBase32: editTotp || undefined
+					totpSecretBase32: editTotp || undefined,
+					matching: editMatching
 				},
 				$clavesDesbloqueadas
 			);
@@ -813,7 +831,10 @@
 				secreto.totpSecret
 			);
 			const bytes = await crearArchivoCompartido(contenido, archivoPassword);
-			descargarArchivo({ blob: new Blob([bytes]), filename: `${seleccionado.nombre || 'ellkan'}.7z` });
+			// `.slice()` fuerza un `Uint8Array` sobre un `ArrayBuffer` propio
+			// (no `ArrayBufferLike`/`SharedArrayBuffer`) — lo que `Blob` exige
+			// con el `lib.dom` de TS 6.
+			descargarArchivo({ blob: new Blob([bytes.slice()]), filename: `${seleccionado.nombre || 'ellkan'}.7z` });
 			archivoListo = true;
 		} catch (err) {
 			archivoError = err instanceof ApiError ? err.message : $t.vault.errorExterno;
@@ -854,7 +875,8 @@
 			}
 			const contenido = bloques.join('\n\n----------------------------------------\n\n');
 			const bytes = await crearArchivoCompartido(contenido, archivoLotePassword);
-			descargarArchivo({ blob: new Blob([bytes]), filename: 'ellkan.7z' });
+			// Ver nota en el export individual: `.slice()` para el tipado de `Blob` con TS 6.
+			descargarArchivo({ blob: new Blob([bytes.slice()]), filename: 'ellkan.7z' });
 			archivoLoteListo = true;
 		} catch (err) {
 			archivoLoteError = err instanceof ApiError ? err.message : $t.vault.errorExterno;
@@ -1585,6 +1607,18 @@
 								</div>
 								<TextField label={$t.vault.notas} bind:value={editNotas} />
 								<TextField label={$t.vault.totpOpcional} bind:value={editTotp} />
+								{#if seleccionado?.resourceTypeSlug.startsWith('login-password')}
+									<label class="campo-tipo">
+										{$t.vault.matching}
+										<select bind:value={editMatching}>
+											<option value="host">{$t.vault.matchingHost}</option>
+											<option value="exact">{$t.vault.matchingExact}</option>
+											<option value="base_domain">{$t.vault.matchingBaseDomain}</option>
+											<option value="never">{$t.vault.matchingNever}</option>
+										</select>
+										<span class="campo-hint">{$t.vault.matchingHint}</span>
+									</label>
+								{/if}
 								{#if errorEditar}<p class="error">{errorEditar}</p>{/if}
 								<div class="botones">
 									<Button type="submit" variant="primary" loading={guardandoEdicion}>{$t.vault.guardarEdicion}</Button>
@@ -1864,6 +1898,16 @@
 			<TextField label={$t.vault.notas} bind:value={notas} />
 			{#if tipoNuevo === 'login-password'}
 				<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
+				<label class="campo-tipo">
+					{$t.vault.matching}
+					<select bind:value={matchingNuevo}>
+						<option value="host">{$t.vault.matchingHost}</option>
+						<option value="exact">{$t.vault.matchingExact}</option>
+						<option value="base_domain">{$t.vault.matchingBaseDomain}</option>
+						<option value="never">{$t.vault.matchingNever}</option>
+					</select>
+					<span class="campo-hint">{$t.vault.matchingHint}</span>
+				</label>
 			{/if}
 			{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
 			<div class="botones">
@@ -2026,6 +2070,11 @@
 		border-radius: var(--radius-sm);
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
+		font-weight: normal;
+	}
+	.campo-hint {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary, var(--text-secondary));
 		font-weight: normal;
 	}
 	.con-generar {

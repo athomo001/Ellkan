@@ -33,6 +33,7 @@
 
 import { PortClient } from '../shared/port-client';
 import type { CoincidenciaAutofill } from '../background/services/autofill-service';
+import { mismoOrigenParaFill } from './origin-guard';
 
 const cliente = new PortClient('WebIntegration');
 
@@ -43,7 +44,10 @@ const yaProcesados = new WeakSet<HTMLInputElement>();
 interface MenuAbierto {
 	host: HTMLDivElement;
 	passwordField: HTMLInputElement;
-	hostnameEnQuePidio: string;
+	/** `window.location.origin` en el instante en que se pidieron las
+	 * coincidencias — se revalida contra el origen actual antes de rellenar
+	 * (BWN-08-011, ver `origin-guard.ts`). */
+	origenEnQuePidio: string;
 }
 let menuActual: MenuAbierto | null = null;
 
@@ -88,15 +92,16 @@ async function rellenar(
 	coincidencia: CoincidenciaAutofill,
 	usuarioField: HTMLInputElement | null,
 	passwordField: HTMLInputElement,
-	hostnameEnQuePidio: string
+	origenEnQuePidio: string
 ): Promise<void> {
 	cerrarMenu();
 
 	// Revalidación de origen en el momento exacto del fill (spec 06 §4.3.1,
 	// hallazgo real BWN-08-011) — si la página navegó mientras el menú
-	// estaba abierto (ej. una SPA cambiando de ruta), no rellenar sobre un
-	// origin distinto al que se usó para pedir las coincidencias.
-	if (window.location.hostname.toLowerCase() !== hostnameEnQuePidio) return;
+	// estaba abierto (ej. una SPA cambiando de ruta, un redirect), no
+	// rellenar sobre un origen distinto al que se usó para pedir las
+	// coincidencias. Compara origen completo (esquema+host+puerto).
+	if (!mismoOrigenParaFill(origenEnQuePidio, window.location.href)) return;
 
 	// Downgrade HTTPS→HTTP (spec 06 §4.3, punto 2): el recurso guardado es
 	// https:// pero la página activa es http:// — confirmación explícita
@@ -132,7 +137,7 @@ function crearMenu(
 	passwordField: HTMLInputElement,
 	usuarioField: HTMLInputElement | null,
 	coincidencias: CoincidenciaAutofill[],
-	hostnameEnQuePidio: string
+	origenEnQuePidio: string
 ): void {
 	cerrarMenu();
 
@@ -181,23 +186,29 @@ function crearMenu(
 		// de poder leer la elección del usuario.
 		item.addEventListener('mousedown', (evento) => {
 			evento.preventDefault();
-			void rellenar(c, usuarioField, passwordField, hostnameEnQuePidio);
+			void rellenar(c, usuarioField, passwordField, origenEnQuePidio);
 		});
 		menu.appendChild(item);
 	}
 	shadow.appendChild(menu);
 
-	menuActual = { host, passwordField, hostnameEnQuePidio };
+	menuActual = { host, passwordField, origenEnQuePidio };
 }
 
 async function ofrecerAutofill(passwordField: HTMLInputElement): Promise<void> {
-	const hostname = window.location.hostname.toLowerCase();
+	// Se manda el `href` completo (no sólo el hostname): la estrategia `exact`
+	// de un recurso compara también el path. El matching real corre en el
+	// background — la página nunca recibe la bóveda (spec 06 §4.2).
+	const origenAlPedir = window.location.origin;
 	try {
-		const coincidencias = await cliente.request<CoincidenciaAutofill[]>('AUTOFILL_BUSCAR', { hostname });
+		const coincidencias = await cliente.request<CoincidenciaAutofill[]>('AUTOFILL_BUSCAR', { href: window.location.href });
 		if (coincidencias.length === 0) return;
 		// El campo pudo perder el foco mientras esperábamos la respuesta.
 		if (document.activeElement !== passwordField) return;
-		crearMenu(passwordField, campoUsuarioPara(passwordField), coincidencias, hostname);
+		// Y la página pudo navegar (SPA) mientras esperábamos — no abrir el
+		// menú si ya no estamos en el mismo origen que se consultó.
+		if (window.location.origin !== origenAlPedir) return;
+		crearMenu(passwordField, campoUsuarioPara(passwordField), coincidencias, origenAlPedir);
 	} catch {
 		// Sin sesión activa (usuario no logueado en la extensión) u otro
 		// error — no interrumpe la navegación normal de la página, no hay

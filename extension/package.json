@@ -3,6 +3,9 @@
 	"private": true,
 	"version": "0.2.2",
 	"type": "module",
+	"bin": {
+		"ellkan-ext": "cli.mjs"
+	},
 	"scripts": {
 		"dev": "vite build --watch",
 		"build": "vite build",
@@ -11,10 +14,11 @@
 		"build:safari": "cross-env BROWSER=safari vite build",
 		"check": "tsc --noEmit",
 		"check:self": "node run-self-check.mjs",
-		"package": "node package.mjs",
+		"package": "node cli.mjs",
 		"version:set": "node version.mjs --set"
 	},
 	"dependencies": {
+		"tldts": "^7.4.12",
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {

@@ -142,6 +142,55 @@ async function main() {
 	assert.equal(hostnameDeUri(''), null, 'uri vacía no rompe, no matchea nada');
 	console.log('OK: autofill-service.ts (hostnameDeUri) — matching host exacto, sin falsos positivos de subdominio');
 
+	// --- 7b. `uri-match.ts` (spec 05 §2.2): las 4 estrategias de matching por
+	// recurso, con el TEST DEDICADO contra dominios multi-tenant reales que
+	// exige la spec (hallazgo BWN-08-020: `*.github.io` NO es un solo
+	// dominio). ---
+	const { coincideUri, normalizarEstrategia } = await import('./src/background/services/uri-match.ts');
+
+	// `host` (default): hostname+puerto exactos, cualquier path; subdominio no cuenta.
+	assert.ok(coincideUri('host', 'ejemplo.com', 'https://ejemplo.com/login'), 'host: mismo hostname, distinto path → matchea');
+	assert.ok(!coincideUri('host', 'ejemplo.com', 'https://app.ejemplo.com/'), 'host: subdominio NO matchea');
+	assert.ok(!coincideUri('host', 'https://ejemplo.com', 'https://ejemplo.com:8443/'), 'host: puerto distinto NO matchea');
+
+	// `exact`: origen + path exactos (ignora query/hash y barra final).
+	assert.ok(coincideUri('exact', 'https://ejemplo.com/login/', 'https://ejemplo.com/login?x=1'), 'exact: mismo path (barra final y query no cuentan) → matchea');
+	assert.ok(!coincideUri('exact', 'https://ejemplo.com/login', 'https://ejemplo.com/otra'), 'exact: path distinto NO matchea');
+
+	// `base_domain`: mismo dominio registrable vía PSL real.
+	assert.ok(coincideUri('base_domain', 'https://www.ejemplo.com', 'https://app.ejemplo.com/x'), 'base_domain: dos subdominios del mismo eTLD+1 → matchea');
+	assert.ok(coincideUri('base_domain', 'https://ejemplo.co.uk', 'https://mail.ejemplo.co.uk'), 'base_domain: eTLD compuesto (.co.uk) resuelto bien');
+	// El corazón de BWN-08-020: la sección PRIVATE de la PSL tiene que estar activa.
+	assert.ok(!coincideUri('base_domain', 'https://alice.github.io', 'https://bob.github.io'), 'base_domain: alice.github.io NO matchea bob.github.io (PSL PRIVATE)');
+	assert.ok(!coincideUri('base_domain', 'https://mi-app.vercel.app', 'https://otra-app.vercel.app'), 'base_domain: *.vercel.app son dominios distintos');
+	assert.ok(!coincideUri('base_domain', 'https://x.pages.dev', 'https://y.pages.dev'), 'base_domain: *.pages.dev son dominios distintos');
+	assert.ok(coincideUri('base_domain', 'https://alice.github.io/repo', 'https://alice.github.io/repo/sub'), 'base_domain: el MISMO subdominio de github.io sí matchea');
+
+	// `never`: nunca, aunque el resto coincida perfecto.
+	assert.ok(!coincideUri('never', 'https://ejemplo.com/login', 'https://ejemplo.com/login'), 'never: nunca ofrece autofill');
+
+	// URIs basura no rompen y no matchean.
+	assert.ok(!coincideUri('host', '', 'https://ejemplo.com'), 'uri guardada vacía → no matchea');
+	assert.ok(!coincideUri('base_domain', 'no es una url', 'https://ejemplo.com'), 'uri guardada inválida → no matchea');
+
+	// Normalización: cualquier string raro cae al default `host`.
+	assert.equal(normalizarEstrategia('exact'), 'exact');
+	assert.equal(normalizarEstrategia('cualquier-cosa'), 'host', 'valor desconocido → host (default)');
+	assert.equal(normalizarEstrategia(undefined), 'host', 'ausente → host (default)');
+	console.log('OK: uri-match.ts — 4 estrategias + PSL real (github.io/vercel.app/pages.dev no son un solo dominio, BWN-08-020)');
+
+	// --- 7c. `origin-guard.ts` (BWN-08-011): la revalidación de origen del
+	// content script como función pura testeable, tal como pide el checkbox
+	// dedicado. ---
+	const { mismoOrigenParaFill } = await import('./src/content/origin-guard.ts');
+	assert.ok(mismoOrigenParaFill('https://ejemplo.com', 'https://ejemplo.com/login?x=1'), 'mismo origen, distinto path → OK rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'http://ejemplo.com/login'), 'cambio https→http es cambio de origen → NO rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'https://otro.ejemplo.com/'), 'subdominio distinto es otro origen → NO rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'https://ejemplo.com:8443/'), 'puerto distinto es otro origen → NO rellenar');
+	assert.ok(!mismoOrigenParaFill('https://ejemplo.com', 'no-es-una-url'), 'href actual imposible de parsear → falla cerrado');
+	assert.ok(!mismoOrigenParaFill('', 'https://ejemplo.com'), 'sin origen pedido → falla cerrado');
+	console.log('OK: origin-guard.ts (mismoOrigenParaFill) — revalidación de origen exacta, falla cerrado (BWN-08-011)');
+
 	// --- 8. Generador de contraseñas + medidor de fortaleza (pedido explícito
 	// del usuario, modal del popup) — mismos módulos que ya usa la app web,
 	// sólo se confirma que siguen respetando longitud/reglas y que el
