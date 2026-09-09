@@ -8,8 +8,9 @@
 
 **Ellkan** — from Mapudungun *elkan*, "to hide, to conceal."
 
-<a href="https://www.buymeacoffee.com/athomo"><img src="https://img.buymeacoffee.com/button-api/?text=Comprame%20un%20cafecito&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
-
+<p align="center">
+  <a href="https://www.buymeacoffee.com/athomo"><img alt="Buy Me a Coffee" height="38" src="https://img.buymeacoffee.com/button-api/?text=Buy%20Me%20a%20Coffee&emoji=&slug=athomo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff"></a>
+</p>
 
 ## What Ellkan is
 
