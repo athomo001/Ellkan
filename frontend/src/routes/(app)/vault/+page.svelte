@@ -74,6 +74,14 @@
 		type FormatoExport,
 		type FilaExport
 	} from '$lib/crypto/exportImport';
+	import {
+		parsearCsvCrudo,
+		autodetectarMapeoCsv,
+		mapearFilasCsv,
+		type CsvCrudo,
+		type CampoCsv
+	} from '$lib/crypto/exportCsv';
+	import { contarCredencialesNoSoportadas } from '$lib/crypto/exportCxf';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
 	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso, esAdmin } from '$lib/state/session';
 	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
@@ -91,6 +99,10 @@
 	const ICONO_COMPARTIR =
 		'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z';
 	const ICONO_EXPORTAR = 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3';
+	// arrow-up-tray de Heroicons (distinto de ICONO_EXPORTAR, que es
+	// arrow-down-tray) — importar es "subir" un archivo a Ellkan.
+	const ICONO_IMPORTAR_ARCHIVO =
+		'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5';
 	const ICONO_ELIMINAR =
 		'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0';
 	const ICONO_NUEVO = 'M12 4.5v15m7.5-7.5h-15';
@@ -1196,17 +1208,60 @@
 	let errorImport = $state<string | undefined>();
 	let okImport = $state<number | undefined>();
 
-	function alElegirArchivo(e: Event) {
-		archivoImport = (e.target as HTMLInputElement).files?.[0];
+	// Mapeo interactivo de columnas (sólo CSV) — hallazgo real: `parsearCsv`
+	// exige los encabezados exactos que Ellkan mismo exporta, así que un CSV
+	// de KeePassXC/Chrome/Bitwarden importaba con TODOS los campos vacíos,
+	// en silencio, sin ningún error. Acá el usuario ve las columnas reales
+	// del archivo y confirma/corrige a qué campo corresponde cada una antes
+	// de importar nada — KDBX/CXF no lo necesitan (esquema fijo, conocido).
+	let csvCrudo = $state<CsvCrudo | undefined>();
+	let csvMapeo = $state<(CampoCsv | null)[]>([]);
+	let arrastrandoImport = $state(false);
+
+	const formatoImport = $derived(archivoImport ? detectarFormatoPorNombre(archivoImport.name) : undefined);
+	const esCsvImport = $derived(formatoImport === 'csv');
+
+	async function procesarArchivoImport(file: File | undefined) {
+		archivoImport = file;
 		filasPreview = undefined;
+		csvCrudo = undefined;
+		csvMapeo = [];
 		errorImport = undefined;
 		okImport = undefined;
+		if (!file) return;
+		if (detectarFormatoPorNombre(file.name) === 'csv') {
+			try {
+				const texto = await file.text();
+				const crudo = parsearCsvCrudo(texto);
+				csvCrudo = crudo;
+				csvMapeo = autodetectarMapeoCsv(crudo.encabezados);
+			} catch (err) {
+				errorImport = err instanceof Error ? err.message : $t.exportImport.errorImportar;
+				csvCrudo = undefined;
+			}
+		}
 	}
+
+	function alElegirArchivo(e: Event) {
+		procesarArchivoImport((e.target as HTMLInputElement).files?.[0]);
+	}
+
+	function alSoltarArchivoImport(e: DragEvent) {
+		e.preventDefault();
+		arrastrandoImport = false;
+		procesarArchivoImport(e.dataTransfer?.files?.[0]);
+	}
+
+	// CXF: cuántas credenciales de tipos que Ellkan no soporta hoy (passkey,
+	// ssh-key, tarjeta, etc.) va a descartar el import — antes se perdían en
+	// silencio, mismo criterio que motivó el fix del importador CSV.
+	let cxfCredencialesNoSoportadas = $state(0);
 
 	async function previsualizar() {
 		if (!archivoImport) return;
 		errorImport = undefined;
 		okImport = undefined;
+		cxfCredencialesNoSoportadas = 0;
 		const formato = detectarFormatoPorNombre(archivoImport.name);
 		if (!formato) {
 			errorImport = $t.exportImport.errorFormatoDesconocido;
@@ -1215,6 +1270,9 @@
 		previsualizando = true;
 		try {
 			const bytes = await archivoImport.arrayBuffer();
+			if (formato === 'cxf') {
+				cxfCredencialesNoSoportadas = contarCredencialesNoSoportadas(new TextDecoder().decode(bytes));
+			}
 			filasPreview = await parsearArchivoImport(formato, bytes, {
 				password: formato === 'kdbx' ? passwordImport : undefined
 			});
@@ -1227,15 +1285,21 @@
 	}
 
 	async function confirmarImport() {
-		if (!filasPreview || !archivoImport || !$clavesDesbloqueadas || !$sesion.userId) return;
+		if (!archivoImport || !$clavesDesbloqueadas || !$sesion.userId) return;
 		const formato = detectarFormatoPorNombre(archivoImport.name);
 		if (!formato) return;
+		// CSV: las filas salen del mapeo interactivo, nunca de `filasPreview`
+		// (que sólo se llena para KDBX/CXF, esquema fijo sin mapeo que hacer).
+		const filas = formato === 'csv' ? (csvCrudo ? mapearFilasCsv(csvCrudo.filas, csvMapeo) : undefined) : filasPreview;
+		if (!filas) return;
 		errorImport = undefined;
 		importando = true;
 		try {
-			const creados = await importar(formato, filasPreview, $clavesDesbloqueadas, $sesion.userId);
+			const creados = await importar(formato, filas, $clavesDesbloqueadas, $sesion.userId);
 			okImport = creados;
 			filasPreview = undefined;
+			csvCrudo = undefined;
+			csvMapeo = [];
 			archivoImport = undefined;
 			passwordImport = '';
 			await cargar();
@@ -1974,24 +2038,89 @@
 				<section class="seccion-modal" class:con-separador={puedeExportar}>
 					<h3>{$t.exportImport.importarTitulo}</h3>
 					<p class="hint">{$t.exportImport.importarHint}</p>
-					<div class="field">
-						<label for="archivo-import">{$t.exportImport.archivo}</label>
-						<input id="archivo-import" type="file" accept=".kdbx,.csv,.json" onchange={alElegirArchivo} />
-					</div>
-					{#if archivoImport && detectarFormatoPorNombre(archivoImport.name) === 'kdbx'}
+
+					<label
+						for="archivo-import"
+						class="zona-drop"
+						class:arrastrando={arrastrandoImport}
+						ondragover={(e) => {
+							e.preventDefault();
+							arrastrandoImport = true;
+						}}
+						ondragleave={() => (arrastrandoImport = false)}
+						ondrop={alSoltarArchivoImport}
+					>
+						<Icon path={ICONO_IMPORTAR_ARCHIVO} size={28} />
+						<span>{archivoImport ? archivoImport.name : $t.exportImport.arrastrarArchivo}</span>
+						<input
+							id="archivo-import"
+							type="file"
+							accept=".kdbx,.csv,.json"
+							onchange={alElegirArchivo}
+							class="sr-only"
+						/>
+					</label>
+
+					{#if archivoImport && formatoImport === 'kdbx'}
 						<TextField label={$t.exportImport.passwordArchivoImport} type="password" bind:value={passwordImport} />
 					{/if}
 					{#if errorImport}<p class="error">{errorImport}</p>{/if}
-					{#if !filasPreview}
-						<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
-							{$t.exportImport.previsualizar}
-						</Button>
-					{:else}
-						<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
-						<Button variant="primary" onclick={confirmarImport} loading={importando}>
-							{$t.exportImport.confirmarImportar}
-						</Button>
+
+					{#if esCsvImport && csvCrudo}
+						<div class="mapeo-csv">
+							<p class="hint">{$t.exportImport.columnaMapeoHint}</p>
+							<div class="tabla-mapeo-scroll">
+								<table class="tabla-mapeo">
+									<thead>
+										<tr>
+											{#each csvCrudo.encabezados as enc, idx (idx)}
+												<th>
+													<div class="encabezado-original">{enc}</div>
+													<select bind:value={csvMapeo[idx]}>
+														<option value={null}>{$t.exportImport.mapeoIgnorar}</option>
+														<option value="name">{$t.exportImport.mapeoTitulo}</option>
+														<option value="username">{$t.exportImport.mapeoUsuario}</option>
+														<option value="password">{$t.exportImport.mapeoPassword}</option>
+														<option value="uri">{$t.exportImport.mapeoUrl}</option>
+														<option value="notes">{$t.exportImport.mapeoNotas}</option>
+														<option value="totp_secret">{$t.exportImport.mapeoTotp}</option>
+													</select>
+												</th>
+											{/each}
+										</tr>
+									</thead>
+									<tbody>
+										{#each csvCrudo.filas.slice(0, 5) as fila, filaIdx (filaIdx)}
+											<tr>
+												{#each fila as celda, colIdx (colIdx)}
+													<td>{celda}</td>
+												{/each}
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+							<p class="hint">{$t.exportImport.previewConteo(csvCrudo.filas.length)}</p>
+							<Button variant="primary" onclick={confirmarImport} loading={importando}>
+								{$t.exportImport.confirmarImportar} ({csvCrudo.filas.length})
+							</Button>
+						</div>
+					{:else if !esCsvImport}
+						{#if !filasPreview}
+							<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
+								{$t.exportImport.previsualizar}
+							</Button>
+						{:else}
+							<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
+							{#if cxfCredencialesNoSoportadas > 0}
+								<p class="hint">{$t.exportImport.avisoCredencialesNoSoportadas(cxfCredencialesNoSoportadas)}</p>
+							{/if}
+							<Button variant="primary" onclick={confirmarImport} loading={importando}>
+								{$t.exportImport.confirmarImportar}
+							</Button>
+						{/if}
 					{/if}
+
 					{#if okImport !== undefined}<p class="ok">{$t.exportImport.importadoOk(okImport)}</p>{/if}
 				</section>
 			{/if}
@@ -2429,8 +2558,7 @@
 		color: var(--text-secondary);
 		font-weight: 500;
 	}
-	.field select,
-	.field input[type='file'] {
+	.field select {
 		width: 100%;
 		background: var(--bg-raised);
 		border: 1px solid var(--border-color);
@@ -2443,12 +2571,10 @@
 			border-color 0.12s ease,
 			box-shadow 0.12s ease;
 	}
-	.field select:hover,
-	.field input[type='file']:hover {
+	.field select:hover {
 		border-color: var(--accent-primary);
 	}
-	.field select:focus-visible,
-	.field input[type='file']:focus-visible {
+	.field select:focus-visible {
 		outline: none;
 		border-color: var(--accent-primary);
 		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
@@ -2513,5 +2639,91 @@
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
 		font-size: var(--text-sm);
+	}
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+	.zona-drop {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6) var(--space-4);
+		border: 1px dashed var(--border-color);
+		border-radius: var(--radius-md);
+		color: var(--text-secondary);
+		font-size: var(--text-sm);
+		text-align: center;
+		cursor: pointer;
+		transition:
+			border-color 0.12s ease,
+			background-color 0.12s ease;
+	}
+	.zona-drop:hover,
+	.zona-drop.arrastrando {
+		border-color: var(--accent-primary);
+		background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+		color: var(--text-primary);
+	}
+	.mapeo-csv {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.tabla-mapeo-scroll {
+		overflow-x: auto;
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+	}
+	.tabla-mapeo {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: var(--text-sm);
+	}
+	.tabla-mapeo th {
+		padding: var(--space-2);
+		border-bottom: 1px solid var(--border-color);
+		background: var(--bg-overlay);
+		text-align: left;
+		vertical-align: top;
+	}
+	.encabezado-original {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		margin-bottom: var(--space-1);
+		white-space: nowrap;
+		max-width: 12rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.tabla-mapeo th select {
+		width: 100%;
+		background: var(--bg-raised);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		color: var(--text-primary);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+	.tabla-mapeo td {
+		padding: var(--space-2);
+		border-bottom: 1px solid var(--border-color);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		max-width: 12rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 </style>

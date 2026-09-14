@@ -4,6 +4,19 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.33] - 2026-09-14
+
+### Agregado: importar CSV de otros gestores de contraseñas
+
+- El importador ahora reconoce archivos CSV de otros gestores (KeePassXC, Chrome, Bitwarden, etc.), no sólo los que exporta el propio Ellkan — antes, si los nombres de columna no coincidían exactamente con los de Ellkan, el import terminaba con todos los campos vacíos, sin ningún aviso de que algo había salido mal.
+- Nueva pantalla de importación: arrastrá el archivo o hacé clic para elegirlo, y si es un CSV con columnas que no reconocemos, elegís vos mismo qué es cada columna (usuario, contraseña, URL, notas, TOTP) con una vista previa de las primeras filas antes de confirmar nada.
+
+### Arreglado: la exportación en formato CXF no era compatible con otros gestores
+
+- El archivo que se genera al exportar en formato CXF (el estándar abierto para pasar contraseñas entre distintos gestores) tenía varios problemas de formato que impedían que otro gestor lo leyera de verdad, aunque Ellkan sí podía volver a importar su propio archivo sin problema — se corrigió contra la especificación real del estándar, no contra suposiciones.
+- La dirección web (URL) de una contraseña nunca se guardaba ni se recuperaba al exportar/importar en CXF — se perdía en silencio. Ya se exporta e importa correctamente.
+- Si un archivo CXF trae algún tipo de credencial que Ellkan todavía no soporta (por ejemplo, una passkey o una clave SSH), ahora avisa cuántas se van a omitir en vez de perderlas sin decir nada.
+
 ## [0.1.32] - 2026-09-09
 
 ### Agregado: autofill completo, "guardar contraseña", desbloqueo con código y CLI de empaquetado (extensión v0.3.0)

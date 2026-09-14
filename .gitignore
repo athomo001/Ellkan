@@ -4,8 +4,7 @@
 # ni siquiera los resúmenes. Cada clon además tiene su propio .git/ adentro, así
 # que sin este exclude git los trataría como gitlinks rotos (submódulos fantasma
 # sin .gitmodules).
-/passbolt/
-/bitwarden/
+/investigacion/
 spec/*
 .agents/
 docs/*
