@@ -47,6 +47,17 @@ fn generar_bundle_de_extension() {
   std::fs::write(salida, codigo).expect("no se pudo escribir extension_bundle.rs");
 }
 
+/// La versión de la app sale de `tauri.conf.json` (`build-windows.ps1 -Msi` la sube
+/// sola), no del `Cargo.toml`, que comparten el servidor y la CLI. Se pasa al código
+/// como `ELLKAN_VERSION` para que la pantalla de Ajustes muestre la misma que el MSI.
+fn exportar_version_de_la_app() {
+  let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+  let texto = std::fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("no se pudo leer tauri.conf.json");
+  let json: serde_json::Value = serde_json::from_str(&texto).expect("tauri.conf.json no es un JSON válido");
+  let version = json["version"].as_str().expect("tauri.conf.json no tiene `version`");
+  println!("cargo:rustc-env=ELLKAN_VERSION={version}");
+}
+
 fn main() {
   // Asegura que Cargo recompile y vuelva a empaquetar los recursos web
   // cuando cambie el bundle estático del frontend o la configuración de Tauri,
@@ -54,6 +65,7 @@ fn main() {
   println!("cargo:rerun-if-changed=tauri.conf.json");
   println!("cargo:rerun-if-changed=../../frontend/build/index.html");
 
+  exportar_version_de_la_app();
   generar_bundle_de_extension();
 
   tauri_build::build()
