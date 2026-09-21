@@ -100,6 +100,7 @@ Los recursos de estos tipos guardan `host:puerto` en el campo URI y muestran el 
 - **FTP con un puerto distinto de 21:** `ftp.exe` no acepta el puerto por argumento. Se abre sin destino y la app te indica qué escribir (`open host puerto`).
 - Se usa Windows Terminal si está instalado; si no, una consola nueva.
 - `host` y usuario se validan antes de lanzar nada: se rechazan los que empiezan con `-` o traen caracteres de shell (podrían venir de un archivo importado).
+- **SSH y servidores nuevos:** la primera vez que te conectas a un servidor, `ssh` pide confiar en su huella. La app te lo muestra en un cuadro con el servidor y la huella a la vista (por defecto, «No»); nunca lo acepta sola. Si la huella de un servidor conocido cambia, `ssh` se niega a conectar, como siempre.
 - Además del botón, el detalle del recurso muestra el comando equivalente para copiarlo.
 
 ![Detalle de un recurso SSH con el comando de conexión y el botón Conectar](../assets/screenshots/escritorio-conectar.png)
@@ -274,6 +275,8 @@ $env:SQLX_OFFLINE = "true"; cargo build -p ellkan-desktop
 # Instalador MSI -> app-escritorio\windows\binarios\Ellkan_<versión>_x64_es-ES.msi
 .\app-escritorio\windows\binarios\build-windows.ps1 -Msi
 ```
+
+Si PowerShell responde «la ejecución de scripts está deshabilitada en este sistema», es la política por defecto de Windows. No hace falta cambiarla para todo el equipo: lanza el script con `powershell -NoProfile -ExecutionPolicy Bypass -File .\app-escritorio\windows\binarios\build-windows.ps1 -Msi`, o ejecuta `Set-ExecutionPolicy -Scope Process Bypass` una vez y luego el script normal (vale sólo para esa ventana). El script cierra `ellkan-desktop.exe` si está abierto, para poder reemplazar los archivos.
 
 El MSI lo arma Tauri con WiX 3, que se descarga la primera vez (hace falta internet). La versión sale de `version` en `tauri.conf.json`. Lo que se sale de la plantilla de Tauri está en `src-tauri/tauri.msi.conf.json` y `src-tauri/installer/limpieza.wxs`: cierra Ellkan antes de instalar o desinstalar y, al desinstalar (no al actualizar), corre `ellkan-desktop.exe --limpiar-sistema`, que borra el inicio con Windows y el esquema `ellkan://`. Si el desinstalador tiene interfaz le suma `--preguntar-datos` (la app pregunta si borrar también los datos, dos veces, con «No» por defecto); `--borrar-datos` los borra sin preguntar, para scripts. Sin uno de esos dos argumentos no toca la bóveda. Sólo borra carpetas con nombre de Ellkan (`Ellkan`, `ellkan-datos`, `com.ellkan.desktop`) y a más de tres niveles de la raíz. Un MSI de una versión nueva reemplaza al anterior sólo si su versión es mayor.
 

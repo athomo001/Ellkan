@@ -4,6 +4,15 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.52] - 2026-09-21
+
+### «Conectar» por SSH se colgaba con cualquier servidor que aún no estuviera en `known_hosts`
+
+- **Bug real, encontrado al probar el botón con un servidor nuevo.** `ssh` se lanza con `SSH_ASKPASS_REQUIRE=force`, que le manda al helper (`ellkan_askpass.exe`) TODAS sus preguntas, y el helper contestaba siempre con la contraseña. La primera vez que te conectas a un servidor, `ssh` pregunta «¿confías en esta huella? (yes/no/[fingerprint])»; recibir la contraseña como respuesta lo hace repetir «Please type 'yes', 'no' or the fingerprint» sin fin, y la terminal quedaba colgada sin decir nada. Sólo funcionaba con servidores ya conocidos por `~/.ssh/known_hosts`. Reproducido con el `ssh` real (OpenSSH 10.2) y un `known_hosts` temporal.
+- **Corrección:** el helper distingue la pregunta de confianza (por `SSH_ASKPASS_PROMPT=confirm` en OpenSSH 8.9+ y, en versiones anteriores, por el texto «yes/no») y la resuelve con un cuadro de Windows que muestra el servidor y la huella, con «No» por defecto. Nunca se acepta sola: quien usa la app decide, igual que en una terminal normal. La contraseña y cualquier otra pregunta se contestan como antes. Si la huella de un servidor conocido cambia, `ssh` sigue negándose a conectar (no pasa por acá).
+- **Verificado** de punta a punta con `ssh` real contra el WSL del equipo: respondiendo «Sí» el servidor se registra y `ssh` sigue a la contraseña; respondiendo «No» corta al instante con «Host key verification failed» y no registra nada. 5 tests nuevos de la clasificación (`ellkan_askpass`). **Sin verificar**: la ventana dentro de Windows Terminal con un usuario real.
+- **Ojo con el MSI `0.1.0` ya generado:** trae el helper anterior (con este defecto). Hay que reconstruirlo antes de publicarlo.
+
 ## [0.1.51] - 2026-09-21
 
 ### Instalación limpia: primer uso, desinstalar con la opción de borrar los datos, y el llavero de Windows que nunca guardaba nada

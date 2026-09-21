@@ -1,5 +1,8 @@
 # Autor: Athan Espinoza
 # Script de compilación y empaquetado autónomo para Windows
+# Uso:  .\build-windows.ps1 [-Msi] [-SkipFrontend] [-SkipExtension]
+# Si PowerShell bloquea los scripts ("la ejecución de scripts está deshabilitada"):
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\build-windows.ps1 -Msi
 
 param(
     [switch]$SkipFrontend = $false,
