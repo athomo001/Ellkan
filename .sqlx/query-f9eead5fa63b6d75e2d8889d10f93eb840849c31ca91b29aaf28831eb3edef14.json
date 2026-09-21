@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select resource_id as \"resource_id!\", folder_id as \"folder_id!\"\n            from folder_items\n            where user_id = $1 and resource_id is not null and folder_id is not null and updated_at > $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "resource_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "folder_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "folder_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "f9eead5fa63b6d75e2d8889d10f93eb840849c31ca91b29aaf28831eb3edef14"
+}

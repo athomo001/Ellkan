@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Autor: Athan Espinoza
+
+  Lo que el instalador agrega a la plantilla de Tauri (se enlaza vía
+  `bundle.windows.wix.fragmentPaths`/`componentRefs`, ver `tauri.msi.conf.json`).
+  La plantilla ya trae el acceso directo "Desinstalar" del menú Inicio, la
+  entrada en Configuración > Aplicaciones y ellkan_askpass.exe; esto suma lo
+  que falta para que instalar, actualizar y desinstalar sea limpio:
+
+  1. Cierra Ellkan si está abierto, ANTES de que Windows revise qué archivos
+     están en uso (InstallValidate). La app vive en la bandeja, así que casi
+     siempre está corriendo. Se termina el proceso en vez de pedirle que se
+     cierre: la ventana preguntaría "¿cerrar o dejar en la bandeja?" y el
+     instalador se quedaría esperando o terminaría pidiendo reiniciar. No se
+     pierde nada: la bóveda es SQLite y se recupera sola de un cierre brusco.
+
+  2. Al DESINSTALAR (no al actualizar) corre `ellkan-desktop.exe` con el argumento
+     limpiar-sistema, que borra lo que la app dejó fuera de su carpeta: inicio
+     con Windows y el esquema ellkan://. Si el desinstalador tiene interfaz
+     (Configuración > Aplicaciones, o el acceso del menú Inicio) se agrega
+     preguntar-datos: la app le pregunta al usuario, dos veces y con "No" por
+     defecto, si además quiere borrar sus datos (bóveda, ajustes, copias). Sin
+     interfaz (msiexec /qn) NO se pregunta ni se borra nada: los datos son la
+     única copia de sus contraseñas y una desinstalación silenciosa no debe
+     destruirlos.
+
+  El componente de abajo no instala nada visible: existe para que WiX enlace
+  este fragmento (una marca en HKLM que se borra al desinstalar).
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction Id="CerrarEllkanAntes" Directory="TARGETDIR"
+                  ExeCommand="&quot;[SystemFolder]taskkill.exe&quot; /F /IM ellkan-desktop.exe"
+                  Return="ignore" />
+
+    <CustomAction Id="LimpiarSistemaEllkan" Directory="INSTALLDIR"
+                  ExeCommand="&quot;[INSTALLDIR]ellkan-desktop.exe&quot; --limpiar-sistema"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <CustomAction Id="LimpiarSistemaPreguntaEllkan" Directory="INSTALLDIR"
+                  ExeCommand="&quot;[INSTALLDIR]ellkan-desktop.exe&quot; --limpiar-sistema --preguntar-datos"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="CerrarEllkanAntes" Before="InstallValidate"><![CDATA[VersionNT > 400]]></Custom>
+      <Custom Action="LimpiarSistemaEllkan" Before="RemoveFiles"><![CDATA[(REMOVE="ALL") AND (NOT UPGRADINGPRODUCTCODE) AND (UILevel < 3)]]></Custom>
+      <Custom Action="LimpiarSistemaPreguntaEllkan" Before="RemoveFiles"><![CDATA[(REMOVE="ALL") AND (NOT UPGRADINGPRODUCTCODE) AND (UILevel > 2)]]></Custom>
+    </InstallExecuteSequence>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="ComponenteLimpieza" Guid="2bd921d0-8006-46d9-874b-dc267ff8a47d" Win64="yes">
+        <RegistryValue Root="HKLM" Key="Software\Ellkan\Instalador" Name="LimpiezaAlDesinstalar"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

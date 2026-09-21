@@ -5,8 +5,22 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Modo escritorio (v2, spec/13 §4): motor de datos SQLite embebido en vez de
+# Postgres externo. Primer módulo migrado: recovery_kit (spec/05 "Fase de
+# escritorio" 3.1) — el resto de los ~29 traits de repositorio del crate
+# siguen sólo con su implementación Postgres hasta que se migren uno a uno.
+desktop = ["sqlx/sqlite", "dep:dirs"]
+
 [dependencies]
 anyhow = "1.0.104"
+# Modo escritorio (spec/13 §3): resuelve `~/.ellkan/` para `desktop.json` —
+# el MISMO directorio que ya usa `ellkan-cli` (`cli/src/config.rs`) para
+# `sesion.json`/`perfil.json`, necesario para que la CLI encuentre el
+# archivo de descubrimiento en el lugar donde ya sabe mirar. Sólo bajo el
+# feature `desktop` — el modo servidor no necesita saber nada del home del
+# usuario.
+dirs = { version = "6.0.0", optional = true }
 axum = { version = "0.8.9", features = ["macros"] }
 base32 = "0.5.1"
 base64 = "0.23.0"

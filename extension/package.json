@@ -1,31 +1,31 @@
 {
 	"name": "ellkan-extension",
 	"private": true,
-	"version": "0.3.0",
+	"version": "0.3.2",
 	"type": "module",
 	"bin": {
 		"ellkan-ext": "cli.mjs"
 	},
 	"scripts": {
-		"dev": "vite build --watch",
-		"build": "vite build",
-		"build:chrome": "cross-env BROWSER=chrome vite build",
-		"build:firefox": "cross-env BROWSER=firefox vite build",
-		"build:safari": "cross-env BROWSER=safari vite build",
+		"dev": "node build.mjs --watch",
+		"build": "node build.mjs",
+		"build:chrome": "cross-env BROWSER=chrome node build.mjs",
+		"build:firefox": "cross-env BROWSER=firefox node build.mjs",
+		"build:safari": "cross-env BROWSER=safari node build.mjs",
 		"check": "tsc --noEmit",
 		"check:self": "node run-self-check.mjs",
 		"package": "node cli.mjs",
 		"version:set": "node version.mjs --set"
 	},
 	"dependencies": {
-		"tldts": "^7.4.12",
+		"tldts": "^7.4.13",
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {
-		"@types/chrome": "^0.1.15",
+		"@types/chrome": "^0.1.43",
 		"@types/zxcvbn": "^4.4.5",
 		"cross-env": "^10.1.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.2.0"
+		"vite": "^8.3.0"
 	}
 }

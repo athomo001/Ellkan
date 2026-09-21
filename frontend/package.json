@@ -9,21 +9,27 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"tauri": "cd ../app-escritorio/src-tauri && node ../../frontend/node_modules/@tauri-apps/cli/tauri.js",
+		"build:desktop": "powershell -ExecutionPolicy Bypass -File ../app-escritorio/windows/binarios/build-windows.ps1",
+		"build:desktop:linux": "bash ../app-escritorio/linuxOS/binarios/build-linux.sh"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/adapter-static": "^3.0.10",
-		"@sveltejs/kit": "^2.63.0",
-		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@sveltejs/kit": "^2.70.3",
+		"@sveltejs/vite-plugin-svelte": "^7.3.0",
+		"@tauri-apps/cli": "^2.11.4",
 		"@types/qrcode": "^1.5.6",
 		"@types/zxcvbn": "^4.4.5",
-		"svelte": "^5.56.1",
-		"svelte-check": "^4.6.0",
+		"svelte": "^5.57.0",
+		"svelte-check": "^4.7.6",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16"
+		"vite": "^8.3.0"
 	},
 	"dependencies": {
+		"@tauri-apps/api": "^2.11.1",
+		"@tauri-apps/plugin-opener": "^2.5.5",
 		"kdbxweb": "^2.1.1",
 		"qrcode": "^1.5.4",
 		"zxcvbn": "^4.4.2"

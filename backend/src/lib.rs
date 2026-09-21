@@ -6,6 +6,15 @@ pub mod audit;
 pub mod auth;
 pub mod b64;
 pub mod config;
+// El código del módulo `desktop` vive físicamente en `app-escritorio/backend-desktop/`
+// (fuera de `backend/src/`) — pedido explícito del usuario, 2026-09-16: todo el
+// código del modo escritorio junto en `app-escritorio/`, no repartido por el resto
+// del código. `#[path]` lo mantiene lógicamente parte de este crate (sigue
+// resolviendo `crate::auth::...`, `crate::resources::...`, etc. con normalidad)
+// aunque el archivo no esté en la ubicación que Rust asume por default.
+#[cfg(feature = "desktop")]
+#[path = "../../app-escritorio/backend-desktop/mod.rs"]
+pub mod desktop;
 pub mod devices;
 pub mod directory_sync;
 pub mod emergency_access;
@@ -33,6 +42,7 @@ pub mod sharing_policy;
 pub mod smtp_config;
 pub mod sso;
 pub mod state;
+pub mod sync;
 pub mod system_status;
 pub mod tags;
 pub mod users_admin;
@@ -488,14 +498,16 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/rekey-metadata", post(resources::handlers::rekey_metadata))
         .route("/{id}/totp", get(resources::handlers::totp))
         .route("/{id}/move", put(resources::handlers::mover))
+        .route("/{id}/type", put(resources::handlers::cambiar_tipo))
         .route("/{id}/leave", post(resources::handlers::salir))
         .route_layer(axum::middleware::from_fn_with_state(
             estado.clone(),
             rate_limit::limitar_por_usuario,
         ));
 
-    let tags_router =
-        Router::new().route("/", get(tags::handlers::listar).post(tags::handlers::crear));
+    let tags_router = Router::new()
+        .route("/", get(tags::handlers::listar).post(tags::handlers::crear))
+        .route("/{id}", delete(tags::handlers::eliminar));
 
     let groups_router = Router::new()
         .route("/", get(groups::handlers::listar).post(groups::handlers::crear))
@@ -528,6 +540,7 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let folders_router = Router::new()
         .route("/", get(folders::handlers::listar).post(folders::handlers::crear))
+        .route("/{id}", delete(folders::handlers::eliminar))
         .route("/{id}/move", put(folders::handlers::mover))
         .route("/{id}/share", post(folders::handlers::compartir));
 
@@ -755,6 +768,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/users/{email}/public-key", get(auth::handlers::public_key))
         .route("/users/search", get(auth::handlers::buscar))
         .route("/users/{id}/avatar", get(auth::handlers::avatar))
+        .route("/sync", get(sync::handlers::sync))
         .nest("/auth", auth_router)
         .nest("/resources", resources_router)
         .nest("/admin/roles", admin_roles_router)

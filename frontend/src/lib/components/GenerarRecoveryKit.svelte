@@ -14,6 +14,7 @@
 	import { bytesABase64 } from '$lib/crypto/b64';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+	import { enModoEscritorio } from '$lib/tauri/conectar';
 
 	let { mensaje, onGenerado }: { mensaje: string; onGenerado: () => void } = $props();
 
@@ -26,6 +27,7 @@
 	let confirmado = $state(false);
 	let finalizando = $state(false);
 	let copiado = $state(false);
+	let rutaGuardada = $state<string | undefined>();
 
 	async function generar() {
 		generando = true;
@@ -49,8 +51,24 @@
 	}
 	generar();
 
-	function descargar() {
+	async function descargar() {
 		if (!kitPrivadaB64) return;
+
+		// En escritorio el webview no procesa `<a download>` (el clic no hacía
+		// nada): lo guarda el backend en Descargas. Sólo se da por guardado
+		// cuando el archivo realmente quedó en disco, y se muestra dónde.
+		if (enModoEscritorio()) {
+			error = undefined;
+			try {
+				const { guardarEnDescargas } = await import('$lib/tauri/archivos');
+				rutaGuardada = await guardarEnDescargas('ellkan-recovery-kit.txt', new TextEncoder().encode(kitPrivadaB64));
+				yaGuardado = true;
+			} catch (err) {
+				error = err instanceof Error ? err.message : $t.recoveryKit.errorGenerico;
+			}
+			return;
+		}
+
 		const blob = new Blob([kitPrivadaB64], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
@@ -101,6 +119,12 @@
 		<Button variant="secondary" onclick={descargar}>{$t.recoveryKit.descargar}</Button>
 		<Button variant="secondary" onclick={copiar}>{copiado ? $t.recoveryKit.copiado : $t.recoveryKit.copiar}</Button>
 	</div>
+	{#if rutaGuardada}
+		<p class="guardado">{$t.recoveryKit.guardadoEn.replace('{{ruta}}', rutaGuardada)}</p>
+	{/if}
+	{#if enModoEscritorio()}
+		<p class="hint">{$t.recoveryKit.hintEscritorio}</p>
+	{/if}
 	<label class="check">
 		<input type="checkbox" bind:checked={confirmado} disabled={!yaGuardado} />
 		{$t.recoveryKit.confirmacion}
@@ -155,5 +179,11 @@
 		color: var(--danger);
 		font-size: var(--text-sm);
 		margin: 0 0 var(--space-4) 0;
+	}
+	.guardado {
+		color: var(--success);
+		font-size: var(--text-sm);
+		word-break: break-all;
+		margin: 0 0 var(--space-3) 0;
 	}
 </style>

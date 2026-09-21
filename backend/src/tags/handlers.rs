@@ -59,3 +59,11 @@ pub async fn quitar(
     servicio(&state).quitar(auth.user_id, resource_id, tag_id).await?;
     Ok(())
 }
+
+/// `DELETE /tags/{id}` (F-47) — ver `TagService::eliminar` para la regla
+/// (personal: sólo quien lo creó; `is_shared`: sólo admin).
+pub async fn eliminar(State(state): State<AppState>, auth: AuthenticatedUser, Path(tag_id): Path<Uuid>) -> Result<(), ApiError> {
+    let es_admin = state.roles.usuario_tiene_permiso(auth.user_id, "*").await.map_err(DomainError::from)?;
+    servicio(&state).eliminar(auth.user_id, es_admin, tag_id).await?;
+    Ok(())
+}

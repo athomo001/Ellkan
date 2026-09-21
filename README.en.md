@@ -19,6 +19,14 @@
 
 A self-hosted password manager with a zero-knowledge architecture: the server never sees your private keys or your secrets in plaintext. Backend in Rust (Axum), encryption with modern primitives (X25519, Ed25519, XChaCha20-Poly1305, Argon2id), web frontend and browser extension share the same cryptographic core compiled to WebAssembly.
 
+## Apps
+
+| App | What it is for | More information |
+| --- | --- | --- |
+| **Web + server** | The Ellkan server for a team: users, groups, sharing and administration. It is what the [quickstart](#quickstart) sets up. | [Installation manual](manual/instalacion.md) |
+| **Desktop (Windows)** | A password manager for **one person**. Everything stays encrypted on your PC: it works offline, with no server and no cloud account, and can optionally connect to an Ellkan server. It ships with an MSI installer, a tray icon with a global shortcut, a «Connect» button (SSH, RDP, PostgreSQL, MySQL, MongoDB, FTP, Telnet, VNC), vault health checks, automatic backups and the browser extension built in. | [Desktop app guide](app-escritorio/GUIA.md) (Spanish) |
+| **Browser extension** | Autofills your credentials in Chrome, Edge, Brave, Opera and Firefox. It works with the server or with the desktop app, which can also install it. | [Browser extension](extension/README.md) (Spanish) |
+
 ## Screenshots
 
 | Vault | Admin panel | New item |
@@ -28,6 +36,16 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 | Extension — item detail | Extension — password generator |
 | --- | --- |
 | ![Extension: detail](assets/screenshots/extension-popup.png) | ![Extension: generator](assets/screenshots/extension-generador.png) |
+
+### Desktop app (Windows)
+
+| MSI installer | First run: create the account |
+| --- | --- |
+| ![Ellkan setup wizard](assets/screenshots/escritorio-instalador.png) | ![Local account creation screen](assets/screenshots/escritorio-crear-cuenta.png) |
+
+| New item: SSH, RDP, databases… | «Connect» opens the client ready to go |
+| --- | --- |
+| ![Item types when creating a new one](assets/screenshots/escritorio-nuevo-recurso.png) | ![Detail of an SSH item with the Connect button](assets/screenshots/escritorio-conectar.png) |
 
 ## Tech stack
 

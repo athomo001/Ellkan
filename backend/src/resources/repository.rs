@@ -5,6 +5,7 @@
 //! `Send` en la firma del trait no es un problema real.
 #![allow(async_fn_in_trait)]
 
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::RepoError;
@@ -31,9 +32,32 @@ pub trait ResourceRepository {
     /// borrado.
     async fn marcar_eliminado(&self, id: Uuid) -> Result<bool, RepoError>;
 
+    /// `PUT /resources/{id}/type` (2026-09-17, pedido explícito del usuario:
+    /// "poder editar el tipo de contraseña" — recursos ssh/ftp/etc.
+    /// importados quedaron marcados como `login-password` genérico). Sólo
+    /// cambia `resource_type_id` — metadata y secreto NO se tocan, así que
+    /// esto sólo tiene sentido entre tipos con el MISMO `json_schema`;
+    /// `ResourceService::cambiar_tipo` valida esa compatibilidad antes de
+    /// llamar acá, este método confía en el caller. `false` si el recurso
+    /// ya no existe/está borrado.
+    async fn cambiar_tipo(&self, id: Uuid, nuevo_resource_type_id: Uuid) -> Result<bool, RepoError>;
+
     /// Recursos donde `user_id` tiene al menos permiso `read` — join contra
     /// `permissions` (sin grupos todavía, F-11 básico).
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError>;
+
+    /// F-47 (sync): recursos VIVOS visibles para `user_id` cuyo contenido
+    /// (`updated_at`) cambió desde `desde` — mismo criterio de visibilidad
+    /// que `listar_visibles_por`. No incluye los que sólo cambiaron de
+    /// carpeta (eso lo resuelve `FolderItemRepository::
+    /// posiciones_de_recursos_cambiadas_desde`, unido aparte en el handler
+    /// de sync — mover un recurso no toca `resources.updated_at`).
+    async fn cambios_desde(&self, user_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Resource>, RepoError>;
+
+    /// F-47 (sync): ids de recursos borrados desde `desde`, visibles para
+    /// `user_id` — `permissions` no se borra junto con el recurso, así que
+    /// la visibilidad al momento del borrado sigue siendo consultable.
+    async fn ids_eliminados_desde(&self, user_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Uuid>, RepoError>;
 
     /// F-33: re-envuelve la metadata de un recurso hacia otra metadata key
     /// (ej. la entrante de una rotación en curso) — `UPDATE` condicionado a
@@ -320,6 +344,17 @@ impl ResourceRepository for PgResourceRepository {
         Ok(resultado.rows_affected() > 0)
     }
 
+    async fn cambiar_tipo(&self, id: Uuid, nuevo_resource_type_id: Uuid) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update resources set resource_type_id = $2, updated_at = now() where id = $1 and deleted_at is null"#,
+            id,
+            nuevo_resource_type_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() > 0)
+    }
+
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError> {
         let filas = sqlx::query!(
             r#"
@@ -349,6 +384,54 @@ impl ResourceRepository for PgResourceRepository {
                 metadata_key_id: f.metadata_key_id,
             })
             .collect())
+    }
+
+    async fn cambios_desde(&self, user_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Resource>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select distinct r.id, r.resource_type_id, r.metadata_ciphertext, r.metadata_nonce,
+                   r.created_by, r.created_at, r.updated_at, r.metadata_key_type, r.metadata_key_id
+            from resources r
+            join permissions p on p.subject_type = 'resource' and p.subject_id = r.id
+            where p.grantee_type = 'user' and p.grantee_id = $1 and r.deleted_at is null and r.updated_at > $2
+            order by r.created_at desc
+            "#,
+            user_id,
+            desde,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| Resource {
+                id: f.id,
+                resource_type_id: f.resource_type_id,
+                metadata_ciphertext: f.metadata_ciphertext,
+                metadata_nonce: f.metadata_nonce,
+                created_by: f.created_by,
+                created_at: f.created_at,
+                updated_at: f.updated_at,
+                metadata_key_type: f.metadata_key_type,
+                metadata_key_id: f.metadata_key_id,
+            })
+            .collect())
+    }
+
+    async fn ids_eliminados_desde(&self, user_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select distinct r.id
+            from resources r
+            join permissions p on p.subject_type = 'resource' and p.subject_id = r.id
+            where p.grantee_type = 'user' and p.grantee_id = $1 and r.deleted_at is not null and r.deleted_at > $2
+            "#,
+            user_id,
+            desde,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.id).collect())
     }
 
     async fn rekey_metadata(

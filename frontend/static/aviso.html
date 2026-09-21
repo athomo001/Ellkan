@@ -1,0 +1,127 @@
+<!doctype html>
+<!-- Autor: Athan Espinoza -->
+<!--
+  Avisos de la app de escritorio, en una ventanita propia (esquina de la
+  pantalla, sin bordes, se va sola). Es una página estática y autónoma (no pasa
+  por SvelteKit): no tiene barra de título ni sesión. Qué muestra lo dice
+  `window.__AVISO__`, que inyecta la app al crear la ventana:
+    { tipo: 'bandeja' }                       la ventana se escondió en la bandeja
+    { tipo: 'puerto', esperado: N, actual: M } el puerto fijo estaba ocupado
+  Un tipo desconocido no muestra nada. Idioma y tema salen de las preferencias
+  que la app ya guardó (mismo origen).
+-->
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Ellkan</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #16293c;
+				--borde: #26405a;
+				--texto: #f8f8f8;
+				--texto-2: #a9b8c7;
+				--acento: #e0b860;
+			}
+			:root[data-tema='light'] {
+				color-scheme: light;
+				--bg: #ffffff;
+				--borde: #c9d5e0;
+				--texto: #102335;
+				--texto-2: #4a5f73;
+				--acento: #b08838;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				overflow: hidden;
+				background: var(--bg);
+				font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+				cursor: default;
+				user-select: none;
+			}
+			.aviso {
+				height: 100%;
+				display: flex;
+				gap: 12px;
+				align-items: flex-start;
+				padding: 14px 16px;
+				border: 1px solid var(--borde);
+				border-left: 4px solid var(--acento);
+			}
+			h1 {
+				margin: 0 0 4px;
+				font-size: 14px;
+				font-weight: 600;
+				color: var(--texto);
+			}
+			p {
+				margin: 0;
+				font-size: 12.5px;
+				line-height: 1.4;
+				color: var(--texto-2);
+			}
+		</style>
+	</head>
+	<body>
+		<div class="aviso" role="status">
+			<div>
+				<h1 id="titulo"></h1>
+				<p id="texto"></p>
+			</div>
+		</div>
+		<script>
+			const textos = {
+				bandeja: {
+					es: {
+						titulo: 'Ellkan sigue abierto',
+						texto: 'Quedó en la bandeja del sistema, junto al reloj. Clic en su ícono para abrirlo; clic derecho → Salir para cerrarlo del todo.'
+					},
+					en: {
+						titulo: 'Ellkan is still running',
+						texto: 'It is in the system tray, next to the clock. Click its icon to open it; right-click → Salir (Quit) to close it completely.'
+					}
+				},
+				puerto: {
+					es: {
+						titulo: 'El puerto {esperado} estaba ocupado',
+						texto: 'Ellkan usa el {actual} solo en esta sesión. Si tenías la extensión del navegador abierta, ciérrala y ábrela de nuevo.'
+					},
+					en: {
+						titulo: 'Port {esperado} was busy',
+						texto: 'Ellkan is using {actual} for this session only. If the browser extension was open, close it and open it again.'
+					}
+				}
+			};
+
+			let preferencias = {};
+			try {
+				preferencias = JSON.parse(localStorage.getItem('ellkan:preferencias') || '{}');
+			} catch {
+				/* sin preferencias legibles: se usan los valores por defecto */
+			}
+			const idioma = preferencias.locale || (navigator.language || 'es').slice(0, 2);
+			const datos = window.__AVISO__ || { tipo: 'bandeja' };
+			const porTipo = textos[datos.tipo];
+			const t = porTipo && (porTipo[idioma] || porTipo.es);
+			const rellenar = (texto) =>
+				texto.replace(/\{(\w+)\}/g, (_, clave) => (typeof datos[clave] === 'number' ? String(datos[clave]) : ''));
+			document.documentElement.lang = porTipo && porTipo[idioma] ? idioma : 'es';
+			document.documentElement.dataset.tema = preferencias.theme === 'light' ? 'light' : 'dark';
+			if (t) {
+				document.getElementById('titulo').textContent = rellenar(t.titulo);
+				document.getElementById('texto').textContent = rellenar(t.texto);
+			}
+
+			// Un clic lo descarta; si no, la app lo cierra sola a los pocos segundos.
+			document.addEventListener('click', () => {
+				window.__TAURI_INTERNALS__?.invoke('cerrar_aviso');
+			});
+		</script>
+	</body>
+</html>

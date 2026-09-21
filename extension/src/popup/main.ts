@@ -7,6 +7,7 @@
 // la arquitectura (Pagemod→Event→Controller→Service, spec 06 §2).
 
 import { PortClient } from '../shared/port-client';
+import { BrowserApi } from '../browser-api';
 import type { ResultadoLogin } from '../background/services/auth-service';
 import type { ItemVault, SecretoRevelado, DatosRecurso } from '../background/services/vault-service';
 import { comandoDeConexion, urlAbrible, hostnameParaFavicon } from './conexion';
@@ -50,6 +51,28 @@ function mostrarVista(nombre: keyof typeof vistas): void {
 
 const formLogin = document.getElementById('form-login') as HTMLFormElement;
 const campoServidor = document.getElementById('campo-servidor') as HTMLInputElement;
+const hintServidorEscritorio = document.getElementById('hint-servidor-escritorio') as HTMLElement;
+
+// Si la extensión se instaló desde la app de escritorio, la app deja junto a
+// ella un `ellkan-escritorio.json` con la dirección de SU backend local (el
+// puerto lo elige la app, el usuario no tiene cómo saberlo): se usa como
+// servidor por defecto. Sólo se acepta una dirección de este equipo — el
+// archivo no puede mandar el login a un servidor de afuera.
+const SERVIDOR_POR_DEFECTO = 'http://localhost:8080';
+const SERVIDOR_LOCAL_VALIDO = /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}$/;
+let servidorInicial = SERVIDOR_POR_DEFECTO;
+
+async function leerServidorDeEscritorio(): Promise<string | null> {
+	try {
+		const resp = await fetch(BrowserApi.getRuntimeURL('ellkan-escritorio.json'), { cache: 'no-store' });
+		if (!resp.ok) return null;
+		const url: unknown = ((await resp.json()) as { server_url?: unknown }).server_url;
+		return typeof url === 'string' && SERVIDOR_LOCAL_VALIDO.test(url) ? url : null;
+	} catch {
+		return null;
+	}
+}
+
 const campoEmail = document.getElementById('campo-email') as HTMLInputElement;
 const campoPassphrase = document.getElementById('campo-passphrase') as HTMLInputElement;
 const botonMostrarPassphrase = document.getElementById('boton-mostrar-passphrase') as HTMLButtonElement;
@@ -1025,7 +1048,7 @@ async function cerrarSesionYVolverALogin(): Promise<void> {
 		await cliente.request('AUTH_LOGOUT');
 	} finally {
 		formLogin.reset();
-		campoServidor.value = 'http://localhost:8080';
+		campoServidor.value = servidorInicial;
 		itemsVault = [];
 		campoBuscar.value = '';
 		listaVault.innerHTML = '';
@@ -1069,7 +1092,7 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 	} finally {
 		botonCancelarDispositivo.disabled = false;
 		formLogin.reset();
-		campoServidor.value = 'http://localhost:8080';
+		campoServidor.value = servidorInicial;
 		mostrarVista('login');
 	}
 });
@@ -1082,6 +1105,12 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 // estado siguiera vigente (bug real reportado por el usuario, para el caso
 // de dispositivo). ---
 (async () => {
+	const servidorDeEscritorio = await leerServidorDeEscritorio();
+	if (servidorDeEscritorio) {
+		servidorInicial = servidorDeEscritorio;
+		campoServidor.value = servidorDeEscritorio;
+		hintServidorEscritorio.classList.remove('oculto');
+	}
 	try {
 		const sesion = await cliente.request<{ sessionId: string; email: string; serverUrl: string } | null>('AUTH_ESTADO_SESION');
 		if (sesion) {

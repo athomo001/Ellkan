@@ -21,3 +21,4 @@
 overrides:
   '@xmldom/xmldom': '0.8.15'
   'nanoid': '^3.3.18'
+  'cookie': '^0.7.2'

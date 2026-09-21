@@ -2,6 +2,7 @@
 
 #![allow(async_fn_in_trait)]
 
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::error::RepoError;
@@ -12,6 +13,22 @@ pub trait TagRepository {
     async fn crear(&self, id: Uuid, name: &str, is_shared: bool, created_by: Uuid) -> Result<Tag, RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Tag>, RepoError>;
+
+    /// F-47: soft-delete. `false` si ya estaba borrado o no existe.
+    async fn eliminar(&self, id: Uuid) -> Result<bool, RepoError>;
+
+    /// F-47 (sync): tags VIVOS visibles para `viewer_id` (compartidos +
+    /// propios) creados/modificados desde `desde` — mismo criterio de
+    /// visibilidad que `listar_disponibles_para`. Los borrados van aparte
+    /// en `ids_eliminados_desde` (mismo criterio que `folders`: un tag
+    /// borrado deja de tener `name`/`is_shared` que sincronizar, sólo
+    /// importa el id para que el cliente lo tache localmente).
+    async fn cambios_desde(&self, viewer_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Tag>, RepoError>;
+
+    /// F-47 (sync): ids de tags borrados desde `desde`, visibles para
+    /// `viewer_id` en el momento del borrado — un tag personal ajeno nunca
+    /// aparece acá (mismo criterio de aislamiento que el resto de F-10).
+    async fn ids_eliminados_desde(&self, viewer_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Uuid>, RepoError>;
 
     /// Compartidos + personales del propio `viewer_id` — nunca los
     /// personales de otro usuario (F-10, criterio de aceptación literal).
@@ -119,5 +136,46 @@ impl TagRepository for PgTagRepository {
         .await?;
 
         Ok(filas.into_iter().map(|f| f.resource_id).collect())
+    }
+
+    async fn eliminar(&self, id: Uuid) -> Result<bool, RepoError> {
+        let resultado =
+            sqlx::query!(r#"update tags set deleted_at = now(), updated_at = now() where id = $1 and deleted_at is null"#, id)
+                .execute(&self.pool)
+                .await?;
+        Ok(resultado.rows_affected() > 0)
+    }
+
+    async fn cambios_desde(&self, viewer_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Tag>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select id, name, is_shared, created_by from tags
+            where deleted_at is null and (is_shared or created_by = $1) and updated_at > $2
+            order by name
+            "#,
+            viewer_id,
+            desde,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| Tag { id: f.id, name: f.name, is_shared: f.is_shared, created_by: f.created_by })
+            .collect())
+    }
+
+    async fn ids_eliminados_desde(&self, viewer_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Uuid>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select id as "id!" from tags
+            where deleted_at is not null and updated_at > $2 and (is_shared or created_by = $1)
+            "#,
+            viewer_id,
+            desde,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().map(|f| f.id).collect())
     }
 }

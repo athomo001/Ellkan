@@ -128,7 +128,7 @@ export interface ItemVault {
 /** Datos de un formulario de crear/editar — mismo shape que
  * `frontend/src/lib/crypto/recursos.ts::NuevoRecurso`. */
 export interface DatosRecurso {
-	tipo?: 'login-password' | 'ssh' | 'ftp' | 'vnc' | 'telnet';
+	tipo?: 'login-password' | 'ssh' | 'ftp' | 'vnc' | 'telnet' | 'rdp' | 'postgresql' | 'mysql' | 'mongodb';
 	nombre: string;
 	usuario: string;
 	uri: string;

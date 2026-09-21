@@ -276,6 +276,54 @@ export async function cambiarPassphrase(
 	});
 }
 
+/**
+ * Modo escritorio (cuenta local única): cambia el correo de la cuenta. El
+ * correo es el AAD del blob de la clave privada (`aadClavePrivada`), así que
+ * no alcanza con actualizar la fila de `users` — hay que abrir el blob con la
+ * passphrase y el correo actual, y re-sellarlo con el correo nuevo. Mismo
+ * patrón que `cambiarPassphrase`, con la diferencia de que acá la passphrase
+ * no cambia (sólo el AAD y, de paso, la sal del KDF). Una passphrase
+ * incorrecta falla al abrir el blob, antes de tocar nada en el backend, así
+ * que esto también sirve de confirmación de identidad.
+ *
+ * `PUT /me/email` sólo existe en el backend de escritorio. Devuelve el
+ * correo tal como quedó guardado (ya recortado).
+ */
+export async function cambiarEmailDeCuenta(emailActual: string, emailNuevo: string, passphrase: string): Promise<string> {
+	const wasm = await cargarCrypto();
+	const material = await api.post<{
+		encrypted_private_key_blob_b64: string;
+		private_key_nonce_b64: string;
+		kdf_salt_b64: string;
+	}>('/auth/key-material', { email: emailActual });
+
+	const abierta = await abrirClavePrivadaEnWorker(
+		passphrase,
+		base64ABytes(material.kdf_salt_b64),
+		base64ABytes(material.private_key_nonce_b64),
+		base64ABytes(material.encrypted_private_key_blob_b64),
+		aadClavePrivada(emailActual)
+	);
+
+	const nuevoEmail = emailNuevo.trim();
+	const nuevaSalt = wasm.generar_salt_kdf();
+	const nuevoBlob = await sellarClavePrivadaEnWorker(
+		passphrase,
+		nuevaSalt,
+		abierta.x25519Private,
+		abierta.ed25519Private,
+		aadClavePrivada(nuevoEmail)
+	);
+
+	const resp = await api.put<{ email: string }>('/me/email', {
+		new_email: nuevoEmail,
+		encrypted_private_key_blob_b64: bytesABase64(nuevoBlob.ciphertext),
+		private_key_nonce_b64: bytesABase64(nuevoBlob.nonce),
+		kdf_salt_b64: bytesABase64(nuevaSalt)
+	});
+	return resp.email;
+}
+
 export async function verificarDispositivo(
 	deviceChallengeId: string,
 	codigo: string

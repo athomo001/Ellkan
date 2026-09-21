@@ -1,0 +1,10 @@
+# Ignorar paquetes y binarios pesados compilados de Linux (se distribuyen vía GitHub Releases)
+*.deb
+*.rpm
+*.AppImage
+*.tar.gz
+*.tar.xz
+
+# Preservar notas y documentación interna
+!notas.md
+!.gitignore

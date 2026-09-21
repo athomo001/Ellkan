@@ -19,6 +19,14 @@
 
 Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servidor nunca ve tus claves privadas ni tus secretos en claro. Backend en Rust (Axum), cifrado con primitivas modernas (X25519, Ed25519, XChaCha20-Poly1305, Argon2id), frontend web y extensión de navegador comparten el mismo núcleo criptográfico compilado a WebAssembly.
 
+## Aplicaciones
+
+| Aplicación | Para qué sirve | Más información |
+| --- | --- | --- |
+| **Web + servidor** | El servidor Ellkan para un equipo: usuarios, grupos, compartir y administración. Es lo que levanta la [instalación rápida](#instalación-rápida). | [Manual de instalación](manual/instalacion.md) |
+| **Escritorio (Windows)** | Gestor de contraseñas para **una sola persona**. Todo queda cifrado en tu PC: funciona sin conexión, sin servidor y sin cuenta en la nube, y opcionalmente se conecta a un servidor Ellkan. Trae instalador MSI, bandeja del sistema con atajo global, botón «Conectar» (SSH, RDP, PostgreSQL, MySQL, MongoDB, FTP, Telnet, VNC), salud de la bóveda, copias de seguridad automáticas y la extensión de navegador incluida. | [Guía de la app de escritorio](app-escritorio/GUIA.md) |
+| **Extensión de navegador** | Autocompleta tus credenciales en Chrome, Edge, Brave, Opera y Firefox. Funciona con el servidor o con la app de escritorio, desde la que también se instala. | [Extensión de navegador](extension/README.md) |
+
 ## Capturas
 
 | Vault | Panel de administración | Nuevo recurso |
@@ -28,6 +36,16 @@ Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servid
 | Extensión — detalle de un recurso | Extensión — generador de contraseñas |
 | --- | --- |
 | ![Extensión: detalle](assets/screenshots/extension-popup.png) | ![Extensión: generador](assets/screenshots/extension-generador.png) |
+
+### App de escritorio (Windows)
+
+| Instalador MSI | Primer uso: crear la cuenta |
+| --- | --- |
+| ![Asistente de instalación de Ellkan](assets/screenshots/escritorio-instalador.png) | ![Pantalla para crear la cuenta local](assets/screenshots/escritorio-crear-cuenta.png) |
+
+| Nuevo recurso: SSH, RDP, bases de datos… | «Conectar» abre el cliente ya listo |
+| --- | --- |
+| ![Tipos de recurso al crear uno nuevo](assets/screenshots/escritorio-nuevo-recurso.png) | ![Detalle de un recurso SSH con el botón Conectar](assets/screenshots/escritorio-conectar.png) |
 
 ## Stack técnico
 

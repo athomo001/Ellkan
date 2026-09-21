@@ -48,6 +48,15 @@ export async function desellarMaterialDelEscrow(efimeraPrivada: Uint8Array, sell
 	return wasm.abrir_sellado(efimeraPrivada, base64ABytes(selladoB64));
 }
 
+/** Modo escritorio (punto 8): firma un challenge con la clave Ed25519 del
+ * material recuperado del kit (bytes 32..64, ver `sellarMaterialParaOrg`).
+ * Es la prueba de que quien recupera tiene el kit, sin correo de por medio —
+ * el backend la verifica contra la pública que ya guardó al registrarse. */
+export async function firmarChallengeConMaterial(material: Uint8Array, nonce: Uint8Array): Promise<string> {
+	const wasm = await cargarCrypto();
+	return bytesABase64(wasm.firmar(material.slice(32, 64), nonce));
+}
+
 export interface BlobClaveNueva {
 	blobB64: string;
 	nonceB64: string;

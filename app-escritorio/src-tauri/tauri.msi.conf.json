@@ -1,0 +1,27 @@
+{
+  "bundle": {
+    "targets": [
+      "msi"
+    ],
+    "publisher": "Athan Espinoza",
+    "shortDescription": "Gestor de contraseñas local y cifrado",
+    "category": "Utility",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "wix": {
+        "language": "es-ES",
+        "upgradeCode": "b09f0084-5100-4446-b9fc-df07c4dec7d7",
+        "fragmentPaths": [
+          "installer/limpieza.wxs"
+        ],
+        "componentRefs": [
+          "ComponenteLimpieza"
+        ],
+        "bannerPath": "installer/banner.bmp",
+        "dialogImagePath": "installer/dialogo.bmp"
+      }
+    }
+  }
+}

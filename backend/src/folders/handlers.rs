@@ -135,3 +135,14 @@ pub async fn compartir(
     }
     Ok(())
 }
+
+/// `DELETE /folders/{id}` (F-47) — ver `FolderService::eliminar` para la
+/// regla (owner + carpeta vacía).
+pub async fn eliminar(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(folder_id): Path<Uuid>,
+) -> Result<(), ApiError> {
+    servicio(&state).eliminar(auth.user_id, folder_id).await?;
+    Ok(())
+}

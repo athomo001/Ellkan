@@ -3,7 +3,7 @@
 // F-01: wrapper de `/me` (perfil de sólo lectura) y `/me/avatar`.
 
 import { get } from 'svelte/store';
-import { api } from './client';
+import { api, baseUrl } from './client';
 import { sesion } from '$lib/state/session';
 
 export interface Perfil {
@@ -46,7 +46,7 @@ export const permisosApi = {
  */
 export async function obtenerAvatarUrl(): Promise<string | null> {
 	const sessionId = get(sesion).sessionId;
-	const resp = await fetch('/me/avatar', { headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {} });
+	const resp = await fetch(`${await baseUrl()}/me/avatar`, { headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {} });
 	if (resp.status === 404) return null;
 	if (!resp.ok) throw new Error(`avatar: ${resp.status}`);
 	const blob = await resp.blob();
@@ -65,7 +65,7 @@ export const avatarApi = {
  * `obtenerAvatarUrl` de arriba (bytes crudos, no JSON, Bearer a mano). */
 export async function obtenerAvatarUrlDeUsuario(userId: string): Promise<string | null> {
 	const sessionId = get(sesion).sessionId;
-	const resp = await fetch(`/users/${userId}/avatar`, { headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {} });
+	const resp = await fetch(`${await baseUrl()}/users/${userId}/avatar`, { headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {} });
 	if (resp.status === 404) return null;
 	if (!resp.ok) throw new Error(`avatar: ${resp.status}`);
 	const blob = await resp.blob();

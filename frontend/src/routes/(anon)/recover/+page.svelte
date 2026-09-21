@@ -15,11 +15,23 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import { desellarMaterialDelEscrow, reSellarConNuevaPassphrase } from '$lib/crypto/accountRecovery';
+	import {
+		desellarMaterialDelEscrow,
+		reSellarConNuevaPassphrase,
+		firmarChallengeConMaterial,
+		type BlobClaveNueva
+	} from '$lib/crypto/accountRecovery';
 	import { base64ABytes } from '$lib/crypto/b64';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
 	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import { ApiError, api } from '$lib/api/client';
+	import { enModoEscritorio } from '$lib/tauri/conectar';
+
+	// Punto 8: la app de escritorio no tiene SMTP, así que no hay link ni
+	// código por correo. Ahí el flujo salta esos pasos ('esperando-email' y
+	// 'mfa') y la prueba de tener el kit es una firma — ver
+	// `recuperarLocal` más abajo.
+	const local = enModoEscritorio();
 
 	type Paso = 'email' | 'esperando-email' | 'kit-y-passphrase' | 'mfa' | 'lista';
 	let paso = $state<Paso>('email');
@@ -69,13 +81,34 @@
 		error = undefined;
 		cargando = true;
 		try {
-			await recoveryKitApi.solicitarReset(email);
-			paso = 'esperando-email';
+			if (local) {
+				// El correo es el AAD del blob de la clave privada: tiene que ser
+				// exactamente el de la cuenta, sin espacios de más.
+				email = email.trim();
+				const r = await recoveryKitApi.materialLocal(email);
+				selladoMaterialB64 = r.sealed_identity_material_b64;
+				paso = 'kit-y-passphrase';
+			} else {
+				await recoveryKitApi.solicitarReset(email);
+				paso = 'esperando-email';
+			}
 		} catch (err) {
-			error = err instanceof ApiError ? err.message : $t.recoveryKit.errorGenerico;
+			if (local && err instanceof ApiError && err.status === 404) {
+				error = $t.recoveryKit.errorSinKitLocal;
+			} else {
+				error = err instanceof ApiError ? err.message : $t.recoveryKit.errorGenerico;
+			}
 		} finally {
 			cargando = false;
 		}
+	}
+
+	/** Reset sin correo: firma un challenge con la clave Ed25519 recuperada del
+	 * kit y manda el blob ya re-sellado con la passphrase nueva. */
+	async function recuperarLocal(material: Uint8Array, blob: BlobClaveNueva) {
+		const desafio = await api.post<{ nonce_b64: string }>('/auth/challenge', { email });
+		const firma = await firmarChallengeConMaterial(material, base64ABytes(desafio.nonce_b64));
+		await recoveryKitApi.completarLocal(email, desafio.nonce_b64, firma, blob.blobB64, blob.nonceB64, blob.saltB64);
 	}
 
 	async function confirmarKitYPassphrase(e: SubmitEvent) {
@@ -94,12 +127,20 @@
 			const material = await desellarMaterialDelEscrow(kitPrivada, selladoMaterialB64);
 			blobListo = await reSellarConNuevaPassphrase(email, passphraseNueva, material);
 
+			if (local) {
+				await recuperarLocal(material, blobListo);
+				paso = 'lista';
+				return;
+			}
+
 			if (mfaMethod === 'email' && token) {
 				await recoveryKitApi.enviarCodigoEmail(token);
 			}
 			paso = 'mfa';
-		} catch {
-			error = $t.recoveryKit.errorKitInvalido;
+		} catch (err) {
+			// En escritorio, un error del backend (challenge vencido, firma no
+			// aceptada) no es "kit inválido": se muestra tal cual.
+			error = local && err instanceof ApiError ? err.message : $t.recoveryKit.errorKitInvalido;
 		} finally {
 			cargando = false;
 		}
@@ -130,13 +171,17 @@
 	<h1>{$t.recoveryKit.tituloRecover}</h1>
 
 	{#if paso === 'email'}
-		<p class="subtitulo">{$t.recoveryKit.subtituloRecover}</p>
+		<p class="subtitulo">{local ? $t.recoveryKit.subtituloRecoverLocal : $t.recoveryKit.subtituloRecover}</p>
 		<form onsubmit={pedirLink}>
 			<TextField label={$t.recuperacionCuenta.email} type="email" bind:value={email} autocomplete="email" required />
 			{#if error}<p class="error">{error}</p>{/if}
-			<Button type="submit" variant="primary" loading={cargando}>{$t.recoveryKit.pedirLink}</Button>
+			<Button type="submit" variant="primary" loading={cargando}>
+				{local ? $t.recoveryKit.continuar : $t.recoveryKit.pedirLink}
+			</Button>
 		</form>
-		<p class="hint centrado"><a href="/recover/admin-approval">{$t.recoveryKit.sinKitLink}</a></p>
+		{#if !local}
+			<p class="hint centrado"><a href="/recover/admin-approval">{$t.recoveryKit.sinKitLink}</a></p>
+		{/if}
 	{:else if paso === 'esperando-email'}
 		<p class="hint">{$t.recoveryKit.esperandoEmailHint}</p>
 	{:else if paso === 'kit-y-passphrase'}
