@@ -294,3 +294,101 @@ async fn recipients_devuelve_al_unico_destinatario_de_un_recurso_personal() {
     assert_eq!(lista[0]["user_id"].as_str().unwrap(), owner.user_id.to_string());
     assert_eq!(lista[0]["public_key_x25519_b64"].as_str().unwrap(), B64.encode(owner.x25519.publica().as_bytes()));
 }
+
+/// 2026-09-17: `PUT /resources/{id}/type` — recursos ssh/ftp/etc. creados
+/// como `login-password` genérico ahora se pueden re-tipear sin re-cifrar
+/// nada (mismo `json_schema` en todo ese grupo, ver `ResourceService::
+/// cambiar_tipo`).
+#[tokio::test]
+async fn cambiar_tipo_entre_tipos_compatibles_actualiza_sin_tocar_metadata() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "cambiar-tipo-owner@test.ellkan").await;
+    let sesion = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion, &owner).await;
+
+    let metadata_antes = entorno
+        .cliente
+        .get(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap()["metadata_ciphertext_b64"]
+        .clone();
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}/type", entorno.base, recurso.id))
+        .bearer_auth(sesion)
+        .json(&json!({ "resource_type_slug": "ssh" }))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(status, 200, "{cuerpo:?}");
+
+    let get = entorno
+        .cliente
+        .get(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
+    let cuerpo_get: Value = get.json().await.unwrap();
+    assert_eq!(cuerpo_get["resource_type_slug"], "ssh");
+    assert_eq!(cuerpo_get["metadata_ciphertext_b64"], metadata_antes, "la metadata no debe tocarse al cambiar sólo el tipo");
+}
+
+#[tokio::test]
+async fn cambiar_tipo_a_uno_con_json_schema_distinto_se_rechaza() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "cambiar-tipo-incompatible@test.ellkan").await;
+    let sesion = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion, &owner).await;
+
+    // `login-password-totp` declara un campo extra (`totp_secret`) en
+    // `secret` — distinto json_schema, cambio rechazado explícito.
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}/type", entorno.base, recurso.id))
+        .bearer_auth(sesion)
+        .json(&json!({ "resource_type_slug": "login-password-totp" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "un tipo con json_schema distinto debe rechazarse, no aplicarse a ciegas");
+
+    let get = entorno
+        .cliente
+        .get(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
+    let cuerpo_get: Value = get.json().await.unwrap();
+    assert_eq!(cuerpo_get["resource_type_slug"], "login-password", "el tipo original no debe cambiar tras el rechazo");
+}
+
+#[tokio::test]
+async fn cambiar_tipo_sin_permiso_se_rechaza() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "cambiar-tipo-ajeno-owner@test.ellkan").await;
+    let sesion_owner = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion_owner, &owner).await;
+
+    let otro = common::registrar(&entorno, "cambiar-tipo-ajeno-otro@test.ellkan").await;
+    let sesion_otro = common::login(&entorno, &otro).await;
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}/type", entorno.base, recurso.id))
+        .bearer_auth(sesion_otro)
+        .json(&json!({ "resource_type_slug": "ssh" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+}

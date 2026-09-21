@@ -42,6 +42,16 @@
 		border: 1px solid transparent;
 		font-weight: 500;
 		line-height: 1.2;
+		/* Hallazgo real de uso (ventana angosta de escritorio): sin esto, un
+		   botón dentro de una fila flex apretada (ej. `.botones` en el
+		   Vault con el panel de detalle abierto) se achica por debajo del
+		   ancho de su propio texto y la etiqueta se parte en 2 líneas — feo
+		   y nada obvio de detectar sin probar en una ventana angosta de
+		   verdad. El botón entero debe mantenerse de una pieza; si no
+		   entra, que el contenedor lo mande a la siguiente línea, no que el
+		   texto se parta adentro. */
+		white-space: nowrap;
+		flex-shrink: 0;
 		transition:
 			background-color 0.15s,
 			border-color 0.15s,

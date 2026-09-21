@@ -16,6 +16,7 @@ import { exportEventsApi } from '$lib/api/exportPolicy';
 import { generarCsv, parsearCsv, type FilaExport } from './exportCsv';
 import { generarKdbx, parsearKdbx } from './exportKdbx';
 import { generarCxf, parsearCxf } from './exportCxf';
+import { enModoEscritorio } from '$lib/tauri/conectar';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 
 export type FormatoExport = 'kdbx' | 'csv' | 'cxf';
@@ -102,8 +103,11 @@ export async function parsearArchivoImport(
 
 	let filas: FilaExport[];
 	if (formato === 'kdbx') {
-		if (!opciones.password) throw new Error('Este archivo KDBX requiere contraseña.');
-		filas = await conTimeout(parsearKdbx(bytes, opciones.password), TIMEOUT_PARSEO_MS);
+		// Un KDBX con contraseña maestra vacía es válido en el formato — no
+		// se puede saber de antemano si el archivo la necesita o no, así que
+		// no se bloquea acá; si la contraseña (vacía o no) es incorrecta,
+		// `parsearKdbx` ya lo reporta con un error claro.
+		filas = await conTimeout(parsearKdbx(bytes, opciones.password ?? ''), TIMEOUT_PARSEO_MS);
 	} else if (formato === 'csv') {
 		filas = await conTimeout(Promise.resolve(parsearCsv(new TextDecoder().decode(bytes))), TIMEOUT_PARSEO_MS);
 	} else {
@@ -152,11 +156,23 @@ export function detectarFormatoPorNombre(nombreArchivo: string): FormatoExport |
 	return undefined;
 }
 
-export function descargarArchivo(archivo: ArchivoGenerado): void {
+/**
+ * Descarga `archivo`. En la web es el `<a download>` de siempre; en escritorio
+ * el webview de Tauri no lo procesa (el clic no hace nada), así que lo guarda
+ * el backend en la carpeta Descargas y devuelve la ruta donde quedó (`null`
+ * en la web). Tira si no se pudo guardar — quien llama tiene que esperarla y
+ * mostrar el error, no dar la descarga por hecha.
+ */
+export async function descargarArchivo(archivo: ArchivoGenerado): Promise<string | null> {
+	if (enModoEscritorio()) {
+		const { guardarEnDescargas } = await import('$lib/tauri/archivos');
+		return guardarEnDescargas(archivo.filename, new Uint8Array(await archivo.blob.arrayBuffer()));
+	}
 	const url = URL.createObjectURL(archivo.blob);
 	const a = document.createElement('a');
 	a.href = url;
 	a.download = archivo.filename;
 	a.click();
 	URL.revokeObjectURL(url);
+	return null;
 }

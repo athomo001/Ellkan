@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select fi.child_folder_id as \"folder_id!\", fi.folder_id as parent_folder_id,\n                   fi.name_ciphertext as \"name_ciphertext!\", fi.name_nonce as \"name_nonce!\"\n            from folder_items fi\n            join folders f on f.id = fi.child_folder_id\n            where fi.user_id = $1 and f.deleted_at is null and fi.updated_at > $2\n            order by f.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "folder_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "child_folder_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_folder_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "folder_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name_ciphertext!",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "name_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name_nonce!",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "name_nonce"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "542b5eff51fa7aa8ddf00067140adaf7163d0e8eddb1d052c43896dd0308274e"
+}

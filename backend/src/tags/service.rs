@@ -92,4 +92,20 @@ where
         }
         Ok(self.tags.recursos_visibles_con_tag(actor_id, tag_id).await?)
     }
+
+    /// F-47: borra un tag — un personal sólo lo borra quien lo creó; uno
+    /// `is_shared` exige admin, mismo criterio que crearlo (`crear`, arriba).
+    /// Las asociaciones en `resource_tags` quedan huérfanas a propósito (el
+    /// tag ya no aparece en `listar_disponibles_para`, así que ninguna
+    /// consulta real las vuelve a traer) — borrarlas explícitamente no
+    /// agrega ninguna garantía nueva, sólo trabajo extra.
+    pub async fn eliminar(&self, actor_id: Uuid, es_admin: bool, tag_id: Uuid) -> Result<(), DomainError> {
+        let tag = self.tags.buscar(tag_id).await?.ok_or(DomainError::NotFound)?;
+        let autorizado = if tag.is_shared { es_admin } else { tag.created_by == Some(actor_id) };
+        if !autorizado {
+            return Err(DomainError::PermissionDenied);
+        }
+        self.tags.eliminar(tag_id).await?;
+        Ok(())
+    }
 }

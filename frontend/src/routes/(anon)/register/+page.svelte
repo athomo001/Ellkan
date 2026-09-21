@@ -12,6 +12,22 @@
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
+
+	// F-46: mismo criterio que el link escondido en el login — si alguien
+	// llega acá directo (bookmark, back del navegador) y ya existe el único
+	// usuario de esta bóveda, no tiene sentido mostrar el formulario: el
+	// backend lo va a rechazar seguro. Defensa en profundidad, la real ya
+	// está en `desktop/router.rs::register`.
+	$effect(() => {
+		if (enModoEscritorio()) {
+			existeUsuarioLocal()
+				.then((existe) => {
+					if (existe) goto('/login');
+				})
+				.catch(() => {});
+		}
+	});
 
 	let email = $state('');
 	let displayName = $state('');

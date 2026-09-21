@@ -273,4 +273,28 @@ where
         }
         Ok(())
     }
+
+    /// F-47: borra una carpeta VACÍA (sin subcarpetas ni recursos
+    /// posicionados en ningún árbol de usuario) — exige `owner` sobre ella,
+    /// mismo nivel que `compartir`. Alcance deliberadamente simple: en vez
+    /// de decidir qué hacer con el contenido (¿mover a la raíz? ¿borrar en
+    /// cascada?), se rechaza con un mensaje claro y se pide vaciarla antes
+    /// — evita casos borde de cascada mal definidos en la primera versión.
+    pub async fn eliminar(&self, actor_id: Uuid, folder_id: Uuid) -> Result<(), DomainError> {
+        self.carpetas.buscar(folder_id).await?.ok_or(DomainError::NotFound)?;
+
+        if !self.permisos.tiene_permiso("folder", folder_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+            return Err(DomainError::PermissionDenied);
+        }
+
+        if self.items.tiene_hijos(folder_id).await? {
+            return Err(DomainError::ValidacionInvalida(
+                "la carpeta tiene subcarpetas o recursos adentro — vaciala antes de borrarla".into(),
+            ));
+        }
+
+        self.items.quitar_de_todos_los_arboles(folder_id).await?;
+        self.carpetas.marcar_eliminada(folder_id).await?;
+        Ok(())
+    }
 }

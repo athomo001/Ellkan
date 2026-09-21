@@ -1,0 +1,63 @@
+[package]
+name = "ellkan-desktop"
+version.workspace = true
+description = "Ellkan — modo escritorio (shell Tauri)"
+authors = ["Athan Espinoza"]
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+# Con `src/bin/ellkan_askpass.rs` (F-49) el crate pasó a tener 2 binarios —
+# sin esto, `cargo run` (lo que usa `pnpm tauri dev` de por medio) queda
+# ambiguo y falla pidiendo `--bin` explícito.
+default-run = "ellkan-desktop"
+
+[lib]
+name = "ellkan_desktop_lib"
+# Sólo `rlib`: la plantilla de Tauri trae `staticlib`/`cdylib` para el móvil, que
+# acá no existe. Con ellas cada compilación generaba una `.lib` de 266 MB y una
+# `.dll` que el empaquetador del MSI se llevaba al instalador sin que nadie la use.
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.3", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+# Backend Axum in-process (spec/13 §3) — mismo crate que el modo servidor,
+# `desktop` activa la segunda implementación SQLite de los repos ya
+# migrados (auth/mfa/smtp_config/self_registration/recovery_kit).
+ellkan-backend = { path = "../../backend", features = ["desktop"] }
+axum = "0.8.9"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net"] }
+anyhow = "1.0.104"
+tauri-plugin-opener = "2.5.5"
+# F-49 ("Conectar" desde la GUI, spec/13 §9): el secreto de un recurso cruza
+# el IPC de Tauri desde el SPA (que lo descifró con el wasm) hasta este
+# proceso para inyectarlo al hijo `ssh` vía `SSH_ASKPASS` — mismo criterio
+# de higiene de memoria que ya usa `ellkan-backend` para material sensible.
+zeroize = "1.9.0"
+tauri-plugin-global-shortcut = "2"
+keyring = "3"
+# F-45/F-54: instancia única — sin esto, cada doble click o relanzamiento
+# abre un proceso nuevo en vez de enfocar el existente, y dos procesos
+# compitiendo por el mismo puerto fijo es exactamente lo que generó la
+# inestabilidad real encontrada 2026-09-17 (ver `Ellkan.log`: instancias
+# simultáneas chocando por el puerto, una de ellas cayendo a un puerto
+# random mientras la ventana visible sigue cacheado el puerto viejo).
+tauri-plugin-single-instance = "2"
+
+# F-52 (bloqueo al bloquear la pantalla de Windows): aviso de cambio de sesión
+# (`WTSRegisterSessionNotification`) y credenciales de Escritorio remoto
+# (`CredWriteW`). Ya está en el árbol de dependencias por Tauri
+# (misma versión), así que no agrega nada nuevo al binario.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_RemoteDesktop", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+# `keyring` 3 no trae ningún almacén del sistema por defecto: sin esta línea usa un
+# almacén de PRUEBA en memoria (cada `Entry` es independiente y nada se guarda), y el
+# desbloqueo con el llavero de Windows (F-50) nunca funcionó.
+keyring = { version = "3", features = ["windows-native"] }

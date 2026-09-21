@@ -104,6 +104,15 @@ pub struct ListarQuery {
     pub incluir_subcarpetas: bool,
 }
 
+/// `PUT /resources/{id}/type` (2026-09-17) — cambiar el tipo de un recurso
+/// ya creado entre tipos con el mismo `json_schema` (ver
+/// `ResourceService::cambiar_tipo`). Sin `If-Match`: no toca metadata ni
+/// secreto, no hay contenido que perder en una carrera.
+#[derive(Debug, Deserialize)]
+pub struct CambiarTipoRecursoRequest {
+    pub resource_type_slug: String,
+}
+
 /// `PUT /resources/{id}/move` (F-11) — `folder_id: None` saca el recurso de
 /// cualquier carpeta (vuelve a la raíz del árbol propio).
 #[derive(Debug, Deserialize)]

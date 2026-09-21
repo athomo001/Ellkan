@@ -500,6 +500,67 @@ where
         Ok(recurso)
     }
 
+    /// `PUT /resources/{id}/type` (2026-09-17, pedido explícito del usuario:
+    /// recursos ssh/ftp/telnet/vnc importados/creados antes de que existiera
+    /// el tipo correcto quedaron marcados `login-password` genérico, sin
+    /// forma de corregirlo). Nunca toca metadata/secreto — sólo tiene
+    /// sentido, y sólo se permite, entre tipos con el MISMO `json_schema`
+    /// (hoy: `login-password`/`ssh`/`ftp`/`telnet`/`vnc`, todos
+    /// `{metadata: [name,username,uri], secret: [password,notes]}`).
+    /// Deliberadamente NO incluye `login-password-totp` en ese grupo — tiene
+    /// un campo extra (`totp_secret`) que un cambio ciego de tipo perdería
+    /// de vista sin re-cifrar nada, un caso real pero distinto que no fue
+    /// pedido.
+    pub async fn cambiar_tipo(&self, resource_id: Uuid, actor_id: Uuid, nuevo_slug: &str) -> Result<Resource, DomainError> {
+        if !self
+            .permisos
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Update.as_db_str())
+            .await?
+        {
+            return Err(DomainError::PermissionDenied);
+        }
+
+        let recurso = self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
+        let nuevo_id = self
+            .tipos_recurso
+            .id_por_slug(nuevo_slug)
+            .await?
+            .ok_or_else(|| DomainError::ValidacionInvalida(format!("tipo de recurso desconocido: '{nuevo_slug}'")))?;
+
+        if nuevo_id == recurso.resource_type_id {
+            return Ok(recurso);
+        }
+
+        let schema_actual = self
+            .tipos_recurso
+            .json_schema_por_id(recurso.resource_type_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let schema_nuevo = self
+            .tipos_recurso
+            .json_schema_por_id(nuevo_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        if schema_actual != schema_nuevo {
+            return Err(DomainError::ValidacionInvalida(
+                "sólo se puede cambiar entre tipos con el mismo formato (ej. login-password/ssh/ftp/telnet/vnc)".to_string(),
+            ));
+        }
+
+        let cambiado = self.recursos.cambiar_tipo(resource_id, nuevo_id).await?;
+        if !cambiado {
+            return Err(DomainError::NotFound);
+        }
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::ResourceUpdated, Some(actor_id))
+                .con_sujeto("resource", resource_id)
+                .con_metadata(serde_json::json!({ "nuevo_tipo": nuevo_slug })),
+        ));
+
+        self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)
+    }
+
     /// `GET /resources/{id}/totp` (F-08) — sólo metadata de configuración,
     /// nunca el código generado (eso lo calcula el cliente tras descifrar
     /// vía `/resources/{id}/secret`). Deriva de si el `resource_type`

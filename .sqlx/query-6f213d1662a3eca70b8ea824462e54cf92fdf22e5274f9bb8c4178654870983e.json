@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select distinct r.id\n            from resources r\n            join permissions p on p.subject_type = 'resource' and p.subject_id = r.id\n            where p.grantee_type = 'user' and p.grantee_id = $1 and r.deleted_at is not null and r.deleted_at > $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f213d1662a3eca70b8ea824462e54cf92fdf22e5274f9bb8c4178654870983e"
+}

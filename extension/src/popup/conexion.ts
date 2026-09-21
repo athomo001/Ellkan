@@ -7,7 +7,16 @@
 // importable en un content script/popup"). Mismo comportamiento exacto,
 // duplicado a propósito por ser puro texto sin cripto de por medio.
 
-const PUERTOS_DEFAULT: Record<string, number> = { ssh: 22, ftp: 21, telnet: 23, vnc: 5900 };
+const PUERTOS_DEFAULT: Record<string, number> = {
+	ssh: 22,
+	ftp: 21,
+	telnet: 23,
+	vnc: 5900,
+	rdp: 3389,
+	postgresql: 5432,
+	mysql: 3306,
+	mongodb: 27017
+};
 
 function parsearHostPuerto(uri: string): { host: string; puerto?: number } {
 	const sinEsquema = uri.replace(/^[a-z]+:\/\//i, '').trim();
@@ -37,6 +46,14 @@ export function comandoDeConexion(resourceTypeSlug: string, usuario: string, uri
 			return `ftp://${arroba}${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
 		case 'vnc':
 			return `vnc://${arroba}${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
+		case 'rdp':
+			return `mstsc /v:${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
+		case 'postgresql':
+			return `psql -h ${host} -p ${puerto ?? puertoDefault}${usuario ? ` -U ${usuario}` : ''}`;
+		case 'mysql':
+			return `mysql -h ${host} -P ${puerto ?? puertoDefault}${usuario ? ` -u ${usuario}` : ''} -p`;
+		case 'mongodb':
+			return `mongosh "mongodb://${arroba}${host}:${puerto ?? puertoDefault}/"`;
 		default:
 			return null;
 	}

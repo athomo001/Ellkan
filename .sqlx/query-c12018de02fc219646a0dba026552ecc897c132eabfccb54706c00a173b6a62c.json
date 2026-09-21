@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into folder_items (folder_id, child_folder_id, user_id, name_ciphertext, name_nonce)\n            values ($1, $2, $3, $4, $5)\n            on conflict (user_id, child_folder_id) do update set\n                folder_id = excluded.folder_id,\n                name_ciphertext = excluded.name_ciphertext,\n                name_nonce = excluded.name_nonce,\n                updated_at = now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c12018de02fc219646a0dba026552ecc897c132eabfccb54706c00a173b6a62c"
+}

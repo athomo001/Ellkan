@@ -14,12 +14,14 @@
 	// dentro del panel, mismo criterio de siempre (minimizar cuánto tiempo
 	// vive un secreto descifrado en memoria).
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import SecretField from '$lib/components/SecretField.svelte';
-	import FolderTree from '$lib/components/FolderTree.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
+	import { carpetasSidebar } from '$lib/state/carpetasSidebar';
 	import Modal from '$lib/components/Modal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import TagFilterBar from '$lib/components/TagFilterBar.svelte';
@@ -29,6 +31,8 @@
 		verSecreto,
 		crearRecurso,
 		editarRecurso,
+		cambiarTipoRecurso,
+		TIPOS_INTERCAMBIABLES,
 		compartirRecursosEnLote,
 		listarPermisos,
 		cambiarNivelPermiso,
@@ -37,12 +41,14 @@
 		compartirRecursoConDestinatario,
 		comandoDeConexion,
 		infoConexion,
+		resolverHostPuerto,
 		eliminarRecurso,
 		salirDeRecurso,
 		type Recurso,
 		type TipoRecurso,
 		type UsuarioBusqueda
 	} from '$lib/crypto/recursos';
+	import { conectar, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
 	import type { EstrategiaMatch } from '$lib/crypto/matching';
 	import {
 		listarArbolCarpetas,
@@ -74,8 +80,17 @@
 		type FormatoExport,
 		type FilaExport
 	} from '$lib/crypto/exportImport';
+	import {
+		parsearCsvCrudo,
+		autodetectarMapeoCsv,
+		mapearFilasCsv,
+		type CsvCrudo,
+		type CampoCsv
+	} from '$lib/crypto/exportCsv';
+	import { contarCredencialesNoSoportadas } from '$lib/crypto/exportCxf';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
 	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso, esAdmin } from '$lib/state/session';
+	import { limpiarStoresEn } from '$lib/state/declarative-store';
 	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -91,6 +106,10 @@
 	const ICONO_COMPARTIR =
 		'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z';
 	const ICONO_EXPORTAR = 'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3';
+	// arrow-up-tray de Heroicons (distinto de ICONO_EXPORTAR, que es
+	// arrow-down-tray) — importar es "subir" un archivo a Ellkan.
+	const ICONO_IMPORTAR_ARCHIVO =
+		'M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5';
 	const ICONO_ELIMINAR =
 		'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0';
 	const ICONO_NUEVO = 'M12 4.5v15m7.5-7.5h-15';
@@ -240,6 +259,28 @@
 		errorCompartirCarpeta = undefined;
 	}
 
+	// Pedido explícito del usuario: el árbol de carpetas vive en la barra
+	// lateral persistente del shell (`(app)/+layout.svelte`), no como una
+	// columna más del grid de esta página — acá sólo se publican los datos
+	// al store compartido; quien la dibuja es el layout. `null` al
+	// desmontar (navegar a otra página) para que el layout deje de mostrarla.
+	$effect(() => {
+		if (!tienePermiso($permisos, 'folders.use')) {
+			carpetasSidebar.set(null);
+			return;
+		}
+		carpetasSidebar.set({
+			nodos: carpetas,
+			cargando: cargandoCarpetas,
+			filtroActivo: carpetaFiltro,
+			onCrear: onCrearCarpeta,
+			onMover: onMoverCarpeta,
+			onFiltrar: onFiltrarCarpeta,
+			onCompartir: tienePermiso($permisos, 'folder.share') && puedeCompartirCarpetas ? onCompartirCarpeta : undefined
+		});
+		return () => carpetasSidebar.set(null);
+	});
+
 	async function confirmarCompartirCarpeta(e: SubmitEvent) {
 		e.preventDefault();
 		if (!compartiendoCarpeta) return;
@@ -388,10 +429,142 @@
 			.catch(() => {
 				/* default local declarado arriba sigue sirviendo */
 			});
+		esModoDesktop = enModoEscritorio();
 		// F-30 (07-frontend-web.md §2): recargar al volver a la pestaña, sin
 		// polling — cubre el caso de compartir/crear un recurso desde otro
 		// dispositivo mientras esta pestaña quedó abierta en segundo plano.
 		return refrescarAlEnfocar(cargar);
+	});
+
+	// Detección de entorno nativo de escritorio Tauri para ergonomía compacta (Fase 3.2).
+	let esModoDesktop = $state(false);
+
+	// Enlace `ellkan://item/<id>` (deep link): abre ese recurso en cuanto la lista
+	// está cargada, y limpia el parámetro para que no se reabra al recargar.
+	$effect(() => {
+		const id = page.url.searchParams.get('abrir');
+		if (!id || cargando) return;
+		const recurso = recursos.find((r) => r.id === id);
+		if (recurso && seleccionado?.id !== id) seleccionarFila(recurso);
+		replaceState(page.url.pathname, {});
+	});
+
+	function iconoPorTipo(slug?: string): string {
+		switch (slug) {
+			case 'login-password':
+			case 'login-password-totp':
+				return '🔑';
+			case 'ssh':
+				return '💻';
+			case 'server':
+			case 'telnet':
+			case 'vnc':
+			case 'rdp':
+			case 'ftp':
+				return '🖥️';
+			case 'postgresql':
+			case 'mysql':
+			case 'mongodb':
+				return '🗄️';
+			case 'secure_note':
+				return '📝';
+			case 'credit_card':
+				return '💳';
+			default:
+				return '🔐';
+		}
+	}
+
+	async function copiarPasswordDelSeleccionado() {
+		if (!seleccionado || !$clavesDesbloqueadas) return;
+		try {
+			let pwd = secretoAbierto?.password;
+			if (!pwd) {
+				const sec = await verSecreto(seleccionado, $clavesDesbloqueadas);
+				pwd = sec.password;
+			}
+			if (pwd) {
+				await copiarConLimpieza(pwd, $preferencias.clipboardClearMinutes);
+				campoCopiado = 'usuario';
+				setTimeout(() => (campoCopiado = undefined), 2000);
+			}
+		} catch {
+			/* ignorar */
+		}
+	}
+
+	async function copiarUsuarioDelSeleccionado() {
+		if (!seleccionado?.usuario) return;
+		await copiarCampo('usuario', seleccionado.usuario);
+	}
+
+	// Atajos de teclado estándar de escritorio (spec/13 §17 Fase 3.2)
+	$effect(() => {
+		function alPresionarTeclasDesktop(e: KeyboardEvent) {
+			const tag = (e.target as HTMLElement)?.tagName;
+			const enInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+			// Esc: cerrar drawer de creación / cancelar edición / limpiar búsqueda
+			if (e.key === 'Escape') {
+				if (mostrarCrear) {
+					mostrarCrear = false;
+					return;
+				}
+				if (panelModo === 'editar') {
+					panelModo = 'detalle';
+					return;
+				}
+				if (busqueda) {
+					busqueda = '';
+					return;
+				}
+				if (seleccionado) {
+					cerrarPanel();
+					return;
+				}
+			}
+
+			if (e.ctrlKey || e.metaKey) {
+				const k = e.key.toLowerCase();
+				// Ctrl+N: crear nueva credencial
+				if (k === 'n') {
+					e.preventDefault();
+					mostrarCrear = true;
+					seleccionado = undefined;
+					return;
+				}
+				// Ctrl+F: enfocar campo de búsqueda
+				if (k === 'f') {
+					e.preventDefault();
+					const input = document.querySelector('.input-busqueda-desktop, .vault-busqueda input, input[type="search"], input[placeholder*="Buscar"]') as HTMLInputElement;
+					input?.focus();
+					input?.select();
+					return;
+				}
+				// Ctrl+L: bloquear la bóveda inmediatamente
+				if (k === 'l') {
+					e.preventDefault();
+					limpiarStoresEn('lock');
+					return;
+				}
+				// Atajos de copiado rápido si no está en un campo de texto
+				if (!enInput) {
+					if (e.shiftKey && k === 'c') {
+						e.preventDefault();
+						copiarUsuarioDelSeleccionado();
+						return;
+					}
+					if (!e.shiftKey && k === 'c') {
+						e.preventDefault();
+						copiarPasswordDelSeleccionado();
+						return;
+					}
+				}
+			}
+		}
+
+		window.addEventListener('keydown', alPresionarTeclasDesktop);
+		return () => window.removeEventListener('keydown', alPresionarTeclasDesktop);
 	});
 
 	function generar() {
@@ -558,6 +731,76 @@
 			errorSecreto = err instanceof ApiError ? err.message : $t.vault.errorVerSecreto;
 		} finally {
 			cargandoSecreto = false;
+		}
+	}
+
+	// --- conectar (F-49, sólo modo escritorio) ---
+	let conectando = $state(false);
+	let errorConectar = $state<string | undefined>();
+	let hintConectar = $state<string | undefined>();
+
+	async function conectarConSeleccionado() {
+		if (!seleccionado || !$clavesDesbloqueadas) return;
+		const destino = resolverHostPuerto(seleccionado);
+		if (!destino) return;
+
+		errorConectar = undefined;
+		hintConectar = undefined;
+		conectando = true;
+		try {
+			// El secreto se descifra acá mismo, para esta llamada puntual —
+			// nunca se guarda en `secretoAbierto` (no hace falta mostrarlo en
+			// pantalla para conectar, mismo criterio de "minimizar cuánto
+			// tiempo vive un secreto descifrado" que el resto del panel).
+			const { password } = await verSecreto(seleccionado, $clavesDesbloqueadas);
+			const tipo = seleccionado.resourceTypeSlug as TipoConexion;
+
+			// `ssh` inyecta el secreto solo (SSH_ASKPASS, ver conectar.ts) — los
+			// otros 3 tipos no tienen ningún mecanismo equivalente (no es una
+			// omisión: ni ftp.exe/telnet.exe ni un visor VNC aceptan una
+			// contraseña por variable de entorno), así que la única forma de no
+			// tipearla a mano es copiarla acá, con el mismo auto-borrado que ya
+			// usa cualquier botón "Copiar" — nunca queda pegada sin límite.
+			if (!TIPOS_CON_SECRETO_INYECTADO.includes(tipo)) {
+				await copiarConLimpieza(password, $preferencias.clipboardClearMinutes);
+				hintConectar =
+					tipo === 'ftp' && destino.puerto !== 21
+						? $t.vault.hintConectarFtpPuertoManual
+								.replace('{{host}}', destino.host)
+								.replace('{{puerto}}', String(destino.puerto))
+						: $t.vault.hintConectarClipboard;
+			}
+
+			await conectar({
+				tipo,
+				usuario: seleccionado.usuario || null,
+				host: destino.host,
+				puerto: destino.puerto,
+				secreto: password
+			});
+		} catch (err) {
+			errorConectar = err instanceof Error ? err.message : $t.vault.errorConectar;
+		} finally {
+			conectando = false;
+		}
+	}
+
+	// --- cambiar tipo (individual, 2026-09-17, ver cambiarTipoSeleccion para el masivo) ---
+	let cambiandoTipo = $state(false);
+	let errorCambiarTipo = $state<string | undefined>();
+
+	async function cambiarTipoDelSeleccionado(nuevoTipo: string) {
+		if (!seleccionado || !nuevoTipo || nuevoTipo === seleccionado.resourceTypeSlug) return;
+		errorCambiarTipo = undefined;
+		cambiandoTipo = true;
+		try {
+			await cambiarTipoRecurso(seleccionado.id, nuevoTipo as TipoRecurso);
+			seleccionado = { ...seleccionado, resourceTypeSlug: nuevoTipo };
+			recursos = recursos.map((r) => (r.id === seleccionado!.id ? { ...r, resourceTypeSlug: nuevoTipo } : r));
+		} catch (err) {
+			errorCambiarTipo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			cambiandoTipo = false;
 		}
 	}
 
@@ -834,7 +1077,7 @@
 			// `.slice()` fuerza un `Uint8Array` sobre un `ArrayBuffer` propio
 			// (no `ArrayBufferLike`/`SharedArrayBuffer`) — lo que `Blob` exige
 			// con el `lib.dom` de TS 6.
-			descargarArchivo({ blob: new Blob([bytes.slice()]), filename: `${seleccionado.nombre || 'ellkan'}.7z` });
+			await descargarArchivo({ blob: new Blob([bytes.slice()]), filename: `${seleccionado.nombre || 'ellkan'}.7z` });
 			archivoListo = true;
 		} catch (err) {
 			archivoError = err instanceof ApiError ? err.message : $t.vault.errorExterno;
@@ -876,7 +1119,7 @@
 			const contenido = bloques.join('\n\n----------------------------------------\n\n');
 			const bytes = await crearArchivoCompartido(contenido, archivoLotePassword);
 			// Ver nota en el export individual: `.slice()` para el tipado de `Blob` con TS 6.
-			descargarArchivo({ blob: new Blob([bytes.slice()]), filename: 'ellkan.7z' });
+			await descargarArchivo({ blob: new Blob([bytes.slice()]), filename: 'ellkan.7z' });
 			archivoLoteListo = true;
 		} catch (err) {
 			archivoLoteError = err instanceof ApiError ? err.message : $t.vault.errorExterno;
@@ -944,6 +1187,30 @@
 			await Promise.all([...seleccionados].map((id) => moverRecursoACarpeta(id, destino)));
 			recursos = recursos.map((r) => (seleccionados.has(r.id) ? { ...r, folderId: destino } : r));
 			seleccionados = new Set();
+		} catch (err) {
+			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+		} finally {
+			aplicandoMasivo = false;
+		}
+	}
+
+	// 2026-09-17, pedido explícito del usuario: recursos ssh/ftp/etc.
+	// importados/creados antes de tipearse bien quedaron como
+	// `login-password` genérico sin forma de corregirlo — acá y en el panel
+	// de detalle (individual). Sólo entre `TIPOS_INTERCAMBIABLES` (mismo
+	// `json_schema`, sin cripto de por medio — ver `cambiarTipoRecurso`).
+	let tipoMasivo = $state<TipoRecurso | ''>('');
+
+	async function cambiarTipoSeleccion() {
+		if (seleccionados.size === 0 || !tipoMasivo) return;
+		aplicandoMasivo = true;
+		errorMasivo = undefined;
+		try {
+			const nuevoTipo = tipoMasivo;
+			await Promise.all([...seleccionados].map((id) => cambiarTipoRecurso(id, nuevoTipo)));
+			recursos = recursos.map((r) => (seleccionados.has(r.id) ? { ...r, resourceTypeSlug: nuevoTipo } : r));
+			seleccionados = new Set();
+			tipoMasivo = '';
 		} catch (err) {
 			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
 		} finally {
@@ -1178,7 +1445,7 @@
 				password: formatoExport === 'kdbx' ? passwordExport : undefined,
 				cuentaEmail: $sesion.email ?? ''
 			});
-			descargarArchivo(archivo);
+			await descargarArchivo(archivo);
 			okExport = filas.length;
 			passwordExport = '';
 		} catch (err) {
@@ -1196,17 +1463,60 @@
 	let errorImport = $state<string | undefined>();
 	let okImport = $state<number | undefined>();
 
-	function alElegirArchivo(e: Event) {
-		archivoImport = (e.target as HTMLInputElement).files?.[0];
+	// Mapeo interactivo de columnas (sólo CSV) — hallazgo real: `parsearCsv`
+	// exige los encabezados exactos que Ellkan mismo exporta, así que un CSV
+	// de KeePassXC/Chrome/Bitwarden importaba con TODOS los campos vacíos,
+	// en silencio, sin ningún error. Acá el usuario ve las columnas reales
+	// del archivo y confirma/corrige a qué campo corresponde cada una antes
+	// de importar nada — KDBX/CXF no lo necesitan (esquema fijo, conocido).
+	let csvCrudo = $state<CsvCrudo | undefined>();
+	let csvMapeo = $state<(CampoCsv | null)[]>([]);
+	let arrastrandoImport = $state(false);
+
+	const formatoImport = $derived(archivoImport ? detectarFormatoPorNombre(archivoImport.name) : undefined);
+	const esCsvImport = $derived(formatoImport === 'csv');
+
+	async function procesarArchivoImport(file: File | undefined) {
+		archivoImport = file;
 		filasPreview = undefined;
+		csvCrudo = undefined;
+		csvMapeo = [];
 		errorImport = undefined;
 		okImport = undefined;
+		if (!file) return;
+		if (detectarFormatoPorNombre(file.name) === 'csv') {
+			try {
+				const texto = await file.text();
+				const crudo = parsearCsvCrudo(texto);
+				csvCrudo = crudo;
+				csvMapeo = autodetectarMapeoCsv(crudo.encabezados);
+			} catch (err) {
+				errorImport = err instanceof Error ? err.message : $t.exportImport.errorImportar;
+				csvCrudo = undefined;
+			}
+		}
 	}
+
+	function alElegirArchivo(e: Event) {
+		procesarArchivoImport((e.target as HTMLInputElement).files?.[0]);
+	}
+
+	function alSoltarArchivoImport(e: DragEvent) {
+		e.preventDefault();
+		arrastrandoImport = false;
+		procesarArchivoImport(e.dataTransfer?.files?.[0]);
+	}
+
+	// CXF: cuántas credenciales de tipos que Ellkan no soporta hoy (passkey,
+	// ssh-key, tarjeta, etc.) va a descartar el import — antes se perdían en
+	// silencio, mismo criterio que motivó el fix del importador CSV.
+	let cxfCredencialesNoSoportadas = $state(0);
 
 	async function previsualizar() {
 		if (!archivoImport) return;
 		errorImport = undefined;
 		okImport = undefined;
+		cxfCredencialesNoSoportadas = 0;
 		const formato = detectarFormatoPorNombre(archivoImport.name);
 		if (!formato) {
 			errorImport = $t.exportImport.errorFormatoDesconocido;
@@ -1215,6 +1525,9 @@
 		previsualizando = true;
 		try {
 			const bytes = await archivoImport.arrayBuffer();
+			if (formato === 'cxf') {
+				cxfCredencialesNoSoportadas = contarCredencialesNoSoportadas(new TextDecoder().decode(bytes));
+			}
 			filasPreview = await parsearArchivoImport(formato, bytes, {
 				password: formato === 'kdbx' ? passwordImport : undefined
 			});
@@ -1227,15 +1540,21 @@
 	}
 
 	async function confirmarImport() {
-		if (!filasPreview || !archivoImport || !$clavesDesbloqueadas || !$sesion.userId) return;
+		if (!archivoImport || !$clavesDesbloqueadas || !$sesion.userId) return;
 		const formato = detectarFormatoPorNombre(archivoImport.name);
 		if (!formato) return;
+		// CSV: las filas salen del mapeo interactivo, nunca de `filasPreview`
+		// (que sólo se llena para KDBX/CXF, esquema fijo sin mapeo que hacer).
+		const filas = formato === 'csv' ? (csvCrudo ? mapearFilasCsv(csvCrudo.filas, csvMapeo) : undefined) : filasPreview;
+		if (!filas) return;
 		errorImport = undefined;
 		importando = true;
 		try {
-			const creados = await importar(formato, filasPreview, $clavesDesbloqueadas, $sesion.userId);
+			const creados = await importar(formato, filas, $clavesDesbloqueadas, $sesion.userId);
 			okImport = creados;
 			filasPreview = undefined;
+			csvCrudo = undefined;
+			csvMapeo = [];
 			archivoImport = undefined;
 			passwordImport = '';
 			await cargar();
@@ -1256,76 +1575,16 @@
 {#if !$clavesDesbloqueadas}
 	<LockOverlay email={$sesion.email ?? ''} onDesbloqueado={alDesbloquearVault} />
 {:else}
-	<div class="vault-layout" class:con-panel={!!seleccionado}>
-		{#if tienePermiso($permisos, 'folders.use')}
-		<Card padded={true}>
-			<FolderTree
-				nodos={carpetas}
-				cargando={cargandoCarpetas}
-				filtroActivo={carpetaFiltro}
-				onCrear={onCrearCarpeta}
-				onMover={onMoverCarpeta}
-				onFiltrar={onFiltrarCarpeta}
-				onCompartir={tienePermiso($permisos, 'folder.share') && puedeCompartirCarpetas ? onCompartirCarpeta : undefined}
-			/>
-			{#if errorCarpetas}<p class="error">{errorCarpetas}</p>{/if}
-			{#if compartiendoCarpeta}
-				<form class="form-compartir-carpeta" onsubmit={confirmarCompartirCarpeta}>
-					<p class="hint">{$t.vault.carpetas.compartirCon(compartiendoCarpeta.nombre)}</p>
-					{#if misGruposDondeAdmin.length > 0}
-						<label class="campo-nivel">
-							{$t.vault.carpetas.tipoDestino}
-							<select bind:value={tipoDestinoCarpeta}>
-								<option value="user">{$t.vault.carpetas.tipoDestinoPersona}</option>
-								<option value="group">{$t.vault.carpetas.tipoDestinoGrupo}</option>
-							</select>
-						</label>
-					{/if}
-					{#if tipoDestinoCarpeta === 'group'}
-						<label class="campo-nivel">
-							{$t.vault.carpetas.seleccionarGrupo}
-							<select bind:value={grupoCompartirCarpeta}>
-								{#each misGruposDondeAdmin as g (g.group_id)}
-									<option value={g.group_id}>{g.name}</option>
-								{/each}
-							</select>
-						</label>
-					{:else}
-						<TextField
-							label={$t.vault.carpetas.emailDestinatario}
-							type="email"
-							bind:value={emailCompartirCarpeta}
-							required
-						/>
-					{/if}
-					<label class="campo-nivel">
-						{$t.vault.carpetas.nivel}
-						<select bind:value={nivelCompartirCarpeta}>
-							<option value="read">{$t.vault.carpetas.nivelRead}</option>
-							<option value="update">{$t.vault.carpetas.nivelUpdate}</option>
-							<option value="owner">{$t.vault.carpetas.nivelOwner}</option>
-						</select>
-					</label>
-					{#if errorCompartirCarpeta}<p class="error">{errorCompartirCarpeta}</p>{/if}
-					<div class="botones-compartir-carpeta">
-						<Button type="submit" variant="primary" loading={compartiendoCarpetaEnCurso}>
-							{$t.vault.carpetas.compartir}
-						</Button>
-						<Button type="button" variant="ghost" onclick={() => (compartiendoCarpeta = null)}>
-							{$t.vault.cancelar}
-						</Button>
-					</div>
-				</form>
-			{/if}
-		</Card>
-		{/if}
-
+	<div class="vault-layout" class:con-panel={!!seleccionado || (esModoDesktop && mostrarCrear)} class:modo-desktop={esModoDesktop}>
 		<Card>
 			{#if cargando}
 				<p>{$t.vault.cargando}</p>
 			{:else if error}
 				<p class="error">{error}</p>
 			{:else}
+				{#if errorCarpetas}
+					<p class="error">{errorCarpetas}</p>
+				{/if}
 				<div class="cabecera">
 					<p class="conteo">{$t.vault.conteo(recursosFiltrados.length)}</p>
 					{#if carpetaFiltro !== null}
@@ -1383,6 +1642,15 @@
 								<Icon path={ICONO_TAG} size={14} />
 								{$t.vault.taggearSeleccion}
 							</Button>
+							<select bind:value={tipoMasivo}>
+								<option value="">{$t.vault.tipoSeleccionarPlaceholder}</option>
+								{#each TIPOS_INTERCAMBIABLES as tipo (tipo)}
+									<option value={tipo}>{$t.vault.tiposRecurso[tipo]}</option>
+								{/each}
+							</select>
+							<Button variant="secondary" onclick={cambiarTipoSeleccion} loading={aplicandoMasivo} disabled={!tipoMasivo}>
+								{$t.vault.cambiarTipoSeleccion}
+							</Button>
 							<Button variant="secondary" onclick={abrirModalCompartirLote}>
 								<Icon path={ICONO_COMPARTIR} size={14} />
 								{$t.vault.compartirLote.boton}
@@ -1421,48 +1689,103 @@
 						</div>
 						{#if errorMasivo}<p class="error">{errorMasivo}</p>{/if}
 					{/if}
-					<Table
-						columnas={[
-							{ key: 'sel', header: '' },
-							{ key: 'nombre', header: $t.vault.nombre },
-							{ key: 'usuario', header: $t.vault.usuario },
-							{ key: 'uri', header: $t.vault.uri },
-							{ key: 'tipo', header: '' }
-						]}
-						filas={recursosFiltrados}
-						claveFila={(r) => r.id}
-						seleccionadaId={seleccionado?.id}
-						onSeleccionar={seleccionarFila}
-					>
-						{#snippet fila(r)}
-							<td onclick={(e) => e.stopPropagation()}>
-								<input
-									class="checkbox-seleccion"
-									type="checkbox"
-									checked={seleccionados.has(r.id)}
-									onchange={() => toggleSeleccion(r.id)}
-								/>
-							</td>
-							<td>{r.nombre}</td>
-							<td class="secundario">{r.usuario}</td>
-							<td class="secundario">{r.uri}</td>
-							<td class="secundario">
-								<button
-									type="button"
-									class="icono-copiar"
-									onclick={(e) => compartirDesdeIcono(r, e)}
-									title={$t.vault.compartir}
+
+					{#if esModoDesktop}
+						<div class="lista-desktop-densa" role="listbox" aria-label={$t.vault.titulo}>
+							{#each recursosFiltrados as r (r.id)}
+								<div
+									class="item-desktop"
+									class:activo={seleccionado?.id === r.id}
+									onclick={() => seleccionarFila(r)}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											seleccionarFila(r);
+										}
+									}}
+									role="option"
+									tabindex="0"
+									aria-selected={seleccionado?.id === r.id}
 								>
-									⇄
-								</button>
-							</td>
-						{/snippet}
-					</Table>
+									<span class="icono-tipo">{iconoPorTipo(r.resourceTypeSlug)}</span>
+									<div class="info-item">
+										<div class="linea-principal">
+											<span class="nombre-item" title={r.nombre}>{r.nombre}</span>
+										</div>
+										<div class="linea-secundaria">
+											<span class="subtexto-item" title={r.usuario || r.uri || ''}>{r.usuario || r.uri || '—'}</span>
+										</div>
+									</div>
+									{#if r.usuario}
+										<button
+											type="button"
+											class="icono-copiar-rapido"
+											onclick={(e) => {
+												e.stopPropagation();
+												copiarCampo('usuario', r.usuario!);
+											}}
+											title={$t.secretField.copiar}
+										>
+											⧉
+										</button>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<Table
+							columnas={[
+								{ key: 'sel', header: '' },
+								{ key: 'nombre', header: $t.vault.nombre },
+								{ key: 'usuario', header: $t.vault.usuario },
+								{ key: 'uri', header: $t.vault.uri },
+								{ key: 'tipo', header: '' }
+							]}
+							filas={recursosFiltrados}
+							claveFila={(r) => r.id}
+							seleccionadaId={seleccionado?.id}
+							onSeleccionar={seleccionarFila}
+						>
+							{#snippet fila(r)}
+								<td onclick={(e) => e.stopPropagation()}>
+									<input
+										class="checkbox-seleccion"
+										type="checkbox"
+										checked={seleccionados.has(r.id)}
+										onchange={() => toggleSeleccion(r.id)}
+									/>
+								</td>
+								<td>{r.nombre}</td>
+								<td class="secundario">{r.usuario}</td>
+								<td class="secundario">{r.uri}</td>
+								<td class="secundario">
+									<button
+										type="button"
+										class="icono-copiar"
+										onclick={(e) => compartirDesdeIcono(r, e)}
+										title={$t.vault.compartir}
+									>
+										⇄
+									</button>
+								</td>
+							{/snippet}
+						</Table>
+					{/if}
 				{/if}
 			{/if}
 		</Card>
 
-		{#if seleccionado}
+		{#if esModoDesktop && mostrarCrear}
+			<Card padded={true}>
+				<div class="panel drawer-desktop">
+					<div class="panel-cabecera">
+						<h2>{$t.vault.nuevoRecurso}</h2>
+						<button type="button" class="cerrar" onclick={() => (mostrarCrear = false)} title={$t.vault.cerrarPanel}>&times;</button>
+					</div>
+					{@render formularioCrear()}
+				</div>
+			</Card>
+		{:else if seleccionado}
 			<Card padded={true}>
 				<div class="panel">
 					<div class="panel-cabecera">
@@ -1521,6 +1844,14 @@
 							</div>
 						{/if}
 
+						{#if enModoEscritorio() && resolverHostPuerto(seleccionado)}
+							<Button variant="primary" onclick={conectarConSeleccionado} loading={conectando}>
+								{$t.vault.conectar}
+							</Button>
+							{#if errorConectar}<p class="error">{errorConectar}</p>{/if}
+							{#if hintConectar}<p class="hint">{hintConectar}</p>{/if}
+						{/if}
+
 						{#if tienePermiso($permisos, 'folders.use')}
 						<label class="campo-carpeta">
 							{$t.vault.carpetas.titulo}
@@ -1534,6 +1865,22 @@
 								{/each}
 							</select>
 						</label>
+						{/if}
+
+						{#if TIPOS_INTERCAMBIABLES.includes(seleccionado.resourceTypeSlug as TipoRecurso)}
+							<label class="campo-carpeta">
+								{$t.vault.tipoTitulo}
+								<select
+									value={seleccionado.resourceTypeSlug}
+									onchange={(e) => cambiarTipoDelSeleccionado(e.currentTarget.value)}
+									disabled={cambiandoTipo}
+								>
+									{#each TIPOS_INTERCAMBIABLES as tipo (tipo)}
+										<option value={tipo}>{$t.vault.tiposRecurso[tipo]}</option>
+									{/each}
+								</select>
+							</label>
+							{#if errorCambiarTipo}<p class="error">{errorCambiarTipo}</p>{/if}
 						{/if}
 
 						{#if !secretoAbierto}
@@ -1558,7 +1905,9 @@
 
 						<div class="panel-acciones">
 							<Button variant="ghost" onclick={empezarEditar}>{$t.vault.editar}</Button>
+							{#if !enModoEscritorio()}
 							<Button variant="ghost" onclick={() => abrirModalCompartir(seleccionado!)}>{$t.vault.compartir}</Button>
+							{/if}
 							{#if puedeCompartirExterno}
 								<Button
 									variant="ghost"
@@ -1683,6 +2032,47 @@
 			</Card>
 		{/if}
 	</div>
+{/if}
+
+{#if compartiendoCarpeta}
+	<Modal titulo={$t.vault.carpetas.compartirCon(compartiendoCarpeta.nombre)} onCerrar={() => (compartiendoCarpeta = null)}>
+		<form onsubmit={confirmarCompartirCarpeta}>
+			{#if misGruposDondeAdmin.length > 0}
+				<label class="campo-nivel">
+					{$t.vault.carpetas.tipoDestino}
+					<select bind:value={tipoDestinoCarpeta}>
+						<option value="user">{$t.vault.carpetas.tipoDestinoPersona}</option>
+						<option value="group">{$t.vault.carpetas.tipoDestinoGrupo}</option>
+					</select>
+				</label>
+			{/if}
+			{#if tipoDestinoCarpeta === 'group'}
+				<label class="campo-nivel">
+					{$t.vault.carpetas.seleccionarGrupo}
+					<select bind:value={grupoCompartirCarpeta}>
+						{#each misGruposDondeAdmin as g (g.group_id)}
+							<option value={g.group_id}>{g.name}</option>
+						{/each}
+					</select>
+				</label>
+			{:else}
+				<TextField label={$t.vault.carpetas.emailDestinatario} type="email" bind:value={emailCompartirCarpeta} required />
+			{/if}
+			<label class="campo-nivel">
+				{$t.vault.carpetas.nivel}
+				<select bind:value={nivelCompartirCarpeta}>
+					<option value="read">{$t.vault.carpetas.nivelRead}</option>
+					<option value="update">{$t.vault.carpetas.nivelUpdate}</option>
+					<option value="owner">{$t.vault.carpetas.nivelOwner}</option>
+				</select>
+			</label>
+			{#if errorCompartirCarpeta}<p class="error">{errorCompartirCarpeta}</p>{/if}
+			<div class="botones-compartir-carpeta">
+				<Button type="submit" variant="primary" loading={compartiendoCarpetaEnCurso}>{$t.vault.carpetas.compartir}</Button>
+				<Button type="button" variant="ghost" onclick={() => (compartiendoCarpeta = null)}>{$t.vault.cancelar}</Button>
+			</div>
+		</form>
+	</Modal>
 {/if}
 
 {#if mostrarModalCompartir && seleccionado}
@@ -1868,53 +2258,61 @@
 	</Modal>
 {/if}
 
-{#if mostrarCrear}
-	<Modal titulo={$t.vault.nuevoRecurso} onCerrar={() => (mostrarCrear = false)}>
-		<form onsubmit={crear} class="crear">
+{#snippet formularioCrear()}
+	<form onsubmit={crear} class="crear">
+		<label class="campo-tipo">
+			{$t.vault.tipo}
+			<select bind:value={tipoNuevo}>
+				<option value="login-password">{$t.vault.tipoLoginPassword}</option>
+				<option value="ftp">{$t.vault.tipoFtp}</option>
+				<option value="ssh">{$t.vault.tipoSsh}</option>
+				<option value="vnc">{$t.vault.tipoVnc}</option>
+				<option value="telnet">{$t.vault.tipoTelnet}</option>
+				<option value="rdp">{$t.vault.tipoRdp}</option>
+				<option value="postgresql">{$t.vault.tipoPostgresql}</option>
+				<option value="mysql">{$t.vault.tipoMysql}</option>
+				<option value="mongodb">{$t.vault.tipoMongodb}</option>
+			</select>
+		</label>
+		<TextField label={$t.vault.nombre} bind:value={nombre} required />
+		<TextField label={$t.vault.usuario} bind:value={usuario} />
+		{#if tipoNuevo === 'login-password'}
+			<TextField label={$t.vault.uri} bind:value={uri} />
+		{:else}
+			<div class="host-puerto">
+				<TextField label={$t.vault.host} bind:value={hostNuevo} />
+				<TextField label={$t.vault.puerto} type="number" bind:value={puertoNuevo} />
+			</div>
+		{/if}
+		<div class="con-generar">
+			<TextField label={$t.vault.password} type="password" bind:value={password} required />
+			<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
+		</div>
+		<TextField label={$t.vault.notas} bind:value={notas} />
+		{#if tipoNuevo === 'login-password'}
+			<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
 			<label class="campo-tipo">
-				{$t.vault.tipo}
-				<select bind:value={tipoNuevo}>
-					<option value="login-password">{$t.vault.tipoLoginPassword}</option>
-					<option value="ftp">{$t.vault.tipoFtp}</option>
-					<option value="ssh">{$t.vault.tipoSsh}</option>
-					<option value="vnc">{$t.vault.tipoVnc}</option>
-					<option value="telnet">{$t.vault.tipoTelnet}</option>
+				{$t.vault.matching}
+				<select bind:value={matchingNuevo}>
+					<option value="host">{$t.vault.matchingHost}</option>
+					<option value="exact">{$t.vault.matchingExact}</option>
+					<option value="base_domain">{$t.vault.matchingBaseDomain}</option>
+					<option value="never">{$t.vault.matchingNever}</option>
 				</select>
+				<span class="campo-hint">{$t.vault.matchingHint}</span>
 			</label>
-			<TextField label={$t.vault.nombre} bind:value={nombre} required />
-			<TextField label={$t.vault.usuario} bind:value={usuario} />
-			{#if tipoNuevo === 'login-password'}
-				<TextField label={$t.vault.uri} bind:value={uri} />
-			{:else}
-				<div class="host-puerto">
-					<TextField label={$t.vault.host} bind:value={hostNuevo} />
-					<TextField label={$t.vault.puerto} type="number" bind:value={puertoNuevo} />
-				</div>
-			{/if}
-			<div class="con-generar">
-				<TextField label={$t.vault.password} type="password" bind:value={password} required />
-				<Button type="button" variant="ghost" onclick={generar}>{$t.vault.generarPassword}</Button>
-			</div>
-			<TextField label={$t.vault.notas} bind:value={notas} />
-			{#if tipoNuevo === 'login-password'}
-				<TextField label={$t.vault.totpOpcional} bind:value={totpSecretBase32} />
-				<label class="campo-tipo">
-					{$t.vault.matching}
-					<select bind:value={matchingNuevo}>
-						<option value="host">{$t.vault.matchingHost}</option>
-						<option value="exact">{$t.vault.matchingExact}</option>
-						<option value="base_domain">{$t.vault.matchingBaseDomain}</option>
-						<option value="never">{$t.vault.matchingNever}</option>
-					</select>
-					<span class="campo-hint">{$t.vault.matchingHint}</span>
-				</label>
-			{/if}
-			{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
-			<div class="botones">
-				<Button type="submit" variant="primary" loading={creando}>{$t.vault.crear}</Button>
-				<Button type="button" variant="ghost" onclick={() => (mostrarCrear = false)}>{$t.vault.cancelar}</Button>
-			</div>
-		</form>
+		{/if}
+		{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
+		<div class="botones">
+			<Button type="submit" variant="primary" loading={creando}>{$t.vault.crear}</Button>
+			<Button type="button" variant="ghost" onclick={() => (mostrarCrear = false)}>{$t.vault.cancelar}</Button>
+		</div>
+	</form>
+{/snippet}
+
+{#if !esModoDesktop && mostrarCrear}
+	<Modal titulo={$t.vault.nuevoRecurso} onCerrar={() => (mostrarCrear = false)}>
+		{@render formularioCrear()}
 	</Modal>
 {/if}
 
@@ -1974,24 +2372,89 @@
 				<section class="seccion-modal" class:con-separador={puedeExportar}>
 					<h3>{$t.exportImport.importarTitulo}</h3>
 					<p class="hint">{$t.exportImport.importarHint}</p>
-					<div class="field">
-						<label for="archivo-import">{$t.exportImport.archivo}</label>
-						<input id="archivo-import" type="file" accept=".kdbx,.csv,.json" onchange={alElegirArchivo} />
-					</div>
-					{#if archivoImport && detectarFormatoPorNombre(archivoImport.name) === 'kdbx'}
+
+					<label
+						for="archivo-import"
+						class="zona-drop"
+						class:arrastrando={arrastrandoImport}
+						ondragover={(e) => {
+							e.preventDefault();
+							arrastrandoImport = true;
+						}}
+						ondragleave={() => (arrastrandoImport = false)}
+						ondrop={alSoltarArchivoImport}
+					>
+						<Icon path={ICONO_IMPORTAR_ARCHIVO} size={28} />
+						<span>{archivoImport ? archivoImport.name : $t.exportImport.arrastrarArchivo}</span>
+						<input
+							id="archivo-import"
+							type="file"
+							accept=".kdbx,.csv,.json"
+							onchange={alElegirArchivo}
+							class="sr-only"
+						/>
+					</label>
+
+					{#if archivoImport && formatoImport === 'kdbx'}
 						<TextField label={$t.exportImport.passwordArchivoImport} type="password" bind:value={passwordImport} />
 					{/if}
 					{#if errorImport}<p class="error">{errorImport}</p>{/if}
-					{#if !filasPreview}
-						<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
-							{$t.exportImport.previsualizar}
-						</Button>
-					{:else}
-						<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
-						<Button variant="primary" onclick={confirmarImport} loading={importando}>
-							{$t.exportImport.confirmarImportar}
-						</Button>
+
+					{#if esCsvImport && csvCrudo}
+						<div class="mapeo-csv">
+							<p class="hint">{$t.exportImport.columnaMapeoHint}</p>
+							<div class="tabla-mapeo-scroll">
+								<table class="tabla-mapeo">
+									<thead>
+										<tr>
+											{#each csvCrudo.encabezados as enc, idx (idx)}
+												<th>
+													<div class="encabezado-original">{enc}</div>
+													<select bind:value={csvMapeo[idx]}>
+														<option value={null}>{$t.exportImport.mapeoIgnorar}</option>
+														<option value="name">{$t.exportImport.mapeoTitulo}</option>
+														<option value="username">{$t.exportImport.mapeoUsuario}</option>
+														<option value="password">{$t.exportImport.mapeoPassword}</option>
+														<option value="uri">{$t.exportImport.mapeoUrl}</option>
+														<option value="notes">{$t.exportImport.mapeoNotas}</option>
+														<option value="totp_secret">{$t.exportImport.mapeoTotp}</option>
+													</select>
+												</th>
+											{/each}
+										</tr>
+									</thead>
+									<tbody>
+										{#each csvCrudo.filas.slice(0, 5) as fila, filaIdx (filaIdx)}
+											<tr>
+												{#each fila as celda, colIdx (colIdx)}
+													<td>{celda}</td>
+												{/each}
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+							<p class="hint">{$t.exportImport.previewConteo(csvCrudo.filas.length)}</p>
+							<Button variant="primary" onclick={confirmarImport} loading={importando}>
+								{$t.exportImport.confirmarImportar} ({csvCrudo.filas.length})
+							</Button>
+						</div>
+					{:else if !esCsvImport}
+						{#if !filasPreview}
+							<Button variant="secondary" onclick={previsualizar} disabled={!archivoImport} loading={previsualizando}>
+								{$t.exportImport.previsualizar}
+							</Button>
+						{:else}
+							<p class="hint">{$t.exportImport.previewConteo(filasPreview.length)}</p>
+							{#if cxfCredencialesNoSoportadas > 0}
+								<p class="hint">{$t.exportImport.avisoCredencialesNoSoportadas(cxfCredencialesNoSoportadas)}</p>
+							{/if}
+							<Button variant="primary" onclick={confirmarImport} loading={importando}>
+								{$t.exportImport.confirmarImportar}
+							</Button>
+						{/if}
 					{/if}
+
 					{#if okImport !== undefined}<p class="ok">{$t.exportImport.importadoOk(okImport)}</p>{/if}
 				</section>
 			{/if}
@@ -2007,17 +2470,160 @@
 	}
 	.vault-layout {
 		display: grid;
-		grid-template-columns: 14rem 1fr;
+		grid-template-columns: 1fr;
 		gap: var(--space-4);
 		align-items: start;
 	}
+	/* Bug real de CSS Grid: un ítem de grid tiene `min-width: auto` por
+	   default, así que una columna `1fr` NO se achica por debajo del ancho
+	   intrínseco de su contenido — con una tabla larga (134 filas, URLs
+	   largas) eso empujaba el grid entero más ancho que la ventana, sacando
+	   la 2da columna (panel de detalle) del área visible sin que hubiera
+	   ningún error de JS que lo delatara. `min-width: 0` deja que la columna
+	   se achique de verdad, y el scroll horizontal interno de la tabla
+	   (`.tabla-scroll` en Table.svelte) hace el resto. */
+	.vault-layout > :global(.card) {
+		min-width: 0;
+	}
 	.vault-layout.con-panel {
-		grid-template-columns: 14rem 1fr 22rem;
+		/* `min(22rem, 40vw)`: el panel de detalle nunca fuerza más ancho que
+		   el 40% de la ventana real — en la app web (navegador ancho) sigue
+		   siendo 22rem de siempre; en una ventana de escritorio angosta se
+		   achica en vez de empujar contenido fuera de lo visible. */
+		grid-template-columns: 1fr min(22rem, 40vw);
+	}
+	/* Hallazgo real de uso: con una tabla larga (134 filas), clickear una
+	   fila scrolleada bien abajo abría el panel de detalle arriba del todo
+	   — fuera de la vista, sin ningún indicio de que había pasado algo.
+	   `position: sticky` lo mantiene a la vista sin importar qué tan abajo
+	   esté la fila clickeada (el `<main>` que envuelve esta página es el
+	   que scrollea; `top` matchea su padding para que quede pegado justo
+	   debajo del borde superior). */
+	.vault-layout.con-panel > :global(.card:nth-child(2)) {
+		position: sticky;
+		/* Debajo de la barra de título propia (0 en la web), que es `fixed`. */
+		top: calc(var(--titlebar-h) + var(--space-8));
+		max-height: calc(100vh - var(--titlebar-h) - 2 * var(--space-8));
+		overflow-y: auto;
+	}
+
+	/* Estilos de modo escritorio y lista densa (Fase 3.2 - ergonomía para ventanas compactas) */
+	.vault-layout.modo-desktop {
+		/* Ventana entera menos: la barra de título propia, el padding de
+		   `main` (2 × --space-8) y el encabezado "Vault" que va arriba de esta
+		   grilla (~97px con su margen). Con la constante vieja (110px) la
+		   tarjeta se pasaba ~54px del borde inferior y la página scrolleaba. */
+		height: calc(100vh - var(--titlebar-h) - 130px);
+		max-height: calc(100vh - var(--titlebar-h) - 130px);
+		overflow: hidden;
+		gap: var(--space-3);
+	}
+	.vault-layout.modo-desktop.con-panel {
+		grid-template-columns: minmax(280px, 340px) 1fr;
+	}
+	.vault-layout.modo-desktop > :global(.card) {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	.vault-layout.modo-desktop > :global(.card:nth-child(2)) {
+		position: static;
+		max-height: 100%;
+		overflow-y: auto;
+	}
+	.lista-desktop-densa {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		overflow-y: auto;
+		flex: 1;
+		padding-right: var(--space-1);
+	}
+	.item-desktop {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-sm);
+		border: 1px solid transparent;
+		cursor: pointer;
+		user-select: none;
+		transition: background-color 0.12s ease, border-color 0.12s ease;
+	}
+	.item-desktop:hover {
+		background-color: var(--bg-hover);
+	}
+	.item-desktop.activo {
+		background-color: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+		border-color: var(--accent-primary);
+	}
+	.icono-tipo {
+		font-size: var(--text-base);
+		line-height: 1;
+		flex-shrink: 0;
+	}
+	.info-item {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		flex: 1;
+	}
+	.linea-principal {
+		display: flex;
+		align-items: center;
+	}
+	.nombre-item {
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--text-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.linea-secundaria {
+		display: flex;
+		align-items: center;
+	}
+	.subtexto-item {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.icono-copiar-rapido {
+		background: transparent;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: var(--space-1);
+		border-radius: var(--radius-sm);
+		font-size: var(--text-sm);
+		line-height: 1;
+		opacity: 0;
+		transition: opacity 0.15s ease, color 0.15s ease;
+	}
+	.item-desktop:hover .icono-copiar-rapido,
+	.item-desktop.activo .icono-copiar-rapido {
+		opacity: 1;
+	}
+	.icono-copiar-rapido:hover {
+		color: var(--accent-primary);
+	}
+
+	/* Ventana angosta (web móvil o redimensión muy pequeña): no entran las 2 columnas a la vez */
+	@media (max-width: 900px) {
+		.vault-layout:not(.modo-desktop).con-panel {
+			grid-template-columns: 1fr;
+		}
 	}
 	.cabecera {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-2);
 		margin-bottom: var(--space-4);
 	}
 	.conteo {
@@ -2098,6 +2704,7 @@
 	}
 	.botones {
 		display: flex;
+		flex-wrap: wrap;
 		gap: var(--space-2);
 	}
 	.tabs-externo {
@@ -2429,8 +3036,7 @@
 		color: var(--text-secondary);
 		font-weight: 500;
 	}
-	.field select,
-	.field input[type='file'] {
+	.field select {
 		width: 100%;
 		background: var(--bg-raised);
 		border: 1px solid var(--border-color);
@@ -2443,12 +3049,10 @@
 			border-color 0.12s ease,
 			box-shadow 0.12s ease;
 	}
-	.field select:hover,
-	.field input[type='file']:hover {
+	.field select:hover {
 		border-color: var(--accent-primary);
 	}
-	.field select:focus-visible,
-	.field input[type='file']:focus-visible {
+	.field select:focus-visible {
 		outline: none;
 		border-color: var(--accent-primary);
 		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
@@ -2513,5 +3117,91 @@
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
 		font-size: var(--text-sm);
+	}
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+	.zona-drop {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6) var(--space-4);
+		border: 1px dashed var(--border-color);
+		border-radius: var(--radius-md);
+		color: var(--text-secondary);
+		font-size: var(--text-sm);
+		text-align: center;
+		cursor: pointer;
+		transition:
+			border-color 0.12s ease,
+			background-color 0.12s ease;
+	}
+	.zona-drop:hover,
+	.zona-drop.arrastrando {
+		border-color: var(--accent-primary);
+		background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+		color: var(--text-primary);
+	}
+	.mapeo-csv {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.tabla-mapeo-scroll {
+		overflow-x: auto;
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+	}
+	.tabla-mapeo {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: var(--text-sm);
+	}
+	.tabla-mapeo th {
+		padding: var(--space-2);
+		border-bottom: 1px solid var(--border-color);
+		background: var(--bg-overlay);
+		text-align: left;
+		vertical-align: top;
+	}
+	.encabezado-original {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		margin-bottom: var(--space-1);
+		white-space: nowrap;
+		max-width: 12rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.tabla-mapeo th select {
+		width: 100%;
+		background: var(--bg-raised);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-1) var(--space-2);
+		color: var(--text-primary);
+		font-size: var(--text-xs);
+		font-weight: 400;
+		text-transform: none;
+		letter-spacing: normal;
+	}
+	.tabla-mapeo td {
+		padding: var(--space-2);
+		border-bottom: 1px solid var(--border-color);
+		color: var(--text-secondary);
+		white-space: nowrap;
+		max-width: 12rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 </style>

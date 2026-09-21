@@ -60,6 +60,18 @@ export function guardarTokenSeguridad(email: string, token: TokenSeguridad): voi
 	localStorage.setItem(clave(email), JSON.stringify(token));
 }
 
+/** Cambio de correo de la cuenta local: el token es sólo un color+palabra
+ * guardados por correo (sin ninguna atadura criptográfica), así que se
+ * traslada tal cual para que el usuario no pierda la señal antiphishing que
+ * ya conoce. */
+export function moverTokenSeguridad(emailViejo: string, emailNuevo: string): void {
+	if (typeof localStorage === 'undefined') return;
+	const token = obtenerTokenSeguridad(emailViejo);
+	if (!token) return;
+	guardarTokenSeguridad(emailNuevo, token);
+	localStorage.removeItem(clave(emailViejo));
+}
+
 export function generarTokenSeguridad(email: string): TokenSeguridad {
 	const token: TokenSeguridad = {
 		color: COLORES[Math.floor(Math.random() * COLORES.length)],

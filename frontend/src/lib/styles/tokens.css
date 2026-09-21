@@ -38,6 +38,12 @@
 	--radius-sm: 4px;
 	--radius-md: 8px;
 	--nav-width: 15.5rem;
+	/* Altura que ocupa la barra de título propia de la app de escritorio
+	   (`TitleBar.svelte` la fija en 36px al montarse); 0 en la web. Todo
+	   layout que se dimensiona contra la ventana entera tiene que restarla: si
+	   usa `100vh` a secas, el documento mide 36px de más y lo que está pegado
+	   abajo (el pie del menú, "Cerrar sesión") queda corrido fuera de vista. */
+	--titlebar-h: 0px;
 	--content-max-width: none; /* sección 7: sin columna centrada angosta en desktop */
 
 	color-scheme: dark;

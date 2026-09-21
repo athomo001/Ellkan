@@ -19,15 +19,20 @@
 	import { esAdmin } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { categorias } from './secciones';
+	import { enModoEscritorio } from '$lib/tauri/conectar';
 
 	let { children }: { children: Snippet } = $props();
 
+	// F-46: modo escritorio es de 1 solo usuario — mismo criterio "UX, no
+	// seguridad" de arriba: el backend de escritorio ya no expone
+	// `/admin/users` ni nada de administración de equipo, esto sólo evita
+	// mostrar una pantalla que en el mejor caso queda vacía.
 	$effect(() => {
-		if ($esAdmin === false) goto('/vault');
+		if ($esAdmin === false || enModoEscritorio()) goto('/vault');
 	});
 </script>
 
-{#if $esAdmin === true}
+{#if $esAdmin === true && !enModoEscritorio()}
 	<div class="admin">
 		<nav>
 			{#each categorias as categoria (categoria.titulo($t))}

@@ -4,8 +4,7 @@
 # ni siquiera los resúmenes. Cada clon además tiene su propio .git/ adentro, así
 # que sin este exclude git los trataría como gitlinks rotos (submódulos fantasma
 # sin .gitmodules).
-/passbolt/
-/bitwarden/
+/investigacion/
 spec/*
 .agents/
 docs/*
@@ -34,6 +33,11 @@ pkg/
 # que trackearlo sólo generaba diffs enormes y sin sentido. Los artefactos
 # instalables (`.zip`/`.xpi`/`.crx`) sí se siguen versionando.
 /extension/dist/
+# Restos de una compilación de depuración de la extensión (nadie los usa).
+/extension/.dbg-out/
+
+# Claves privadas de firma (la de la extensión define su ID: nunca se versiona).
+*.pem
 
 # Secretos de despliegue (convención *_FILE, sección 2.5 de spec/09-guia-de-codificacion-segura.md)
 /secrets/*

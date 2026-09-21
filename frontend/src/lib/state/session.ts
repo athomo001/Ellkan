@@ -49,6 +49,27 @@ export const clavesDesbloqueadas = declararStore<ClavesDesbloqueadas | null>('cl
 });
 
 /**
+ * F-48, modo de persistencia "sólo-memoria" (spec/13 §8): secretos
+ * descifrados de recursos que NO se replican en SQLite local, indexados por
+ * `resource_id` — se piden al servidor remoto una sola vez por sesión
+ * (`$lib/crypto/recursos.ts::verSecreto`) y se guardan acá para no repetir el
+ * viaje de red en cada reveal. `ubicacion: 'memory'` + `clearOn` es el mismo
+ * mecanismo que ya protege `clavesDesbloqueadas` — nunca toca disco, se
+ * pierde al bloquear/cerrar sesión o al reiniciar el proceso. El modo
+ * "sólo-nombres" nunca escribe acá (siempre pide de nuevo, ver `recursos.ts`).
+ */
+export interface SecretoEnMemoria {
+	password: string;
+	notes: string;
+	totpSecret?: string;
+}
+
+export const secretosEnMemoria = declararStore<Record<string, SecretoEnMemoria>>('secretosEnMemoria', {}, {
+	ubicacion: 'memory',
+	clearOn: ['lock', 'logout']
+});
+
+/**
  * F-20/F-22: sólo UX (evitar mostrar un link a una pantalla que va a 403 —
  * el server-side es la única fuente de verdad real, `AdminUser` en cada
  * endpoint, BWN-08-001). `null` = todavía no se probó; se resuelve una sola

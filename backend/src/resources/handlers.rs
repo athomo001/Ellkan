@@ -14,9 +14,10 @@ use crate::state::AppState;
 use crate::tags::service::TagService;
 
 use super::dto::{
-    ActualizarRecursoRequest, CambiarNivelRequest, CompartirLoteItemResultado, CompartirLoteRequest,
-    CompartirLoteResponse, CompartirRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery,
-    MoverRecursoRequest, PermisoGranteeResponse, RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
+    ActualizarRecursoRequest, CambiarNivelRequest, CambiarTipoRecursoRequest, CompartirLoteItemResultado,
+    CompartirLoteRequest, CompartirLoteResponse, CompartirRequest, CrearRecursoRequest, DestinatarioResponse,
+    ListarQuery, MoverRecursoRequest, PermisoGranteeResponse, RecursoResponse, RekeyMetadataRequest, SecretoResponse,
+    TotpResponse,
 };
 use super::models::{EnvelopeInput, NivelPermiso};
 use super::repository::ResourceTypeRepository;
@@ -441,6 +442,19 @@ pub async fn actualizar(
     let puede_borrar = servicio_recursos.puede_borrar(recurso.id, auth.user_id).await?;
 
     Ok(Json(a_response(recurso, slug, puede_borrar)))
+}
+
+/// `PUT /resources/{id}/type` (2026-09-17) — ver `ResourceService::cambiar_tipo`.
+pub async fn cambiar_tipo(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(resource_id): Path<Uuid>,
+    Json(req): Json<CambiarTipoRecursoRequest>,
+) -> Result<Json<RecursoResponse>, ApiError> {
+    let servicio_recursos = servicio(&state);
+    let recurso = servicio_recursos.cambiar_tipo(resource_id, auth.user_id, &req.resource_type_slug).await?;
+    let puede_borrar = servicio_recursos.puede_borrar(recurso.id, auth.user_id).await?;
+    Ok(Json(a_response(recurso, req.resource_type_slug, puede_borrar)))
 }
 
 /// `PUT /resources/{id}/move` (F-11) — la lógica vive en `FolderService`

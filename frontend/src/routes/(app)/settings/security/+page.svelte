@@ -21,6 +21,12 @@
 	import { registrarPasskey, listarPasskeys, revocarPasskey, type Passkey } from '$lib/crypto/passkeys';
 	import { verificarPassphrase } from '$lib/crypto/identity';
 	import { generarSetup, confirmarYActivar, estaActivo, desactivar } from '$lib/crypto/totp-local';
+	import {
+		estaActivo as llaveroEstaActivo,
+		activar as activarLlavero,
+		desactivar as desactivarLlavero
+	} from '$lib/crypto/llavero-local';
+	import { enModoEscritorio } from '$lib/tauri/conectar';
 	import { accountRecoveryApi } from '$lib/api/accountRecovery';
 	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
@@ -207,6 +213,44 @@
 		pasoSetup = 'inicial';
 	}
 
+	// F-50: llavero/biometría del SO — mismo criterio que F-38 arriba
+	// (`verificarPassphrase` antes de envolver nada), pero sin QR/código:
+	// la clave de envoltura vive en el almacén nativo de credenciales, no
+	// en algo que el usuario tipea después. Sólo tiene sentido en modo
+	// escritorio (Tauri) — la Card entera se oculta en la web.
+	let llaveroActivo = $state(false);
+	$effect(() => {
+		llaveroActivo = email ? llaveroEstaActivo(email) : false;
+	});
+	let activandoLlaveroPaso = $state<'inicial' | 'passphrase'>('inicial');
+	let passphraseLlavero = $state('');
+	let activandoLlavero = $state(false);
+	let errorLlavero = $state<string | undefined>();
+
+	async function confirmarActivarLlavero(e: SubmitEvent) {
+		e.preventDefault();
+		errorLlavero = undefined;
+		activandoLlavero = true;
+		try {
+			await verificarPassphrase(email, passphraseLlavero);
+			await activarLlavero(email, passphraseLlavero);
+			llaveroActivo = true;
+			activandoLlaveroPaso = 'inicial';
+			passphraseLlavero = '';
+		} catch (err) {
+			errorLlavero =
+				err instanceof ApiError || err instanceof Error ? err.message : get(t).settingsSecurity.errorPassphraseIncorrecta;
+		} finally {
+			activandoLlavero = false;
+		}
+	}
+
+	async function revocarLlavero() {
+		await desactivarLlavero(email);
+		llaveroActivo = false;
+		activandoLlaveroPaso = 'inicial';
+	}
+
 	// F-37: dispositivos de confianza propios — backend completo desde
 	// Fase 1.2, sin ninguna pantalla hasta ahora.
 	let dispositivos = $state<TrustedDevice[]>([]);
@@ -324,6 +368,34 @@
 		</form>
 	{/if}
 </Card>
+
+{#if enModoEscritorio()}
+<Card>
+	<h2>{$t.settingsSecurity.llaveroTitulo}</h2>
+	<p class="hint">{$t.settingsSecurity.llaveroHint}</p>
+
+	{#if llaveroActivo}
+		<p class="ok">{$t.settingsSecurity.activoEnDispositivo}</p>
+		<Button variant="danger" onclick={revocarLlavero}>{$t.settingsSecurity.desactivar}</Button>
+	{:else if activandoLlaveroPaso === 'inicial'}
+		<Button variant="secondary" onclick={() => (activandoLlaveroPaso = 'passphrase')}>
+			{$t.settingsSecurity.activarEnDispositivo}
+		</Button>
+	{:else}
+		<form onsubmit={confirmarActivarLlavero}>
+			<TextField
+				label={$t.settingsSecurity.passphraseActual}
+				type="password"
+				bind:value={passphraseLlavero}
+				autocomplete="current-password"
+				required
+			/>
+			{#if errorLlavero}<p class="error">{errorLlavero}</p>{/if}
+			<Button type="submit" variant="primary" loading={activandoLlavero}>{$t.settingsSecurity.activar}</Button>
+		</form>
+	{/if}
+</Card>
+{/if}
 
 <Card>
 	<h2>{$t.settingsSecurity.recoveryTitulo}</h2>

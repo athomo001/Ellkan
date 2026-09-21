@@ -58,7 +58,7 @@
 
 <style>
 	.anon-shell {
-		min-height: 100vh;
+		min-height: calc(100vh - var(--titlebar-h));
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-base);

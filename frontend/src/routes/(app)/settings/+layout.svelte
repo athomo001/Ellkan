@@ -9,6 +9,7 @@
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
 	import { t } from '$lib/i18n';
+	import { enModoEscritorio } from '$lib/tauri/conectar';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -19,7 +20,13 @@
 		{ href: '/settings/passphrase', label: $t.settingsProfile.passphraseTitulo },
 		{ href: '/settings/token', label: $t.settingsProfile.tokenTitulo },
 		{ href: '/settings/preferences', label: $t.appShell.preferencias },
-		{ href: '/settings/security', label: $t.appShell.seguridad }
+		{ href: '/settings/security', label: $t.appShell.seguridad },
+		// F-47: sólo en modo escritorio — "modo conectado" no existe como
+		// concepto en la web (ya está siempre conectada al único servidor).
+		...(enModoEscritorio() ? [{ href: '/settings/sync', label: $t.settingsSync.navTitulo }] : []),
+		// F-45: puerto del backend local — no existe fuera de escritorio (la
+		// web no tiene un backend "propio" por instancia, es el servidor).
+		...(enModoEscritorio() ? [{ href: '/settings/desktop', label: $t.settingsDesktop.navTitulo }] : [])
 	]);
 </script>
 

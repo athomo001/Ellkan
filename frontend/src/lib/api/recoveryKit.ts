@@ -32,5 +32,29 @@ export const recoveryKitApi = {
 			encrypted_private_key_blob_b64: blobB64,
 			private_key_nonce_b64: nonceB64,
 			kdf_salt_b64: saltB64
+		}),
+
+	// Modo escritorio (punto 8): sin SMTP no hay link ni código por correo. El
+	// material sellado se pide por correo de cuenta, y el reset se autoriza
+	// firmando un challenge (`/auth/challenge`) con la clave que sólo se obtiene
+	// abriendo el kit — ver `recovery_kit_local_completar` en el backend de
+	// escritorio. Ninguna de las dos lleva sesión.
+	materialLocal: (email: string) =>
+		api.post<{ sealed_identity_material_b64: string }>('/auth/recovery-kit/local/material', { email }),
+	completarLocal: (
+		email: string,
+		nonceB64: string,
+		signatureB64: string,
+		blobB64: string,
+		blobNonceB64: string,
+		saltB64: string
+	) =>
+		api.post<void>('/auth/recovery-kit/local/complete', {
+			email,
+			nonce_b64: nonceB64,
+			signature_b64: signatureB64,
+			encrypted_private_key_blob_b64: blobB64,
+			private_key_nonce_b64: blobNonceB64,
+			kdf_salt_b64: saltB64
 		})
 };

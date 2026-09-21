@@ -20,8 +20,29 @@ export class ApiError extends Error {
 	}
 }
 
-function baseUrl(): string {
-	return '';
+// Modo escritorio (Tauri): el backend corre in-process en loopback, no en el
+// mismo origen que la SPA. `'__TAURI_INTERNALS__' in window` es el marcador
+// que Tauri 2 inyecta siempre en su webview — nunca está presente en un
+// navegador normal, así que en modo servidor esto sigue devolviendo '' como
+// siempre.
+//
+// El puerto ya no es fijo (spec/13 §3, backend desde 2026-09-16): el lado
+// Rust bindea uno real (reusa el persistido, o autoelige uno libre del
+// rango IANA privado en el primer arranque) ANTES de que la ventana quede
+// visible (`preparar_backend_local` corre bloqueante dentro de
+// `tauri::App::setup`, `src-tauri/src/lib.rs`) — así que para cuando este
+// código corre, el comando `puerto_backend` ya tiene un valor real, sin
+// ninguna carrera que resolver acá. Se resuelve una sola vez por sesión de
+// la app y se cachea (el puerto no cambia mientras el proceso sigue vivo).
+let puertoCacheado: number | null = null;
+
+export async function baseUrl(): Promise<string> {
+	if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return '';
+	if (puertoCacheado === null) {
+		const { invoke } = await import('@tauri-apps/api/core');
+		puertoCacheado = await invoke<number>('puerto_backend');
+	}
+	return `http://127.0.0.1:${puertoCacheado}`;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -30,7 +51,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 	headers.set('Content-Type', 'application/json');
 	if (s.sessionId) headers.set('Authorization', `Bearer ${s.sessionId}`);
 
-	const resp = await fetch(`${baseUrl()}${path}`, { ...init, headers });
+	const resp = await fetch(`${await baseUrl()}${path}`, { ...init, headers });
 
 	if (resp.status === 204) return undefined as T;
 

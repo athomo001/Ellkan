@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ellkan-crypto", "backend", "cli"]
+members = ["crates/ellkan-crypto", "backend", "cli", "app-escritorio/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

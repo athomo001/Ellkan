@@ -1,0 +1,8 @@
+# Ignorar binarios pesados compilados de Windows (se distribuyen vía GitHub Releases)
+*.exe
+*.msi
+*.zip
+
+# Preservar notas y documentación interna
+!notas.md
+!.gitignore

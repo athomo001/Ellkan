@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update folder_items set folder_id = $1, updated_at = now() where user_id = $2 and child_folder_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38c3639cc186351915415b85e66c35a375c2a4387f3049744dc24957ff30e763"
+}

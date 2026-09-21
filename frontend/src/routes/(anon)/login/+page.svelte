@@ -18,6 +18,8 @@
 	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '$lib/crypto/totp';
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
 	import { desbloquear as desbloquearLocal } from '$lib/crypto/totp-local';
+	import { estaActivo as llaveroActivo, desbloquear as desbloquearLlavero } from '$lib/crypto/llavero-local';
+	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
@@ -44,6 +46,35 @@
 	let conCodigoLocal = $state(false);
 	let codigoLocal = $state('');
 	let cargandoLocal = $state(false);
+
+	// F-50: llavero/biometría del SO — mismo criterio que F-38 (recupera la
+	// passphrase real localmente, sigue el login normal con ella), pero sin
+	// código que tipear: la clave de envoltura vive en el almacén nativo de
+	// credenciales, no en algo que el usuario memoriza. Sólo aplica en modo
+	// escritorio y si ya se activó antes para este email en este dispositivo
+	// (`$lib/crypto/llavero-local.ts`, opt-in desde Ajustes > Seguridad).
+	const puedeUsarLlavero = $derived(email.length > 0 && enModoEscritorio() && llaveroActivo(email));
+	let cargandoLlavero = $state(false);
+
+	// F-46: en modo escritorio, una vez que existe el único usuario de esta
+	// bóveda, "Registrate" va a fallar siempre (el backend lo rechaza
+	// explícito) — se esconde en vez de ofrecer una opción que no sirve. En
+	// modo servidor queda `false` directo, sin llamar a un endpoint que ahí
+	// no existe.
+	let ocultarRegistro = $state(false);
+	$effect(() => {
+		if (enModoEscritorio()) {
+			existeUsuarioLocal()
+				.then((existe) => {
+					ocultarRegistro = existe;
+					// Primer uso (recién instalada, sin ninguna cuenta): no tiene sentido
+					// mostrar un login que no puede aceptar a nadie, se va directo a crear
+					// la cuenta. `replaceState` para que "atrás" no vuelva a este login.
+					if (!existe) goto('/register', { replaceState: true });
+				})
+				.catch(() => {});
+		}
+	});
 
 	// F-02: sólo se llena si el backend responde "pendiente_dispositivo".
 	let deviceChallengeId = $state<string | undefined>();
@@ -179,6 +210,26 @@
 			error = err instanceof ApiError || err instanceof Error ? err.message : get(t).login.errorDesbloqueoLocal;
 		} finally {
 			cargandoLocal = false;
+		}
+	}
+
+	async function desbloquearConLlavero() {
+		error = undefined;
+		cargandoLlavero = true;
+		try {
+			const passphraseRecuperada = await desbloquearLlavero(email);
+			if (passphraseRecuperada === null) {
+				// Degradación explícita (F-50): el llavero del SO no tiene la
+				// clave (revocada afuera de la app, servicio no disponible) —
+				// nunca falla en silencio, cae a pedir la passphrase normal.
+				error = get(t).login.errorLlaveroNoDisponible;
+				return;
+			}
+			await procesarResultadoLogin(await iniciarSesion(email, passphraseRecuperada));
+		} catch (err) {
+			error = err instanceof ApiError || err instanceof Error ? err.message : get(t).login.errorGenerico;
+		} finally {
+			cargandoLlavero = false;
 		}
 	}
 
@@ -369,6 +420,12 @@
 					{$t.login.tokenSeguridadHint} <strong>{tokenSeguridad.palabra}</strong>
 				</p>
 			{/if}
+			{#if puedeUsarLlavero}
+				<Button type="button" variant="secondary" onclick={desbloquearConLlavero} loading={cargandoLlavero}>
+					{$t.login.desbloquearConLlavero}
+				</Button>
+				<p class="hint centrado">{$t.login.oUsaPassphrase}</p>
+			{/if}
 			<TextField
 				label={$t.login.passphrase}
 				type="password"
@@ -379,7 +436,9 @@
 			{#if error}<p class="error">{error}</p>{/if}
 			<Button type="submit" variant="primary" loading={cargando}>{$t.login.iniciarSesion}</Button>
 		</form>
+		{#if !ocultarRegistro}
 		<p class="hint centrado">{$t.login.sinCuenta} <a href="/register">{$t.login.registrate}</a></p>
+	{/if}
 		<p class="hint centrado"><a href="/recover">{$t.login.olvidasteTuPassphrase}</a></p>
 		<hr />
 		<p class="hint centrado">

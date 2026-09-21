@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            insert into folder_items (folder_id, resource_id, user_id)\n            values ($1, $2, $3)\n            on conflict (user_id, resource_id) do update set folder_id = excluded.folder_id, updated_at = now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f192c07d0d14bb836b352a45d590d6f16deed5b021e45e6dd66914a238d11f23"
+}

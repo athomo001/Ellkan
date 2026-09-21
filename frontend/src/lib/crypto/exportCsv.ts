@@ -11,7 +11,8 @@
 // resuelve el mismo problema pero para el export administrativo (F-29),
 // que sí se arma server-side; acá hace falta la misma regla en TS.
 
-const COLUMNAS = ['name', 'username', 'password', 'uri', 'notes', 'totp_secret'] as const;
+export const COLUMNAS = ['name', 'username', 'password', 'uri', 'notes', 'totp_secret'] as const;
+export type CampoCsv = (typeof COLUMNAS)[number];
 
 export interface FilaExport {
 	name: string;
@@ -100,6 +101,71 @@ export function parsearCsv(texto: string): FilaExport[] {
 		COLUMNAS.forEach((col, idx) => {
 			const i = indices[idx];
 			obj[col] = i >= 0 ? (fila[i] ?? '') : '';
+		});
+		return obj;
+	});
+}
+
+export interface CsvCrudo {
+	encabezados: string[];
+	filas: string[][];
+}
+
+/**
+ * Parsea el CSV a encabezados + filas crudos, sin asumir los nombres fijos
+ * de `COLUMNAS` — a diferencia de `parsearCsv`, no descarta ninguna columna
+ * por nombre. Base del mapeo interactivo de columnas en la UI de
+ * importación: un CSV exportado por otro gestor (KeePassXC, Chrome,
+ * Bitwarden) no usa los mismos encabezados que `generarCsv` produce, y
+ * `parsearCsv` los dejaría vacíos en silencio — acá el usuario ve las
+ * columnas reales y decide a mano qué es cada una.
+ */
+export function parsearCsvCrudo(texto: string): CsvCrudo {
+	const filas = parsearLineasCsv(texto.trim());
+	if (filas.length === 0) return { encabezados: [], filas: [] };
+	const [encabezado, ...resto] = filas;
+	return { encabezados: encabezado, filas: resto };
+}
+
+const PISTAS_AUTODETECCION: Record<CampoCsv, string[]> = {
+	name: ['name', 'title'],
+	username: ['username', 'user', 'login', 'email'],
+	password: ['password', 'pass'],
+	uri: ['uri', 'url', 'website', 'link'],
+	notes: ['notes', 'note', 'comment'],
+	totp_secret: ['totp', 'otp']
+};
+
+/**
+ * Sugiere a qué campo de `FilaExport` corresponde cada columna del CSV, por
+ * coincidencia de nombre de encabezado (case-insensitive: exacto primero,
+ * substring después) — nunca decide en silencio, es sólo la sugerencia
+ * inicial que el usuario confirma o corrige en la UI antes de importar.
+ */
+export function autodetectarMapeoCsv(encabezados: string[]): (CampoCsv | null)[] {
+	return encabezados.map((enc) => {
+		const normalizado = enc.trim().toLowerCase();
+		const exacto = COLUMNAS.find((col) => PISTAS_AUTODETECCION[col].includes(normalizado));
+		if (exacto) return exacto;
+		const parcial = COLUMNAS.find((col) => PISTAS_AUTODETECCION[col].some((pista) => normalizado.includes(pista)));
+		return parcial ?? null;
+	});
+}
+
+/**
+ * Arma `FilaExport[]` a partir de filas crudas + el mapeo columna→campo que
+ * el usuario confirmó (`null` = ignorar esa columna) — el reemplazo real del
+ * matcheo por nombre exacto de `parsearCsv` para el flujo interactivo. La
+ * neutralización de CSV injection (`escaparCeldaCsv`) no aplica acá porque
+ * es cosa del export, no del import — los valores ya vienen tal cual del
+ * archivo ajeno, y `crearRecurso` los cifra sin volver a interpretarlos como
+ * CSV en ningún punto posterior.
+ */
+export function mapearFilasCsv(filas: string[][], mapeo: (CampoCsv | null)[]): FilaExport[] {
+	return filas.map((fila) => {
+		const obj: FilaExport = { name: '', username: '', password: '', uri: '', notes: '', totp_secret: '' };
+		mapeo.forEach((campo, idx) => {
+			if (campo) obj[campo] = fila[idx] ?? '';
 		});
 		return obj;
 	});

@@ -19,13 +19,18 @@
 // (`user_key`) o con la `metadata_key` compartida ya resuelta
 // (`shared_key`) — nunca con la misma clave para las dos cosas.
 
+import { get } from 'svelte/store';
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { uuidABytes } from './uuid';
 import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './matching';
 import { leerDeCache, guardarEnCache } from '$lib/cache/metadataCache';
-import { api } from '$lib/api/client';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { api, ApiError } from '$lib/api/client';
+import { notificarRecursoCreado, notificarRecursoEditado, notificarRecursoEliminado } from '$lib/sync/notificador';
+import { sesion, secretosEnMemoria, type ClavesDesbloqueadas } from '$lib/state/session';
+import { obtenerVinculacion, sesionRemotaVigente } from '$lib/sync/vinculacion';
+import { clienteRemoto } from '$lib/sync/remoteClient';
+import { obtenerPersistencia } from '$lib/sync/persistencia';
 
 function aadDeRecurso(resourceId: string, createdBy: string): Uint8Array {
 	const aad = new Uint8Array(32);
@@ -126,6 +131,39 @@ export interface Recurso {
  * este usuario tiene acceso — una sola llamada, reusada para todos los
  * recursos `shared_key` de la lista.
  */
+function es404(err: unknown): boolean {
+	return err instanceof ApiError && err.status === 404;
+}
+
+/**
+ * F-48 (modos `Memory`/`NamesOnly`, spec/13 §8): cuando el envelope local de
+ * `secret_envelopes` no existe (404 de `GET /resources/{id}/secret`), el
+ * secreto se pide directo al servidor remoto vinculado — nunca al backend
+ * local, que en estos modos deliberadamente no lo tiene. Requiere una
+ * bóveda conectada (`obtenerVinculacion`); si no lo está, este código no
+ * debería ejecutarse nunca (modo local-only siempre es `full`).
+ */
+async function secretoCompletoDesdeRemoto(resourceId: string, claves: ClavesDesbloqueadas): Promise<SecretoCrudo> {
+	const email = get(sesion).email;
+	if (!email) throw new Error('No hay una sesión desbloqueada.');
+
+	const vinculacion = obtenerVinculacion(email);
+	if (!vinculacion) throw new Error('Este secreto no está disponible localmente y la bóveda no está conectada a ningún servidor.');
+
+	let sessionId: string;
+	try {
+		sessionId = await sesionRemotaVigente(vinculacion, claves);
+	} catch {
+		throw new Error('Este secreto requiere conexión — no se pudo contactar al servidor remoto.');
+	}
+	const remoto = clienteRemoto(vinculacion.serverUrl, sessionId);
+	try {
+		return await remoto.get<SecretoCrudo>(`/resources/${resourceId}/secret`);
+	} catch {
+		throw new Error('Este secreto requiere conexión — no se pudo contactar al servidor remoto.');
+	}
+}
+
 async function cargarClavesMetadataCompartidas(claves: ClavesDesbloqueadas): Promise<Map<string, Uint8Array>> {
 	const wasm = await cargarCrypto();
 	const activas = await api.get<MetadataKeyCruda[]>('/metadata-keys');
@@ -188,8 +226,20 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 		} else {
 			// `user_key`: la DEK por-recurso es la misma clave que la metadata
 			// — sólo se obtiene pidiendo el envelope propio.
-			const secreto = await api.get<SecretoCrudo>(`/resources/${r.id}/secret`);
-			dekPropia = wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
+			let sealedDekB64: string;
+			try {
+				const secreto = await api.get<SecretoCrudo>(`/resources/${r.id}/secret`);
+				sealedDekB64 = secreto.sealed_dek_b64;
+			} catch (err) {
+				if (!es404(err)) throw err;
+				try {
+					const dek = await api.get<{ sealed_dek_b64: string }>(`/resources/${r.id}/metadata-dek`);
+					sealedDekB64 = dek.sealed_dek_b64;
+				} catch {
+					continue;
+				}
+			}
+			dekPropia = wasm.abrir_sellado(claves.x25519Private, base64ABytes(sealedDekB64));
 			claveMetadata = dekPropia;
 		}
 
@@ -237,7 +287,28 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 	return resultado;
 }
 
-const PUERTOS_DEFAULT: Record<string, number> = { ssh: 22, ftp: 21, telnet: 23, vnc: 5900 };
+const PUERTOS_DEFAULT: Record<string, number> = {
+	ssh: 22,
+	ftp: 21,
+	telnet: 23,
+	vnc: 5900,
+	rdp: 3389,
+	postgresql: 5432,
+	mysql: 3306,
+	mongodb: 27017
+};
+
+/** F-49 (Conectar desde la GUI): mismo parseo que `infoConexion`/
+ * `comandoDeConexion`, pero devolviendo `puerto` siempre resuelto (con el
+ * default del protocolo aplicado) — lo que necesita `conectar()` para
+ * armar el comando real, a diferencia del string de display de
+ * `comandoDeConexion`. */
+export function resolverHostPuerto(recurso: Pick<Recurso, 'resourceTypeSlug' | 'uri'>): { host: string; puerto: number } | null {
+	const slug = recurso.resourceTypeSlug;
+	if (!recurso.uri || !(slug in PUERTOS_DEFAULT)) return null;
+	const { host, puerto } = parsearHostPuerto(recurso.uri);
+	return { host, puerto: puerto ?? PUERTOS_DEFAULT[slug] };
+}
 
 /** Separa `host` y `puerto` de un `uri` como los que ya guarda un recurso
  * FTP/SSH/VNC/Telnet — acepta `host`, `host:puerto` o `esquema://host:puerto`
@@ -287,6 +358,14 @@ export function comandoDeConexion(recurso: Pick<Recurso, 'resourceTypeSlug' | 'u
 			return `ftp://${arroba}${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
 		case 'vnc':
 			return `vnc://${arroba}${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
+		case 'rdp':
+			return `mstsc /v:${host}${puertoNoDefault ? `:${puertoNoDefault}` : ''}`;
+		case 'postgresql':
+			return `psql -h ${host} -p ${puerto ?? puertoDefault}${recurso.usuario ? ` -U ${recurso.usuario}` : ''}`;
+		case 'mysql':
+			return `mysql -h ${host} -P ${puerto ?? puertoDefault}${recurso.usuario ? ` -u ${recurso.usuario}` : ''} -p`;
+		case 'mongodb':
+			return `mongosh "mongodb://${arroba}${host}:${puerto ?? puertoDefault}/"`;
 		default:
 			return null;
 	}
@@ -297,7 +376,40 @@ export async function verSecreto(
 	claves: ClavesDesbloqueadas
 ): Promise<{ password: string; notes: string; totpSecret?: string }> {
 	const wasm = await cargarCrypto();
-	const secreto = await api.get<SecretoCrudo>(`/resources/${recurso.id}/secret`);
+
+	let secreto: SecretoCrudo;
+	try {
+		secreto = await api.get<SecretoCrudo>(`/resources/${recurso.id}/secret`);
+	} catch (err) {
+		if (!es404(err)) throw err;
+		// F-48: sin envelope local — modos `Memory`/`NamesOnly` (spec/13 §8).
+		const modo = await obtenerPersistencia();
+		if (modo === 'memory') {
+			const cache = get(secretosEnMemoria);
+			const enCache = cache[recurso.id];
+			if (enCache) return { password: enCache.password, notes: enCache.notes, totpSecret: enCache.totpSecret };
+		}
+
+		secreto = await secretoCompletoDesdeRemoto(recurso.id, claves);
+		const dekRemota = wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
+		const aadRemota = aadDeRecurso(recurso.id, recurso.createdBy);
+		const bytesRemotos = wasm.descifrar_aead(
+			dekRemota,
+			base64ABytes(secreto.secret_nonce_b64),
+			base64ABytes(secreto.secret_ciphertext_b64),
+			aadRemota
+		);
+		const jsonRemoto: SecretoJson = JSON.parse(new TextDecoder().decode(bytesRemotos));
+		const resultado = { password: jsonRemoto.password ?? '', notes: jsonRemoto.notes ?? '', totpSecret: jsonRemoto.totp_secret };
+
+		// `NamesOnly` nunca cachea — se vuelve a pedir en cada reveal, tal
+		// como pide spec/13 §8 ("ni en RAM más allá del uso").
+		if (modo === 'memory') {
+			secretosEnMemoria.update((actual) => ({ ...actual, [recurso.id]: resultado }));
+		}
+		return resultado;
+	}
+
 	const dek = recurso.dekPropia ?? wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
 	const aad = aadDeRecurso(recurso.id, recurso.createdBy);
 	const bytes = wasm.descifrar_aead(
@@ -315,6 +427,7 @@ export async function verSecreto(
  * frontend sólo muestra el botón cuando `recurso.puedeBorrar` es `true`. */
 export async function eliminarRecurso(resourceId: string): Promise<void> {
 	await api.delete(`/resources/${resourceId}`);
+	notificarRecursoEliminado(resourceId);
 }
 
 /** `POST /resources/{id}/leave` (2026-08-13, endpoint nuevo) — para alguien
@@ -330,7 +443,7 @@ export async function salirDeRecurso(resourceId: string): Promise<void> {
  * (host:puerto en `uri`) — sólo cambia el `resource_type_slug` para
  * categorizar/mostrar un ícono distinto y armar el comando de conexión
  * copiable (`comandoDeConexion`), sin autenticación por clave SSH todavía. */
-export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc' | 'telnet';
+export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc' | 'telnet' | 'rdp' | 'postgresql' | 'mysql' | 'mongodb';
 
 export interface NuevoRecurso {
 	/** Sólo relevante para `crearRecurso` — `editarRecurso` reusa este mismo
@@ -383,7 +496,7 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 	const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
 	const sealedDek = wasm.sellar_para(claves.x25519Public, dek);
 
-	await api.post('/resources', {
+	const cuerpo = {
 		id: resourceId,
 		resource_type_slug:
 			(datos.tipo ?? 'login-password') === 'login-password' && datos.totpSecretBase32
@@ -395,7 +508,13 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 		secret_ciphertext_b64: bytesABase64(secretoCifrado.ciphertext),
 		secret_nonce_b64: bytesABase64(secretoCifrado.nonce),
 		...(metadataKeyId ? { metadata_key_id: metadataKeyId } : {})
-	});
+	};
+	await api.post('/resources', cuerpo);
+
+	// F-47: réplica al servidor remoto si la bóveda está conectada — nunca
+	// para un recurso `shared_key` (sólo tiene sentido en modo equipo, no
+	// en un vínculo 1:1 con otro servidor).
+	if (!metadataKeyId) notificarRecursoCreado(cuerpo);
 }
 
 /**
@@ -452,15 +571,31 @@ export async function editarRecurso(
 		secret_nonce_b64: bytesABase64(secretoCifrado.nonce)
 	}));
 
-	const actualizado = await api.put<{ updated_at: string }>(
-		`/resources/${recurso.id}`,
-		{
-			metadata_ciphertext_b64: bytesABase64(metadataCifrada.ciphertext),
-			metadata_nonce_b64: bytesABase64(metadataCifrada.nonce),
-			envelopes
-		},
-		{ 'If-Match': recurso.updated_at }
-	);
+	const cuerpoEdicion = {
+		metadata_ciphertext_b64: bytesABase64(metadataCifrada.ciphertext),
+		metadata_nonce_b64: bytesABase64(metadataCifrada.nonce),
+		envelopes
+	};
+	const actualizado = await api.put<{ updated_at: string }>(`/resources/${recurso.id}`, cuerpoEdicion, {
+		'If-Match': recurso.updated_at
+	});
+
+	// F-47: réplica al servidor remoto si la bóveda está conectada — nunca
+	// para `shared_key` (mismo criterio que `crearRecurso`). `cuerpoParaCrear`
+	// es el fallback si el servidor remoto todavía no tiene este recurso
+	// (ver `notificador.ts::notificarRecursoEditado`); en modo escritorio
+	// `envelopes` siempre tiene exactamente 1 fila (el propio usuario).
+	if (recurso.metadataKeyType === 'user_key' && envelopes.length === 1) {
+		notificarRecursoEditado(recurso.id, cuerpoEdicion, {
+			id: recurso.id,
+			resource_type_slug: recurso.resourceTypeSlug,
+			metadata_ciphertext_b64: cuerpoEdicion.metadata_ciphertext_b64,
+			metadata_nonce_b64: cuerpoEdicion.metadata_nonce_b64,
+			sealed_dek_b64: envelopes[0].sealed_dek_b64,
+			secret_ciphertext_b64: envelopes[0].secret_ciphertext_b64,
+			secret_nonce_b64: envelopes[0].secret_nonce_b64
+		});
+	}
 
 	return {
 		...recurso,
@@ -471,6 +606,22 @@ export async function editarRecurso(
 		dekPropia: recurso.metadataKeyType === 'user_key' ? dek : recurso.dekPropia,
 		updated_at: actualizado.updated_at
 	};
+}
+
+/** Grupo de tipos con el MISMO `json_schema` en el backend
+ * (`{metadata: [name,username,uri], secret: [password,notes]}`) — el único
+ * grupo entre el que `PUT /resources/{id}/type` permite cambiar, porque no
+ * toca metadata/secreto (ver `ResourceService::cambiar_tipo`). Deliberadamente
+ * sin `login-password-totp` (tiene un campo extra, `totp_secret`, que un
+ * cambio ciego de tipo perdería de vista). */
+export const TIPOS_INTERCAMBIABLES: TipoRecurso[] = ['login-password', 'ssh', 'ftp', 'telnet', 'vnc', 'rdp', 'postgresql', 'mysql', 'mongodb'];
+
+/** 2026-09-17, pedido explícito del usuario: recursos ssh/ftp/etc. creados o
+ * importados antes de tipearse bien quedaron como `login-password`
+ * genérico, sin forma de corregirlo. Sin cripto de por medio — es sólo un
+ * campo de categorización en el servidor, ver `TIPOS_INTERCAMBIABLES`. */
+export async function cambiarTipoRecurso(resourceId: string, nuevoTipo: TipoRecurso): Promise<void> {
+	await api.put(`/resources/${resourceId}/type`, { resource_type_slug: nuevoTipo });
 }
 
 /**
