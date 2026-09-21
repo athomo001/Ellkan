@@ -273,12 +273,21 @@ $env:SQLX_OFFLINE = "true"; cargo build -p ellkan-desktop
 .\app-escritorio\windows\binarios\build-windows.ps1   # -SkipExtension omite la extensión
 
 # Instalador MSI -> app-escritorio\windows\binarios\Ellkan_<versión>_x64_es-ES.msi
+# (la versión sube sola: 0.1.0 -> 0.1.1 -> ...)
 .\app-escritorio\windows\binarios\build-windows.ps1 -Msi
+
+# Lo mismo sin subir la versión, o fijando una (para cambiar el minor o el major)
+.\app-escritorio\windows\binarios\build-windows.ps1 -Msi -MantenerVersion
+.\app-escritorio\windows\binarios\build-windows.ps1 -Msi -Version 0.2.0
 ```
 
 Si PowerShell responde «la ejecución de scripts está deshabilitada en este sistema», es la política por defecto de Windows. No hace falta cambiarla para todo el equipo: lanza el script con `powershell -NoProfile -ExecutionPolicy Bypass -File .\app-escritorio\windows\binarios\build-windows.ps1 -Msi`, o ejecuta `Set-ExecutionPolicy -Scope Process Bypass` una vez y luego el script normal (vale sólo para esa ventana). El script cierra `ellkan-desktop.exe` si está abierto, para poder reemplazar los archivos.
 
-El MSI lo arma Tauri con WiX 3, que se descarga la primera vez (hace falta internet). La versión sale de `version` en `tauri.conf.json`. Lo que se sale de la plantilla de Tauri está en `src-tauri/tauri.msi.conf.json` y `src-tauri/installer/limpieza.wxs`: cierra Ellkan antes de instalar o desinstalar y, al desinstalar (no al actualizar), corre `ellkan-desktop.exe --limpiar-sistema`, que borra el inicio con Windows y el esquema `ellkan://`. Si el desinstalador tiene interfaz le suma `--preguntar-datos` (la app pregunta si borrar también los datos, dos veces, con «No» por defecto); `--borrar-datos` los borra sin preguntar, para scripts. Sin uno de esos dos argumentos no toca la bóveda. Sólo borra carpetas con nombre de Ellkan (`Ellkan`, `ellkan-datos`, `com.ellkan.desktop`) y a más de tres niveles de la raíz. Un MSI de una versión nueva reemplaza al anterior sólo si su versión es mayor.
+Mientras compila, el script muestra el porcentaje de avance y el tiempo que estima que falta. El reparto se ajusta a lo que tardó cada paso la vez anterior (se guarda en `windows/binarios/.tiempos-build.json`, que Git ignora); la primera vez son estimaciones.
+
+**Versión.** Sale de `version` en `src-tauri/tauri.conf.json`, y de ahí la toman el nombre del `.msi`, el propio instalador y la pantalla *Ajustes → Escritorio* de la app. Con `-Msi` el script sube el número de parche en cada ejecución y reescribe ese archivo, así que **incluye ese cambio en tu commit**. Si el empaquetado falla, restaura la versión anterior. El MSI sólo admite versiones `X.Y.Z` hasta `255.255.65535`, y una versión nueva reemplaza a la instalada sólo si es mayor: por eso `-MantenerVersion` sirve para regenerar el mismo instalador en pruebas, no para algo que ya distribuiste. El `Cargo.toml` no se toca: su versión la comparten el servidor y la CLI.
+
+El MSI lo arma Tauri con WiX 3, que se descarga la primera vez (hace falta internet). Lo que se sale de la plantilla de Tauri está en `src-tauri/tauri.msi.conf.json` y `src-tauri/installer/limpieza.wxs`: cierra Ellkan antes de instalar o desinstalar y, al desinstalar (no al actualizar), corre `ellkan-desktop.exe --limpiar-sistema`, que borra el inicio con Windows y el esquema `ellkan://`. Si el desinstalador tiene interfaz le suma `--preguntar-datos` (la app pregunta si borrar también los datos, dos veces, con «No» por defecto); `--borrar-datos` los borra sin preguntar, para scripts. Sin uno de esos dos argumentos no toca la bóveda. Sólo borra carpetas con nombre de Ellkan (`Ellkan`, `ellkan-datos`, `com.ellkan.desktop`) y a más de tres niveles de la raíz. Un MSI de una versión nueva reemplaza al anterior sólo si su versión es mayor.
 
 Las imágenes del asistente (`banner.bmp`, 493×58 px, y `dialogo.bmp`, 493×312 px) salen de `src-tauri/installer/generar-imagenes.ps1`, que también contiene el resumen que se muestra en el panel de bienvenida. WiX exige esas medidas exactas y formato BMP; si cambias el logo o el texto, vuelve a correr el script antes de generar el MSI.
 

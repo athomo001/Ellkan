@@ -6,3 +6,6 @@
 # Preservar notas y documentación interna
 !notas.md
 !.gitignore
+
+# Duración de cada paso del último build (build-windows.ps1 lo usa para el porcentaje)
+.tiempos-build.json

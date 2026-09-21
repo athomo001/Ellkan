@@ -8,6 +8,10 @@ use zeroize::Zeroizing;
 mod portable;
 mod sistema;
 
+/// Versión de la app: la de `tauri.conf.json` (la misma del instalador MSI), no la del
+/// `Cargo.toml`. La exporta `build.rs`.
+const VERSION_APP: &str = env!("ELLKAN_VERSION");
+
 /// Resuelve el directorio de datos según el sistema operativo:
 /// - Windows: `%APPDATA%\Ellkan`
 /// - Linux: `$XDG_DATA_HOME/ellkan` o fallback a `$HOME/.local/share/ellkan`
@@ -159,7 +163,7 @@ async fn preparar_backend_local() -> anyhow::Result<(tokio::net::TcpListener, u1
 
   let fijo_configurado = ellkan_backend::desktop::cargar_config(&dir).ok().and_then(|c| c.puerto_fijo);
   let (listener, puerto) = ellkan_backend::desktop::bindear_puerto(&dir).await?;
-  ellkan_backend::desktop::escribir_desktop_json(puerto, env!("CARGO_PKG_VERSION"))?;
+  ellkan_backend::desktop::escribir_desktop_json(puerto, VERSION_APP)?;
 
   // Si el puerto fijo estaba ocupado se usó otro sólo para esta sesión: se
   // devuelve cuál era para avisarle al usuario (F-52), no fallar en silencio.
@@ -551,7 +555,7 @@ fn info_app() -> InfoApp {
     .and_then(|fecha| fecha.duration_since(std::time::UNIX_EPOCH).ok())
     .map(|d| d.as_secs());
   InfoApp {
-    version: env!("CARGO_PKG_VERSION").to_string(),
+    version: VERSION_APP.to_string(),
     binario_unix,
     ruta: exe.map(|r| r.to_string_lossy().into_owned()).unwrap_or_default(),
   }
@@ -994,6 +998,18 @@ pub fn run() {
 // que nada se guardaba: `keyring` estaba compilado sin el almacén nativo, así que usaba
 // uno de prueba en memoria. Esta prueba lo ejerce contra el Administrador de credenciales
 // real, con un id propio que limpia al terminar.
+#[cfg(test)]
+mod pruebas_version {
+  #[test]
+  fn la_version_de_la_app_es_la_de_tauri_conf() {
+    let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    assert_eq!(super::VERSION_APP, conf["version"].as_str().unwrap());
+    let partes: Vec<&str> = super::VERSION_APP.split('.').collect();
+    assert_eq!(partes.len(), 3, "el MSI exige major.minor.patch");
+    assert!(partes.iter().all(|p| p.parse::<u32>().is_ok()));
+  }
+}
+
 #[cfg(all(test, windows))]
 mod pruebas_llavero {
   use super::{eliminar_envoltura_llavero, guardar_envoltura_llavero, recuperar_envoltura_llavero};

@@ -12,7 +12,9 @@ Para compilar y empaquetar de forma determinista con el frontend estático incru
 ```powershell
 # Desde esta misma carpeta:
 .\build-windows.ps1          # .exe + zip portable
-.\build-windows.ps1 -Msi     # instalador MSI
+.\build-windows.ps1 -Msi     # instalador MSI; la versión sube sola (0.1.0 -> 0.1.1 -> ...)
+.\build-windows.ps1 -Msi -MantenerVersion   # sin subir la versión
+.\build-windows.ps1 -Msi -Version 0.2.0     # fija una versión
 
 # Si PowerShell dice que la ejecución de scripts está deshabilitada:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-windows.ps1 -Msi
@@ -20,4 +22,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build-windows.ps1 -Msi
 # O desde la carpeta frontend:
 pnpm build:desktop
 ```
+Mientras compila muestra el porcentaje de avance y el tiempo restante estimado. Con `-Msi` reescribe `version` en `src-tauri\tauri.conf.json` (de ahí salen el nombre del `.msi`, el instalador y la versión que muestra la app): inclúyelo en el commit.
+
 El script cierra automáticamente procesos activos en ejecución para evitar bloqueos de archivos, compila el frontend web, genera los ejecutables release de Rust con LTO, valida el tamaño final (>8 MB) y actualiza el zip portable de distribución.

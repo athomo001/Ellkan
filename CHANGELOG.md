@@ -4,6 +4,16 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.53] - 2026-09-21
+
+### `build-windows.ps1`: porcentaje de avance y versión del instalador que sube sola
+
+- **Progreso.** El script reparte el 100 % entre sus pasos según lo que tardó cada uno la vez anterior (`windows/binarios/.tiempos-build.json`, ignorado por Git; la primera vez usa estimaciones) y, mientras corre un paso largo, mantiene la barra de `Write-Progress` avanzando y escribe cada 30 s una línea con el porcentaje y el tiempo estimado restante. La salida de `cargo`/`pnpm`/`node` sigue apareciendo en vivo. Nunca pasa del 95 % de un paso hasta que termina de verdad.
+- **Versión automática.** Con `-Msi` el número de parche sube solo en cada ejecución (`0.1.0` → `0.1.1` → …) y queda escrito en `src-tauri/tauri.conf.json`. Si el empaquetado falla se restaura la versión anterior, para no gastar un número. `-MantenerVersion` regenera el mismo instalador; `-Version X.Y.Z` fija una explícita (para cambiar minor o major); se validan los límites de Windows Installer (255.255.65535). El MSI se busca por su versión en vez de «el más reciente», y los instaladores de versiones anteriores se conservan en `binarios/`.
+- **La versión llega hasta la app.** Ajustes → Escritorio («Versión de la app») y `desktop.json` mostraban siempre `0.1.0` porque leían la del `Cargo.toml` del crate, que comparte el servidor. `build.rs` ahora exporta la de `tauri.conf.json` como `ELLKAN_VERSION` y `lib.rs` la usa (`VERSION_APP`); el `Cargo.toml` y `Cargo.lock` no cambian con cada instalador. Test `la_version_de_la_app_es_la_de_tauri_conf`.
+- **Verificado** ejecutando el script real en una copia con `node`/`tauri` simulados (no se probó un `-Msi` completo real, porque hay una Ellkan instalada abierta y el script cierra ese proceso): subida de versión en dos ejecuciones seguidas, porcentajes que se ajustan de 5 %/98 % (estimados) a 6 %/23 %/50 %/87 % (aprendidos), restauración tras un fallo simulado, `-MantenerVersion`, `-Version 0.3.0` y sus validaciones. **Sin verificar**: la barra visual de `Write-Progress` en una consola interactiva y la compilación real con la versión nueva.
+- El acceso directo «Desinstalar Ellkan» describe ahora que los datos se conservan salvo que se pida borrarlos.
+
 ## [0.1.52] - 2026-09-21
 
 ### «Conectar» por SSH se colgaba con cualquier servidor que aún no estuviera en `known_hosts`
