@@ -11,6 +11,7 @@
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { deviceTokenHashB64 } from '../crypto/device';
+import { abrirClavePrivadaEnWorker } from '../crypto/argon2WorkerClient';
 import { api } from '$lib/api/client';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
@@ -45,6 +46,11 @@ function guardarVinculacion(v: VinculacionServidor): void {
 /** Desvincula — la bóveda sigue funcionando 100% local después de esto
  * (spec/13 §7: "desvincular deja la bóveda funcionando local"), sólo se
  * borra el estado de sync, nunca ningún recurso. */
+/** Guarda la vinculación de una cuenta ya autenticada contra ese servidor (la usa `union.ts`). */
+export function registrarVinculacion(serverUrl: string, email: string): void {
+	guardarVinculacion({ serverUrl, email });
+}
+
 export function desvincular(email: string): void {
 	localStorage.removeItem(claveVinculacion(email));
 	localStorage.removeItem(claveCursor(email));
@@ -91,7 +97,7 @@ async function autenticarContraRemoto(serverUrl: string, email: string, claves: 
  * verificación de dispositivo).
  */
 export type DiagnosticoCuentaRemota =
-	| { estado: 'ok'; sessionId: string }
+	| { estado: 'ok'; sessionId: string; userId?: string }
 	| { estado: 'sin_conexion' }
 	| { estado: 'servidor_invalido' }
 	| { estado: 'no_autenticado' }
@@ -111,6 +117,9 @@ function mensajeDeDiagnostico(d: DiagnosticoFallido): string {
 		case 'no_autenticado':
 			return 'El servidor no aceptó esta cuenta: no existe una cuenta con este correo y estas claves, o está deshabilitada.';
 		case 'requiere_paso_extra':
+			if (d.paso === 'requiere_cambiar_passphrase') {
+				return 'El servidor pide cambiar la frase de contraseña de esta cuenta (pasa con las cuentas creadas por un administrador). Entrá una vez por la web, cambiala y volvé a intentar con la frase nueva.';
+			}
 			return `El servidor remoto pidió un paso extra (${d.paso}) — por ahora la vinculación sólo soporta login directo, sin MFA ni verificación de dispositivo del lado remoto.`;
 		case 'error':
 			return d.mensaje;
@@ -165,9 +174,9 @@ export async function diagnosticarCuentaRemota(
 	const firma = wasm.firmar(claves.ed25519Private, base64ABytes(challenge.nonce_b64));
 	const deviceTokenHash = await deviceTokenHashB64();
 
-	let verify: { estado: string; session_id?: string } | undefined;
+	let verify: { estado: string; session_id?: string; user_id?: string } | undefined;
 	try {
-		verify = await remoto.post<{ estado: string; session_id?: string }>('/auth/verify', {
+		verify = await remoto.post<{ estado: string; session_id?: string; user_id?: string }>('/auth/verify', {
 			email,
 			nonce_b64: challenge.nonce_b64,
 			signature_b64: bytesABase64(firma),
@@ -180,15 +189,30 @@ export async function diagnosticarCuentaRemota(
 	if (verify?.estado !== 'completo' || !verify.session_id) {
 		return { estado: 'requiere_paso_extra', paso: verify?.estado ?? 'desconocido' };
 	}
-	return { estado: 'ok', sessionId: verify.session_id };
+	return { estado: 'ok', sessionId: verify.session_id, userId: verify.user_id };
 }
 
-/** Devuelve una sesión remota vigente — re-autentica en cada llamada (sin
- * cachear el `session_id`, ver comentario del módulo). El costo de un
- * challenge/verify extra por sync es insignificante comparado con la
- * complejidad de manejar expiración de sesión remota como un caso aparte. */
+/**
+ * Sesión remota vigente. Se reusa en memoria (nunca en disco) hasta
+ * `VIDA_SESION_REMOTA_MS`: con el sync automático cada pocos segundos,
+ * autenticar en cada llamada crearía una sesión nueva en el servidor cada vez
+ * (que nunca se cierra). Si el servidor la rechaza antes (401), quien la usa
+ * llama a `olvidarSesionRemota` y reintenta.
+ */
+const VIDA_SESION_REMOTA_MS = 10 * 60_000;
+const sesionesRemotas = new Map<string, { sessionId: string; vence: number }>();
+
 export async function sesionRemotaVigente(v: VinculacionServidor, claves: ClavesDesbloqueadas): Promise<string> {
-	return autenticarContraRemoto(v.serverUrl, v.email, claves);
+	const clave = `${v.serverUrl}|${v.email}`;
+	const guardada = sesionesRemotas.get(clave);
+	if (guardada && guardada.vence > Date.now()) return guardada.sessionId;
+	const sessionId = await autenticarContraRemoto(v.serverUrl, v.email, claves);
+	sesionesRemotas.set(clave, { sessionId, vence: Date.now() + VIDA_SESION_REMOTA_MS });
+	return sessionId;
+}
+
+export function olvidarSesionRemota(v: VinculacionServidor): void {
+	sesionesRemotas.delete(`${v.serverUrl}|${v.email}`);
 }
 
 /** (a) "Ya tengo cuenta en ese servidor" — valida el login real contra el
@@ -240,5 +264,75 @@ export async function vincularComoBovedaNueva(
 		throw err;
 	}
 
+	guardarVinculacion({ serverUrl, email });
+}
+
+/**
+ * Primer arranque de la app conectado a una cuenta que YA existe en un
+ * servidor (F-47). Al revés que las dos opciones de arriba: no se vincula una
+ * bóveda local existente, se crea la bóveda local con la identidad del
+ * servidor — mismas claves, mismo blob cifrado (se desbloquea con la misma
+ * passphrase) y el mismo id de usuario, para que todo lo cifrado de un lado
+ * se pueda leer del otro (el id del creador va en el AAD de cada recurso).
+ *
+ * La passphrase sólo se usa acá, localmente, para abrir el material que manda
+ * el servidor (nunca viaja). Si es incorrecta, o la cuenta no existe (el
+ * servidor responde igual en los dos casos, anti-enumeración), falla al
+ * abrir el material. Después del alta local hay que iniciar sesión local
+ * normal con el mismo correo y passphrase.
+ */
+export async function conectarDesdeServidor(serverUrlCrudo: string, email: string, passphrase: string): Promise<void> {
+	const serverUrl = serverUrlCrudo.trim().replace(/\/+$/, '');
+	const wasm = await cargarCrypto();
+	const remoto = clienteRemoto(serverUrl, null);
+
+	let material: { encrypted_private_key_blob_b64: string; private_key_nonce_b64: string; kdf_salt_b64: string };
+	try {
+		material = await remoto.post('/auth/key-material', { email });
+	} catch (err) {
+		throw new ErrorCuentaRemota(diagnosticoDeError(err, 'challenge'));
+	}
+
+	let abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array };
+	try {
+		abierta = await abrirClavePrivadaEnWorker(
+			passphrase,
+			base64ABytes(material.kdf_salt_b64),
+			base64ABytes(material.private_key_nonce_b64),
+			base64ABytes(material.encrypted_private_key_blob_b64),
+			new TextEncoder().encode(email)
+		);
+	} catch {
+		throw new ErrorCuentaRemota({ estado: 'error', mensaje: 'Correo o frase de contraseña incorrectos para ese servidor.' });
+	}
+	const claves: ClavesDesbloqueadas = {
+		x25519Private: abierta.x25519Private,
+		ed25519Private: abierta.ed25519Private,
+		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
+		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
+	};
+
+	const diagnostico = await diagnosticarCuentaRemota(serverUrl, email, claves);
+	if (diagnostico.estado !== 'ok') throw new ErrorCuentaRemota(diagnostico);
+	if (!diagnostico.userId) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
+
+	let displayName = email;
+	try {
+		const perfil = await clienteRemoto(serverUrl, diagnostico.sessionId).get<{ display_name: string }>('/me');
+		displayName = perfil.display_name || email;
+	} catch {
+		// El nombre visible es sólo cosmético: si falla, queda el correo.
+	}
+
+	await api.post('/auth/register-desde-servidor', {
+		email,
+		display_name: displayName,
+		public_key_x25519_b64: bytesABase64(claves.x25519Public),
+		public_key_ed25519_b64: bytesABase64(claves.ed25519Public),
+		encrypted_private_key_blob_b64: material.encrypted_private_key_blob_b64,
+		private_key_nonce_b64: material.private_key_nonce_b64,
+		kdf_salt_b64: material.kdf_salt_b64,
+		user_id: diagnostico.userId
+	});
 	guardarVinculacion({ serverUrl, email });
 }

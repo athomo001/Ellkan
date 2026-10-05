@@ -12,6 +12,7 @@ use ellkan_crypto::clave_privada::EncryptedPrivateKeyBlob;
 use secrecy::SecretBox;
 use serde_json::json;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use api::Cliente;
 use ellkan_crypto::aead::Envoltura;
@@ -93,12 +94,19 @@ enum Comando {
         filter: Option<String>,
     },
     /// Ejecuta un comando con el password inyectado por variable de entorno
-    /// al subproceso — nunca al entorno del shell padre (F-21)
+    /// al subproceso — nunca al entorno del shell padre (F-21). Con `--env`
+    /// (repetible, F-58) se inyectan varios recursos a la vez, ej. tokens.
     Exec {
-        resource_id: Uuid,
+        /// Recurso que va a `--env-var` (forma simple)
+        #[arg(required_unless_present = "env")]
+        resource_id: Option<Uuid>,
         #[arg(long, default_value = "ELLKAN_PASSWORD")]
         env_var: String,
-        #[arg(trailing_var_arg = true, required = true)]
+        /// `VARIABLE=<resource-id>`, repetible
+        #[arg(long = "env", value_parser = parsear_env)]
+        env: Vec<(String, Uuid)>,
+        /// Va después de `--`: sin eso no se distingue del `resource_id` opcional
+        #[arg(last = true, required = true)]
         comando: Vec<String>,
     },
     /// Subcomandos de administración (F-41 básicos)
@@ -669,12 +677,28 @@ fn listar(cliente: &Cliente, filtro: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ejecutar(cliente: &Cliente, resource_id: Uuid, env_var: &str, comando: &[String]) -> anyhow::Result<()> {
-    let perfil = config::cargar_perfil()?;
-    let sesion = config::cargar_sesion()?;
-    let passphrase = leer_passphrase("Passphrase: ")?;
+/// `VARIABLE=<resource-id>` de `exec --env`. El nombre se limita a lo que
+/// cualquier shell acepta, para no inyectar algo raro en el entorno del hijo.
+fn parsear_env(valor: &str) -> Result<(String, Uuid), String> {
+    let (nombre, id) = valor.split_once('=').ok_or("se esperaba VARIABLE=<resource-id>")?;
+    let nombre_valido = nombre.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && nombre.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !nombre_valido {
+        return Err(format!("nombre de variable inválido: {nombre:?}"));
+    }
+    let id = Uuid::parse_str(id).map_err(|e| format!("resource-id inválido: {e}"))?;
+    Ok((nombre.to_string(), id))
+}
 
-    let (dek, secreto) = abrir_dek_del_recurso(cliente, &perfil, &sesion, resource_id, &passphrase)?;
+/// Secreto principal de un recurso: `password`, o `token` en un `api-token` (F-58).
+fn secreto_principal(
+    cliente: &Cliente,
+    sesion: &config::Sesion,
+    x25519: &x25519_dalek::StaticSecret,
+    resource_id: Uuid,
+) -> anyhow::Result<Zeroizing<String>> {
+    let secreto = cliente.obtener_secreto(sesion.session_id, resource_id)?;
+    let dek = crypto_local::abrir_dek(x25519, &B64.decode(&secreto.sealed_dek_b64)?)?;
     let recurso = cliente.obtener_recurso(sesion.session_id, resource_id)?;
     let aad = crypto_local::aad_de_recurso(recurso.id, recurso.created_by);
     let secret_nonce: [u8; 24] = B64
@@ -687,17 +711,41 @@ fn ejecutar(cliente: &Cliente, resource_id: Uuid, env_var: &str, comando: &[Stri
         &Envoltura { nonce: secret_nonce, ciphertext: secret_ciphertext },
         &aad,
     )?;
-    let password = secreto_json
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("el recurso no tiene campo 'password'"))?;
+    let valor = ["password", "token"]
+        .iter()
+        .find_map(|campo| secreto_json.get(*campo).and_then(|v| v.as_str()))
+        .ok_or_else(|| anyhow::anyhow!("el recurso {resource_id} no tiene 'password' ni 'token'"))?;
+    Ok(Zeroizing::new(valor.to_string()))
+}
+
+fn ejecutar(
+    cliente: &Cliente,
+    resource_id: Option<Uuid>,
+    env_var: &str,
+    env: &[(String, Uuid)],
+    comando: &[String],
+) -> anyhow::Result<()> {
+    let perfil = config::cargar_perfil()?;
+    let sesion = config::cargar_sesion()?;
+    let passphrase = leer_passphrase("Passphrase: ")?;
+    // Una sola derivación de la clave privada (Argon2) para todos los recursos.
+    let clave = crypto_local::reconstruir_clave_privada(&passphrase, &blob_desde_perfil(&perfil)?, &perfil.email)?;
+
+    let pedidos = resource_id.map(|id| (env_var.to_string(), id)).into_iter().chain(env.iter().cloned());
+    let mut variables = Vec::new();
+    for (nombre, id) in pedidos {
+        variables.push((nombre, secreto_principal(cliente, &sesion, &clave.x25519, id)?));
+    }
 
     // `.env()` sólo modifica el entorno del proceso hijo — nunca el del shell
     // padre, ni aparece en `ps`/argv (F-21, mismo patrón que go-passbolt-cli).
-    let estado = std::process::Command::new(&comando[0])
-        .args(&comando[1..])
-        .env(env_var, password)
-        .status()?;
+    let mut hijo = std::process::Command::new(&comando[0]);
+    hijo.args(&comando[1..]);
+    for (nombre, valor) in &variables {
+        hijo.env(nombre, valor.as_str());
+    }
+    let estado = hijo.status()?;
+    drop(variables);
 
     std::process::exit(estado.code().unwrap_or(1));
 }
@@ -731,7 +779,7 @@ fn main() -> anyhow::Result<()> {
         }
         Comando::Read { resource_id } => leer(&cliente, *resource_id)?,
         Comando::List { filter } => listar(&cliente, filter.as_deref())?,
-        Comando::Exec { resource_id, env_var, comando } => ejecutar(&cliente, *resource_id, env_var, comando)?,
+        Comando::Exec { resource_id, env_var, env, comando } => ejecutar(&cliente, *resource_id, env_var, env, comando)?,
         Comando::Admin { accion } => match accion {
             AdminAccion::CreateUser { email, display_name, role } => {
                 if role != "user" && role != "admin" {

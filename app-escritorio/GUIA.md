@@ -184,7 +184,14 @@ En la pantalla de acceso, *¿Olvidaste tu contraseña?* → escribe tu correo �
 
 ## 7. Conectar a un servidor
 
-Opcional. Une tu bóveda local con una cuenta en un servidor Ellkan. *Ajustes → Modo conectado.*
+**Si ya tenés cuenta en un servidor Ellkan**, elegí *Tengo cuenta en un servidor* en la primera pantalla de la app: pide la dirección del servidor (la misma que abrís en el navegador), tu correo, tu frase de contraseña y qué se guarda en este equipo (los tres modos de la tabla de abajo). La app arma la bóveda con tu misma cuenta, trae tus contraseñas y, desde ahí, lo que guardes en la app se sube al servidor y lo nuevo del servidor baja solo: el servidor avisa a la app en el momento en que algo cambia (y, por las dudas, la app revisa también al entrar, al volver a la ventana y cada 5 minutos), y la pantalla se actualiza sola. Se desbloquea con la misma frase que usás en la web.
+
+- Si la cuenta la creó un administrador, el servidor pide cambiar la frase antes de usarla: entrá una vez por la web, cambiala y usá la nueva.
+- Todavía no funciona si tu cuenta exige MFA o aprobación de dispositivo en el servidor.
+- Los recursos que el servidor guarda con una clave de equipo, o que te compartió otra persona, se ven en la app pero los cambios que les hagas acá no se suben: editalos en la web.
+- Para probarlo en un equipo que ya tiene una cuenta local, usá el modo portable (sección 8): arranca con una bóveda vacía y muestra la primera pantalla.
+
+**Si ya creaste una cuenta local** y en el servidor tenés una cuenta con el mismo correo, andá a *Ajustes → Modo conectado*, poné la dirección del servidor y tocá *Conectar*. La app detecta que la cuenta del servidor se creó por separado y te pide su frase; con eso une todo sola: sube tus contraseñas y carpetas de este equipo, guarda una copia de seguridad (*Ajustes → Escritorio*), pasa a usar tu cuenta del servidor y sincroniza los dos lados. Desde ese momento la app se desbloquea con la **frase del servidor**, tu kit de recuperación anterior deja de servir (la app te pide generar uno nuevo) y el desbloqueo con el llavero del sistema se desactiva hasta que lo vuelvas a activar. Los tags no se trasladan todavía.
 
 Al conectar puedes elegir cuánto vive en tu equipo (*Ajustes → Modo conectado → Persistencia de secretos*):
 
@@ -260,7 +267,18 @@ El log de la versión release registra avisos y errores; el de desarrollo tambi�
 
 La estructura de carpetas del proyecto está en [`README.md`](README.md). Requisitos: Rust (edición 2024), Node 22 o superior y pnpm.
 
-**Compilar**
+**Compilar: un solo comando en Windows y en Linux**
+
+```bash
+node app-escritorio/scripts/compilar.mjs                # portable: .exe + .zip (Windows) / .AppImage (Linux)
+node app-escritorio/scripts/compilar.mjs --instalador   # .msi (Windows) / .deb + .rpm + .AppImage (Linux)
+node app-escritorio/scripts/compilar.mjs --help         # todas las opciones
+# desde frontend/: pnpm build:desktop -- --instalador
+```
+
+Detecta el sistema y deja el resultado en `app-escritorio/windows/binarios/` o `app-escritorio/linuxOS/binarios/`. Cada instalador sólo se genera en su propio sistema: para tener los dos, se corre una vez en cada uno. Opciones: `--version X.Y.Z`, `--mantener-version` (Windows), `--formatos deb,rpm,appimage` (Linux), `--sin-frontend`, `--sin-extension`. Por debajo llama a `windows/binarios/build-windows.ps1` o `linuxOS/binarios/build-linux.sh`, que se pueden seguir usando directo; lo que sigue describe el detalle de cada uno.
+
+**Compilar en Windows (detalle)**
 
 ```powershell
 # Frontend estático (se embebe en el .exe)
@@ -292,6 +310,23 @@ El MSI lo arma Tauri con WiX 3, que se descarga la primera vez (hace falta inter
 Las imágenes del asistente (`banner.bmp`, 493×58 px, y `dialogo.bmp`, 493×312 px) salen de `src-tauri/installer/generar-imagenes.ps1`, que también contiene el resumen que se muestra en el panel de bienvenida. WiX exige esas medidas exactas y formato BMP; si cambias el logo o el texto, vuelve a correr el script antes de generar el MSI.
 
 La extensión se prepara con `node app-escritorio/scripts/preparar-extension.mjs`. **Si cambias su código, sube su versión** (`node extension/version.mjs`): la app decide si volver a copiarla comparando versiones.
+
+**Compilar en Linux**
+
+Un solo comando, con tu usuario normal (no como root), desde la carpeta del repo:
+
+```bash
+bash app-escritorio/linuxOS/binarios/build-linux.sh                     # .deb + .rpm + .AppImage
+bash app-escritorio/linuxOS/binarios/build-linux.sh --bundles appimage  # sólo el AppImage
+```
+
+No hace falta preparar nada antes: instala solo lo que falte (las librerías de Tauri con `sudo`, que te pide la contraseña una vez; Node, Rust y pnpm en tu usuario, sin `sudo`), compila en una copia de trabajo en `~/.cache/ellkan-build` y deja el resultado en `app-escritorio/linuxOS/binarios/`. La copia de trabajo es para no pisar los `node_modules/` y `target/` de Windows cuando el repo está en un disco compartido; además guarda lo compilado, así que la segunda vez tarda mucho menos. La primera vez tarda varios minutos y necesita internet. Funciona en distribuciones con `apt` (Debian, Ubuntu, Mint) o `dnf` (Fedora).
+
+**Dónde guarda los datos en Linux.** Igual que en Windows, la bóveda no vive dentro del programa sino en tu carpeta de usuario: `~/.local/share/ellkan/` (bóveda, configuración y copias), más `~/.ellkan/desktop.json`. Por eso un AppImage nuevo abre la misma cuenta que el anterior, aunque sólo lo hayas ejecutado sin instalar nada: es lo que permite actualizar sin perder contraseñas. Para probar una versión con una bóveda aparte, crea un archivo `ellkan-portable.txt` junto al `.AppImage` (o ejecútalo con `--portable`): los datos van a `ellkan-datos/` en esa misma carpeta. Mientras la app está abierta vas a ver dos procesos: `Ellkan_<versión>.AppImage` (unos pocos MB, monta el contenido del archivo) y `ellkan-desktop` (la app en sí); es normal en cualquier AppImage.
+
+Si ya tenés Node, `node app-escritorio/scripts/compilar.mjs` hace lo mismo y es el mismo comando que en Windows. Para abrir el AppImage: `chmod +x Ellkan*.AppImage && ./Ellkan*.AppImage`. La versión sale de `src-tauri/tauri.conf.json`, igual que en Windows; en Linux no sube sola.
+
+**Qué funciona hoy en Linux**: todo lo que vive en la ventana (bóveda, tokens, salud, importar/exportar, sincronización, copiar el comando de conexión). Lo que depende del sistema operativo todavía no está hecho para Linux: «Conectar», inicio con el sistema y enlaces `ellkan://` responden «no disponible»; el bloqueo al bloquear la pantalla no se activa; el portapapeles es el normal, con auto-limpieza pero sin excluirse del historial. **Ojo con «recordar el desbloqueo»:** en Linux parece guardarse pero no persiste (la librería del llavero no tiene activado el Secret Service de Linux y usa un almacén de prueba en memoria), así que al reabrir se pide la contraseña otra vez. **Nunca se compiló todavía en Linux**: la primera vez puede haber errores que en Windows no aparecen.
 
 **Probar**
 
@@ -329,7 +364,7 @@ Necesita la app **cerrada** (es de instancia única: si hay otra abierta, el `.e
 
 ## 12. Lo que todavía no existe
 
-- Linux y macOS.
+- macOS. En Linux compila (ver sección 11) pero faltan las integraciones con el sistema: «Conectar», llavero, inicio con el sistema, `ellkan://` y bloqueo de pantalla.
 - Actualización automática: se actualiza reemplazando el `.exe` (saliendo antes de la app).
 - Firma digital del instalador y del ejecutable (evitaría la advertencia de SmartScreen), y la extensión en las tiendas de los navegadores (instalación de un clic).
 - Emparejar la extensión con la app (hoy inicia sesión por su cuenta), agente SSH y credencial de git.

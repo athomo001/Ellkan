@@ -11,7 +11,7 @@
 // error explícito en vez de colgar el cliente (PBL-13-003, hallazgo real
 // de Passbolt con una librería de parseo CSV de terceros).
 
-import { verSecreto, crearRecurso, type Recurso } from './recursos';
+import { verSecreto, crearRecurso, TIPOS_RECURSO, type Recurso, type TipoRecurso } from './recursos';
 import { exportEventsApi } from '$lib/api/exportPolicy';
 import { generarCsv, parsearCsv, type FilaExport } from './exportCsv';
 import { generarKdbx, parsearKdbx } from './exportKdbx';
@@ -55,7 +55,12 @@ export async function construirFilasExport(
 			password: secreto.password,
 			uri: r.uri,
 			notes: secreto.notes,
-			totp_secret: secreto.totpSecret ?? ''
+			totp_secret: secreto.totpSecret ?? '',
+			type: r.resourceTypeSlug,
+			key_id: r.keyId,
+			token_secret: secreto.tokenSecret ?? '',
+			scopes: r.scopes,
+			expires_at: r.expiresAt
 		});
 	}
 	return { filas, recursos };
@@ -125,20 +130,31 @@ export async function importar(
 	formato: FormatoExport,
 	filas: FilaExport[],
 	claves: ClavesDesbloqueadas,
-	userId: string
+	userId: string,
+	/** Tipo para las filas sin columna `type` (o con uno desconocido, ej. el
+	 * `login` de Bitwarden). F-58: permite importar un CSV de tokens. */
+	tipoPorDefecto: TipoRecurso = 'login-password'
 ): Promise<number> {
 	await exportEventsApi.reportar({ event_type: 'import', format: formato, resource_count: filas.length });
 
 	let creados = 0;
 	for (const fila of filas) {
+		// `login-password-totp` lo vuelve a derivar `crearRecurso` si hay TOTP.
+		const slug = fila.type === 'login-password-totp' ? 'login-password' : fila.type;
+		const tipo = TIPOS_RECURSO.find((t) => t === slug) ?? tipoPorDefecto;
 		await crearRecurso(
 			{
+				tipo,
 				nombre: fila.name,
 				usuario: fila.username,
 				uri: fila.uri,
 				password: fila.password,
 				notas: fila.notes,
-				totpSecretBase32: fila.totp_secret || undefined
+				totpSecretBase32: fila.totp_secret || undefined,
+				keyId: fila.key_id,
+				tokenSecret: fila.token_secret,
+				scopes: fila.scopes,
+				expiresAt: fila.expires_at
 			},
 			claves,
 			userId

@@ -2,6 +2,7 @@
 	import '$lib/styles/base.css';
 	import { preferencias } from '$lib/state/session';
 	import { aplicarTema } from '$lib/api/preferences';
+	import { preferenciasLectura, aplicarLectura } from '$lib/state/lectura';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 
 	import TitleBar from '$lib/components/TitleBar.svelte';
@@ -31,6 +32,11 @@
 	// respetar la preferencia elegida en una sesión anterior.
 	$effect(() => {
 		aplicarTema($preferencias.theme);
+	});
+
+	// Fuente/espaciado/tamaño de lectura (accesibilidad), local por dispositivo.
+	$effect(() => {
+		aplicarLectura($preferenciasLectura);
 	});
 
 	// Modo escritorio (Tauri): el WebView no abre `<a target="_blank">` en el

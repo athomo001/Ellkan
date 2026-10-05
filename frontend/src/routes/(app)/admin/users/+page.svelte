@@ -28,6 +28,12 @@
 	let creandoUsuario = $state(false);
 	let errorCrear = $state<string | undefined>();
 	let passphraseCreada = $state<string | undefined>();
+	// La frase temporal la escribe el admin (o la genera con el botón): antes se
+	// generaba sola y se mostraba una única vez, y si no se copiaba la cuenta
+	// quedaba inutilizable (zero-knowledge: el servidor no la conoce). El
+	// usuario igual está obligado a cambiarla al entrar por primera vez.
+	let nuevaPassphrase = $state('');
+	const LARGO_MINIMO_TEMPORAL = 8;
 
 	// Punto 4 (feedback de uso real): asignar grupo(s) en el mismo alta, sin
 	// el paso aparte de siempre. Sólo grupos raíz (`GET /groups`) — cubre el
@@ -65,9 +71,14 @@
 		advertenciasGrupos = [];
 		creandoUsuario = true;
 		try {
-			const passphrase = generarPassphraseTemporal();
+			if (nuevaPassphrase.length < LARGO_MINIMO_TEMPORAL) {
+				errorCrear = $t.admin.usuarios.passphraseTemporalCorta(LARGO_MINIMO_TEMPORAL);
+				return;
+			}
+			const passphrase = nuevaPassphrase;
 			const resultado = await crearUsuarioPorAdmin(nuevoEmail, nuevoNombre, passphrase);
 			passphraseCreada = passphrase;
+			nuevaPassphrase = '';
 
 			// Grupo sin recursos compartidos todavía: `envelopes: []` alcanza
 			// (mismo criterio que `GroupService::agregar_miembro`). Si algún
@@ -281,6 +292,17 @@
 	<form onsubmit={crearUsuario} class="form-crear">
 		<TextField label={$t.admin.usuarios.nombre} bind:value={nuevoNombre} autocomplete="off" required />
 		<TextField label={$t.admin.usuarios.email} type="email" bind:value={nuevoEmail} autocomplete="off" required />
+		<TextField
+			label={$t.admin.usuarios.passphraseTemporal}
+			type="password"
+			bind:value={nuevaPassphrase}
+			autocomplete="new-password"
+			hint={$t.admin.usuarios.passphraseTemporalHint}
+			required
+		/>
+		<Button type="button" variant="ghost" onclick={() => (nuevaPassphrase = generarPassphraseTemporal())}>
+			{$t.admin.usuarios.generarPassphrase}
+		</Button>
 		<Button type="submit" variant="primary" loading={creandoUsuario}>{$t.admin.usuarios.crear}</Button>
 	</form>
 	{#if gruposDisponibles.length > 0}
@@ -306,7 +328,7 @@
 	{#if passphraseCreada}
 		<div class="passphrase-creada">
 			<p class="ok">{$t.admin.usuarios.creadoOk}</p>
-			<SecretField label={$t.admin.usuarios.passphraseGenerada} valor={passphraseCreada} />
+			<SecretField label={$t.admin.usuarios.passphraseTemporal} valor={passphraseCreada} />
 		</div>
 	{/if}
 	{#each advertenciasGrupos as advertencia (advertencia)}

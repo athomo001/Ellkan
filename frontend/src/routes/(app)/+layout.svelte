@@ -13,11 +13,26 @@
 	import { sesion, preferencias, esAdmin, permisos, externalSharePolicy } from '$lib/state/session';
 	import { externalSharePolicyApi } from '$lib/api/externalShares';
 	import { cargarPreferencias, alternarTema as alternarTemaLocal, guardarPreferencias } from '$lib/api/preferences';
+	import { preferenciasLectura, alternarFuenteLectura, normalizarLectura } from '$lib/state/lectura';
+	// Normalizado: lo guardado por la versión anterior no tenía `activa`.
+	const lecturaActiva = $derived(normalizarLectura($preferenciasLectura).activa);
 	import { cerrarSesion } from '$lib/crypto/identity';
 	import { limpiarStoresEn } from '$lib/state/declarative-store';
 	import { perfilApi, permisosApi, obtenerAvatarUrl, type Perfil } from '$lib/api/profile';
 	import { ApiError } from '$lib/api/client';
 	import { enModoEscritorio } from '$lib/tauri/conectar';
+	import { clavesDesbloqueadas } from '$lib/state/session';
+	import { obtenerVinculacion } from '$lib/sync/vinculacion';
+	import { iniciarSyncAutomatico } from '$lib/sync/automatico';
+
+	// F-47: bóveda de escritorio vinculada y desbloqueada → trae lo nuevo del
+	// servidor sola (al entrar, cada pocos minutos y al volver a la ventana).
+	// Se apaga al bloquear (sin claves no hay con qué descifrar lo que llega).
+	$effect(() => {
+		const email = $sesion.email;
+		if (!enModoEscritorio() || !$clavesDesbloqueadas || !email || !obtenerVinculacion(email)) return;
+		return iniciarSyncAutomatico();
+	});
 	import Button from '$lib/components/Button.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
 	import FolderTree from '$lib/components/FolderTree.svelte';
@@ -308,6 +323,16 @@
 					>
 						{$preferencias.locale}
 					</button>
+					<button
+						type="button"
+						class="toggle-idioma toggle-lectura"
+						class:activo={lecturaActiva}
+						onclick={alternarFuenteLectura}
+						aria-pressed={lecturaActiva}
+						title={$t.appShell.fuenteLectura}
+					>
+						Aa
+					</button>
 				</div>
 				<a class="cuenta" href="/settings/profile" title={$sesion.email ?? ''}>
 					{#if avatarUrl}
@@ -436,6 +461,14 @@
 	.toggle-idioma:hover {
 		color: var(--text-primary);
 		border-color: var(--accent-primary);
+	}
+	.toggle-lectura {
+		text-transform: none;
+	}
+	.toggle-lectura.activo {
+		color: var(--text-primary);
+		border-color: var(--accent-primary);
+		background: var(--bg-overlay);
 	}
 	.marca img {
 		display: block;

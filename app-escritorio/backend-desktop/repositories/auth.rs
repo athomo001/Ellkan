@@ -128,19 +128,76 @@ impl SqliteUserRepository {
     }
 }
 
-impl UserRepository for SqliteUserRepository {
-    async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError> {
+impl SqliteUserRepository {
+    /// Conectar la app a una cuenta que ya existe en un servidor (F-47): el
+    /// usuario local nace con el MISMO id que en el servidor. El cifrado de
+    /// cada recurso usa el id de su creador como dato asociado (AAD), así que
+    /// con ids distintos lo creado de un lado no se descifra del otro.
+    pub async fn crear_con_id(&self, nuevo: NuevoUsuario<'_>, id: Uuid) -> Result<User, RepoError> {
+        self.insertar(nuevo, true, id).await
+    }
+
+    /// Unir una bóveda local ya existente con su cuenta del servidor (F-47,
+    /// parte B): la identidad local se reemplaza por la del servidor. Borra en
+    /// la MISMA transacción todo lo que dependía de la identidad anterior
+    /// (recursos, carpetas, tags, sesiones, MFA local, kit de recuperación) y
+    /// crea el usuario nuevo; si algo falla, no se aplica nada. El cliente ya
+    /// subió los datos al servidor y pidió una copia de seguridad antes de
+    /// llamar acá: después los trae de vuelta con el sync, ya con la
+    /// identidad nueva. Quedan intactos los tipos de recurso, las claves del
+    /// backend local y el historial de migraciones.
+    pub async fn reemplazar_identidad(&self, nuevo: NuevoUsuario<'_>, id: Uuid) -> Result<User, RepoError> {
         let mut tx = self.pool.begin().await?;
+        // Orden: primero lo que referencia a otras tablas, al final `users`.
+        for sentencia in [
+            "delete from resource_tags",
+            "delete from folder_items",
+            "delete from secret_envelopes",
+            "delete from metadata_deks",
+            "delete from resources",
+            "delete from tags",
+            "delete from folders",
+            "delete from recovery_reset_tokens",
+            "delete from recovery_kits",
+            "delete from mfa_challenges",
+            "delete from user_totp_credentials",
+            "delete from email_verification_challenges",
+            "delete from device_challenges",
+            "delete from known_devices",
+            "delete from sessions",
+            "delete from auth_challenges",
+            "delete from user_keys",
+            "delete from users",
+        ] {
+            sqlx::query(sentencia).execute(&mut *tx).await?;
+        }
+        let usuario = Self::insertar_en(&mut tx, nuevo, true, id).await?;
+        tx.commit().await?;
+        Ok(usuario)
+    }
+
+    async fn insertar(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool, id: Uuid) -> Result<User, RepoError> {
+        let mut tx = self.pool.begin().await?;
+        let usuario = Self::insertar_en(&mut tx, nuevo, ya_verificado, id).await?;
+        tx.commit().await?;
+        Ok(usuario)
+    }
+
+    async fn insertar_en(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        nuevo: NuevoUsuario<'_>,
+        ya_verificado: bool,
+        id: Uuid,
+    ) -> Result<User, RepoError> {
 
         // Mismo criterio de bootstrap que la versión Postgres: el primer
         // usuario de toda la instancia nace ya verificado sin importar
         // `ya_verificado` — en modo escritorio esto en la práctica siempre
         // es el único usuario que va a existir (spec/13 §16).
         let existe_alguno: bool =
-            sqlx::query_scalar("select exists(select 1 from users)").fetch_one(&mut *tx).await?;
+            sqlx::query_scalar("select exists(select 1 from users)").fetch_one(&mut **tx).await?;
         let nace_verificado = !existe_alguno || ya_verificado;
 
-        let id = Uuid::now_v7();
         let security_stamp = Uuid::now_v7();
         let ahora = OffsetDateTime::now_utc();
         let email_verified_at = nace_verificado.then(|| fmt_dt(ahora));
@@ -155,7 +212,7 @@ impl UserRepository for SqliteUserRepository {
         .bind(security_stamp.to_string())
         .bind(email_verified_at)
         .bind(fmt_dt(ahora))
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await;
 
         if let Err(sqlx::Error::Database(db)) = &resultado
@@ -177,12 +234,16 @@ impl UserRepository for SqliteUserRepository {
         .bind(nuevo.encrypted_private_key_blob)
         .bind(nuevo.private_key_nonce)
         .bind(nuevo.kdf_salt)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
-        tx.commit().await?;
-
         Ok(User { id, security_stamp, created_at: ahora, must_change_passphrase: false })
+    }
+}
+
+impl UserRepository for SqliteUserRepository {
+    async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError> {
+        self.insertar(nuevo, ya_verificado, Uuid::now_v7()).await
     }
 
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {

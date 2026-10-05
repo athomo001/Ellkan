@@ -15,6 +15,7 @@
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 	import { enModoEscritorio } from '$lib/tauri/conectar';
+	import { copiarConLimpieza } from '$lib/clipboard';
 
 	let { mensaje, onGenerado }: { mensaje: string; onGenerado: () => void } = $props();
 
@@ -82,7 +83,8 @@
 	async function copiar() {
 		if (!kitPrivadaB64) return;
 		try {
-			await navigator.clipboard.writeText(kitPrivadaB64);
+			// Sin auto-limpieza (hay que pegarla en otro lado), pero fuera del historial de Windows.
+			await copiarConLimpieza(kitPrivadaB64, 0);
 			copiado = true;
 			yaGuardado = true;
 		} catch {

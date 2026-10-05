@@ -79,6 +79,12 @@ interface MetadataJson {
 	 * (spec 06 §4.2) — ausente = `host`. Cifrada junto al resto de la
 	 * metadata, el servidor nunca la ve. */
 	matching?: string;
+	/** F-58 (`api-token`): parte pública de un par id+secreto (AWS Access Key
+	 * ID, OAuth client_id), alcances y vencimiento (`YYYY-MM-DD`). Van acá,
+	 * cifrados, para que el servidor nunca vea cuándo vence un token. */
+	key_id?: string;
+	scopes?: string;
+	expires_at?: string;
 }
 
 /**
@@ -97,6 +103,9 @@ interface SecretoJson {
 	password?: string;
 	notes?: string;
 	totp_secret?: string;
+	/** F-58 (`api-token`): el token en sí y, si es un par, su secreto. */
+	token?: string;
+	token_secret?: string;
 	recovery_codes?: string[];
 	campos_extra?: Record<string, string>;
 }
@@ -124,6 +133,28 @@ export interface Recurso {
 	 * `ResourceService::puede_borrar` (admin del grupo dueño de la carpeta,
 	 * o `owner` fuera de una carpeta de grupo). */
 	puedeBorrar: boolean;
+	/** F-58 (`api-token`), vacíos en los demás tipos. */
+	keyId: string;
+	scopes: string;
+	expiresAt: string;
+}
+
+/** Secreto descifrado. En `api-token`, `password` es el token (el secreto
+ * principal del recurso, el que copian "Copiar" y Ctrl+C). */
+export interface SecretoAbierto {
+	password: string;
+	notes: string;
+	totpSecret?: string;
+	tokenSecret?: string;
+}
+
+function secretoDesdeJson(json: SecretoJson): SecretoAbierto {
+	return {
+		password: json.password ?? json.token ?? '',
+		notes: json.notes ?? '',
+		totpSecret: json.totp_secret,
+		tokenSecret: json.token_secret
+	};
 }
 
 /**
@@ -194,6 +225,9 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 			usuario: string;
 			uri: string;
 			matching?: string;
+			keyId?: string;
+			scopes?: string;
+			expiresAt?: string;
 			dekPropiaB64?: string;
 		}>(r.id, r.metadata_nonce_b64);
 		if (enCache) {
@@ -210,7 +244,10 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				metadataKeyId: r.metadata_key_id ?? undefined,
 				updated_at: r.updated_at,
 				folderId: r.folder_id ?? null,
-				puedeBorrar: r.puede_borrar ?? false
+				puedeBorrar: r.puede_borrar ?? false,
+				keyId: enCache.keyId ?? '',
+				scopes: enCache.scopes ?? '',
+				expiresAt: enCache.expiresAt ?? ''
 			});
 			continue;
 		}
@@ -255,6 +292,9 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 			const usuario = metadata.username ?? '';
 			const uri = metadata.uri ?? '';
 			const matching = normalizarEstrategia(metadata.matching);
+			const keyId = metadata.key_id ?? '';
+			const scopes = metadata.scopes ?? '';
+			const expiresAt = metadata.expires_at ?? '';
 			resultado.push({
 				id: r.id,
 				createdBy: r.created_by,
@@ -268,13 +308,19 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 				metadataKeyId: r.metadata_key_id ?? undefined,
 				updated_at: r.updated_at,
 				folderId: r.folder_id ?? null,
-				puedeBorrar: r.puede_borrar ?? false
+				puedeBorrar: r.puede_borrar ?? false,
+				keyId,
+				scopes,
+				expiresAt
 			});
 			await guardarEnCache(r.id, r.metadata_nonce_b64, {
 				nombre,
 				usuario,
 				uri,
 				matching,
+				keyId,
+				scopes,
+				expiresAt,
 				dekPropiaB64: dekPropia ? bytesABase64(dekPropia) : undefined
 			});
 		} catch {
@@ -374,7 +420,7 @@ export function comandoDeConexion(recurso: Pick<Recurso, 'resourceTypeSlug' | 'u
 export async function verSecreto(
 	recurso: Recurso,
 	claves: ClavesDesbloqueadas
-): Promise<{ password: string; notes: string; totpSecret?: string }> {
+): Promise<SecretoAbierto> {
 	const wasm = await cargarCrypto();
 
 	let secreto: SecretoCrudo;
@@ -387,7 +433,7 @@ export async function verSecreto(
 		if (modo === 'memory') {
 			const cache = get(secretosEnMemoria);
 			const enCache = cache[recurso.id];
-			if (enCache) return { password: enCache.password, notes: enCache.notes, totpSecret: enCache.totpSecret };
+			if (enCache) return { ...enCache };
 		}
 
 		secreto = await secretoCompletoDesdeRemoto(recurso.id, claves);
@@ -400,7 +446,7 @@ export async function verSecreto(
 			aadRemota
 		);
 		const jsonRemoto: SecretoJson = JSON.parse(new TextDecoder().decode(bytesRemotos));
-		const resultado = { password: jsonRemoto.password ?? '', notes: jsonRemoto.notes ?? '', totpSecret: jsonRemoto.totp_secret };
+		const resultado = secretoDesdeJson(jsonRemoto);
 
 		// `NamesOnly` nunca cachea — se vuelve a pedir en cada reveal, tal
 		// como pide spec/13 §8 ("ni en RAM más allá del uso").
@@ -419,7 +465,7 @@ export async function verSecreto(
 		aad
 	);
 	const json: SecretoJson = JSON.parse(new TextDecoder().decode(bytes));
-	return { password: json.password ?? '', notes: json.notes ?? '', totpSecret: json.totp_secret };
+	return secretoDesdeJson(json);
 }
 
 /** `DELETE /resources/{id}` (2026-08-11, endpoint nuevo) — ver
@@ -443,7 +489,9 @@ export async function salirDeRecurso(resourceId: string): Promise<void> {
  * (host:puerto en `uri`) — sólo cambia el `resource_type_slug` para
  * categorizar/mostrar un ícono distinto y armar el comando de conexión
  * copiable (`comandoDeConexion`), sin autenticación por clave SSH todavía. */
-export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc' | 'telnet' | 'rdp' | 'postgresql' | 'mysql' | 'mongodb';
+export type TipoRecurso = 'login-password' | 'ftp' | 'ssh' | 'vnc' | 'telnet' | 'rdp' | 'postgresql' | 'mysql' | 'mongodb' | 'api-token';
+
+export const TIPOS_RECURSO: TipoRecurso[] = ['login-password', 'ftp', 'ssh', 'vnc', 'telnet', 'rdp', 'postgresql', 'mysql', 'mongodb', 'api-token'];
 
 export interface NuevoRecurso {
 	/** Sólo relevante para `crearRecurso` — `editarRecurso` reusa este mismo
@@ -459,6 +507,29 @@ export interface NuevoRecurso {
 	/** Estrategia de matching para autofill (spec 06 §4.2). Omitida = `host`.
 	 * En `editarRecurso`, omitirla preserva la que ya tenía el recurso. */
 	matching?: EstrategiaMatch;
+	/** F-58 (`api-token`): en ese tipo `password` es el token. */
+	keyId?: string;
+	scopes?: string;
+	expiresAt?: string;
+	tokenSecret?: string;
+}
+
+/** Arma metadata y secreto en claro según el tipo. `api-token` guarda el
+ * token en `token` (no en `password`) y suma sus campos propios; los vacíos
+ * no se guardan, para no agrandar el blob cifrado. */
+function construirContenido(tipo: string, datos: NuevoRecurso): { metadata: MetadataJson; secreto: SecretoJson } {
+	const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	if (tipo !== 'api-token') {
+		const secreto: SecretoJson = { password: datos.password, notes: datos.notas };
+		if (datos.totpSecretBase32) secreto.totp_secret = datos.totpSecretBase32;
+		return { metadata, secreto };
+	}
+	if (datos.keyId) metadata.key_id = datos.keyId;
+	if (datos.scopes) metadata.scopes = datos.scopes;
+	if (datos.expiresAt) metadata.expires_at = datos.expiresAt;
+	const secreto: SecretoJson = { token: datos.password, notes: datos.notas };
+	if (datos.tokenSecret) secreto.token_secret = datos.tokenSecret;
+	return { metadata, secreto };
 }
 
 /**
@@ -485,12 +556,10 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
 	const metadataKeyId = primeraEntrada.done ? null : primeraEntrada.value[0];
 	const claveMetadata = primeraEntrada.done ? dek : primeraEntrada.value[1];
 
-	const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	const { metadata, secreto: secretoJson } = construirContenido(datos.tipo ?? 'login-password', datos);
 	// Sólo se guarda `matching` si no es el default — metadata mínima, y un
 	// recurso viejo sin el campo sigue comportándose igual.
 	if (datos.matching && datos.matching !== ESTRATEGIA_MATCH_DEFAULT) metadata.matching = datos.matching;
-	const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
-	if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
 	const metadataCifrada = wasm.cifrar_aead(claveMetadata, new TextEncoder().encode(JSON.stringify(metadata)), aad);
 	const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
@@ -549,14 +618,12 @@ export async function editarRecurso(
 		claveMetadata = clave;
 	}
 
-	const metadata: MetadataJson = { name: datos.nombre, username: datos.usuario, uri: datos.uri };
+	const { metadata, secreto: secretoJson } = construirContenido(recurso.resourceTypeSlug, datos);
 	// Preserva la estrategia del recurso si el editor no la cambió — sin esto,
 	// editar cualquier otro campo borraría un `exact`/`base_domain`/`never`
 	// elegido antes (mismo cuidado que el resto de campos reconstruidos).
 	const matching = datos.matching ?? recurso.matching;
 	if (matching !== ESTRATEGIA_MATCH_DEFAULT) metadata.matching = matching;
-	const secretoJson: SecretoJson = { password: datos.password, notes: datos.notas };
-	if (datos.totpSecretBase32) secretoJson.totp_secret = datos.totpSecretBase32;
 
 	const metadataCifrada = wasm.cifrar_aead(claveMetadata, new TextEncoder().encode(JSON.stringify(metadata)), aad);
 	const secretoCifrado = wasm.cifrar_aead(dek, new TextEncoder().encode(JSON.stringify(secretoJson)), aad);
@@ -603,6 +670,9 @@ export async function editarRecurso(
 		usuario: datos.usuario,
 		uri: datos.uri,
 		matching,
+		keyId: metadata.key_id ?? '',
+		scopes: metadata.scopes ?? '',
+		expiresAt: metadata.expires_at ?? '',
 		dekPropia: recurso.metadataKeyType === 'user_key' ? dek : recurso.dekPropia,
 		updated_at: actualizado.updated_at
 	};

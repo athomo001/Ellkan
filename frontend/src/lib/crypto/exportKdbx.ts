@@ -18,7 +18,22 @@ export interface FilaExport {
 	uri: string;
 	notes: string;
 	totp_secret: string;
+	type?: string;
+	key_id?: string;
+	token_secret?: string;
+	scopes?: string;
+	expires_at?: string;
 }
+
+// F-58: campos propios de Ellkan como campos personalizados de KeePass, para
+// que un export → import no los pierda. `TokenSecret` va protegido como
+// `Password`.
+const CAMPOS_EXTRA = [
+	['type', 'Ellkan-Type'],
+	['key_id', 'KeyId'],
+	['scopes', 'Scopes'],
+	['expires_at', 'Expires']
+] as const;
 
 function otpauthUri(nombre: string, secretoBase32: string): string {
 	return `otpauth://totp/${encodeURIComponent(nombre)}?secret=${secretoBase32}&issuer=Ellkan&algorithm=SHA1&digits=6&period=30`;
@@ -49,6 +64,10 @@ export async function generarKdbx(filas: FilaExport[], masterPassword: string): 
 				: base32Codificar(new TextEncoder().encode(fila.totp_secret));
 			entry.fields.set('otp', otpauthUri(fila.name || 'Ellkan', secretoBase32));
 		}
+		for (const [clave, campoKdbx] of CAMPOS_EXTRA) {
+			if (fila[clave]) entry.fields.set(campoKdbx, fila[clave]);
+		}
+		if (fila.token_secret) entry.fields.set('TokenSecret', kdbxweb.ProtectedValue.fromString(fila.token_secret));
 	}
 
 	return db.save();
@@ -89,7 +108,12 @@ export async function parsearKdbx(bytes: ArrayBuffer, masterPassword: string): P
 				password: campo(entry, 'Password'),
 				uri: campo(entry, 'URL'),
 				notes: campo(entry, 'Notes'),
-				totp_secret: totpSecretDeOtp(entry)
+				totp_secret: totpSecretDeOtp(entry),
+				type: campo(entry, 'Ellkan-Type'),
+				key_id: campo(entry, 'KeyId'),
+				token_secret: campo(entry, 'TokenSecret'),
+				scopes: campo(entry, 'Scopes'),
+				expires_at: campo(entry, 'Expires')
 			});
 		}
 	}

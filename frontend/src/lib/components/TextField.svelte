@@ -105,6 +105,9 @@
 	}
 	.fila-input.con-toggle input {
 		padding-right: var(--space-8);
+		/* Campo de secreto: monoespaciada aunque se haya elegido una fuente de
+		 * lectura, para distinguir 0/O y l/I/1 (también revelado). */
+		font-family: var(--font-mono);
 	}
 	input:focus-visible {
 		outline: none;

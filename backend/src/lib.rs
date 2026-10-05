@@ -54,6 +54,7 @@ use axum::routing::{delete, get, post, put};
 use axum::Router;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::GovernorLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -99,6 +100,28 @@ fn capa_headers_seguridad(router: Router) -> Router {
         .layer(header_estatico("referrer-policy", "same-origin"))
         .layer(header_estatico("cross-origin-opener-policy", "same-origin"))
         .layer(header_estatico("cross-origin-resource-policy", "same-origin"))
+}
+
+/// Orígenes de la app de escritorio (Tauri), los únicos que pueden llamar a la
+/// API desde otro origen: vincular una bóveda local a este servidor (F-47)
+/// sale del webview de la app, no de una página servida por este backend.
+/// `tauri://localhost` es Linux/macOS; `http(s)://tauri.localhost`, Windows.
+const ORIGENES_ESCRITORIO: [&str; 3] = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
+
+/// CORS sólo para la app de escritorio. Un navegador no deja que una página
+/// declare un `Origin` ajeno, así que ningún sitio web puede pasar por uno de
+/// estos orígenes; la autenticación es por `Authorization: Bearer` (sin
+/// cookies), así que no hace falta `allow_credentials`. Clientes que no son
+/// navegadores (CLI) ignoran CORS de todas formas. Va por fuera del resto de
+/// las capas para responder el preflight `OPTIONS` antes del ruteo, que si no
+/// devuelve 405.
+fn capa_cors() -> CorsLayer {
+    use axum::http::{header, Method};
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(ORIGENES_ESCRITORIO.map(HeaderValue::from_static)))
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::IF_MATCH])
+        .max_age(std::time::Duration::from_secs(3600))
 }
 
 /// `ELLKAN_FRONTEND_DIST` (default `frontend/build`, relativo al `cwd` del
@@ -364,6 +387,9 @@ pub fn construir_router(estado: AppState) -> Router {
     // de forma asíncrona, nunca dentro de la transacción de la acción que
     // audita (ver `audit::consumidor`).
     audit::consumidor::spawn_consumidor(&estado.eventos, estado.audit_log.clone());
+
+    // F-47: avisos en vivo a la app de escritorio (`GET /sync/eventos`).
+    sync::avisos::spawn_consumidor(&estado.eventos, estado.recursos.clone(), estado.avisos_sync.clone());
 
     // F-40: purga física de lo soft-deleted vencido — diaria, idempotente,
     // sin cursor propio (cada corrida sólo actúa sobre lo que siga vencido).
@@ -769,6 +795,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/users/search", get(auth::handlers::buscar))
         .route("/users/{id}/avatar", get(auth::handlers::avatar))
         .route("/sync", get(sync::handlers::sync))
+        .route("/sync/eventos", get(sync::avisos::eventos))
         .nest("/auth", auth_router)
         .nest("/resources", resources_router)
         .nest("/admin/roles", admin_roles_router)
@@ -854,5 +881,5 @@ pub fn construir_router(estado: AppState) -> Router {
         )
         .with_state(estado);
 
-    capa_headers_seguridad(router)
+    capa_headers_seguridad(router).layer(capa_cors())
 }

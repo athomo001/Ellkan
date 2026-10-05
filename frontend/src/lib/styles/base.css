@@ -1,6 +1,7 @@
 /* Autor: Athan Espinoza */
 
 @import './tokens.css';
+@import './fuentes.css';
 
 *,
 *::before,
@@ -17,7 +18,7 @@ body {
 	margin: 0;
 	font-family: var(--font-sans);
 	font-size: var(--text-base);
-	line-height: 1.5;
+	line-height: var(--interlineado, 1.5);
 	background: var(--bg-base);
 	color: var(--text-primary);
 	/* Reflow correcto hasta ~1024px, sin scroll horizontal (F-30, sección 7) */

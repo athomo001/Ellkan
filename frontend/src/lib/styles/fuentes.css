@@ -1,0 +1,86 @@
+/* Autor: Athan Espinoza */
+
+/*
+ * Fuentes de lectura (accesibilidad): se eligen en Ajustes → Preferencias y se
+ * aplican con atributos en <html> (ver `lib/state/lectura.ts`). Van empaquetadas
+ * en el build (static/fonts, licencia SIL OFL 1.1): el escritorio funciona sin
+ * red y ningún tercero se entera de quién usa la app. `font-display: swap`:
+ * mientras carga se ve la fuente del sistema, nunca texto invisible.
+ */
+
+@font-face {
+	font-family: 'OpenDyslexic';
+	src: url('/fonts/opendyslexic-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'OpenDyslexic';
+	src: url('/fonts/opendyslexic-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible';
+	src: url('/fonts/atkinson-hyperlegible-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible';
+	src: url('/fonts/atkinson-hyperlegible-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Lexend';
+	src: url('/fonts/lexend-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Lexend';
+	src: url('/fonts/lexend-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible Mono';
+	src: url('/fonts/atkinson-hyperlegible-mono-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible Mono';
+	src: url('/fonts/atkinson-hyperlegible-mono-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+
+/* Con cualquier fuente de lectura, los secretos pasan a Atkinson Hyperlegible
+ * Mono: al leer o dictar una contraseña importa distinguir 0/O y l/I/1 más que
+ * el estilo de la fuente elegida. */
+:root[data-fuente='opendyslexic'] {
+	--font-sans: 'OpenDyslexic', 'Segoe UI', sans-serif;
+	--font-mono: 'Atkinson Hyperlegible Mono', ui-monospace, monospace;
+}
+:root[data-fuente='atkinson'] {
+	--font-sans: 'Atkinson Hyperlegible', 'Segoe UI', sans-serif;
+	--font-mono: 'Atkinson Hyperlegible Mono', ui-monospace, monospace;
+}
+:root[data-fuente='lexend'] {
+	--font-sans: 'Lexend', 'Segoe UI', sans-serif;
+	--font-mono: 'Atkinson Hyperlegible Mono', ui-monospace, monospace;
+}
+
+/* El resto de la UI usa `rem`: cambiar el tamaño base escala todo junto. */
+html {
+	font-size: calc(var(--escala-texto, 1) * 100%);
+}
+:root[data-espaciado='amplio'] body {
+	letter-spacing: 0.02em;
+	word-spacing: 0.08em;
+}
+:root[data-interlineado='amplio'] {
+	--interlineado: 1.9;
+}

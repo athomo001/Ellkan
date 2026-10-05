@@ -62,6 +62,8 @@ pub struct AppState {
     pub desafios_dispositivo: PgDeviceChallengeRepository,
     pub emails: PgOutboundEmailRepository,
     pub eventos: EmisorDeEventos,
+    /// F-47: avisos en vivo a la app de escritorio (`sync::avisos`).
+    pub avisos_sync: crate::sync::avisos::CanalAvisos,
     pub recursos: PgResourceRepository,
     pub tipos_recurso: PgResourceTypeRepository,
     pub envolturas: PgSecretEnvelopeRepository,
@@ -181,6 +183,7 @@ impl AppState {
             desafios_dispositivo: PgDeviceChallengeRepository { pool: pool.clone() },
             emails: PgOutboundEmailRepository { pool: pool.clone() },
             eventos: eventos::nuevo_canal(),
+            avisos_sync: crate::sync::avisos::nuevo_canal(),
             recursos: PgResourceRepository { pool: pool.clone() },
             tipos_recurso: PgResourceTypeRepository { pool: pool.clone() },
             envolturas: PgSecretEnvelopeRepository { pool: pool.clone() },

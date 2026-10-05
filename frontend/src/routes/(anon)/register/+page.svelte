@@ -9,10 +9,16 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import { registrar, verificarEmail, reenviarVerificacionEmail } from '$lib/crypto/identity';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
+	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
+	import ConectarServidorInicial from '$lib/components/ConectarServidorInicial.svelte';
+
+	// Escritorio, primer arranque: crear una cuenta sólo local, o usar la que ya
+	// existe en un servidor Ellkan (F-47). En la web sólo existe la primera.
+	const escritorio = enModoEscritorio();
+	let opcion = $state<'local' | 'servidor'>('local');
 
 	// F-46: mismo criterio que el link escondido en el login — si alguien
 	// llega acá directo (bookmark, back del navegador) y ya existe el único
@@ -138,8 +144,25 @@
 			{/if}
 		</p>
 	{:else}
-		<h1>{$t.registro.crearCuenta}</h1>
-		<p class="subtitulo">{$t.registro.subtitulo}</p>
+		{#if escritorio}
+			<h1>{$t.conectarInicial.bienvenida}</h1>
+			<div class="opciones" role="tablist">
+				<button type="button" role="tab" aria-selected={opcion === 'local'} class:activa={opcion === 'local'} onclick={() => (opcion = 'local')}>
+					<strong>{$t.conectarInicial.opcionLocal}</strong>
+					<small>{$t.conectarInicial.opcionLocalDetalle}</small>
+				</button>
+				<button type="button" role="tab" aria-selected={opcion === 'servidor'} class:activa={opcion === 'servidor'} onclick={() => (opcion = 'servidor')}>
+					<strong>{$t.conectarInicial.opcionServidor}</strong>
+					<small>{$t.conectarInicial.opcionServidorDetalle}</small>
+				</button>
+			</div>
+		{:else}
+			<h1>{$t.registro.crearCuenta}</h1>
+			<p class="subtitulo">{$t.registro.subtitulo}</p>
+		{/if}
+		{#if escritorio && opcion === 'servidor'}
+			<ConectarServidorInicial />
+		{:else}
 		<form onsubmit={enviar}>
 			<TextField label={$t.registro.nombre} bind:value={displayName} autocomplete="name" required />
 			<TextField label={$t.registro.email} type="email" bind:value={email} autocomplete="email" required />
@@ -164,7 +187,10 @@
 			{#if error}<p class="error">{error}</p>{/if}
 			<Button type="submit" variant="primary" loading={cargando}>{$t.registro.crearCuenta}</Button>
 		</form>
-		<p class="hint">{$t.registro.yaTenesCuenta} <a href="/login">{$t.registro.iniciaSesion}</a></p>
+		{/if}
+		{#if !escritorio}
+			<p class="hint">{$t.registro.yaTenesCuenta} <a href="/login">{$t.registro.iniciaSesion}</a></p>
+		{/if}
 	{/if}
 </Card>
 
@@ -173,6 +199,35 @@
 		margin: 0;
 		font-size: var(--text-2xl);
 		color: var(--text-primary);
+	}
+	.opciones {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
+		margin: var(--space-4) 0 var(--space-6) 0;
+	}
+	.opciones button {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		text-align: left;
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-3);
+		color: var(--text-primary);
+		font: inherit;
+		cursor: pointer;
+	}
+	.opciones button.activa {
+		border-color: var(--accent-primary);
+	}
+	.opciones strong {
+		font-size: var(--text-sm);
+	}
+	.opciones small {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
 	}
 	.subtitulo {
 		margin: var(--space-2) 0 var(--space-6) 0;

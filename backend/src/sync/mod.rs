@@ -11,5 +11,6 @@
 //! — no `resource_tags` (aplicar/quitar un tag no toca ningún timestamp
 //! hoy, gap documentado en `handlers.rs`, aceptado en la primera versión).
 
+pub mod avisos;
 pub mod dto;
 pub mod handlers;

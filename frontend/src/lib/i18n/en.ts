@@ -138,6 +138,7 @@ const en: Diccionario = {
 		muyFuerte: 'Very strong'
 	},
 	appShell: {
+		fuenteLectura: 'Reading font (on/off)',
 		vault: 'Vault',
 		miCuenta: 'My account',
 		preferencias: 'Preferences',
@@ -212,6 +213,20 @@ const en: Diccionario = {
 		tipoPostgresql: 'PostgreSQL',
 		tipoMysql: 'MySQL / MariaDB',
 		tipoMongodb: 'MongoDB',
+		tipoApiToken: 'Token / API key',
+		apiToken: {
+			token: 'Token',
+			tokenHint: 'Paste it as is: JWTs, PEM keys or a service account JSON also work.',
+			keyId: 'Public ID (optional)',
+			keyIdHint: 'The public half of a pair: AWS Access Key ID, OAuth client_id, Twilio SID…',
+			tokenSecret: 'Pair secret (optional)',
+			scopes: 'Permissions / scopes (optional)',
+			vence: 'Expires',
+			servicio: 'Service / URL',
+			cuenta: 'Owning account or app (optional)',
+			vencido: 'Expired',
+			venceEn: (dias: number) => (dias === 0 ? 'Expires today' : `Expires in ${dias} ${dias === 1 ? 'day' : 'days'}`)
+		},
 		matching: 'URL match (autofill)',
 		matchingHint: 'When the extension offers this item to autofill on a page.',
 		matchingExact: 'Exact — same address and path',
@@ -289,7 +304,8 @@ const en: Diccionario = {
 			rdp: 'RDP',
 			postgresql: 'PostgreSQL',
 			mysql: 'MySQL / MariaDB',
-			mongodb: 'MongoDB'
+			mongodb: 'MongoDB',
+			'api-token': 'Token / API key'
 		},
 		compartirLote: {
 			boton: 'Share',
@@ -365,6 +381,10 @@ const en: Diccionario = {
 		archivo: 'File',
 		arrastrarArchivo: 'Drag your file here, or click to choose it (.kdbx, .csv, .json)',
 		columnaMapeoHint: "We don't recognize this CSV's headers — tell us what each column is. Leave \"Ignore\" on the ones that don't matter.",
+		mapeoTipo: 'Type (Ellkan slug)',
+		mapeoVence: 'Expiry (YYYY-MM-DD)',
+		tipoDestino: 'Import as',
+		tipoDestinoHint: 'For rows without a type column. With "Token / API key", the password column holds the token.',
 		mapeoIgnorar: 'Ignore',
 		mapeoTitulo: 'Title',
 		mapeoUsuario: 'Username',
@@ -397,13 +417,53 @@ const en: Diccionario = {
 		revocar: 'Revoke',
 		sinShares: "You haven't created any external links yet — they're created from a specific Vault item."
 	},
+	conectarInicial: {
+		bienvenida: 'Welcome to Ellkan',
+		opcionLocal: 'Local account',
+		opcionLocalDetalle: 'Only on this device, not connected to any server. You can link it later.',
+		opcionServidor: 'I have a server account',
+		opcionServidorDetalle: 'Use your account on an Ellkan server: brings your passwords, and what you save here is uploaded there.',
+		servidor: 'Server address',
+		servidorHint: 'The same one you open in the browser, e.g. https://ellkan.mycompany.com',
+		passphrase: 'Passphrase of that account',
+		modo: 'What is kept on this device?',
+		modos: {
+			full: { titulo: 'Full replica', detalle: 'Everything, encrypted. Works offline.' },
+			memory: { titulo: 'Memory only', detalle: 'Names and usernames; passwords are fetched from the server and forgotten on close.' },
+			names_only: { titulo: 'Names only', detalle: 'Names and usernames; each password is fetched from the server every time.' }
+		},
+		conectar: 'Connect',
+		pasoServidor: 'Signing in to your server account…',
+		pasoLocal: 'Preparing the vault on this device…',
+		pasoSync: 'Bringing your data from the server…',
+		errorLoginLocal: 'The account was created on this device but sign-in failed. Try signing in with your email and passphrase.',
+		errorGenerico: 'Could not connect to the server.'
+	},
 	settingsPreferences: {
 		titulo: 'Preferences',
 		portapapeles: 'Clear clipboard (minutes)',
 		autoBloqueo: 'Auto-lock (minutes, empty = disabled)',
 		guardar: 'Save',
 		guardado: 'Saved.',
-		error: 'Could not save preferences.'
+		error: 'Could not save preferences.',
+		lectura: {
+			titulo: 'Accessibility and reading',
+			hint: 'Applies right away and only on this device. Password and token fields always use a monospace font that tells 0/O and l/I/1 apart.',
+			activar: 'Use reading font (also with the «Aa» button in the menu)',
+			fuente: 'Font',
+			fuentes: {
+				opendyslexic: 'OpenDyslexic (dyslexia)',
+				atkinson: 'Atkinson Hyperlegible (low vision)',
+				lexend: 'Lexend (reading fluency)'
+			},
+			espaciado: 'Letter spacing',
+			interlineado: 'Line spacing',
+			normal: 'Normal',
+			amplio: 'Wide',
+			tamano: (n: number) => `Text size: ${n}%`,
+			muestra: 'The quick brown fox jumps over the lazy dog.',
+			restablecer: 'Reset'
+		}
 	},
 	settingsSecurity: {
 		titulo: 'Security',
@@ -465,6 +525,23 @@ const en: Diccionario = {
 		sincronizarAhora: 'Sync now',
 		desvincular: 'Disconnect',
 		resultado: '{{recursos}} password(s) updated, {{borrados}} deleted, {{conflictos}} in conflict — {{carpetas}} new folder(s) and {{tags}} new tag(s).',
+		union: {
+			titulo: '{{email}} already exists on that server',
+			explicacion:
+				'It was created separately, so it has a different key. Enter the passphrase of that server account and the app merges everything by itself: uploads the passwords from this device, saves a backup, switches to your server account and syncs both sides. From then on the app unlocks with the server passphrase.',
+			passphrase: 'Passphrase of your server account',
+			unir: 'Merge and sync',
+			cancelar: 'Cancel',
+			pasos: {
+				servidor: 'Signing in to your server account…',
+				subiendo: 'Uploading your passwords and folders…',
+				respaldo: 'Saving a backup…',
+				adoptando: 'Switching to your server account…',
+				sincronizando: 'Syncing…'
+			}
+		},
+		hintOmitidos: (n: number) =>
+			`${n} ${n === 1 ? 'item could not be brought over' : 'items could not be brought over'}: they are encrypted with a team key this account cannot access, or belong to someone else and the current mode does not keep secrets on this device (use «Full replica» to bring them).`,
 		hintConflictos: 'A resource changed on both sides at once — your local version was saved separately, with "(conflict)" in the name.',
 		ultimoPushFallo: "The last change couldn't be sent to the server yet",
 		errorSinClaves: 'The vault needs to be unlocked to connect to a server.',
@@ -548,6 +625,9 @@ const en: Diccionario = {
 		repetidasTitulo: 'Reused passwords',
 		repetidasHint: 'The same password on several sites: if one leaks, all of them are exposed.',
 		mismaContrasena: 'The same password on {{n}} items',
+		tokensTitulo: 'Expired or expiring tokens',
+		tokensHint: 'Tokens and API keys whose expiry date has passed or falls within the next 14 days. The date is encrypted: this is computed here.',
+		tokenVencido: 'expired {{n}} days ago',
 		viejasTitulo: 'Old passwords',
 		viejasHint: 'Unchanged for a long time. Rotating for the sake of it does not improve security: it only helps if you suspect a leak.',
 		viejasSinUmbral: 'Pick a time span above if you want them flagged (none is flagged by default).',
@@ -765,7 +845,10 @@ const en: Diccionario = {
 			passphraseTemporal: 'Temporary passphrase',
 			crear: 'Create user',
 			creando: 'Creating…',
-			creadoOk: "User created — share this passphrase outside the app, it won't be shown again:",
+			creadoOk: 'User created. Share the temporary passphrase outside the app: they must change it on first sign-in.',
+			passphraseTemporalHint: 'Used for the first sign-in, where changing it is mandatory.',
+			passphraseTemporalCorta: (n: number) => `The temporary passphrase must be at least ${n} characters long.`,
+			generarPassphrase: 'Generate',
 			passphraseGenerada: 'Temporary passphrase',
 			errorCrear: 'Could not create the user.'
 		},

@@ -1,6 +1,8 @@
 // Autor: Athan Espinoza
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(target_os = "windows")]
+use std::path::Path;
 
 use tauri::Manager;
 use zeroize::Zeroizing;
@@ -176,10 +178,20 @@ async fn preparar_backend_local() -> anyhow::Result<(tokio::net::TcpListener, u1
 /// cuando Windows Terminal viene de la Store en vez de un PATH clásico) —
 /// sin `std::process::Command::new(nombre).spawn()` de prueba, que
 /// abriría una ventana real sólo para chequear disponibilidad.
+///
+/// Secuestro de PATH: el que gana es el primer `ssh.exe` que aparezca, y a
+/// `ssh` le llega la contraseña (askpass). Si una carpeta escribible por el
+/// usuario quedó antes que `System32` en el PATH, alcanza con dejar ahí un
+/// `ssh.exe` falso. Por eso los clientes que Windows trae de fábrica se buscan
+/// primero en el directorio del sistema, y del PATH se ignoran las entradas
+/// relativas (`.`, vacías), que se resolverían contra el directorio actual.
 #[cfg(target_os = "windows")]
 fn buscar_en_path(nombre_exe: &str) -> Option<PathBuf> {
+  if let Some(ruta) = buscar_en_sistema(nombre_exe) {
+    return Some(ruta);
+  }
   if let Ok(path_var) = std::env::var("PATH") {
-    for dir in std::env::split_paths(&path_var) {
+    for dir in std::env::split_paths(&path_var).filter(|d| d.is_absolute()) {
       let candidato = dir.join(nombre_exe);
       if candidato.is_file() {
         return Some(candidato);
@@ -193,6 +205,29 @@ fn buscar_en_path(nombre_exe: &str) -> Option<PathBuf> {
     }
   }
   None
+}
+
+/// Clientes que vienen con Windows y su carpeta dentro de `System32`.
+#[cfg(target_os = "windows")]
+const CLIENTES_DEL_SISTEMA: &[(&str, &str)] = &[("ssh.exe", "OpenSSH"), ("ftp.exe", ""), ("telnet.exe", ""), ("mstsc.exe", "")];
+
+/// Ruta absoluta de un cliente de `CLIENTES_DEL_SISTEMA` si está instalado.
+/// El directorio sale de `GetSystemDirectoryW` y no de `%SystemRoot%`, que es
+/// una variable de entorno más y se hereda de quien lanzó la app.
+#[cfg(target_os = "windows")]
+fn buscar_en_sistema(nombre_exe: &str) -> Option<PathBuf> {
+  use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+
+  let (_, subcarpeta) = CLIENTES_DEL_SISTEMA.iter().find(|(nombre, _)| nombre.eq_ignore_ascii_case(nombre_exe))?;
+  let mut buffer = [0u16; 512];
+  // SAFETY: la API escribe como máximo `buffer.len()` unidades y devuelve
+  // cuántas usó (o el tamaño necesario, si no alcanzó).
+  let largo = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+  if largo == 0 || largo >= buffer.len() {
+    return None;
+  }
+  let candidato = PathBuf::from(String::from_utf16_lossy(&buffer[..largo])).join(subcarpeta).join(nombre_exe);
+  candidato.is_file().then_some(candidato)
 }
 
 /// Resuelve `ellkan_askpass.exe` — se compila como binario propio del
@@ -732,6 +767,26 @@ fn vigilar_bloqueo_de_pantalla(app: &tauri::AppHandle) {
 #[cfg(not(windows))]
 fn vigilar_bloqueo_de_pantalla(_app: &tauri::AppHandle) {}
 
+/// Linux: el caché de WebKitGTK viene pensado para un navegador (páginas
+/// anteriores en memoria, recursos de muchos sitios). Ellkan es una sola
+/// página local: `DocumentViewer` deja esos cachés al mínimo.
+#[cfg(target_os = "linux")]
+fn ajustar_webview_linux(app: &tauri::AppHandle) {
+  let Some(ventana) = app.get_webview_window("main") else { return };
+  let resultado = ventana.with_webview(|webview| {
+    use webkit2gtk::{CacheModel, WebContextExt, WebViewExt};
+    if let Some(contexto) = webview.inner().context() {
+      contexto.set_cache_model(CacheModel::DocumentViewer);
+    }
+  });
+  if let Err(e) = resultado {
+    log::warn!("no se pudo ajustar el caché de WebKit: {e}");
+  }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ajustar_webview_linux(_app: &tauri::AppHandle) {}
+
 /// Simula el aviso de "la pantalla se bloqueó" de Windows, para probar de
 /// punta a punta que la bóveda se bloquea sin bloquear la sesión del usuario.
 #[cfg(windows)]
@@ -745,6 +800,38 @@ fn simular_bloqueo_de_pantalla(ventana: tauri::WebviewWindow) {
 #[cfg(not(windows))]
 #[tauri::command]
 fn simular_bloqueo_de_pantalla() {}
+
+/// Copia un secreto al portapapeles sin que Windows lo guarde en el historial
+/// (`Win+V`) ni lo suba a la nube. Fuera de Windows responde error y el
+/// frontend usa el portapapeles del webview.
+#[cfg(windows)]
+#[tauri::command]
+fn copiar_secreto(ventana: tauri::WebviewWindow, texto: String) -> Result<(), String> {
+  let texto = Zeroizing::new(texto);
+  let hwnd = ventana.hwnd().map_err(|e| e.to_string())?;
+  sistema::copiar_sin_historial(hwnd, &texto)
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn copiar_secreto(texto: String) -> Result<(), String> {
+  drop(Zeroizing::new(texto));
+  Err("no soportado en esta plataforma".to_string())
+}
+
+/// Vacía el portapapeles: la auto-limpieza de lo que dejó `copiar_secreto`.
+#[cfg(windows)]
+#[tauri::command]
+fn vaciar_portapapeles(ventana: tauri::WebviewWindow) -> Result<(), String> {
+  let hwnd = ventana.hwnd().map_err(|e| e.to_string())?;
+  sistema::vaciar_portapapeles(hwnd)
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn vaciar_portapapeles() -> Result<(), String> {
+  Err("no soportado en esta plataforma".to_string())
+}
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -767,6 +854,17 @@ pub fn run() {
 
   // Modo portable: redirige lo que vive fuera del datadir. Primero de todo.
   portable::preparar();
+
+  // Linux: WebKitGTK reserva buffers grandes para la composición acelerada
+  // (animaciones por GPU), que una app de formularios no necesita: sin ella el
+  // proceso web usa bastante menos memoria. `ELLKAN_WEBKIT_COMPOSICION=1` la
+  // deja activa por si en algún equipo se ve peor.
+  #[cfg(target_os = "linux")]
+  if std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() && std::env::var_os("ELLKAN_WEBKIT_COMPOSICION").is_none() {
+    // SAFETY: todavía no se lanzó ningún hilo (ni Tauri ni el backend), así
+    // que nadie más lee el entorno mientras se modifica.
+    unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
+  }
 
   tauri::Builder::default()
     .manage(EnlacePendiente::default())
@@ -816,7 +914,9 @@ pub fn run() {
       configurar_enlaces,
       configurar_bloqueo_pantalla,
       enlace_pendiente,
-      simular_bloqueo_de_pantalla
+      simular_bloqueo_de_pantalla,
+      copiar_secreto,
+      vaciar_portapapeles
     ])
     // F-45: qué hace la "X" depende de la preferencia del usuario (`AlCerrar`).
     // Antes SIEMPRE ocultaba a la bandeja sin avisar: el usuario "cerraba" la
@@ -987,6 +1087,7 @@ pub fn run() {
       }
 
       vigilar_bloqueo_de_pantalla(app.handle());
+      ajustar_webview_linux(app.handle());
 
       Ok(())
     })
