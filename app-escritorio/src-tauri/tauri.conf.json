@@ -1,7 +1,7 @@
 {
   "$schema": "../../frontend/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Ellkan",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "com.ellkan.desktop",
   "build": {
     "frontendDist": "../../frontend/build",

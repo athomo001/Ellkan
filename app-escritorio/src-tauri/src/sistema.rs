@@ -305,9 +305,9 @@ mod windows_impl {
 
   /// Publica `bytes` en el portapapeles (ya abierto y vaciado) con el formato `formato`.
   fn publicar(formato: u32, bytes: &[u8]) -> Result<(), String> {
-    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Foundation::{GlobalFree, HANDLE};
     use windows::Win32::System::DataExchange::SetClipboardData;
-    use windows::Win32::System::Memory::{GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 
     // SAFETY: el bloque se reserva con el tamaño exacto que se copia; si
     // `SetClipboardData` lo acepta pasa a ser del sistema, si no se libera acá.
