@@ -21,6 +21,9 @@
 		type DiagnosticoFallido
 	} from '$lib/sync/vinculacion';
 	import { sincronizarAhora, type ResultadoSync } from '$lib/sync/motor';
+	import { unirConCuentaDelServidor, type PasoUnion } from '$lib/sync/union';
+	import { goto } from '$app/navigation';
+	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import { estadoSync } from '$lib/sync/notificador';
 	import { obtenerPersistencia, cambiarPersistencia, type ModoPersistencia } from '$lib/sync/persistencia';
 	import { cambiarEmailLocal, CambioEmailBloqueado, CambioEmailNoAplica } from '$lib/sync/cuentaLocal';
@@ -43,6 +46,30 @@
 	// Cuando el servidor no aceptó la cuenta, la causa más común es que el
 	// correo local no es el de la cuenta de allá — se sugiere cambiarlo.
 	let sugerirCambiarCorreo = $state(false);
+
+	// F-47 parte B: unir esta bóveda con la cuenta del mismo correo en el servidor.
+	let ofrecerUnion = $state(false);
+	let passphraseServidor = $state('');
+	let uniendo = $state(false);
+	let pasoUnion = $state<PasoUnion | undefined>();
+	let errorUnion = $state<string | undefined>();
+
+	async function unir() {
+		errorUnion = undefined;
+		uniendo = true;
+		try {
+			await unirConCuentaDelServidor(serverUrl, passphraseServidor, (p) => (pasoUnion = p));
+			passphraseServidor = '';
+			// La identidad es nueva: el kit de recuperación anterior ya no sirve.
+			const kit = await recoveryKitApi.estado().catch(() => undefined);
+			goto(kit && !kit.configured ? '/onboarding/recovery-kit' : '/vault');
+		} catch (err) {
+			errorUnion = textoDeError(err, $t.settingsSync.errorGenerico);
+		} finally {
+			uniendo = false;
+			pasoUnion = undefined;
+		}
+	}
 
 	/** Texto traducido de un diagnóstico de `diagnosticarCuentaRemota`. */
 	function textoDiagnostico(d: DiagnosticoFallido): string {
@@ -84,8 +111,15 @@
 			}
 			vinculacion = obtenerVinculacion(email);
 		} catch (err) {
-			errorVinculacion = textoDeError(err, $t.settingsSync.errorGenerico);
-			sugerirCambiarCorreo = err instanceof ErrorCuentaRemota && err.diagnostico.estado === 'no_autenticado';
+			// Mismo correo en el servidor pero creado por separado (otras claves):
+			// en vez de un error, se ofrece unir las dos cuentas con la frase del servidor.
+			const otrasClaves = err instanceof ErrorCuentaRemota && err.diagnostico.estado === 'no_autenticado';
+			const yaExiste = err instanceof Error && 'status' in err && (err as { status?: number }).status === 409;
+			if (otrasClaves || yaExiste) {
+				ofrecerUnion = true;
+			} else {
+				errorVinculacion = textoDeError(err, $t.settingsSync.errorGenerico);
+			}
 		} finally {
 			vinculando = false;
 		}
@@ -330,6 +364,9 @@
 			{#if ultimoResultado.recursosEnConflicto > 0}
 				<p class="hint">{$t.settingsSync.hintConflictos}</p>
 			{/if}
+			{#if ultimoResultado.recursosOmitidos > 0}
+				<p class="hint">{$t.settingsSync.hintOmitidos(ultimoResultado.recursosOmitidos)}</p>
+			{/if}
 		{/if}
 
 		{#if $estadoSync.ultimoError}
@@ -354,8 +391,24 @@
 
 			{#if errorVinculacion}<p class="error">{errorVinculacion}</p>{/if}
 			{#if sugerirCambiarCorreo}<p class="hint">{$t.settingsSync.hintCambiarCorreo}</p>{/if}
-			<Button type="submit" variant="primary" loading={vinculando}>{$t.settingsSync.vincular}</Button>
+			{#if !ofrecerUnion}
+				<Button type="submit" variant="primary" loading={vinculando}>{$t.settingsSync.vincular}</Button>
+			{/if}
 		</form>
+
+		{#if ofrecerUnion}
+			<div class="union">
+				<h3>{$t.settingsSync.union.titulo.replace('{{email}}', email)}</h3>
+				<p class="hint">{$t.settingsSync.union.explicacion}</p>
+				<TextField label={$t.settingsSync.union.passphrase} type="password" bind:value={passphraseServidor} autocomplete="current-password" />
+				{#if pasoUnion}<p class="hint">{$t.settingsSync.union.pasos[pasoUnion]}</p>{/if}
+				{#if errorUnion}<p class="error">{errorUnion}</p>{/if}
+				<div class="botones-union">
+					<Button variant="primary" onclick={unir} loading={uniendo} disabled={!passphraseServidor}>{$t.settingsSync.union.unir}</Button>
+					<Button variant="ghost" onclick={() => (ofrecerUnion = false)} disabled={uniendo}>{$t.settingsSync.union.cancelar}</Button>
+				</div>
+			</div>
+		{/if}
 	{/if}
 </Card>
 </div>
@@ -559,5 +612,19 @@
 	}
 	.hallazgos li.hallazgoAviso {
 		color: var(--warning);
+	}
+	.union {
+		margin-top: var(--space-6);
+		padding: var(--space-4);
+		border: 1px solid var(--accent-primary);
+		border-radius: var(--radius-sm);
+	}
+	.union h3 {
+		margin: 0 0 var(--space-2) 0;
+		font-size: var(--text-base);
+	}
+	.botones-union {
+		display: flex;
+		gap: var(--space-2);
 	}
 </style>

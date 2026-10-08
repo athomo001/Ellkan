@@ -4,6 +4,8 @@
 // (sin red, sin wasm, sin DOM) para poder probarla con Node. Todo se calcula en
 // el cliente: ningún secreto sale de acá.
 
+import { estadoVencimiento } from '../apiTokens.ts';
+
 export interface ItemSalud {
 	id: string;
 	nombre: string;
@@ -11,6 +13,18 @@ export interface ItemSalud {
 	password: string;
 	/** ISO 8601 — última edición del recurso. */
 	actualizadoEn: string;
+	/** F-58: `api-token`. No se mide su fortaleza ni su antigüedad (los emite
+	 * el servicio, no se eligen), pero sí cuenta para repetidos y vencimiento. */
+	esToken?: boolean;
+	/** F-58: `YYYY-MM-DD`, sólo en tokens. */
+	expiraEn?: string;
+}
+
+export interface TokenPorVencer {
+	item: ItemSalud;
+	vencido: boolean;
+	/** Días que faltan (o que pasaron, si `vencido`). */
+	dias: number;
 }
 
 export interface Debil {
@@ -32,6 +46,8 @@ export interface Informe {
 	repetidas: ItemSalud[][];
 	/** Vacío si no se configuró umbral (por defecto no se fuerza rotación, NIST SP 800-63B). */
 	viejas: Vieja[];
+	/** F-58: tokens vencidos o que vencen dentro del umbral fijo; vencidos primero. */
+	tokensPorVencer: TokenPorVencer[];
 }
 
 export interface OpcionesInforme {
@@ -62,13 +78,19 @@ export async function analizar(items: ItemSalud[], opciones: OpcionesInforme): P
 
 	const debiles: Debil[] = [];
 	const viejas: Vieja[] = [];
+	const tokensPorVencer: TokenPorVencer[] = [];
 	const porHuella = new Map<string, ItemSalud[]>();
 
 	for (const item of conPassword) {
-		const score = puntuar(item.password);
-		if (score <= scoreDebilHasta) debiles.push({ item, score });
+		if (item.esToken) {
+			const v = estadoVencimiento(item.expiraEn, ahora);
+			if (v && v.estado !== 'vigente') tokensPorVencer.push({ item, vencido: v.estado === 'vencido', dias: v.dias });
+		} else {
+			const score = puntuar(item.password);
+			if (score <= scoreDebilHasta) debiles.push({ item, score });
+		}
 
-		if (umbralDias !== null) {
+		if (umbralDias !== null && !item.esToken) {
 			const dias = Math.floor((ahora.getTime() - new Date(item.actualizadoEn).getTime()) / MS_POR_DIA);
 			if (dias > umbralDias) viejas.push({ item, dias });
 		}
@@ -81,6 +103,7 @@ export async function analizar(items: ItemSalud[], opciones: OpcionesInforme): P
 	// Lo más urgente primero.
 	debiles.sort((a, b) => a.score - b.score);
 	viejas.sort((a, b) => b.dias - a.dias);
+	tokensPorVencer.sort((a, b) => Number(b.vencido) - Number(a.vencido) || (a.vencido ? b.dias - a.dias : a.dias - b.dias));
 
-	return { analizados: conPassword.length, debiles, repetidas, viejas };
+	return { analizados: conPassword.length, debiles, repetidas, viejas, tokensPorVencer };
 }

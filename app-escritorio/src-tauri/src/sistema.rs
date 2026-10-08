@@ -279,6 +279,95 @@ mod windows_impl {
     }
   }
 
+  // --- Portapapeles sin historial ---
+  //
+  // `navigator.clipboard.writeText` deja el secreto en el historial del
+  // portapapeles de Windows (`Win+V`) y, si está activada, en la sincronización
+  // con la nube: la auto-limpieza sólo borra el portapapeles actual, no esas
+  // copias. Windows respeta tres formatos extra que se publican junto al texto
+  // para que ningún monitor lo guarde ni lo suba.
+
+  /// Abre el portapapeles a nombre de `hwnd`, reintentando un momento si otro
+  /// proceso lo tiene abierto. Sin dueño, `SetClipboardData` falla tras `EmptyClipboard`.
+  fn abrir_portapapeles(hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
+    use windows::Win32::System::DataExchange::OpenClipboard;
+    let mut ultimo_error = String::new();
+    for _ in 0..10 {
+      // SAFETY: `hwnd` es la ventana viva que invocó el comando.
+      match unsafe { OpenClipboard(Some(hwnd)) } {
+        Ok(()) => return Ok(()),
+        Err(e) => ultimo_error = e.to_string(),
+      }
+      std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    Err(format!("no se pudo abrir el portapapeles: {ultimo_error}"))
+  }
+
+  /// Publica `bytes` en el portapapeles (ya abierto y vaciado) con el formato `formato`.
+  fn publicar(formato: u32, bytes: &[u8]) -> Result<(), String> {
+    use windows::Win32::Foundation::{GlobalFree, HANDLE};
+    use windows::Win32::System::DataExchange::SetClipboardData;
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+
+    // SAFETY: el bloque se reserva con el tamaño exacto que se copia; si
+    // `SetClipboardData` lo acepta pasa a ser del sistema, si no se libera acá.
+    unsafe {
+      let bloque = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)).map_err(|e| format!("sin memoria para el portapapeles: {e}"))?;
+      let destino = GlobalLock(bloque) as *mut u8;
+      if destino.is_null() {
+        let _ = GlobalFree(Some(bloque));
+        return Err("no se pudo preparar el portapapeles".to_string());
+      }
+      std::ptr::copy_nonoverlapping(bytes.as_ptr(), destino, bytes.len());
+      let _ = GlobalUnlock(bloque);
+      if let Err(e) = SetClipboardData(formato, Some(HANDLE(bloque.0))) {
+        let _ = GlobalFree(Some(bloque));
+        return Err(format!("no se pudo escribir en el portapapeles: {e}"));
+      }
+    }
+    Ok(())
+  }
+
+  /// Copia `texto` al portapapeles excluido del historial (`Win+V`) y de la
+  /// sincronización en la nube.
+  pub fn copiar_sin_historial(hwnd: windows::Win32::Foundation::HWND, texto: &str) -> Result<(), String> {
+    use windows::core::w;
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, RegisterClipboardFormatW};
+    use zeroize::Zeroizing;
+
+    const CF_UNICODETEXT: u32 = 13;
+    let unidades: Zeroizing<Vec<u8>> =
+      Zeroizing::new(texto.encode_utf16().chain(std::iter::once(0)).flat_map(u16::to_le_bytes).collect());
+    let cero = 0u32.to_le_bytes();
+
+    abrir_portapapeles(hwnd)?;
+    // SAFETY: el portapapeles quedó abierto por este hilo; se cierra siempre al final.
+    let resultado = (|| unsafe {
+      EmptyClipboard().map_err(|e| format!("no se pudo vaciar el portapapeles: {e}"))?;
+      publicar(CF_UNICODETEXT, &unidades)?;
+      for nombre in [w!("ExcludeClipboardContentFromMonitorProcessing"), w!("CanIncludeInClipboardHistory"), w!("CanUploadToCloudClipboard")] {
+        let formato = RegisterClipboardFormatW(nombre);
+        if formato != 0 {
+          publicar(formato, &cero)?;
+        }
+      }
+      Ok(())
+    })();
+    // SAFETY: cierra lo que abrió `abrir_portapapeles`.
+    let _ = unsafe { CloseClipboard() };
+    resultado
+  }
+
+  /// Vacía el portapapeles (la auto-limpieza de un secreto copiado).
+  pub fn vaciar_portapapeles(hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard};
+    abrir_portapapeles(hwnd)?;
+    // SAFETY: el portapapeles quedó abierto por este hilo y se cierra enseguida.
+    let resultado = unsafe { EmptyClipboard() }.map_err(|e| format!("no se pudo vaciar el portapapeles: {e}"));
+    let _ = unsafe { CloseClipboard() };
+    resultado
+  }
+
   /// Usuario y contraseña de la credencial `TERMSRV/<host>` (sólo para pruebas).
   #[cfg(test)]
   pub fn leer_credencial_rdp(host: &str) -> Option<(String, String)> {
@@ -365,8 +454,8 @@ mod windows_impl {
 
 #[cfg(windows)]
 pub use windows_impl::{
-  autostart_activo, borrar_credencial_rdp, borrar_credenciales_llavero, configurar_autostart, configurar_enlaces, enlaces_activos,
-  guardar_credencial_rdp, preguntar_borrar_datos, simular_bloqueo, vigilar_bloqueo,
+  autostart_activo, borrar_credencial_rdp, borrar_credenciales_llavero, configurar_autostart, configurar_enlaces, copiar_sin_historial,
+  enlaces_activos, guardar_credencial_rdp, preguntar_borrar_datos, simular_bloqueo, vaciar_portapapeles, vigilar_bloqueo,
 };
 
 #[cfg(all(test, windows))]

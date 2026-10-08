@@ -139,6 +139,7 @@ const es = {
 		muyFuerte: 'Muy fuerte'
 	},
 	appShell: {
+		fuenteLectura: 'Fuente de lectura (activar/desactivar)',
 		vault: 'Vault',
 		miCuenta: 'Mi cuenta',
 		preferencias: 'Preferencias',
@@ -213,6 +214,20 @@ const es = {
 		tipoPostgresql: 'PostgreSQL',
 		tipoMysql: 'MySQL / MariaDB',
 		tipoMongodb: 'MongoDB',
+		tipoApiToken: 'Token / API key',
+		apiToken: {
+			token: 'Token',
+			tokenHint: 'Pegalo tal cual: también acepta JWT, claves PEM o el JSON de una service account.',
+			keyId: 'ID público (opcional)',
+			keyIdHint: 'La parte pública de un par: Access Key ID de AWS, client_id de OAuth, SID de Twilio…',
+			tokenSecret: 'Secreto del par (opcional)',
+			scopes: 'Permisos / scopes (opcional)',
+			vence: 'Vence',
+			servicio: 'Servicio / URL',
+			cuenta: 'Cuenta o app dueña (opcional)',
+			vencido: 'Vencido',
+			venceEn: (dias: number) => (dias === 0 ? 'Vence hoy' : `Vence en ${dias} ${dias === 1 ? 'día' : 'días'}`)
+		},
 		matching: 'Coincidencia de URL (autocompletar)',
 		matchingHint: 'Cuándo la extensión ofrece este recurso para autocompletar en una página.',
 		matchingExact: 'Exacta — misma dirección y ruta',
@@ -292,7 +307,8 @@ const es = {
 			rdp: 'RDP',
 			postgresql: 'PostgreSQL',
 			mysql: 'MySQL / MariaDB',
-			mongodb: 'MongoDB'
+			mongodb: 'MongoDB',
+			'api-token': 'Token / API key'
 		},
 		compartirLote: {
 			boton: 'Compartir',
@@ -368,6 +384,10 @@ const es = {
 		archivo: 'Archivo',
 		arrastrarArchivo: 'Arrastrá tu archivo acá, o hacé clic para elegirlo (.kdbx, .csv, .json)',
 		columnaMapeoHint: 'No reconocemos los encabezados de este CSV — decinos qué es cada columna. Podés dejar "Ignorar" en las que no importen.',
+		mapeoTipo: 'Tipo (slug de Ellkan)',
+		mapeoVence: 'Vencimiento (AAAA-MM-DD)',
+		tipoDestino: 'Importar como',
+		tipoDestinoHint: 'Para las filas sin columna de tipo. En "Token / API key", la columna de contraseña es el token.',
 		mapeoIgnorar: 'Ignorar',
 		mapeoTitulo: 'Título',
 		mapeoUsuario: 'Usuario',
@@ -400,13 +420,53 @@ const es = {
 		revocar: 'Revocar',
 		sinShares: 'Todavía no creaste ningún link externo — se crean desde un recurso puntual en el Vault.'
 	},
+	conectarInicial: {
+		bienvenida: 'Bienvenido a Ellkan',
+		opcionLocal: 'Cuenta local',
+		opcionLocalDetalle: 'Sólo en este equipo, sin conexión a ningún servidor. Podés vincularla más adelante.',
+		opcionServidor: 'Tengo cuenta en un servidor',
+		opcionServidorDetalle: 'Usá tu cuenta de un servidor Ellkan: trae tus contraseñas y lo que guardes acá se sube allá.',
+		servidor: 'Dirección del servidor',
+		servidorHint: 'La misma que abrís en el navegador, por ejemplo https://ellkan.miempresa.com',
+		passphrase: 'Frase de contraseña de esa cuenta',
+		modo: '¿Qué se guarda en este equipo?',
+		modos: {
+			full: { titulo: 'Réplica completa', detalle: 'Todo, cifrado. Funciona sin conexión.' },
+			memory: { titulo: 'Sólo memoria', detalle: 'Nombres y usuarios; las contraseñas se piden al servidor y se olvidan al cerrar.' },
+			names_only: { titulo: 'Sólo nombres', detalle: 'Nombres y usuarios; cada contraseña se pide al servidor cada vez.' }
+		},
+		conectar: 'Conectar',
+		pasoServidor: 'Entrando a tu cuenta del servidor…',
+		pasoLocal: 'Preparando la bóveda en este equipo…',
+		pasoSync: 'Trayendo tus datos del servidor…',
+		errorLoginLocal: 'La cuenta se creó en este equipo pero no se pudo entrar. Probá iniciar sesión con tu correo y frase.',
+		errorGenerico: 'No se pudo conectar con el servidor.'
+	},
 	settingsPreferences: {
 		titulo: 'Preferencias',
 		portapapeles: 'Limpiar portapapeles (minutos)',
 		autoBloqueo: 'Auto-bloqueo (minutos, vacío = deshabilitado)',
 		guardar: 'Guardar',
 		guardado: 'Guardado.',
-		error: 'No se pudieron guardar las preferencias.'
+		error: 'No se pudieron guardar las preferencias.',
+		lectura: {
+			titulo: 'Accesibilidad y lectura',
+			hint: 'Se aplica al instante y sólo en este dispositivo. Los campos de contraseña y token siempre usan una fuente monoespaciada que distingue 0/O y l/I/1.',
+			activar: 'Usar fuente de lectura (también con el botón «Aa» del menú)',
+			fuente: 'Fuente',
+			fuentes: {
+				opendyslexic: 'OpenDyslexic (dislexia)',
+				atkinson: 'Atkinson Hyperlegible (baja visión)',
+				lexend: 'Lexend (fluidez de lectura)'
+			},
+			espaciado: 'Espaciado entre letras',
+			interlineado: 'Interlineado',
+			normal: 'Normal',
+			amplio: 'Amplio',
+			tamano: (n: number) => `Tamaño de texto: ${n} %`,
+			muestra: 'El veloz murciélago hindú comía feliz cardillo y kiwi.',
+			restablecer: 'Restablecer'
+		}
 	},
 	settingsSecurity: {
 		titulo: 'Seguridad',
@@ -469,6 +529,23 @@ const es = {
 		desvincular: 'Desconectar',
 		resultado:
 			'{{recursos}} contraseña(s) actualizadas, {{borrados}} borradas, {{conflictos}} en conflicto — {{carpetas}} carpeta(s) y {{tags}} etiqueta(s) nuevas.',
+		union: {
+			titulo: '{{email}} ya existe en ese servidor',
+			explicacion:
+				'Se creó por separado, así que tiene otra clave. Escribí la frase de esa cuenta del servidor y la app une todo sola: sube tus contraseñas de este equipo, guarda una copia de seguridad, pasa a usar tu cuenta del servidor y sincroniza los dos lados. Desde ese momento la app se desbloquea con la frase del servidor.',
+			passphrase: 'Frase de contraseña de tu cuenta del servidor',
+			unir: 'Unir y sincronizar',
+			cancelar: 'Cancelar',
+			pasos: {
+				servidor: 'Entrando a tu cuenta del servidor…',
+				subiendo: 'Subiendo tus contraseñas y carpetas…',
+				respaldo: 'Guardando una copia de seguridad…',
+				adoptando: 'Pasando a tu cuenta del servidor…',
+				sincronizando: 'Sincronizando…'
+			}
+		},
+		hintOmitidos: (n: number) =>
+			`${n} ${n === 1 ? 'recurso no se pudo traer' : 'recursos no se pudieron traer'}: están cifrados con una clave de equipo a la que esta cuenta no tiene acceso, o son de otra persona y el modo actual no guarda secretos en este equipo (usá «Réplica completa» para traerlos).`,
 		hintConflictos: 'Un recurso cambió en los dos lados a la vez — se guardó tu versión local aparte, con "(conflicto)" en el nombre.',
 		ultimoPushFallo: 'El último cambio no se pudo enviar al servidor todavía',
 		errorSinClaves: 'La bóveda tiene que estar desbloqueada para conectarse a un servidor.',
@@ -553,6 +630,9 @@ const es = {
 		repetidasTitulo: 'Contraseñas repetidas',
 		repetidasHint: 'La misma contraseña en varios sitios: si se filtra una, quedan expuestos todos.',
 		mismaContrasena: 'La misma contraseña en {{n}} recursos',
+		tokensTitulo: 'Tokens vencidos o por vencer',
+		tokensHint: 'Tokens y API keys con fecha de vencimiento pasada o dentro de los próximos 14 días. La fecha está cifrada: se calcula acá.',
+		tokenVencido: 'venció hace {{n}} días',
 		viejasTitulo: 'Contraseñas viejas',
 		viejasHint: 'Sin cambios desde hace mucho. Rotar por rotar no mejora la seguridad: sólo conviene si sospechás que se filtró.',
 		viejasSinUmbral: 'Elegí un plazo arriba si querés que se marquen (por defecto no se marca ninguna).',
@@ -774,7 +854,10 @@ const es = {
 			passphraseTemporal: 'Passphrase temporal',
 			crear: 'Crear usuario',
 			creando: 'Creando…',
-			creadoOk: 'Usuario creado — compartile esta passphrase por fuera de la aplicación, no se vuelve a mostrar:',
+			creadoOk: 'Usuario creado. Pasale la frase temporal por fuera de la aplicación: al entrar por primera vez se le pide cambiarla.',
+			passphraseTemporalHint: 'La usa para entrar la primera vez; ahí se le obliga a cambiarla.',
+			passphraseTemporalCorta: (n: number) => `La frase temporal tiene que tener al menos ${n} caracteres.`,
+			generarPassphrase: 'Generar',
 			passphraseGenerada: 'Passphrase temporal',
 			errorCrear: 'No se pudo crear el usuario.'
 		},

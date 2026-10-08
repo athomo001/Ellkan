@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { analizar, huellaLocal } from '../src/lib/salud/informe.ts';
 import { contarFiltraciones, parsearRango, sha1Hex, URL_HIBP } from '../src/lib/salud/hibp.ts';
+import { detectarProveedor, estadoVencimiento } from '../src/lib/apiTokens.ts';
 
 const ahora = new Date('2026-09-20T12:00:00Z');
 const hace = (dias) => new Date(ahora.getTime() - dias * 86_400_000).toISOString();
@@ -122,6 +123,56 @@ await check('sin contraseñas no hay ninguna consulta', async () => {
 	});
 	assert.equal(llamadas, 0);
 	assert.equal(r.size, 0);
+});
+
+// --- F-58: tokens / API keys ---
+
+const token = (id, valor, expiraEn) => ({ ...item(id, valor, 900), esToken: true, expiraEn });
+
+await check('un token no se marca como débil ni como viejo', async () => {
+	const inf = await analizar([token('t', 'abc')], { ...base, umbralDias: 30 });
+	assert.equal(inf.debiles.length, 0);
+	assert.equal(inf.viejas.length, 0);
+	assert.equal(inf.analizados, 1);
+});
+
+await check('el mismo token en dos recursos aparece como repetido', async () => {
+	const inf = await analizar([token('a', 'ghp_igual'), token('b', 'ghp_igual')], { ...base, umbralDias: null });
+	assert.deepEqual(inf.repetidas[0].map((i) => i.id).sort(), ['a', 'b']);
+});
+
+await check('tokens vencidos primero, después los que vencen antes; los vigentes no aparecen', async () => {
+	const inf = await analizar(
+		[token('pronto', 'x1', '2026-09-30'), token('vencido', 'x2', '2026-09-01'), token('lejos', 'x3', '2027-01-01'), token('sin-fecha', 'x4')],
+		{ ...base, umbralDias: null }
+	);
+	assert.deepEqual(inf.tokensPorVencer.map((t) => [t.item.id, t.vencido, t.dias]), [
+		['vencido', true, 19],
+		['pronto', false, 10]
+	]);
+});
+
+await check('umbral de vencimiento: 14 días avisa, 15 no; vence al terminar el día', async () => {
+	const hoy = new Date(2026, 8, 20);
+	assert.deepEqual(estadoVencimiento('2026-10-04', hoy), { estado: 'por-vencer', dias: 14 });
+	assert.deepEqual(estadoVencimiento('2026-10-05', hoy), { estado: 'vigente' });
+	assert.deepEqual(estadoVencimiento('2026-09-20', hoy), { estado: 'por-vencer', dias: 0 });
+	assert.deepEqual(estadoVencimiento('2026-09-19', hoy), { estado: 'vencido', dias: 1 });
+	assert.equal(estadoVencimiento('', hoy), null);
+	assert.equal(estadoVencimiento('no-es-fecha', hoy), null);
+});
+
+await check('detección de proveedor por prefijo', async () => {
+	assert.equal(detectarProveedor('ghp_abc123')?.nombre, 'GitHub');
+	assert.equal(detectarProveedor('github_pat_11AB')?.nombre, 'GitHub');
+	assert.equal(detectarProveedor('glpat-xyz')?.nombre, 'GitLab');
+	assert.equal(detectarProveedor('sk-ant-api03-x')?.nombre, 'Anthropic');
+	assert.equal(detectarProveedor('sk-proj-x')?.nombre, 'OpenAI');
+	assert.equal(detectarProveedor('xoxb-1-2')?.nombre, 'Slack');
+	assert.equal(detectarProveedor('AKIAIOSFODNN7EXAMPLE')?.nombre, 'AWS');
+	assert.equal(detectarProveedor('{"type": "service_account", "project_id": "p"}')?.nombre, 'Google Cloud (service account)');
+	assert.equal(detectarProveedor('un-token-cualquiera'), null);
+	assert.equal(detectarProveedor('   '), null);
 });
 
 console.log(`\n${n} checks OK`);

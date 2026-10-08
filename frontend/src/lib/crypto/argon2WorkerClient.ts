@@ -28,6 +28,14 @@ function obtenerWorker(): Worker {
 			pendientes.delete(evento.data.id);
 			if (evento.data.ok) pedido.resolve(evento.data.resultado);
 			else pedido.reject(new Error(evento.data.error ?? 'error desconocido en argon2Worker'));
+			// Sin pedidos en curso se cierra: la memoria wasm de Argon2 (19 MiB que
+			// nunca se devuelven mientras el worker vive) se libera entera, y con
+			// ella los restos de la derivación. Desbloquear es poco frecuente;
+			// recrearlo cuesta unos milisegundos.
+			if (pendientes.size === 0) {
+				worker?.terminate();
+				worker = null;
+			}
 		};
 	}
 	return worker;

@@ -11,16 +11,25 @@
 // resuelve el mismo problema pero para el export administrativo (F-29),
 // que sí se arma server-side; acá hace falta la misma regla en TS.
 
-export const COLUMNAS = ['name', 'username', 'password', 'uri', 'notes', 'totp_secret'] as const;
+// `type` y las columnas de F-58 (`api-token`) van al final: un CSV exportado
+// antes de existir sigue importando igual (las columnas que faltan quedan vacías).
+export const COLUMNAS = ['name', 'username', 'password', 'uri', 'notes', 'totp_secret', 'type', 'key_id', 'token_secret', 'scopes', 'expires_at'] as const;
 export type CampoCsv = (typeof COLUMNAS)[number];
 
 export interface FilaExport {
 	name: string;
 	username: string;
+	/** En un `api-token`, el token. */
 	password: string;
 	uri: string;
 	notes: string;
 	totp_secret: string;
+	/** Slug del tipo de recurso; vacío = el que elija quien importa. */
+	type?: string;
+	key_id?: string;
+	token_secret?: string;
+	scopes?: string;
+	expires_at?: string;
 }
 
 const PREFIJOS_PELIGROSOS = ['=', '+', '-', '@', '\t', '\r'];
@@ -133,7 +142,12 @@ const PISTAS_AUTODETECCION: Record<CampoCsv, string[]> = {
 	password: ['password', 'pass'],
 	uri: ['uri', 'url', 'website', 'link'],
 	notes: ['notes', 'note', 'comment'],
-	totp_secret: ['totp', 'otp']
+	totp_secret: ['totp', 'otp'],
+	type: ['type', 'tipo'],
+	key_id: ['key_id', 'client_id', 'access_key_id', 'access key id', 'key id'],
+	token_secret: ['token_secret', 'client_secret', 'secret_access_key', 'secret access key'],
+	scopes: ['scopes', 'scope'],
+	expires_at: ['expires_at', 'expires', 'expiry', 'expiration', 'vence']
 };
 
 /**

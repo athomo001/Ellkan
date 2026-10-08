@@ -23,8 +23,9 @@
 
 import { get, writable } from 'svelte/store';
 import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-import { obtenerVinculacion, sesionRemotaVigente } from './vinculacion';
+import { obtenerVinculacion, sesionRemotaVigente, olvidarSesionRemota } from './vinculacion';
 import { clienteRemoto, RemoteApiError, type ClienteRemoto } from './remoteClient';
+import { esAdaptado } from './adaptacion';
 
 export interface EstadoSync {
 	ultimoError: string | null;
@@ -65,6 +66,21 @@ async function ejecutar(accion: (cliente: ClienteRemoto) => Promise<void>): Prom
 		await accion(cliente);
 		marcarOk();
 	} catch (err) {
+		// La sesión reusada venció del otro lado: una nueva y un reintento.
+		if (err instanceof RemoteApiError && err.status === 401) {
+			const email = get(sesion).email;
+			const vinculacion = email ? obtenerVinculacion(email) : null;
+			if (vinculacion) olvidarSesionRemota(vinculacion);
+			const otro = await conCliente();
+			if (!otro) return;
+			try {
+				await accion(otro);
+				marcarOk();
+			} catch (err2) {
+				marcarError(err2 instanceof Error ? err2.message : 'no se pudo sincronizar con el servidor remoto');
+			}
+			return;
+		}
 		marcarError(err instanceof Error ? err.message : 'no se pudo sincronizar con el servidor remoto');
 	}
 }
@@ -80,12 +96,18 @@ export function notificarRecursoCreado(body: Record<string, unknown>): void {
  * se logra hablar con el servidor).
  */
 export function notificarRecursoEditado(resourceId: string, cuerpoParaEditar: Record<string, unknown>, cuerpoParaCrear: Record<string, unknown>): void {
+	// Recurso adaptado al bajarlo (metadata de equipo o de otra persona, ver
+	// `adaptacion.ts`): el servidor lo guarda con otro esquema, subir esta
+	// versión lo dejaría ilegible allá. Se edita en la web.
+	if (esAdaptado(get(sesion).email, resourceId)) return;
 	void ejecutar(async (cliente) => {
 		try {
 			const remoto = await cliente.get<{ updated_at: string }>(`/resources/${resourceId}`);
 			await cliente.put(`/resources/${resourceId}`, cuerpoParaEditar, { 'If-Match': remoto.updated_at });
 		} catch (err) {
-			if (err instanceof RemoteApiError && err.status === 404) {
+			// El servidor responde 403 (no 404) a un id que no existe, para no
+			// revelar qué ids hay: los dos significan "todavía no está allá".
+			if (err instanceof RemoteApiError && (err.status === 404 || err.status === 403)) {
 				await cliente.post('/resources', cuerpoParaCrear);
 				return;
 			}
@@ -101,7 +123,8 @@ export function notificarRecursoEliminado(resourceId: string): void {
 		} catch (err) {
 			// Ya no está del otro lado tampoco — no es un fallo real, es el
 			// estado al que justamente se quería llegar.
-			if (err instanceof RemoteApiError && err.status === 404) return;
+			// 403: no existe allá (o no es de esta cuenta): no hay nada que borrar.
+			if (err instanceof RemoteApiError && (err.status === 404 || err.status === 403)) return;
 			throw err;
 		}
 	});

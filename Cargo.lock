@@ -2198,6 +2198,7 @@ dependencies = [
  "dirs",
  "ed25519-dalek 3.0.0",
  "ellkan-crypto",
+ "futures-util",
  "governor",
  "hex",
  "ldap3",
@@ -2305,6 +2306,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "webkit2gtk",
  "windows",
  "zeroize",
 ]

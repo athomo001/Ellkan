@@ -9,7 +9,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import { cambiarPassphrase, cerrarSesion } from '$lib/crypto/identity';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
+	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { sesion } from '$lib/state/session';
 	import { goto } from '$app/navigation';
 	import { t } from '$lib/i18n';

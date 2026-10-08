@@ -11,8 +11,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"tauri": "cd ../app-escritorio/src-tauri && node ../../frontend/node_modules/@tauri-apps/cli/tauri.js",
-		"build:desktop": "powershell -ExecutionPolicy Bypass -File ../app-escritorio/windows/binarios/build-windows.ps1",
-		"build:desktop:linux": "bash ../app-escritorio/linuxOS/binarios/build-linux.sh"
+		"build:desktop": "node ../app-escritorio/scripts/compilar.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",

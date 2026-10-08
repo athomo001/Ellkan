@@ -11,7 +11,7 @@
 	import { t } from '$lib/i18n';
 	import { clavesDesbloqueadas } from '$lib/state/session';
 	import { listarRecursos, verSecreto } from '$lib/crypto/recursos';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
+	import { evaluarFortaleza, cargarMedidor } from '$lib/crypto/passwordStrength.svelte';
 	import { analizar, huellaLocal, type Informe, type ItemSalud } from '$lib/salud/informe';
 	import { contarFiltraciones } from '$lib/salud/hibp';
 
@@ -74,7 +74,15 @@
 			for (const recurso of recursos) {
 				try {
 					const secreto = await verSecreto(recurso, claves);
-					items.push({ id: recurso.id, nombre: recurso.nombre, usuario: recurso.usuario, password: secreto.password ?? '', actualizadoEn: recurso.updated_at });
+					items.push({
+						id: recurso.id,
+						nombre: recurso.nombre,
+						usuario: recurso.usuario,
+						password: secreto.password ?? '',
+						actualizadoEn: recurso.updated_at,
+						esToken: recurso.resourceTypeSlug === 'api-token',
+						expiraEn: recurso.expiresAt || undefined
+					});
 				} catch {
 					omitidos += 1;
 				}
@@ -89,6 +97,8 @@
 	}
 
 	async function recalcular() {
+		// Salud necesita el score real de cada contraseña: espera a que el medidor cargue.
+		await cargarMedidor();
 		informe = await analizar(items, {
 			ahora: new Date(),
 			umbralDias: umbral === '' ? null : Number(umbral),
@@ -111,11 +121,14 @@
 		errorFiltraciones = undefined;
 		comprobando = true;
 		try {
+			// Un token no es una contraseña elegida por alguien: no tiene sentido
+			// buscarlo en filtraciones de contraseñas (y así ni su prefijo sale).
+			const conPassword = items.filter((i) => !i.esToken);
 			const conteo = await contarFiltraciones(
-				items.map((i) => i.password),
+				conPassword.map((i) => i.password),
 				(url, init) => fetch(url, init)
 			);
-			filtradas = items
+			filtradas = conPassword
 				.map((item) => ({ item, veces: conteo.get(item.password) ?? 0 }))
 				.filter((f) => f.veces > 0)
 				.sort((a, b) => b.veces - a.veces);
@@ -226,6 +239,26 @@
 						<li>
 							<span>{v.item.nombre} <small>{$t.salud.hace.replace('{{n}}', String(v.dias))}</small></span>
 							<a href={`/vault?abrir=${v.item.id}`}>{$t.salud.editar}</a>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</Card>
+
+		<Card>
+			<h2>{$t.salud.tokensTitulo} ({informe.tokensPorVencer.length})</h2>
+			<p class="hint">{$t.salud.tokensHint}</p>
+			{#if informe.tokensPorVencer.length === 0}
+				<p class="ok">{$t.salud.sinHallazgos}</p>
+			{:else}
+				<ul class="hallazgos" id="salud-tokens">
+					{#each informe.tokensPorVencer as tk (tk.item.id)}
+						<li>
+							<span>
+								{tk.item.nombre}
+								<small>{tk.vencido ? $t.salud.tokenVencido.replace('{{n}}', String(tk.dias)) : $t.vault.apiToken.venceEn(tk.dias)}</small>
+							</span>
+							<a href={`/vault?abrir=${tk.item.id}`}>{$t.salud.editar}</a>
 						</li>
 					{/each}
 				</ul>

@@ -392,3 +392,59 @@ async fn cambiar_tipo_sin_permiso_se_rechaza() {
         .unwrap();
     assert_eq!(resp.status(), 403);
 }
+
+/// F-58: el tipo `api-token` existe en el servidor (migración 0049) y, como su
+/// `json_schema` es distinto al de usuario/contraseña, no se puede cambiar de
+/// tipo hacia él (se perderían `key_id`/`token_secret`/`expires_at`).
+#[tokio::test]
+async fn api_token_existe_y_no_es_intercambiable_con_login_password() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "api-token@test.ellkan").await;
+    let sesion = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion, &owner).await;
+
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}/type", entorno.base, recurso.id))
+        .bearer_auth(sesion)
+        .json(&json!({ "resource_type_slug": "api-token" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "login-password -> api-token tiene json_schema distinto: debe rechazarse");
+
+    // Un recurso `api-token` se crea igual que cualquier otro: el servidor sólo ve ciphertext.
+    let dek = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios::<32>()));
+    let resource_id = Uuid::now_v7();
+    let aad = aad_de(resource_id, owner.user_id);
+    let metadata_env = aead::cifrar(&dek, br#"{"name":"GitHub","expires_at":"2026-12-31"}"#, &aad).unwrap();
+    let secreto_env = aead::cifrar(&dek, br#"{"token":"ghp_x","token_secret":"s"}"#, &aad).unwrap();
+    let sealed_dek = sellado::sellar_dek(owner.x25519.publica(), &dek);
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion)
+        .json(&json!({
+            "id": resource_id,
+            "resource_type_slug": "api-token",
+            "metadata_ciphertext_b64": B64.encode(&metadata_env.ciphertext),
+            "metadata_nonce_b64": B64.encode(metadata_env.nonce),
+            "sealed_dek_b64": B64.encode(&sealed_dek),
+            "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+            "secret_nonce_b64": B64.encode(secreto_env.nonce),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el tipo api-token debe existir en el servidor");
+
+    let get = entorno
+        .cliente
+        .get(format!("{}/resources/{}", entorno.base, resource_id))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
+    let cuerpo_get: Value = get.json().await.unwrap();
+    assert_eq!(cuerpo_get["resource_type_slug"], "api-token");
+}

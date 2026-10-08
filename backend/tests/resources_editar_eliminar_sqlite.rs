@@ -166,3 +166,26 @@ async fn cambiar_tipo_entre_compatibles_funciona_y_rechaza_incompatibles() {
     assert_eq!(sigue_ssh.resource_type_id, id_ssh);
     let _ = id_totp; // documenta que el id existe/se resolvió, aunque el cambio se haya rechazado
 }
+
+/// F-58: `api-token` existe también en SQLite (migración 0009, mismo
+/// `json_schema` que el servidor para que el sync lo reconozca) y no se puede
+/// cambiar de tipo desde ni hacia usuario/contraseña.
+#[tokio::test]
+async fn api_token_existe_y_no_es_intercambiable() {
+    let pool = pool_de_prueba().await;
+    let repos = Repos::nuevos(&pool);
+    let servicio = repos.servicio();
+    let user_id = Uuid::now_v7();
+
+    let id_token = repos.tipos_recurso.id_por_slug("api-token").await.unwrap().expect("seed de migración 0009");
+    let id_login_password = repos.tipos_recurso.id_por_slug("login-password").await.unwrap().unwrap();
+
+    let token = repos.recursos.crear(Uuid::now_v7(), id_token, b"m", b"n", user_id, None).await.unwrap();
+    let rechazado = servicio.cambiar_tipo(token.id, user_id, "login-password").await;
+    assert!(matches!(rechazado, Err(DomainError::ValidacionInvalida(_))), "api-token -> login-password debe rechazarse");
+
+    let login = repos.recursos.crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None).await.unwrap();
+    let rechazado = servicio.cambiar_tipo(login.id, user_id, "api-token").await;
+    assert!(matches!(rechazado, Err(DomainError::ValidacionInvalida(_))), "login-password -> api-token debe rechazarse");
+    assert_eq!(repos.recursos.buscar(token.id).await.unwrap().unwrap().resource_type_id, id_token);
+}

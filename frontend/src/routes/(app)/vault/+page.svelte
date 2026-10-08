@@ -45,9 +45,11 @@
 		eliminarRecurso,
 		salirDeRecurso,
 		type Recurso,
+		type SecretoAbierto,
 		type TipoRecurso,
 		type UsuarioBusqueda
 	} from '$lib/crypto/recursos';
+	import { detectarProveedor, estadoVencimiento } from '$lib/apiTokens';
 	import { conectar, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
 	import type { EstrategiaMatch } from '$lib/crypto/matching';
 	import {
@@ -68,6 +70,7 @@
 	import { externalSharesApi, externalSharePolicyApi, type ExternalSharePolicy } from '$lib/api/externalShares';
 	import { cifrarContenidoDeShare, crearArchivoCompartido } from '$lib/crypto/externalShare';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
+	import { cambiosDelServidor } from '$lib/sync/automatico';
 	import { copiarConLimpieza } from '$lib/clipboard';
 	import { exportPolicyApi, adminExportPolicyApi, type ExportPolicy } from '$lib/api/exportPolicy';
 	import {
@@ -88,7 +91,7 @@
 		type CampoCsv
 	} from '$lib/crypto/exportCsv';
 	import { contarCredencialesNoSoportadas } from '$lib/crypto/exportCxf';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
+	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso, esAdmin } from '$lib/state/session';
 	import { limpiarStoresEn } from '$lib/state/declarative-store';
 	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
@@ -373,6 +376,25 @@
 		await cargarOrganizacion();
 	}
 
+	// F-47: el sync automático trajo cambios del servidor → recargar la lista
+	// y el recurso abierto (salvo que se esté editando: no se pisa el formulario).
+	let cambiosVistos = 0;
+	$effect(() => {
+		const n = $cambiosDelServidor;
+		if (n === cambiosVistos) return;
+		cambiosVistos = n;
+		void cargar().then(() => {
+			if (!seleccionado || panelModo === 'editar') return;
+			const fresco = recursos.find((r) => r.id === seleccionado!.id);
+			if (!fresco) {
+				seleccionado = undefined;
+			} else if (fresco.updated_at !== seleccionado.updated_at) {
+				seleccionado = fresco;
+				secretoAbierto = undefined;
+			}
+		});
+	});
+
 	async function cargar() {
 		if (!$clavesDesbloqueadas) return;
 		cargando = true;
@@ -468,6 +490,8 @@
 				return '🗄️';
 			case 'secure_note':
 				return '📝';
+			case 'api-token':
+				return '🎫';
 			case 'credit_card':
 				return '💳';
 			default:
@@ -593,7 +617,24 @@
 	 * tiene sentido para `login-password`; los demás tipos no autocompletan
 	 * en una página web. */
 	let matchingNuevo = $state<EstrategiaMatch>('host');
+	/** F-58 (`api-token`): en ese tipo `password` guarda el token. */
+	let keyIdNuevo = $state('');
+	let tokenSecretNuevo = $state('');
+	let scopesNuevo = $state('');
+	let expiraNuevo = $state('');
 	let creando = $state(false);
+
+	/** Captura rápida (F-58): al pegar un token se sugieren nombre y URI según
+	 * su prefijo, sin pisar lo que el usuario ya escribió. */
+	function alCambiarTokenNuevo() {
+		const proveedor = detectarProveedor(password);
+		if (!proveedor) return;
+		if (!nombre) nombre = proveedor.nombre;
+		if (!uri) uri = proveedor.uri;
+	}
+
+	/** Tipos cuyo `uri` es una URL libre (no host:puerto). */
+	const usaUriLibre = (tipo: string) => tipo === 'login-password' || tipo === 'api-token';
 	let errorCrear = $state<string | undefined>();
 
 	async function crear(e: SubmitEvent) {
@@ -602,7 +643,7 @@
 		errorCrear = undefined;
 		creando = true;
 		try {
-			const uriFinal = tipoNuevo === 'login-password' ? uri : hostNuevo + (puertoNuevo ? `:${puertoNuevo}` : '');
+			const uriFinal = usaUriLibre(tipoNuevo) ? uri : hostNuevo + (puertoNuevo ? `:${puertoNuevo}` : '');
 			await crearRecurso(
 				{
 					tipo: tipoNuevo,
@@ -612,7 +653,11 @@
 					password,
 					notas,
 					totpSecretBase32: totpSecretBase32 || undefined,
-					matching: tipoNuevo === 'login-password' ? matchingNuevo : undefined
+					matching: tipoNuevo === 'login-password' ? matchingNuevo : undefined,
+					keyId: keyIdNuevo,
+					tokenSecret: tokenSecretNuevo,
+					scopes: scopesNuevo,
+					expiresAt: expiraNuevo
 				},
 				$clavesDesbloqueadas,
 				$sesion.userId
@@ -620,6 +665,7 @@
 			tipoNuevo = 'login-password';
 			matchingNuevo = 'host';
 			nombre = usuario = uri = hostNuevo = puertoNuevo = password = notas = totpSecretBase32 = '';
+			keyIdNuevo = tokenSecretNuevo = scopesNuevo = expiraNuevo = '';
 			mostrarCrear = false;
 			await cargar();
 		} catch (err) {
@@ -709,15 +755,15 @@
 	// Copiar usuario/URI del panel de detalle — no son secretos, pero
 	// respetan el mismo timer de limpieza automática que el resto de la app
 	// (`preferencias.clipboardClearMinutes`), mismo criterio que `SecretField`.
-	let campoCopiado = $state<'usuario' | 'uri' | 'comando' | undefined>();
-	async function copiarCampo(campo: 'usuario' | 'uri' | 'comando', valor: string) {
+	let campoCopiado = $state<'usuario' | 'uri' | 'comando' | 'keyId' | undefined>();
+	async function copiarCampo(campo: 'usuario' | 'uri' | 'comando' | 'keyId', valor: string) {
 		await copiarConLimpieza(valor, $preferencias.clipboardClearMinutes);
 		campoCopiado = campo;
 		setTimeout(() => (campoCopiado = undefined), 2000);
 	}
 
 	// --- ver secreto ---
-	let secretoAbierto = $state<{ password: string; notes: string; totpSecret?: string } | undefined>();
+	let secretoAbierto = $state<SecretoAbierto | undefined>();
 	let cargandoSecreto = $state(false);
 	let errorSecreto = $state<string | undefined>();
 
@@ -812,6 +858,10 @@
 	let editNotas = $state('');
 	let editTotp = $state('');
 	let editMatching = $state<EstrategiaMatch>('host');
+	let editKeyId = $state('');
+	let editTokenSecret = $state('');
+	let editScopes = $state('');
+	let editExpira = $state('');
 	let cargandoParaEditar = $state(false);
 	let guardandoEdicion = $state(false);
 	let errorEditar = $state<string | undefined>();
@@ -830,6 +880,10 @@
 			editNotas = secreto.notes;
 			editTotp = secreto.totpSecret ?? '';
 			editMatching = seleccionado.matching;
+			editKeyId = seleccionado.keyId;
+			editTokenSecret = secreto.tokenSecret ?? '';
+			editScopes = seleccionado.scopes;
+			editExpira = seleccionado.expiresAt;
 		} catch (err) {
 			errorEditar = err instanceof ApiError ? err.message : $t.vault.errorVerSecreto;
 		} finally {
@@ -852,7 +906,11 @@
 					password: editPassword,
 					notas: editNotas,
 					totpSecretBase32: editTotp || undefined,
-					matching: editMatching
+					matching: editMatching,
+					keyId: editKeyId,
+					tokenSecret: editTokenSecret,
+					scopes: editScopes,
+					expiresAt: editExpira
 				},
 				$clavesDesbloqueadas
 			);
@@ -1040,20 +1098,18 @@
 	 * como para el .7z en lote (pedido explícito 2026-08-24): sólo incluye
 	 * los campos que el recurso realmente tiene, nunca una línea vacía
 	 * "Notas: " para algo que no existe. */
-	function bloqueDeRecurso(
-		nombre: string,
-		usuario: string,
-		uri: string,
-		password: string,
-		notas: string,
-		totpSecret?: string
-	): string {
-		const lineas = [`${$t.vault.archivoLabelRecurso}: ${nombre}`];
-		if (usuario) lineas.push(`${$t.vault.archivoLabelUsuario}: ${usuario}`);
-		if (uri) lineas.push(`${$t.vault.archivoLabelHost}: ${uri}`);
-		lineas.push(`${$t.vault.archivoLabelPassword}: ${password}`);
-		if (notas) lineas.push(`${$t.vault.archivoLabelNotas}: ${notas}`);
-		if (totpSecret) lineas.push(`${$t.vault.archivoLabelTotp}: ${totpSecret}`);
+	function bloqueDeRecurso(r: Recurso, secreto: SecretoAbierto): string {
+		const esToken = r.resourceTypeSlug === 'api-token';
+		const lineas = [`${$t.vault.archivoLabelRecurso}: ${r.nombre}`];
+		if (r.usuario) lineas.push(`${$t.vault.archivoLabelUsuario}: ${r.usuario}`);
+		if (r.uri) lineas.push(`${$t.vault.archivoLabelHost}: ${r.uri}`);
+		if (r.keyId) lineas.push(`${$t.vault.apiToken.keyId}: ${r.keyId}`);
+		lineas.push(`${esToken ? $t.vault.apiToken.token : $t.vault.archivoLabelPassword}: ${secreto.password}`);
+		if (secreto.tokenSecret) lineas.push(`${$t.vault.apiToken.tokenSecret}: ${secreto.tokenSecret}`);
+		if (r.scopes) lineas.push(`${$t.vault.apiToken.scopes}: ${r.scopes}`);
+		if (r.expiresAt) lineas.push(`${$t.vault.apiToken.vence}: ${r.expiresAt}`);
+		if (secreto.notes) lineas.push(`${$t.vault.archivoLabelNotas}: ${secreto.notes}`);
+		if (secreto.totpSecret) lineas.push(`${$t.vault.archivoLabelTotp}: ${secreto.totpSecret}`);
 		return lineas.join('\n');
 	}
 
@@ -1065,14 +1121,7 @@
 		archivoGenerando = true;
 		try {
 			const secreto = await verSecreto(seleccionado, $clavesDesbloqueadas);
-			const contenido = bloqueDeRecurso(
-				seleccionado.nombre,
-				seleccionado.usuario,
-				seleccionado.uri,
-				secreto.password,
-				secreto.notes,
-				secreto.totpSecret
-			);
+			const contenido = bloqueDeRecurso(seleccionado, secreto);
 			const bytes = await crearArchivoCompartido(contenido, archivoPassword);
 			// `.slice()` fuerza un `Uint8Array` sobre un `ArrayBuffer` propio
 			// (no `ArrayBufferLike`/`SharedArrayBuffer`) — lo que `Blob` exige
@@ -1114,7 +1163,7 @@
 			const bloques: string[] = [];
 			for (const r of elegidos) {
 				const secreto = await verSecreto(r, $clavesDesbloqueadas);
-				bloques.push(bloqueDeRecurso(r.nombre, r.usuario, r.uri, secreto.password, secreto.notes, secreto.totpSecret));
+				bloques.push(bloqueDeRecurso(r, secreto));
 			}
 			const contenido = bloques.join('\n\n----------------------------------------\n\n');
 			const bytes = await crearArchivoCompartido(contenido, archivoLotePassword);
@@ -1471,6 +1520,8 @@
 	// de importar nada — KDBX/CXF no lo necesitan (esquema fijo, conocido).
 	let csvCrudo = $state<CsvCrudo | undefined>();
 	let csvMapeo = $state<(CampoCsv | null)[]>([]);
+	/** F-58: tipo de las filas sin columna `type` (ej. un CSV de tokens). */
+	let tipoDestinoImport = $state<TipoRecurso>('login-password');
 	let arrastrandoImport = $state(false);
 
 	const formatoImport = $derived(archivoImport ? detectarFormatoPorNombre(archivoImport.name) : undefined);
@@ -1550,7 +1601,7 @@
 		errorImport = undefined;
 		importando = true;
 		try {
-			const creados = await importar(formato, filas, $clavesDesbloqueadas, $sesion.userId);
+			const creados = await importar(formato, filas, $clavesDesbloqueadas, $sesion.userId, formato === 'csv' ? tipoDestinoImport : undefined);
 			okImport = creados;
 			filasPreview = undefined;
 			csvCrudo = undefined;
@@ -1711,6 +1762,7 @@
 									<div class="info-item">
 										<div class="linea-principal">
 											<span class="nombre-item" title={r.nombre}>{r.nombre}</span>
+											{@render badgeVencimiento(r)}
 										</div>
 										<div class="linea-secundaria">
 											<span class="subtexto-item" title={r.usuario || r.uri || ''}>{r.usuario || r.uri || '—'}</span>
@@ -1755,7 +1807,7 @@
 										onchange={() => toggleSeleccion(r.id)}
 									/>
 								</td>
-								<td>{r.nombre}</td>
+								<td>{r.nombre} {@render badgeVencimiento(r)}</td>
 								<td class="secundario">{r.usuario}</td>
 								<td class="secundario">{r.uri}</td>
 								<td class="secundario">
@@ -1830,6 +1882,28 @@
 									</button>
 								</dd>
 							{/if}
+							{#if seleccionado.keyId}
+								<dt>{$t.vault.apiToken.keyId}</dt>
+								<dd>
+									<code>{seleccionado.keyId}</code>
+									<button
+										type="button"
+										class="icono-copiar"
+										onclick={() => copiarCampo('keyId', seleccionado!.keyId)}
+										aria-label={$t.secretField.copiar}
+									>
+										{campoCopiado === 'keyId' ? '✓' : '⧉'}
+									</button>
+								</dd>
+							{/if}
+							{#if seleccionado.scopes}
+								<dt>{$t.vault.apiToken.scopes}</dt>
+								<dd>{seleccionado.scopes}</dd>
+							{/if}
+							{#if seleccionado.expiresAt}
+								<dt>{$t.vault.apiToken.vence}</dt>
+								<dd>{seleccionado.expiresAt} {@render badgeVencimiento(seleccionado)}</dd>
+							{/if}
 						</dl>
 						{#if comandoDeConexion(seleccionado)}
 							{@const comando = comandoDeConexion(seleccionado)!}
@@ -1889,11 +1963,19 @@
 							</Button>
 						{:else}
 							<SecretField
-								label={$t.vault.password}
+								label={seleccionado.resourceTypeSlug === 'api-token' ? $t.vault.apiToken.token : $t.vault.password}
 								valor={secretoAbierto.password}
 								puedeRevelar={tienePermiso($permisos, 'password.preview')}
 								puedeCopiar={tienePermiso($permisos, 'password.copy')}
 							/>
+							{#if secretoAbierto.tokenSecret}
+								<SecretField
+									label={$t.vault.apiToken.tokenSecret}
+									valor={secretoAbierto.tokenSecret}
+									puedeRevelar={tienePermiso($permisos, 'password.preview')}
+									puedeCopiar={tienePermiso($permisos, 'password.copy')}
+								/>
+							{/if}
 							{#if secretoAbierto.notes}
 								<p class="notas">{secretoAbierto.notes}</p>
 							{/if}
@@ -1948,6 +2030,23 @@
 						{:else}
 							<form onsubmit={guardarEdicion}>
 								<TextField label={$t.vault.nombre} bind:value={editNombre} required />
+								{#if seleccionado?.resourceTypeSlug === 'api-token'}
+									{@render camposApiToken({
+										token: () => editPassword,
+										setToken: (v) => (editPassword = v),
+										keyId: () => editKeyId,
+										setKeyId: (v) => (editKeyId = v),
+										tokenSecret: () => editTokenSecret,
+										setTokenSecret: (v) => (editTokenSecret = v),
+										scopes: () => editScopes,
+										setScopes: (v) => (editScopes = v),
+										expira: () => editExpira,
+										setExpira: (v) => (editExpira = v)
+									})}
+									<TextField label={$t.vault.apiToken.servicio} bind:value={editUri} />
+									<TextField label={$t.vault.apiToken.cuenta} bind:value={editUsuario} />
+									<TextField label={$t.vault.notas} bind:value={editNotas} />
+								{:else}
 								<TextField label={$t.vault.usuario} bind:value={editUsuario} />
 								<TextField label={$t.vault.uri} bind:value={editUri} />
 								<div class="con-generar">
@@ -1956,6 +2055,7 @@
 								</div>
 								<TextField label={$t.vault.notas} bind:value={editNotas} />
 								<TextField label={$t.vault.totpOpcional} bind:value={editTotp} />
+								{/if}
 								{#if seleccionado?.resourceTypeSlug.startsWith('login-password')}
 									<label class="campo-tipo">
 										{$t.vault.matching}
@@ -2258,6 +2358,52 @@
 	</Modal>
 {/if}
 
+{#snippet badgeVencimiento(r: Recurso)}
+	{@const v = estadoVencimiento(r.expiresAt)}
+	{#if v?.estado === 'vencido'}
+		<span class="badge-vence vencido">{$t.vault.apiToken.vencido}</span>
+	{:else if v?.estado === 'por-vencer'}
+		<span class="badge-vence por-vencer">{$t.vault.apiToken.venceEn(v.dias)}</span>
+	{/if}
+{/snippet}
+
+{#snippet camposApiToken(c: {
+	token: () => string;
+	setToken: (v: string) => void;
+	keyId: () => string;
+	setKeyId: (v: string) => void;
+	tokenSecret: () => string;
+	setTokenSecret: (v: string) => void;
+	scopes: () => string;
+	setScopes: (v: string) => void;
+	expira: () => string;
+	setExpira: (v: string) => void;
+})}
+	<!-- Multilínea: JWT, PEM o el JSON de una service account no entran en un input. Sin generador: el token lo emite el servicio. -->
+	<label class="campo-tipo">
+		{$t.vault.apiToken.token}<span class="req" aria-hidden="true"> *</span>
+		<textarea
+			class="campo-token"
+			rows="3"
+			required
+			spellcheck="false"
+			autocomplete="off"
+			value={c.token()}
+			oninput={(e) => c.setToken(e.currentTarget.value)}
+		></textarea>
+		<span class="campo-hint">{$t.vault.apiToken.tokenHint}</span>
+	</label>
+	<TextField label={$t.vault.apiToken.keyId} value={c.keyId()} oninput={(e) => c.setKeyId(e.currentTarget.value)} hint={$t.vault.apiToken.keyIdHint} />
+	<TextField
+		label={$t.vault.apiToken.tokenSecret}
+		type="password"
+		value={c.tokenSecret()}
+		oninput={(e) => c.setTokenSecret(e.currentTarget.value)}
+	/>
+	<TextField label={$t.vault.apiToken.scopes} value={c.scopes()} oninput={(e) => c.setScopes(e.currentTarget.value)} />
+	<TextField label={$t.vault.apiToken.vence} type="date" value={c.expira()} oninput={(e) => c.setExpira(e.currentTarget.value)} />
+{/snippet}
+
 {#snippet formularioCrear()}
 	<form onsubmit={crear} class="crear">
 		<label class="campo-tipo">
@@ -2272,8 +2418,30 @@
 				<option value="postgresql">{$t.vault.tipoPostgresql}</option>
 				<option value="mysql">{$t.vault.tipoMysql}</option>
 				<option value="mongodb">{$t.vault.tipoMongodb}</option>
+				<option value="api-token">{$t.vault.tipoApiToken}</option>
 			</select>
 		</label>
+		{#if tipoNuevo === 'api-token'}
+			{@render camposApiToken({
+				token: () => password,
+				setToken: (v) => {
+					password = v;
+					alCambiarTokenNuevo();
+				},
+				keyId: () => keyIdNuevo,
+				setKeyId: (v) => (keyIdNuevo = v),
+				tokenSecret: () => tokenSecretNuevo,
+				setTokenSecret: (v) => (tokenSecretNuevo = v),
+				scopes: () => scopesNuevo,
+				setScopes: (v) => (scopesNuevo = v),
+				expira: () => expiraNuevo,
+				setExpira: (v) => (expiraNuevo = v)
+			})}
+			<TextField label={$t.vault.nombre} bind:value={nombre} required />
+			<TextField label={$t.vault.apiToken.servicio} bind:value={uri} />
+			<TextField label={$t.vault.apiToken.cuenta} bind:value={usuario} />
+			<TextField label={$t.vault.notas} bind:value={notas} />
+		{:else}
 		<TextField label={$t.vault.nombre} bind:value={nombre} required />
 		<TextField label={$t.vault.usuario} bind:value={usuario} />
 		{#if tipoNuevo === 'login-password'}
@@ -2301,6 +2469,7 @@
 				</select>
 				<span class="campo-hint">{$t.vault.matchingHint}</span>
 			</label>
+		{/if}
 		{/if}
 		{#if errorCrear}<p class="error">{errorCrear}</p>{/if}
 		<div class="botones">
@@ -2402,6 +2571,14 @@
 
 					{#if esCsvImport && csvCrudo}
 						<div class="mapeo-csv">
+							<label class="campo-tipo">
+								{$t.exportImport.tipoDestino}
+								<select bind:value={tipoDestinoImport}>
+									<option value="login-password">{$t.vault.tipoLoginPassword}</option>
+									<option value="api-token">{$t.vault.tipoApiToken}</option>
+								</select>
+								<span class="campo-hint">{$t.exportImport.tipoDestinoHint}</span>
+							</label>
 							<p class="hint">{$t.exportImport.columnaMapeoHint}</p>
 							<div class="tabla-mapeo-scroll">
 								<table class="tabla-mapeo">
@@ -2418,6 +2595,11 @@
 														<option value="uri">{$t.exportImport.mapeoUrl}</option>
 														<option value="notes">{$t.exportImport.mapeoNotas}</option>
 														<option value="totp_secret">{$t.exportImport.mapeoTotp}</option>
+														<option value="type">{$t.exportImport.mapeoTipo}</option>
+														<option value="key_id">{$t.vault.apiToken.keyId}</option>
+														<option value="token_secret">{$t.vault.apiToken.tokenSecret}</option>
+														<option value="scopes">{$t.vault.apiToken.scopes}</option>
+														<option value="expires_at">{$t.exportImport.mapeoVence}</option>
 													</select>
 												</th>
 											{/each}
@@ -2677,6 +2859,35 @@
 		padding: var(--space-2) var(--space-3);
 		color: var(--text-primary);
 		font-weight: normal;
+	}
+	.campo-token {
+		background: var(--bg-overlay);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-sm);
+		padding: var(--space-2) var(--space-3);
+		color: var(--text-primary);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		font-weight: normal;
+		resize: vertical;
+		word-break: break-all;
+	}
+	.badge-vence {
+		display: inline-block;
+		margin-left: var(--space-2);
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-sm);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.badge-vence.vencido {
+		color: var(--danger);
+		border: 1px solid var(--danger);
+	}
+	.badge-vence.por-vencer {
+		color: var(--warning);
+		border: 1px solid var(--warning);
 	}
 	.campo-hint {
 		font-size: var(--text-xs);

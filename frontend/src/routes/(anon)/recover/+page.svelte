@@ -22,7 +22,7 @@
 		type BlobClaveNueva
 	} from '$lib/crypto/accountRecovery';
 	import { base64ABytes } from '$lib/crypto/b64';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
+	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { t } from '$lib/i18n';
 	import { ApiError, api } from '$lib/api/client';
 	import { enModoEscritorio } from '$lib/tauri/conectar';

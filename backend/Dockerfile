@@ -20,6 +20,10 @@ COPY crates/ellkan-crypto ./crates/ellkan-crypto
 # que existir acá aunque este stage no compile su código.
 COPY backend ./backend
 COPY cli ./cli
+# La app de escritorio (`app-escritorio/src-tauri`) también es miembro del
+# workspace, pero la imagen del servidor no la compila ni copia esa carpeta:
+# se la saca del workspace acá para que `cargo` no falle buscando su manifest.
+RUN sed -i 's#, "app-escritorio/src-tauri"##' Cargo.toml
 # `--out-dir` apunta directo al mismo destino que usa un desarrollador local
 # (ver `docs/activeContext.md`) — `frontend/src/lib/wasm/` es gitignored,
 # se regenera siempre a partir de la fuente Rust, nunca se commitea.
@@ -44,6 +48,9 @@ COPY .sqlx ./.sqlx
 COPY crates/ellkan-crypto ./crates/ellkan-crypto
 COPY backend ./backend
 COPY cli ./cli
+# Mismo motivo que en `wasm-builder`: la app de escritorio (`app-escritorio/src-tauri`) también es miembro del
+# workspace y la imagen del servidor no la copia.
+RUN sed -i 's#, "app-escritorio/src-tauri"##' Cargo.toml
 
 # `SQLX_OFFLINE=true` usa el caché `.sqlx/` (generado con `cargo sqlx
 # prepare`, commiteado al repo) en vez de conectarse a una base real — el

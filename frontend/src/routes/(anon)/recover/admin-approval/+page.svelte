@@ -16,7 +16,7 @@
 	import Card from '$lib/components/Card.svelte';
 	import { accountRecoveryApi } from '$lib/api/accountRecovery';
 	import { generarClaveEfimera, desellarMaterialDelEscrow, reSellarConNuevaPassphrase } from '$lib/crypto/accountRecovery';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength';
+	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 

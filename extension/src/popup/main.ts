@@ -12,7 +12,11 @@ import type { ResultadoLogin } from '../background/services/auth-service';
 import type { ItemVault, SecretoRevelado, DatosRecurso } from '../background/services/vault-service';
 import { comandoDeConexion, urlAbrible, hostnameParaFavicon } from './conexion';
 import { generarPassword, type ReglasCharset } from '../../../frontend/src/lib/crypto/passwordGenerator';
-import { evaluarFortaleza } from '../../../frontend/src/lib/crypto/passwordStrength';
+import { evaluarFortaleza, cargarMedidor } from '../../../frontend/src/lib/crypto/passwordStrength';
+
+// El medidor se carga recién al primer uso (ver `passwordStrength.ts`): en el
+// popup conviene tenerlo listo antes de abrir un detalle o el generador.
+void cargarMedidor();
 import { generarFraseDePaso, type OpcionesFraseDePaso } from './passphrase-generator';
 
 const cliente = new PortClient('QuickAccess');
@@ -194,7 +198,8 @@ const ICONO_POR_TIPO: Record<string, string> = {
 	ssh: '💻',
 	ftp: '📁',
 	vnc: '🖥️',
-	telnet: '📟'
+	telnet: '📟',
+	'api-token': '🎫'
 };
 
 let itemsVault: ItemVault[] = [];
@@ -354,6 +359,8 @@ function abrirDetalle(item: ItemVault): void {
 	botonRevelarPassword.setAttribute('aria-label', 'Mostrar contraseña');
 	detalleTotpBloque.classList.add('oculto');
 	detalleNotaBloque.classList.add('oculto');
+	// F-58: un token se edita desde la app (este formulario no conoce sus campos).
+	botonEditarItem.classList.toggle('oculto', item.resourceTypeSlug === 'api-token');
 
 	const comando = comandoDeConexion(item.resourceTypeSlug, item.usuario, item.uri);
 	const url = urlAbrible(item.resourceTypeSlug, item.uri);

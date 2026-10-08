@@ -52,11 +52,17 @@ Comparte un recurso con otro usuario. Sólo funciona sobre recursos `shared_key`
 | `add-member <group-id> --user-email <email> [--is-admin]` | Agrega un miembro. Sólo funciona si el grupo todavía no comparte ningún recurso — si ya comparte algo, el backend pide envelopes (DEKs re-selladas para el nuevo miembro) que este comando no arma; hay que agregarlo por la UI en ese caso. |
 | `remove-member <group-id> --user-email <email>` | Saca a un miembro del grupo. |
 
-### `ellkan-cli exec <resource-id> [--env-var ELLKAN_PASSWORD] -- <comando> [args...]`
-Ejecuta un comando externo con la contraseña inyectada como variable de entorno **sólo al subproceso** — nunca queda en el entorno del shell padre ni en el historial. Ejemplo:
+### `ellkan-cli exec [<resource-id>] [--env-var ELLKAN_PASSWORD] [--env VARIABLE=<resource-id>]... -- <comando> [args...]`
+Ejecuta un comando externo con la contraseña inyectada como variable de entorno **sólo al subproceso** — nunca queda en el entorno del shell padre ni en el historial. El `--` antes del comando es obligatorio. Ejemplo:
 
 ```bash
 ellkan-cli exec 3fa2... --env-var DB_PASSWORD -- psql -h localhost -U admin mydb
+```
+
+`--env` se puede repetir para inyectar varios recursos a la vez; en un recurso de tipo «Token / API key» se inyecta el token. La passphrase se pide una sola vez:
+
+```bash
+ellkan-cli exec --env GITHUB_TOKEN=3fa2... --env NPM_TOKEN=9b1c... -- ./publicar.sh
 ```
 
 ### Administración (`ellkan-cli admin <subcomando>`)

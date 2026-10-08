@@ -5,7 +5,7 @@
 //! usuario de la PC donde se use.
 //!
 //! Se activa con `--portable` en la línea de comandos o poniendo un archivo
-//! `ellkan-portable.txt` junto al `.exe` (así alcanza con copiar la carpeta:
+//! `ellkan-portable.txt` junto al `.exe` o al `.AppImage` (así alcanza con copiar la carpeta:
 //! no hace falta un acceso directo con argumentos).
 
 use std::path::{Path, PathBuf};
@@ -14,7 +14,13 @@ pub const BANDERA: &str = "--portable";
 pub const MARCA: &str = "ellkan-portable.txt";
 const CARPETA_DE_DATOS: &str = "ellkan-datos";
 
+/// Carpeta donde el usuario ve el ejecutable. En un AppImage, `current_exe()`
+/// apunta al montaje temporal de sólo lectura (`/tmp/.mount_…`): la carpeta
+/// real es la del archivo `.AppImage`, que su runtime deja en `$APPIMAGE`.
 fn carpeta_del_exe() -> Option<PathBuf> {
+  if let Some(appimage) = std::env::var_os("APPIMAGE") {
+    return Path::new(&appimage).parent().map(Path::to_path_buf);
+  }
   std::env::current_exe().ok()?.parent().map(Path::to_path_buf)
 }
 

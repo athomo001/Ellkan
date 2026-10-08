@@ -18,6 +18,8 @@ Para compilar y empaquetar de forma determinista con el frontend estático incru
 
 # Si PowerShell dice que la ejecución de scripts está deshabilitada:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-windows.ps1 -Msi
+# O, una sola vez y para siempre (sólo tu usuario, sin administrador):
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 # O desde la carpeta frontend:
 pnpm build:desktop

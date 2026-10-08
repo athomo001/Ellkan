@@ -202,6 +202,95 @@ async fn register(
     Ok(Json(RegisterResponse { user_id, pending_verification }))
 }
 
+/// `POST /auth/register-desde-servidor` — primer arranque conectado a una
+/// cuenta que ya existe en un servidor Ellkan (F-47). El cliente ya abrió el
+/// material de claves del servidor con la passphrase y entró allá; acá sólo
+/// se crea el único usuario local con esa misma identidad: mismas claves,
+/// mismo blob cifrado (se desbloquea con la misma passphrase) y el mismo id.
+/// Mismas reglas que `register`: sólo si la bóveda todavía no tiene usuario.
+#[derive(Debug, serde::Deserialize)]
+struct RegistroDesdeServidorRequest {
+    #[serde(flatten)]
+    datos: RegisterRequest,
+    user_id: Uuid,
+}
+
+async fn register_desde_servidor(
+    State(state): State<AppStateDesktop>,
+    Json(req): Json<RegistroDesdeServidorRequest>,
+) -> Result<Json<RegisterResponse>, ApiError> {
+    if state.usuarios.existe_alguno().await.map_err(DomainError::from)? {
+        return Err(DomainError::ValidacionInvalida(
+            "esta bóveda de escritorio ya tiene un usuario — el modo escritorio es de un solo usuario, no se pueden crear más".into(),
+        )
+        .into());
+    }
+    let r = &req.datos;
+    let decodificar = |valor: &str, campo: &str| {
+        b64::decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} inválido")))
+    };
+    let publica_x25519 = decodificar(&r.public_key_x25519_b64, "public_key_x25519_b64")?;
+    let publica_ed25519 = decodificar(&r.public_key_ed25519_b64, "public_key_ed25519_b64")?;
+    if publica_x25519.len() != 32 || publica_ed25519.len() != 32 {
+        return Err(DomainError::ValidacionInvalida("las claves públicas deben ser de 32 bytes".into()).into());
+    }
+    let blob = decodificar(&r.encrypted_private_key_blob_b64, "encrypted_private_key_blob_b64")?;
+    let nonce = decodificar(&r.private_key_nonce_b64, "private_key_nonce_b64")?;
+    let salt = decodificar(&r.kdf_salt_b64, "kdf_salt_b64")?;
+
+    let nuevo = NuevoUsuario {
+        email: &r.email,
+        display_name: &r.display_name,
+        public_key_x25519: &publica_x25519,
+        public_key_ed25519: &publica_ed25519,
+        encrypted_private_key_blob: &blob,
+        private_key_nonce: &nonce,
+        kdf_salt: &salt,
+    };
+    let usuario = state.usuarios.crear_con_id(nuevo, req.user_id).await.map_err(|e| match e {
+        RepoError::Conflict => DomainError::Conflict,
+        otro => DomainError::Interno(otro),
+    })?;
+    Ok(Json(RegisterResponse { user_id: usuario.id, pending_verification: false }))
+}
+
+/// `POST /auth/adoptar-identidad` — unir la bóveda local (ya con usuario) con
+/// la cuenta del mismo correo en un servidor (F-47, parte B). Exige la sesión
+/// local: sólo quien ya desbloqueó esta bóveda puede reemplazar su identidad.
+/// El cliente sube antes los datos al servidor y pide una copia de seguridad;
+/// acá se borra lo que dependía de la identidad vieja y se crea el usuario con
+/// la del servidor, todo en una transacción (`reemplazar_identidad`). La
+/// sesión actual muere con eso: después se inicia sesión con la frase del servidor.
+async fn adoptar_identidad(
+    State(state): State<AppStateDesktop>,
+    _auth: AuthenticatedUserDesktop,
+    Json(req): Json<RegistroDesdeServidorRequest>,
+) -> Result<Json<RegisterResponse>, ApiError> {
+    let r = &req.datos;
+    let decodificar = |valor: &str, campo: &str| {
+        b64::decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} inválido")))
+    };
+    let publica_x25519 = decodificar(&r.public_key_x25519_b64, "public_key_x25519_b64")?;
+    let publica_ed25519 = decodificar(&r.public_key_ed25519_b64, "public_key_ed25519_b64")?;
+    if publica_x25519.len() != 32 || publica_ed25519.len() != 32 {
+        return Err(DomainError::ValidacionInvalida("las claves públicas deben ser de 32 bytes".into()).into());
+    }
+    let blob = decodificar(&r.encrypted_private_key_blob_b64, "encrypted_private_key_blob_b64")?;
+    let nonce = decodificar(&r.private_key_nonce_b64, "private_key_nonce_b64")?;
+    let salt = decodificar(&r.kdf_salt_b64, "kdf_salt_b64")?;
+    let nuevo = NuevoUsuario {
+        email: &r.email,
+        display_name: &r.display_name,
+        public_key_x25519: &publica_x25519,
+        public_key_ed25519: &publica_ed25519,
+        encrypted_private_key_blob: &blob,
+        private_key_nonce: &nonce,
+        kdf_salt: &salt,
+    };
+    let usuario = state.usuarios.reemplazar_identidad(nuevo, req.user_id).await.map_err(DomainError::from)?;
+    Ok(Json(RegisterResponse { user_id: usuario.id, pending_verification: false }))
+}
+
 async fn server_key(State(state): State<AppStateDesktop>) -> Json<ServerKeyResponse> {
     Json(ServerKeyResponse { public_key_ed25519_b64: b64::encode(state.server_public_key_ed25519.as_slice()) })
 }
@@ -1401,6 +1490,8 @@ async fn sync_post(
 pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
     Router::new()
         .route("/auth/register", post(register))
+        .route("/auth/register-desde-servidor", post(register_desde_servidor))
+        .route("/auth/adoptar-identidad", post(adoptar_identidad))
         .route("/auth/server-key", get(server_key))
         .route("/auth/existe-usuario", get(existe_usuario))
         .route("/auth/challenge", post(challenge))

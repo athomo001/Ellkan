@@ -17,13 +17,14 @@
 
 import { get } from 'svelte/store';
 import { api, ApiError } from '$lib/api/client';
-import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { uuidABytes } from '../crypto/uuid';
-import { obtenerVinculacion, obtenerCursor, guardarCursor, sesionRemotaVigente } from './vinculacion';
-import { clienteRemoto } from './remoteClient';
+import { obtenerVinculacion, obtenerCursor, guardarCursor, sesionRemotaVigente, olvidarSesionRemota } from './vinculacion';
+import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { obtenerPersistencia } from './persistencia';
+import { necesitaAdaptacion, adaptarRecurso, marcarAdaptado, type CuerpoLocal } from './adaptacion';
 
 interface SyncSecretCrudo {
 	sealed_dek_b64: string;
@@ -37,6 +38,9 @@ interface SyncResourceCrudo {
 	resource_type_slug: string | null;
 	metadata_ciphertext_b64: string | null;
 	metadata_nonce_b64: string | null;
+	created_by: string | null;
+	metadata_key_type: string | null;
+	metadata_key_id: string | null;
 	folder_id: string | null;
 	secret: SyncSecretCrudo | null;
 }
@@ -67,17 +71,48 @@ export interface ResultadoSync {
 	recursosNuevosOActualizados: number;
 	recursosBorrados: number;
 	recursosEnConflicto: number;
+	/** Recursos que no se pudieron traer: metadata con una clave de equipo a
+	 * la que no hay acceso, o de otra persona en un modo sin réplica. */
+	recursosOmitidos: number;
 	carpetasNuevas: number;
 	carpetasBorradas: number;
 	tagsNuevos: number;
 	tagsBorrados: number;
 }
 
-async function ignorar404<T>(promesa: Promise<T>): Promise<T | null> {
+/** Claves de metadata del equipo a las que esta cuenta tiene acceso en el
+ * servidor, ya abiertas con la clave privada (mismo criterio que
+ * `recursos.ts::cargarClavesMetadataCompartidas`, pero contra el servidor). */
+async function clavesMetadataRemotas(
+	remoto: ReturnType<typeof clienteRemoto>,
+	claves: ClavesDesbloqueadas
+): Promise<Map<string, Uint8Array>> {
+	const wasm = await cargarCrypto();
+	const mapa = new Map<string, Uint8Array>();
+	try {
+		const activas = await remoto.get<{ id: string; own_sealed_private_key_b64: string | null }[]>('/metadata-keys');
+		for (const c of activas) {
+			if (c.own_sealed_private_key_b64) mapa.set(c.id, wasm.abrir_sellado(claves.x25519Private, base64ABytes(c.own_sealed_private_key_b64)));
+		}
+	} catch {
+		// Sin acceso a las claves de equipo: esos recursos se cuentan como omitidos.
+	}
+	return mapa;
+}
+
+/**
+ * `null` si el recurso/carpeta/tag no existe en la bóveda LOCAL. El backend
+ * responde 403 (no 404) a un id que no existe — a propósito, para no revelar
+ * qué ids hay — así que acá los dos significan "no está": en la bóveda de
+ * escritorio, de un solo usuario, todo lo que existe es del usuario local.
+ * Antes sólo se aceptaba 404 y el primer recurso nuevo que bajaba del
+ * servidor cortaba todo el sync con "no tenés permiso".
+ */
+async function ignorarAusente<T>(promesa: Promise<T>): Promise<T | null> {
 	try {
 		return await promesa;
 	} catch (err) {
-		if (err instanceof ApiError && err.status === 404) return null;
+		if (err instanceof ApiError && (err.status === 404 || err.status === 403)) return null;
 		throw err;
 	}
 }
@@ -109,13 +144,13 @@ async function copiarComoConflicto(resourceId: string): Promise<void> {
 	// con la bóveda desbloqueada lo vuelve a intentar.
 	if (!claves) return;
 
-	const recurso = await ignorar404(
+	const recurso = await ignorarAusente(
 		api.get<{ id: string; resource_type_slug: string; metadata_ciphertext_b64: string; metadata_nonce_b64: string; created_by: string | null }>(
 			`/resources/${resourceId}`
 		)
 	);
 	if (!recurso || !recurso.created_by) return;
-	const secreto = await ignorar404(
+	const secreto = await ignorarAusente(
 		api.get<{ sealed_dek_b64: string; secret_ciphertext_b64: string; secret_nonce_b64: string }>(`/resources/${resourceId}/secret`)
 	);
 	if (!secreto) return;
@@ -161,12 +196,20 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 	const vinculacion = obtenerVinculacion(email);
 	if (!vinculacion) throw new Error('Esta bóveda no está conectada a ningún servidor.');
 
-	const sessionId = await sesionRemotaVigente(vinculacion, claves);
-	const remoto = clienteRemoto(vinculacion.serverUrl, sessionId);
+	let remoto = clienteRemoto(vinculacion.serverUrl, await sesionRemotaVigente(vinculacion, claves));
 
 	const cursorAnterior = obtenerCursor(email);
 	const query = cursorAnterior ? `?since=${encodeURIComponent(cursorAnterior)}` : '';
-	const resultado = await remoto.get<SyncResponseCrudo>(`/sync${query}`);
+	let resultado: SyncResponseCrudo;
+	try {
+		resultado = await remoto.get<SyncResponseCrudo>(`/sync${query}`);
+	} catch (err) {
+		// La sesión reusada venció o la revocaron del otro lado: una nueva y otra vez.
+		if (!(err instanceof RemoteApiError && err.status === 401)) throw err;
+		olvidarSesionRemota(vinculacion);
+		remoto = clienteRemoto(vinculacion.serverUrl, await sesionRemotaVigente(vinculacion, claves));
+		resultado = await remoto.get<SyncResponseCrudo>(`/sync${query}`);
+	}
 
 	// F-48 (spec/13 §8): en modo `full` (default) cada recurso se replica
 	// completo, igual que siempre. En `memory`/`names_only`, el pull escribe
@@ -175,10 +218,13 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 	const modoPersistencia = await obtenerPersistencia();
 	const soloMetadata = modoPersistencia !== 'full';
 
+	let clavesMetadata: Map<string, Uint8Array> | undefined;
+
 	const stats: ResultadoSync = {
 		recursosNuevosOActualizados: 0,
 		recursosBorrados: 0,
 		recursosEnConflicto: 0,
+		recursosOmitidos: 0,
 		carpetasNuevas: 0,
 		carpetasBorradas: 0,
 		tagsNuevos: 0,
@@ -187,32 +233,59 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 
 	for (const item of resultado.resources) {
 		if (item.deleted) {
-			await ignorar404(api.delete(`/resources/${item.id}`));
+			await ignorarAusente(api.delete(`/resources/${item.id}`));
 			stats.recursosBorrados++;
 			continue;
 		}
-		if (!item.secret) continue; // no debería pasar (spec: secret siempre presente si !deleted), defensivo
+		if (!item.secret || !item.metadata_ciphertext_b64 || !item.metadata_nonce_b64) continue; // defensivo: siempre vienen si !deleted
 
-		const local = await ignorar404(api.get<{ updated_at: string }>(`/resources/${item.id}`));
+		// Metadata de equipo o recurso de otra persona: se adapta para poder
+		// leerlo localmente (ver `adaptacion.ts`). Si no se puede, se omite.
+		let cuerpo: CuerpoLocal = {
+			metadata_ciphertext_b64: item.metadata_ciphertext_b64,
+			metadata_nonce_b64: item.metadata_nonce_b64,
+			sealed_dek_b64: item.secret.sealed_dek_b64,
+			secret_ciphertext_b64: item.secret.secret_ciphertext_b64,
+			secret_nonce_b64: item.secret.secret_nonce_b64
+		};
+		const recursoServidor = { ...item, metadata_ciphertext_b64: item.metadata_ciphertext_b64, metadata_nonce_b64: item.metadata_nonce_b64, secret: item.secret };
+		if (necesitaAdaptacion(recursoServidor, userIdLocal)) {
+			clavesMetadata ??= await clavesMetadataRemotas(remoto, claves);
+			const adaptado = await adaptarRecurso(recursoServidor, claves, userIdLocal, clavesMetadata, !soloMetadata).catch(() => null);
+			if (!adaptado) {
+				stats.recursosOmitidos++;
+				continue;
+			}
+			cuerpo = adaptado;
+			marcarAdaptado(email, item.id);
+		}
+
+		const local = await ignorarAusente(api.get<{ updated_at: string; metadata_ciphertext_b64: string }>(`/resources/${item.id}`));
+
+		// Eco de un cambio hecho en esta misma app: el push sube exactamente el
+		// mismo ciphertext (con su nonce aleatorio, imposible de repetir por
+		// casualidad). No hay nada que aplicar, y no es un conflicto aunque la
+		// copia local sea más nueva que el cursor anterior.
+		if (local && local.metadata_ciphertext_b64 === cuerpo.metadata_ciphertext_b64) continue;
 
 		if (!local) {
 			if (soloMetadata) {
 				await api.post('/resources/metadata-only', {
 					id: item.id,
 					resource_type_slug: item.resource_type_slug,
-					metadata_ciphertext_b64: item.metadata_ciphertext_b64,
-					metadata_nonce_b64: item.metadata_nonce_b64,
-					sealed_dek_b64: item.secret.sealed_dek_b64
+					metadata_ciphertext_b64: cuerpo.metadata_ciphertext_b64,
+					metadata_nonce_b64: cuerpo.metadata_nonce_b64,
+					sealed_dek_b64: cuerpo.sealed_dek_b64
 				});
 			} else {
 				await api.post('/resources', {
 					id: item.id,
 					resource_type_slug: item.resource_type_slug,
-					metadata_ciphertext_b64: item.metadata_ciphertext_b64,
-					metadata_nonce_b64: item.metadata_nonce_b64,
-					sealed_dek_b64: item.secret.sealed_dek_b64,
-					secret_ciphertext_b64: item.secret.secret_ciphertext_b64,
-					secret_nonce_b64: item.secret.secret_nonce_b64
+					metadata_ciphertext_b64: cuerpo.metadata_ciphertext_b64,
+					metadata_nonce_b64: cuerpo.metadata_nonce_b64,
+					sealed_dek_b64: cuerpo.sealed_dek_b64,
+					secret_ciphertext_b64: cuerpo.secret_ciphertext_b64,
+					secret_nonce_b64: cuerpo.secret_nonce_b64
 				});
 			}
 			stats.recursosNuevosOActualizados++;
@@ -229,9 +302,9 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 				await api.put(
 					`/resources/${item.id}/metadata-only`,
 					{
-						metadata_ciphertext_b64: item.metadata_ciphertext_b64,
-						metadata_nonce_b64: item.metadata_nonce_b64,
-						sealed_dek_b64: item.secret.sealed_dek_b64
+						metadata_ciphertext_b64: cuerpo.metadata_ciphertext_b64,
+						metadata_nonce_b64: cuerpo.metadata_nonce_b64,
+						sealed_dek_b64: cuerpo.sealed_dek_b64
 					},
 					{ 'If-Match': local.updated_at }
 				);
@@ -239,8 +312,8 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 				await api.put(
 					`/resources/${item.id}`,
 					{
-						metadata_ciphertext_b64: item.metadata_ciphertext_b64,
-						metadata_nonce_b64: item.metadata_nonce_b64,
+						metadata_ciphertext_b64: cuerpo.metadata_ciphertext_b64,
+						metadata_nonce_b64: cuerpo.metadata_nonce_b64,
 						envelopes: [
 							{
 								// El DTO exige un UUID (`EnvelopeInputRequest.recipient_user_id`):
@@ -248,9 +321,9 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 								// usuario local. Mandar el email acá fallaba con 422 en cualquier
 								// pull que editara un recurso ya existente localmente.
 								recipient_user_id: userIdLocal,
-								sealed_dek_b64: item.secret.sealed_dek_b64,
-								secret_ciphertext_b64: item.secret.secret_ciphertext_b64,
-								secret_nonce_b64: item.secret.secret_nonce_b64
+								sealed_dek_b64: cuerpo.sealed_dek_b64,
+								secret_ciphertext_b64: cuerpo.secret_ciphertext_b64,
+								secret_nonce_b64: cuerpo.secret_nonce_b64
 							}
 						]
 					},
@@ -261,7 +334,7 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 		}
 
 		if (item.folder_id) {
-			await ignorar404(api.put(`/resources/${item.id}/move`, { folder_id: item.folder_id }));
+			await ignorarAusente(api.put(`/resources/${item.id}/move`, { folder_id: item.folder_id }));
 		}
 	}
 
@@ -273,7 +346,7 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 		const idsLocales = new Set(arbolLocal.map((n) => n.folder_id));
 		for (const f of resultado.folders) {
 			if (f.deleted) {
-				const borrado = await ignorar404(api.delete(`/folders/${f.folder_id}`));
+				const borrado = await ignorarAusente(api.delete(`/folders/${f.folder_id}`));
 				if (borrado !== null) stats.carpetasBorradas++;
 				continue;
 			}
@@ -293,7 +366,7 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 		const idsLocales = new Set(tagsLocales.map((t) => t.id));
 		for (const t of resultado.tags) {
 			if (t.deleted) {
-				const borrado = await ignorar404(api.delete(`/tags/${t.id}`));
+				const borrado = await ignorarAusente(api.delete(`/tags/${t.id}`));
 				if (borrado !== null) stats.tagsBorrados++;
 				continue;
 			}

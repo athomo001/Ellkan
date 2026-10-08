@@ -9,10 +9,11 @@ export type EstadoConexion = 'comprobando' | 'en_linea' | 'sin_conexion';
 /**
  * `true` si el servidor responde algo (cualquier cosa) antes de `ms`.
  *
- * `mode: 'no-cors'` a propósito: lo único que interesa es si hay camino hasta
- * el servidor, no leer su respuesta. Sin él, un servidor alcanzable que no
- * habilita CORS para este origen se vería igual que uno caído (`fetch` rechaza
- * en los dos casos). La respuesta opaca resuelve; sólo un fallo de red rechaza.
+ * Pedido CORS normal, no `no-cors`: el servidor manda
+ * `Cross-Origin-Resource-Policy: same-origin`, que hace fallar cualquier
+ * pedido `no-cors` desde otro origen aunque el servidor esté arriba (así se
+ * veía "sin conexión" siempre). El servidor habilita CORS para los orígenes
+ * de la app de escritorio, así que el pedido normal funciona.
  */
 export async function servidorAlcanzable(serverUrl: string, ms = 5000): Promise<boolean> {
 	if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
@@ -21,7 +22,6 @@ export async function servidorAlcanzable(serverUrl: string, ms = 5000): Promise<
 	try {
 		await fetch(`${serverUrl.replace(/\/+$/, '')}/healthz`, {
 			method: 'GET',
-			mode: 'no-cors',
 			cache: 'no-store',
 			signal: control.signal
 		});

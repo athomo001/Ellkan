@@ -62,6 +62,7 @@ export interface SecretoEnMemoria {
 	password: string;
 	notes: string;
 	totpSecret?: string;
+	tokenSecret?: string;
 }
 
 export const secretosEnMemoria = declararStore<Record<string, SecretoEnMemoria>>('secretosEnMemoria', {}, {

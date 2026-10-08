@@ -4,6 +4,206 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.64] - 2026-10-05
+
+### Avisos en vivo del servidor a la app, en lugar de preguntar cada 15 segundos
+
+Idea del usuario: la app ya sube sus cambios al instante (push), así que el servidor también podría avisar los suyos en lugar de que la app pregunte todo el tiempo.
+
+- **Servidor** (`backend/src/sync/avisos.rs`):
+  - `GET /sync/eventos` mantiene una conexión Server-Sent Events con un aviso `cambio` sin datos.
+  - Un consumidor del bus de eventos lo emite a partir de las entradas de auditoría sobre recursos, carpetas y tags. Avisa **sólo** a quien hizo la acción y, en el caso de un recurso, a sus destinatarios.
+  - Hay un keep-alive cada 20 s y la conexión se cierra a los 10 minutos para forzar la re-autenticación, así una sesión revocada no queda escuchando.
+  - Nueva dependencia: `futures-util` (ya estaba en el árbol).
+- **App** (`lib/sync/avisosServidor.ts`):
+  - Escucha con `fetch` en streaming. `EventSource` no sirve porque no puede mandar `Authorization`.
+  - Al conectar y ante cada aviso pide el delta de `/sync`.
+  - Reconecta con espera creciente (de 2 a 60 s) y renueva la sesión ante un 401.
+- **Sync automático:** el aviso es lo principal. Queda un sync de respaldo cada 5 minutos, al entrar y al volver a la ventana. Si llega un aviso mientras otro sync corre, queda encolado en lugar de perderse. Sin cambios, no hay tráfico.
+- **Límite:** el borrado de un recurso **compartido** no avisa a los otros destinatarios (ya no existen al emitir el aviso); llega con el sync de respaldo.
+- **Verificado:** `cargo clippy -p ellkan-backend` (con y sin `desktop`, `--all-targets -D warnings`) y `pnpm check` limpios. **Sin test automatizado del SSE** (necesita Postgres en Docker) ni prueba en vivo todavía. Requiere reconstruir **servidor y app**.
+
+## [0.1.63] - 2026-10-05
+
+### Sync casi en tiempo real del servidor a la app
+
+Pedido del usuario: un cambio en la app llegaba a la web al instante, pero uno en la web no aparecía en la app.
+
+- **Cada 15 segundos con la app abierta, y al volver a la ventana** (`focus` y `visibilitychange`). Antes era cada 5 minutos, con un mínimo de 1 minuto entre syncs. Se pausa con la ventana oculta o minimizada.
+- **El Vault se recarga solo:** `automatico.ts` publica `cambiosDelServidor` cuando un sync trae algo. El Vault recarga la lista y el recurso abierto (y oculta su secreto revelado), salvo que se esté editando.
+- **La sesión con el servidor se reusa** (`sesionRemotaVigente`, en memoria, 10 minutos) y se renueva ante un 401, en el pull y en el push. Antes cada sync hacía un login nuevo y dejaba una sesión abierta en el servidor; cada 15 segundos eso habría llenado la tabla de sesiones.
+- **Bug evitado:** el pull traía de vuelta lo que la propia app acababa de subir y, como la copia local era más nueva que el cursor, lo duplicaba como «(conflicto …)». Ahora, si llega el mismo ciphertext que hay localmente (eco del push), se ignora.
+- `pnpm check` limpio. Requiere recompilar la app.
+
+## [0.1.62] - 2026-10-05
+
+### Sync desde el servidor: «no tenés permiso» con el primer recurso nuevo
+
+- **Bug encontrado en la primera prueba real de F-47 parte B.** La unión subió todo al servidor (la web muestra los recursos), pero «Sincronizar ahora» en la app fallaba con «no tenés permiso para esta acción» y la bóveda local quedaba vacía.
+- **Causa:** para saber si un recurso ya existe localmente, el sync pide `GET /resources/{id}` y esperaba 404. El backend responde **403** a un id que no existe, a propósito, para no revelar qué ids hay. Así que el primer recurso nuevo que bajaba cortaba todo el sync: **el pull de recursos nuevos nunca había funcionado**.
+- **Arreglo:**
+  - En `motor.ts`, `ignorar404` pasa a ser `ignorarAusente` y trata 403 y 404 como «no está». En la bóveda local, de un solo usuario, todo lo que existe es del usuario.
+  - El mismo arreglo va en `notificador.ts` contra el servidor: una edición de un recurso que todavía no está allá ahora lo crea (antes no se subía nunca), y borrar algo que no está allá no es un error.
+- `pnpm check` limpio. Requiere recompilar la app; el servidor no cambia.
+
+## [0.1.61] - 2026-10-05
+
+### Alta de usuario por el admin: la frase temporal la escribe el admin
+
+- **Antes:** el navegador del admin generaba la frase temporal y la mostraba **una sola vez**. Si no se copiaba, la cuenta quedaba inutilizable y ocupando el correo, porque por zero-knowledge el servidor no la conoce. Le pasó al usuario probando F-47 con `es@la.cl`.
+- **Ahora:** el formulario de *Administración → Usuarios → Crear usuario* tiene el campo «Passphrase temporal», con mínimo 8 caracteres y un botón «Generar» que lo completa. Al entrar por primera vez el usuario sigue obligado a cambiarla (`must_change_passphrase`, ya existía).
+- **Pendiente** (`spec/14` punto 6): recuperar las cuentas ya creadas con la frase perdida, regenerando la frase o borrando una cuenta que nunca se usó.
+- `pnpm check` limpio. Requiere reconstruir la imagen del servidor.
+
+## [0.1.60] - 2026-10-05
+
+### F-47 parte B: unir una cuenta local existente con la del mismo correo en el servidor
+
+Caso del usuario: `es@la.cl` existía en la app y en el servidor, creadas por separado, con claves distintas. El servidor la rechazaba con razón, porque aceptar sólo por el correo dejaría entrar a cualquiera que cree una cuenta local con ese correo. Pedido: que sea fácil para el usuario y que la app haga sola todo el cifrado.
+
+- **En *Ajustes → Modo conectado*, «Conectar» ya no termina en error en ese caso:** ofrece «Unir y sincronizar» y sólo pide la frase de la cuenta del servidor. Lo mismo pasa si se eligió «bóveda nueva» y el correo ya existe (409).
+- **`sync/union.ts`**, en este orden:
+  1. Abre la identidad del servidor localmente.
+  2. Re-cifra cada recurso local para ella (DEK nueva sellada a su clave pública, AAD con su id) y lo sube con las carpetas, conservando ids y ubicación. Si falla acá, la bóveda local queda intacta.
+  3. Hace una copia de seguridad local (`POST /vault/backups`).
+  4. Reemplaza la identidad local.
+  5. Desactiva el llavero, que guardaba la frase vieja.
+  6. Entra con la frase del servidor y sincroniza.
+- **Backend de escritorio:** `POST /auth/adoptar-identidad` (exige sesión local) y `SqliteUserRepository::reemplazar_identidad`. En una sola transacción borra lo ligado a la identidad vieja (recursos, carpetas, tags, sesiones, MFA local, kit) y crea el usuario con el id y las claves del servidor. `insertar_en` se refactorizó para compartir el alta dentro de la transacción.
+- **Después de unir:** la app se desbloquea con la frase del servidor y pide generar un kit de recuperación nuevo. Los tags no se trasladan.
+- **Verificado:**
+  - Test nuevo `adoptar_identidad_exige_sesion_y_reemplaza_al_usuario_local`: 401 sin sesión, un único usuario con el id del servidor y la sesión vieja eliminada.
+  - Pasan los 3 tests de `desktop_registro_unico`.
+  - `cargo clippy --features desktop --all-targets -D warnings` y `pnpm check` limpios.
+  - **Falta** la prueba de punta a punta.
+
+## [0.1.59] - 2026-10-04
+
+### F-47 parte A: la app de escritorio puede arrancar conectada a una cuenta del servidor
+
+Pedido del usuario: si ya tiene cuenta en el servidor, la instalación tiene que dejar conectarla, traer las contraseñas y subir lo que se guarde en la app. Una cuenta local queda sólo local.
+
+- **Primera pantalla de escritorio con dos opciones:** «Cuenta local» y «Tengo cuenta en un servidor» (`ConectarServidorInicial.svelte`). La segunda pide la dirección del servidor, el correo, la frase y uno de los 3 modos de F-48. Con eso:
+  - Baja del servidor el material de claves y lo abre **localmente** con la frase, que nunca viaja.
+  - Entra al servidor con la firma de la clave.
+  - Crea el usuario local con la **misma identidad**: claves, blob cifrado e **id de usuario**.
+  - Inicia sesión local, aplica el modo elegido y hace el primer sync.
+- **El mismo id de usuario en los dos lados** resuelve, para este caso, el problema de diseño del AAD (`id del recurso + id del creador`): lo cifrado de un lado ahora se lee del otro.
+- **Backend de escritorio:** `POST /auth/register-desde-servidor` y `SqliteUserRepository::crear_con_id`. No se tocó `NuevoUsuario`, que comparten el auto-registro, SSO y SCIM. La regla de un solo usuario por bóveda se mantiene.
+- **Sync automático** (`sync/automatico.ts`): con la bóveda vinculada y desbloqueada, sincroniza al entrar, cada 5 minutos y al volver a la ventana. Antes sólo corría con «Sincronizar ahora».
+- **Recursos que antes bajaban pero no se podían leer:** metadata `shared_key`, que la web usa siempre que exista una clave de metadata de equipo, y recursos de otro creador.
+  - El sync los adapta (`sync/adaptacion.ts`): descifra con la clave de equipo o con el AAD del creador y vuelve a cifrar con la DEK y el AAD local.
+  - Los marca como adaptados y `notificador.ts` no sube sus ediciones, porque las dejaría ilegibles en el servidor.
+  - Si no se pueden adaptar se cuentan como «omitidos» y se explica el motivo en Ajustes. Pasa sin acceso a la clave de equipo, o con un recurso de otra persona en los modos sin réplica.
+- **El mensaje de cambio de frase obligatorio es claro:** una cuenta creada por un admin exige cambiar la frase antes de usarse, y ahora se explica en lugar de mostrar un «paso extra» genérico.
+- **Verificado:**
+  - Pasa el test nuevo `desktop_registro_unico.rs::registro_desde_servidor_conserva_el_id_y_respeta_el_usuario_unico`, que comprueba el id del servidor y el usuario único.
+  - `pnpm check` limpio (490 archivos).
+  - **Falta** la prueba de punta a punta contra la web en Docker.
+- **Pendiente:** parte B (unir después una cuenta local existente con la del servidor, re-cifrando; quedará con la frase del servidor) y parte C (login con correo o nombre de usuario).
+
+## [0.1.58] - 2026-10-04
+
+### Vincular la app de escritorio con un servidor (F-47): no podía conectar nunca
+
+Primera prueba en vivo: la app en Linux contra la web en Docker (`http://localhost:8080`). Siempre devolvía «No se pudo conectar con el servidor». Hubo tres causas:
+
+- **El servidor no tenía CORS.** El webview de la app es otro origen (`tauri://localhost`, o `http(s)://tauri.localhost` en Windows). El preflight `OPTIONS` recibía 405 y `fetch` fallaba como si no hubiera red. Se agregó `capa_cors()` en `backend/src/lib.rs`:
+  - Permite **sólo** los orígenes de Tauri, con los headers `Content-Type`, `Authorization` e `If-Match` y sin credenciales.
+  - Ninguna página web puede hacerse pasar por esos orígenes.
+- **La comprobación de conexión fallaba siempre.** Usaba `mode: 'no-cors'`, y el servidor manda `Cross-Origin-Resource-Policy: same-origin`, que bloquea esos pedidos desde otro origen. Ahora es un pedido CORS normal (`lib/sync/conectividad.ts`).
+- **La CSP de escritorio de la 0.1.54 bloqueaba `http://localhost`.** Sólo permitía `http://127.0.0.1:*`. Se agregó `http://localhost:*`. Un servidor remoto por `http://` sin TLS sigue bloqueado a propósito.
+- **Límite que sigue vigente** (ya documentado en `GUIA.md` §7): «Ya tengo una cuenta en ese servidor» sólo funciona si esa cuenta usa las mismas claves que la bóveda local. Una cuenta creada aparte en el servidor (por ejemplo, desde Administración) tiene otras claves y no puede vincularse. Además sigue abierto el problema de diseño del AAD, que incluye el id de usuario y es distinto en cada lado.
+- **Verificado:** `cargo clippy -p ellkan-backend --all-targets -D warnings` queda limpio. Falta reconstruir la imagen y la app y probar de nuevo.
+
+## [0.1.57] - 2026-10-04
+
+### Compilación: imagen web arreglada, un solo comando para escritorio y guía de Linux
+
+- **`backend/Dockerfile` no compilaba.** El `Cargo.toml` raíz incluye `app-escritorio/src-tauri` como miembro del workspace y la imagen no copia esa carpeta, así que `cargo` fallaba antes de compilar nada. La imagen ahora quita ese miembro del workspace dentro del contenedor (el servidor no lo usa: `desktop` es una feature que no activa). **Verificado:** la imagen compila y la web levantó en Linux con `docker compose`; F-58 se probó a mano ahí.
+- **`app-escritorio/scripts/compilar.mjs`, un solo comando para la app de escritorio.** Detecta Windows o Linux y delega en `build-windows.ps1` o `build-linux.sh`, que dejan el resultado en `windows/binarios/` o en `linuxOS/binarios/`.
+  - Opciones comunes: `--instalador` (`.msi`, o `.deb` + `.rpm` + `.AppImage`), `--version`, `--sin-frontend` y `--sin-extension`. Sólo en Windows: `--mantener-version`. Sólo en Linux: `--formatos`.
+  - Sin `--instalador`, Windows genera el `.exe` portable y Linux el AppImage.
+  - `pnpm build:desktop` apunta a este comando y se quita `build:desktop:linux`.
+  - Cada instalador sigue generándose sólo en su propio sistema.
+- **`build-linux.sh` es ahora un solo comando, sin pasos previos.** Hace todo solo:
+  - Instala lo que falte: las librerías de Tauri con `sudo` (vía `apt` o `dnf`), y Node 22 (de nodejs.org, con checksum verificado), Rust y pnpm en el usuario.
+  - Copia el repo a `~/.cache/ellkan-build`, para no pisar los `node_modules` ni el `target` de Windows en un disco compartido y para reusar lo ya compilado.
+  - Regenera la wasm si falta, compila y copia el resultado a `linuxOS/binarios/`.
+  - Se niega a correr como root.
+  - Opciones: `--bundles`, `--sin-frontend`, `--sin-extension` y `--help`.
+- **`GUIA.md` §11** ahora documenta la compilación en Linux:
+  - Requisitos de Tauri 2 y comandos.
+  - Usar un clon aparte del repo y no el disco NTFS compartido con Windows, porque `node_modules` y `target` no se pueden compartir entre sistemas.
+  - Qué falta en Linux: «Conectar», el inicio con el sistema, `ellkan://`, el bloqueo de pantalla y el llavero. Este último **parece guardar pero no persiste**: `keyring` no tiene activado el Secret Service en Linux.
+- **Primera compilación real en Linux:** el AppImage compila y la app abre.
+- **Verificado en Linux** (copia de trabajo `~/.cache/ellkan-build`):
+  - `cargo clippy` de escritorio y backend (`--all-targets`, `-D warnings`) quedó limpio después de arreglar un `use std::path::Path` que sólo usa Windows.
+  - Pasan los tests SQLite (11, incluido el de `api-token`), `check-salud.mjs` (20 de 20) y `pnpm check` (0 errores).
+  - Pendiente: el test de Postgres, que necesita Docker.
+- **Uso de memoria en Linux.** Con la app abierta se midieron unos 270 MB de memoria propia: 39 MB del proceso de la app y 124 MB anónimos del proceso web de WebKit, entre otros. En Windows, el usuario ve unos 35 MB. Se aplicaron tres recortes:
+  - **Worker de Argon2:** se cierra cuando no hay pedidos en curso. Antes retenía su wasm de 19 MiB para siempre; vale para todos los sistemas y la web.
+  - **Caché de WebKitGTK:** pasa a `DocumentViewer` (`ajustar_webview_linux`, dependencia `webkit2gtk` sólo en Linux, la misma versión que ya trae Tauri).
+  - **Composición acelerada:** se desactiva con `WEBKIT_DISABLE_COMPOSITING_MODE=1`. Se puede volver a activar con `ELLKAN_WEBKIT_COMPOSICION=1`.
+  - **Medido después de recompilar:** el proceso web bajó de 196 a 106 MB de memoria propia, y la app quedó en unos 176 MB en total (antes ~270). De los 106 MB, unos 45 son código de WebKit/JavaScriptCore/ICU que trae el AppImage; la página en sí ocupa poco.
+  - **zxcvbn se carga al primer uso.** El medidor de fuerza son unos 800 KB, la parte más grande del JS, y al importarse arma diccionarios de unas 100 mil palabras. Antes lo importaba el Vault y se cargaba al abrir la app; ahora `passwordStrength.ts` lo carga recién cuando se mide una contraseña.
+    - En la app, `passwordStrength.svelte.ts` hace que el medidor se recalcule solo cuando termina de cargar.
+    - Salud espera a que cargue antes de analizar.
+    - El popup de la extensión lo precarga, porque importa el mismo archivo en TypeScript común.
+    - Por eso la extensión sube a la versión 0.3.3, que cubre también los cambios de F-58.
+- **Sin verificar:** no hay `node` en esta máquina, así que `compilar.mjs` no se ejecutó, y la app nunca se compiló todavía para Linux.
+
+## [0.1.56] - 2026-10-04
+
+### Accesibilidad: fuentes de lectura, espaciado y tamaño de texto
+
+- **Ajustes → Preferencias → «Accesibilidad y lectura»** (web y escritorio): fuente Predeterminada / OpenDyslexic / Atkinson Hyperlegible / Lexend, espaciado entre letras e interlineado (normal/amplio), tamaño de texto 90–150 %. Se aplica al instante, con una muestra en la misma pantalla y un botón «Restablecer».
+- **Local por dispositivo** (`lib/state/lectura.ts`, `localStorage`): no viaja a `/me/preferences`, que además reemplaza su objeto entero al cargar.
+- **Fuentes empaquetadas** en `frontend/static/fonts` (woff2 latin 400/700 de Fontsource 5.3.0, ~320 KB, licencias SIL OFL 1.1 al lado): nada se pide a Google Fonts ni a un CDN, el escritorio funciona sin red y entran en las CSP existentes (`'self'`).
+- **Cómo se aplica:** atributos `data-fuente`/`data-espaciado`/`data-interlineado` y `--escala-texto` en `<html>`; `lib/styles/fuentes.css` cambia `--font-sans`, `letter-spacing`, `line-height` y el `font-size` raíz (toda la UI usa `rem`).
+- **Secretos legibles:** con cualquier fuente de lectura, `--font-mono` pasa a Atkinson Hyperlegible Mono, y los campos de contraseña de `TextField` usan `--font-mono` (también al revelarlos) para distinguir 0/O y l/I/1.
+- **Ajuste tras probarlo en la web (mismo día):** botón «Aa» en el menú (junto a tema e idioma) para prender/apagar la fuente de lectura; en Preferencias sólo se elige cuál (OpenDyslexic por defecto). El slider de tamaño se arrastraba mal porque cada movimiento re-escalaba la página (y el propio slider) bajo el mouse: ahora el valor se aplica al soltar, con pasos de 5 %. Espaciado amplio más sutil (0.02em).
+- **Pendiente:** el popup de la extensión (storage y tokens de diseño propios). **Sin verificar:** no se compiló ni se probó en un navegador (no hay `node` en esta máquina).
+
+## [0.1.55] - 2026-10-04
+
+### F-58: tipo de credencial «Token / API key» (`api-token`)
+
+Para guardar tokens y API keys de terceros (GitHub, GitLab, OpenAI, AWS, Slack, OAuth client_id/secret, service accounts) como tipo propio, en servidor y escritorio. No son tokens para entrar a Ellkan.
+
+- **Backend:** sólo la fila `api-token` en `resource_types`. Las migraciones van en Postgres (`0049_api_token_resource_type.sql`) y en SQLite (`0009_resource_type_api_token.sql`) con el mismo `json_schema`, para que el sync lo reconozca. No hay tablas ni endpoints nuevos. El `json_schema` es distinto al de los tipos usuario/contraseña, así que el cambio de tipo hacia o desde `api-token` se rechaza.
+- **Campos:** en la metadata cifrada van `name`, `uri`, `username`, `key_id` (la parte pública de un par), `scopes` y `expires_at`. En el secreto van `token`, `token_secret` y `notes`. El servidor nunca ve el vencimiento.
+- **Vault (web y escritorio):**
+  - El token se carga en un campo multilínea (JWT, PEM o JSON de service account) y no hay generador de contraseña.
+  - Al pegar el token se sugieren nombre y URL según el prefijo (`ghp_`, `glpat-`, `sk-`, `xoxb-`, `AKIA`…, en `lib/apiTokens.ts`); la detección es sólo del lado del cliente.
+  - Un badge «Vence en N días» o «Vencido» aparece en la lista y en el detalle, con umbral fijo de 14 días.
+  - «Copiar» y Ctrl+C copian el token. No aparecen «Conectar» ni el selector de tipo.
+- **Salud (F-57):** los tokens no se evalúan como débiles ni como viejos, y tampoco se consultan en HIBP. Sí cuentan como repetidos, y hay una sección nueva de «tokens vencidos o por vencer».
+- **Extensión:**
+  - El autofill ya filtraba a `login-password`, así que los tokens no se ofrecen en ninguna página.
+  - El popup los muestra con su ícono y revela el token.
+  - El botón «Editar» se oculta para tokens y el servicio rechaza la edición, porque el formulario del popup perdería `key_id`, `token_secret` y `expires_at`.
+- **Import/Export (F-27):**
+  - El CSV suma las columnas `type`, `key_id`, `token_secret`, `scopes` y `expires_at` al final. De paso, el export ahora conserva el tipo de **todos** los recursos (antes un `ssh` volvía como `login-password`).
+  - El mapeo interactivo permite asignar esas columnas y elegir «Importar como: Token / API key».
+  - KDBX guarda los campos extra como campos personalizados (`TokenSecret` va protegido).
+  - El `.7z` de compartir externo incluye ID, secreto del par, scopes y vencimiento.
+- **CLI:** `exec` acepta `--env VARIABLE=<resource-id>` repetible e inyecta `password` o `token`. La clave privada se deriva una sola vez, los valores viven en `Zeroizing` y el nombre de la variable se valida. **Cambio de uso:** el `--` antes del comando pasa a ser obligatorio (el manual ya lo mostraba así).
+- **Sin verificar:** no hay `cargo` ni `node` en esta máquina, así que no se compiló ni se corrieron los tests nuevos. Hay un test por cada dialecto, 5 checks nuevos en `check-salud.mjs`, y se ajustó `desktop_respaldos.rs`, que deshace las migraciones desde la 7.
+- **Límites conocidos:**
+  - El link de compartir externo sólo lleva el token, no el `token_secret`.
+  - El export CXF no lleva los campos de token.
+
+## [0.1.54] - 2026-10-04
+
+### Escritorio (Windows): CSP, secuestro de PATH y portapapeles fuera del historial
+
+- **CSP del webview.** `tauri.conf.json` tenía `"csp": null`: si un dato importado (nombre, notas) llegaba a renderizarse como HTML no había segunda barrera. Ahora: `default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'` (Argon2/crypto en wasm), `img-src 'self' data: blob:` (QR del TOTP, avatares), `connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* https:` (backend local + servidor de sync), `object-src`/`frame-src 'none'`. Tauri agrega solo los hashes de los `<script>` inline del build. `style-src` mantiene `'unsafe-inline'` y queda fuera de la modificación automática de Tauri (`dangerousDisableAssetCspModification`): con un nonce el navegador ignora `'unsafe-inline'` y se romperían los `style="…"` del HTML. **Consecuencia:** el sync contra un servidor por `http://` plano (no `127.0.0.1`) queda bloqueado — a propósito, el token de sesión viajaría en claro.
+- **Secuestro de PATH en «Conectar».** `buscar_en_path` tomaba el primer `ssh.exe` del PATH, y a ese proceso le llega la contraseña. `ssh`/`ftp`/`telnet`/`mstsc` se buscan ahora primero en el directorio del sistema (`GetSystemDirectoryW`, no `%SystemRoot%`; `ssh` en `System32\OpenSSH`) y del PATH se ignoran las entradas relativas. Los clientes de terceros (`psql`, `mysql`, `mongosh`, visores VNC) siguen saliendo del PATH: no hay ruta canónica.
+- **Portapapeles fuera del historial de Windows.** `copiarConLimpieza` en el escritorio copia vía el comando nativo `copiar_secreto`, que publica junto al texto los formatos `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory=0` y `CanUploadToCloudClipboard=0` (el secreto ya no queda en `Win+V` ni en la nube, que la auto-limpieza no alcanzaba). La limpieza usa `vaciar_portapapeles`. La copia de la clave privada del recovery kit (que iba directo a `navigator.clipboard`) pasa por el mismo camino. Fuera de Windows se usa el portapapeles del webview, igual que antes.
+- **`opener`: revisado, sin cambio.** `opener:default` ya limita `open_url` a `http`/`https`/`mailto`/`tel` (no `file://` ni `ms-settings:`), y el frontend sólo llama con `http(s)`.
+- **Sin verificar:** esta máquina no tiene `cargo`, `node` ni acceso a docker. Falta compilar (`cargo clippy -p ellkan-desktop --all-targets -- -D warnings`, `pnpm check`) y probar en Windows: que la app cargue con la CSP (consola de WebView2 sin violaciones), copiar un secreto y confirmar que no aparece en `Win+V`, y «Conectar» por SSH.
+
 ## [0.1.53] - 2026-09-21
 
 ### `build-windows.ps1`: porcentaje de avance y versión del instalador que sube sola

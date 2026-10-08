@@ -101,6 +101,8 @@ interface SecretoJson {
 	password?: string;
 	notes?: string;
 	totp_secret?: string;
+	/** F-58 (`api-token`): el token va acá en vez de `password`. */
+	token?: string;
 }
 
 export interface SecretoRevelado {
@@ -234,7 +236,7 @@ export const VaultService = {
 		const aad = aadDeRecurso(resourceId, recurso.created_by);
 		const bytes = wasm.descifrar_aead(dek, base64ABytes(secreto.secret_nonce_b64), base64ABytes(secreto.secret_ciphertext_b64), aad);
 		const json: SecretoJson = JSON.parse(new TextDecoder().decode(bytes));
-		return { password: json.password ?? '', notes: json.notes ?? '', totpSecret: json.totp_secret };
+		return { password: json.password ?? json.token ?? '', notes: json.notes ?? '', totpSecret: json.totp_secret };
 	},
 
 	/** Mismo criterio que `frontend/src/lib/crypto/recursos.ts::crearRecurso`:
@@ -286,6 +288,9 @@ export const VaultService = {
 	 * sólo para quien edita), con concurrencia optimista real (`If-Match`
 	 * sobre `updatedAt`, que el caller vio en su último `listar()`). */
 	async editar(item: ItemVault, datos: DatosRecurso): Promise<{ updatedAt: string }> {
+		// F-58: el formulario del popup sólo conoce usuario/contraseña; guardar
+		// un `api-token` desde acá perdería `key_id`, `token_secret`, `expires_at`…
+		if (item.resourceTypeSlug === 'api-token') throw new Error('Los tokens se editan desde la app de Ellkan.');
 		const wasm = await cargarCrypto();
 		const { serverUrl, sessionId, x25519Private } = await sesionActiva();
 		const aad = aadDeRecurso(item.id, item.createdBy);
