@@ -587,7 +587,7 @@ button[type='submit']:disabled {
 }
 
 .detalle-password {
-	font-family: ui-monospace, monospace;
+	font-family: var(--ellkan-mono);
 	letter-spacing: 0.5px;
 }
 
@@ -609,7 +609,7 @@ button[type='submit']:disabled {
 .detalle-valor-codigo {
 	flex: 1;
 	min-width: 0;
-	font-family: ui-monospace, monospace;
+	font-family: var(--ellkan-mono);
 	font-size: 12px;
 	overflow-x: auto;
 	white-space: nowrap;
@@ -746,7 +746,7 @@ button[type='submit']:disabled {
 .generador-valor {
 	flex: 1;
 	min-width: 0;
-	font-family: ui-monospace, monospace;
+	font-family: var(--ellkan-mono);
 	font-size: 15px;
 	letter-spacing: 0.5px;
 	word-break: break-all;
@@ -837,7 +837,7 @@ button[type='submit']:disabled {
 }
 .f38-secreto {
 	display: block;
-	font-family: var(--font-mono, monospace);
+	font-family: var(--ellkan-mono);
 	font-size: 12px;
 	background: var(--ellkan-fondo);
 	border: 1px solid var(--ellkan-borde);
@@ -858,4 +858,100 @@ button[type='submit']:disabled {
    cascada es lo único que decide quién gana. Tiene que ganar siempre. */
 .oculto {
 	display: none;
+}
+
+/* Fuente de lectura (accesibilidad, dislexia/baja visión): mismas fuentes que
+   la app web, tomadas de `frontend/static/fonts` y empaquetadas por Vite junto
+   al popup — nada se pide a un CDN. Se elige con el botón «Aa» del encabezado
+   y se guarda en `storage.local` (la preferencia de la web vive en otro origen
+   y no es legible desde acá). */
+@font-face {
+	font-family: 'OpenDyslexic';
+	src: url('../../../frontend/static/fonts/opendyslexic-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'OpenDyslexic';
+	src: url('../../../frontend/static/fonts/opendyslexic-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible';
+	src: url('../../../frontend/static/fonts/atkinson-hyperlegible-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible';
+	src: url('../../../frontend/static/fonts/atkinson-hyperlegible-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Lexend';
+	src: url('../../../frontend/static/fonts/lexend-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Lexend';
+	src: url('../../../frontend/static/fonts/lexend-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible Mono';
+	src: url('../../../frontend/static/fonts/atkinson-hyperlegible-mono-latin-400-normal.woff2') format('woff2');
+	font-weight: 400;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Atkinson Hyperlegible Mono';
+	src: url('../../../frontend/static/fonts/atkinson-hyperlegible-mono-latin-700-normal.woff2') format('woff2');
+	font-weight: 500 700;
+	font-display: swap;
+}
+
+:root {
+	--ellkan-mono: ui-monospace, monospace;
+}
+/* Con cualquier fuente de lectura, los secretos pasan a Atkinson Hyperlegible
+   Mono: al leer una contraseña importa distinguir 0/O y l/I/1 más que el
+   estilo de la fuente elegida. */
+:root[data-fuente='opendyslexic'],
+:root[data-fuente='atkinson'],
+:root[data-fuente='lexend'] {
+	--ellkan-mono: 'Atkinson Hyperlegible Mono', ui-monospace, monospace;
+}
+:root[data-fuente='opendyslexic'] body {
+	font-family: 'OpenDyslexic', system-ui, sans-serif;
+}
+:root[data-fuente='atkinson'] body {
+	font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+}
+:root[data-fuente='lexend'] body {
+	font-family: 'Lexend', system-ui, sans-serif;
+}
+
+.boton-lectura {
+	width: auto;
+	margin: 0 0 0 auto;
+	padding: 4px 10px;
+	font-family: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--ellkan-texto);
+	background: transparent;
+	border: 1px solid var(--ellkan-borde);
+	border-radius: 6px;
+	cursor: pointer;
+}
+.boton-lectura[aria-pressed='true'] {
+	border-color: currentColor;
+}
+.boton-lectura:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
 }

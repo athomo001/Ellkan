@@ -4,6 +4,63 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.67] - 2026-10-12
+
+### Escritorio (Windows): «Conectar» en pestañas de Windows Terminal y consola de PowerShell
+
+Pedido del usuario (`spec/14` punto 2): que cada conexión no abra una ventana suelta que «parece cmd».
+
+- **Con Windows Terminal:** `wt -w ellkan new-tab --title <nombre del recurso> -- …`. Todas las conexiones son pestañas de una ventana «ellkan». En **Ajustes → Escritorio → Conexiones** se puede pedir una ventana por conexión (`-w new`); es una preferencia local (`localStorage`).
+- **Sin Windows Terminal** (el caso de esta máquina): consola de PowerShell (`System32\WindowsPowerShell\v1.0`, no el PATH) que queda abierta al terminar. Corre un comando **fijo** (`COMANDO_POWERSHELL`); programa, argumentos y título llegan por variables de entorno y se usan como valores. Verificado: `$(whoami)` y `;` llegan literales, una ruta con espacios llega entera.
+- **El secreto ya no viaja por el entorno de la terminal.** La pestaña nueva la crea el proceso de Windows Terminal que ya estaba abierto, que no hereda el entorno de la app: `SSH_ASKPASS` y `PGPASSWORD`/`MYSQL_PWD` se habrían perdido. Ahora:
+  - La app publica el secreto en una tubería con nombre de un solo uso (`src-tauri/src/tuberia.rs`): nombre aleatorio de 128 bits (`BCryptGenRandom`), ACL sólo para el dueño, sin clientes remotos, una instancia. Sólo se le entrega al proceso cuyo ejecutable es `ellkan_askpass.exe` y vence a los 60 s.
+  - La terminal ejecuta `ellkan_askpass.exe --lanzar <tubería> <askpass|env:VAR> -- <cliente> …`, que lee el secreto, lo pone en el entorno **del cliente** y lo lanza. Variables permitidas: sólo `PGPASSWORD` y `MYSQL_PWD`. Si la tubería falla, el cliente arranca igual y pide la contraseña.
+  - Título de pestaña sin caracteres de control ni `;` (separador de comandos de `wt`).
+- **Verificado:** `cargo clippy -p ellkan-desktop --all-targets -D warnings` limpio; tests nuevos con procesos reales en `tests/lanzador_conectar.rs` (entrega una sola vez, un proceso ajeno no recibe nada y el lanzador legítimo sí, sin tubería el cliente arranca igual) y 2 unitarios del lanzador; `pnpm check` limpio. **Sin probar:** «Conectar» con clics en la app contra un servidor SSH real, ni con Windows Terminal instalado.
+
+## [0.1.66] - 2026-10-12
+
+### Backlog `spec/14`: tipos en el servidor, fuente de lectura en la extensión, alta de usuarios, AGPL y accesibilidad
+
+- **Tipos de recurso en el servidor (verificado):** test nuevo `todos_los_tipos_del_frontend_existen_en_el_servidor` (`backend/tests/editar_recurso.rs`). Lee `TIPOS_RECURSO` de `frontend/src/lib/crypto/recursos.ts` y crea un recurso de cada uno contra Postgres real (testcontainers). Los 10 tipos existen. Si mañana se agrega un tipo sin su migración Postgres, este test falla. Faltan a mano: el sync escritorio → servidor con `rdp`/`postgresql` y la extensión contra el servidor.
+- **Link «Código fuente (AGPL-3.0)»** en el pie del menú y en las pantallas sin sesión (`CodigoFuente.svelte`). La AGPL §13 obliga a quien ofrezca Ellkan modificado por red a ofrecer su código: se apunta a otro repo compilando con `VITE_ELLKAN_SOURCE_URL`; sin la variable va al repo oficial.
+- **Fuente de lectura en el popup de la extensión:** botón «Aa» en el encabezado que rota entre predeterminada, OpenDyslexic, Atkinson Hyperlegible y Lexend. Se guarda en `storage.local`. Los secretos pasan a Atkinson Hyperlegible Mono. Las fuentes salen de `frontend/static/fonts` (Vite las empaqueta) y sus licencias OFL se copian a `dist/fonts/`. Extensión **0.3.3 → 0.3.4**.
+- **Self-check de la extensión arreglado:** fallaba desde 0.1.57 porque zxcvbn se carga al primer uso y el test no lo esperaba (todo puntuaba 0).
+- **Alta de usuario por el admin:** el botón «Crear» queda deshabilitado hasta marcar «Guardé la passphrase temporal…». Borrar una cuenta que nunca se usó ya lo cubre la purga de 0.1.65 (`delete from users` libera el correo).
+- **Contraste (WCAG 2.2 AA)**, medido sobre los tres fondos de cada tema:
+  - Oscuro: `--text-muted` `#6f8298` → `#8c9bad` (era 3.3–4.0:1), `--danger` `#e2695f` → `#e57a71`, `--accent-primary-hover` `#1e8ba6` → `#1b7f98` (blanco encima era 3.96:1), anillo de foco al teal claro.
+  - Claro: `--text-muted` `#74838f` → `#616e78`, `--warning`/`--accent-secondary` `#a9791f` → `#8d651a` (era 3.4–3.9:1).
+  - Token nuevo `--accent-text` para el teal usado como color de texto (en oscuro el teal de marca daba 2.6–3.1:1); reemplaza a `--accent-primary` en los 16 `color:` que lo usaban.
+  - Token nuevo `--border-input` (≥3:1) en `TextField`: el borde de los campos daba 1.2–1.5:1.
+  - Botón primario con `--gradient-cta` (arranca en un teal más claro: texto 4.6:1, antes 3.7:1). Hover de `btn-danger` con texto `--bg-base` (el blanco daba 2.9:1 en oscuro).
+- **Accesibilidad, varios:** `aria-label` en los botones de sólo ícono (colapsar menú, tema, compartir, copiar, nueva carpeta) y prop `ariaLabel` en `Button` («Cerrar sesión» con el menú colapsado); `<html lang>` sigue al idioma elegido (estaba fijo en `en`); regla global `prefers-reduced-motion`.
+- **README (ES/EN):** se matizan afirmaciones absolutas del FAQ (qué metadata ve el servidor, la excepción de los links externos, las vías de recuperación de cuenta, la passphrase guardada cifrada con desbloqueo rápido). Secciones nuevas «Seguridad» y «Sin garantía», y línea de copyright. Nuevo `SECURITY.md` con reporte privado vía GitHub Security Advisories.
+- **Verificado:** `cargo test --test editar_recurso` 11/11, `cargo clippy` del test limpio, `pnpm check` del frontend sin errores, `tsc` + build + self-check de la extensión OK. **Sin probar en navegador:** el contraste nuevo, el botón «Aa» del popup y el link de código fuente.
+
+## [0.1.65] - 2026-10-08
+
+### Borrar o bloquear a alguien ya no deja claves compartidas sin dueño
+
+Caso del usuario (corporativo): despiden a alguien que era el **único propietario** de claves compartidas con grupos en lectura. Si se lo bloqueaba, esas claves quedaban para siempre sin nadie que pudiera editarlas, compartirlas ni borrarlas. Si se lo intentaba borrar, fallaba siempre: el nuevo propietario tenía que ser alguien con permiso **directo** sobre la clave, y quien la ve por un grupo no contaba. Además, el panel de usuarios mandaba la transferencia vacía y no ofrecía ninguna forma de armarla.
+
+- **Tres destinos por clave** (`backend/src/users_admin/`):
+  - **Los administradores del grupo** (lo que se sugiere por defecto): reciben un permiso `owner` directo; el resto del grupo sigue como estaba.
+  - **El grupo entero**: su permiso sube a `owner`.
+  - **Una persona**: cualquiera que ya pueda leer la clave, directo o por grupo.
+- **Sin tocar el cifrado:** sólo recibe la propiedad quien ya tiene su propia copia cifrada del secreto. El servidor sólo cambia filas de `permissions`.
+- **El dry-run sugiere la transferencia** (`blocked_resources_detail`): con quién está compartida cada clave, quién puede recibirla y qué se propone. También propone un nuevo admin para los grupos que se quedarían sin ninguno. Nada se aplica sin que el admin confirme.
+- **Al bloquear también:** `PUT /admin/users/{id}` acepta `transfer` con `active: false`. La transferencia es opcional y parcial, y sólo suma propietarios: si se reactiva al usuario, no perdió nada.
+- **Validaciones:** destino sin copia del secreto, inactivo, el propio saliente, o una clave que no bloquea → 409 sin aplicar nada. Así un admin no puede usar esto para darle la propiedad de cualquier clave a quien quiera.
+- **"Único propietario" significa eso:** una clave que ya tiene otro dueño deja de bloquear el borrado.
+- **Auditoría:** una entrada `resource.ownership_transferred` por clave (migración `0050_transferencia_de_propiedad.sql`). Los nuevos propietarios reciben el aviso de sync en vivo.
+- **Panel de usuarios** (`admin/users`): tabla con cada clave (id corto y fecha, porque el nombre está cifrado), con quién está compartida y un selector del nuevo propietario con la sugerencia ya elegida. Botones «Transferir y purgar», y al desactivar «Transferir y bloquear» / «Bloquear sin transferir». La purga masiva aplica la sugerencia del servidor; los usuarios que no tienen a quién pasar algo quedan como bloqueados.
+- **Bug arreglado en grupos** (`groups/repository.rs`): quitar a alguien de un grupo le borraba la copia cifrada de **todo** lo compartido con ese grupo, aunque además tuviera acceso directo o por otro grupo. Quedaba con un permiso que ya no podía descifrar. Ahora sólo se revoca lo que ese grupo era su única vía de acceso.
+- **Verificado:** 6 tests de integración nuevos en `backend/tests/users_admin.rs` (admins del grupo, grupo entero, miembro por grupo como usuario, destinos inválidos sin cambios a medias, bloquear con transferencia, quitar del grupo conserva la copia del owner directo) y 5 unitarios de la sugerencia. `pnpm check` limpio. **Falta** probar el panel a mano contra Docker.
+
+### Escritorio (Windows): el portapapeles no compilaba
+
+- `sistema.rs` importaba `GlobalFree` desde `Win32::System::Memory`; en `windows` 0.61 está en `Win32::Foundation`. El código de la 0.1.54 nunca había compilado en Windows. Corregido junto con el instalador MSI 0.1.2.
+
 ## [0.1.64] - 2026-10-05
 
 ### Avisos en vivo del servidor a la app, en lugar de preguntar cada 15 segundos

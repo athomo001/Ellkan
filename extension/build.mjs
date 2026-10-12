@@ -9,7 +9,7 @@
 // corremos `vite.build()` tres veces contra el mismo `dist/`.
 
 import { build } from 'vite';
-import { writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { writeFileSync, mkdirSync, cpSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { resolverManifest, manifestFuente } from './manifest-resolve.mjs';
@@ -31,6 +31,14 @@ const manifestResuelto = resolverManifest(manifestFuente(), browser);
 writeFileSync(resolve(dist, 'manifest.json'), JSON.stringify(manifestResuelto, null, 2));
 
 cpSync(resolve(raiz, 'public'), dist, { recursive: true });
+
+// Las fuentes de lectura del popup (OFL 1.1) se empaquetan desde
+// `frontend/static/fonts`; la licencia OFL exige distribuir su texto junto a
+// la fuente, así que van los `LICENSE-*.txt` a `dist/fonts/`.
+mkdirSync(resolve(dist, 'fonts'), { recursive: true });
+for (const archivo of readdirSync(resolve(raiz, '../frontend/static/fonts'))) {
+	if (archivo.startsWith('LICENSE-')) cpSync(resolve(raiz, '../frontend/static/fonts', archivo), resolve(dist, 'fonts', archivo));
+}
 
 // El wasm-bindgen glue resuelve `import.meta.url` sólo si `init()` no recibe
 // argumento (ver comentario en `src/background/wasm.ts`) — como siempre le

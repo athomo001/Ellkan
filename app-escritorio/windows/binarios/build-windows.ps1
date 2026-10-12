@@ -146,6 +146,21 @@ function Invocar-Nativo {
 }
 
 # ---------------------------------------------------------------------------
+# Requisitos: se verifican antes de tocar nada (antes, la falta de pnpm se
+# descubría recién en el empaquetado, después de subir la versión).
+# ---------------------------------------------------------------------------
+foreach ($Herramienta in @('cargo', 'node', 'pnpm')) {
+    if (-not (Get-Command $Herramienta -ErrorAction SilentlyContinue)) {
+        $Ayuda = switch ($Herramienta) {
+            'pnpm' { 'Instalalo con: npm install -g pnpm@11 (y abrí una terminal nueva).' }
+            'node' { 'Instalá Node.js 22 o superior desde https://nodejs.org.' }
+            'cargo' { 'Instalá Rust desde https://rustup.rs.' }
+        }
+        throw "Error: no se encontró '$Herramienta' en el PATH. $Ayuda"
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Versión (sólo con -Msi): la fuente única es "version" de tauri.conf.json.
 # ---------------------------------------------------------------------------
 $ConfOriginal = $null

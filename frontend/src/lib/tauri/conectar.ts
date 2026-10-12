@@ -31,6 +31,10 @@ export interface ParametrosConexion {
 	host: string;
 	puerto: number;
 	secreto: string;
+	/** Nombre del recurso: título de la pestaña o ventana de la terminal. */
+	titulo?: string;
+	/** Pestañas de una misma ventana «ellkan» (por defecto) o una ventana por conexión. */
+	enPestanas?: boolean;
 	// `invoke` de Tauri exige que los args sean `Record<string, unknown>` —
 	// esta firma no agrega campos reales, sólo satisface ese chequeo.
 	[key: string]: unknown;
@@ -39,6 +43,26 @@ export interface ParametrosConexion {
 export async function conectar(params: ParametrosConexion): Promise<void> {
 	const { invoke } = await import('@tauri-apps/api/core');
 	await invoke<void>('conectar_recurso', params);
+}
+
+const CLAVE_PESTANAS = 'conexionesEnPestanas';
+
+/** Preferencia local de este equipo: abrir las conexiones como pestañas de
+ * Windows Terminal (por defecto) o en una ventana nueva cada vez. */
+export function conexionesEnPestanas(): boolean {
+	try {
+		return localStorage.getItem(CLAVE_PESTANAS) !== 'no';
+	} catch {
+		return true;
+	}
+}
+
+export function guardarConexionesEnPestanas(valor: boolean): void {
+	try {
+		localStorage.setItem(CLAVE_PESTANAS, valor ? 'si' : 'no');
+	} catch {
+		/* sin almacenamiento: queda el valor por defecto */
+	}
 }
 
 export function enModoEscritorio(): boolean {

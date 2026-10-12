@@ -161,16 +161,28 @@ Los dos comandos son necesarios: `build` arma la imagen nueva, pero `up -d` es e
 **¿El servidor puede ver mis contraseñas?**
 No. Todo se cifra y se descifra en tu dispositivo, nunca en el servidor — es como dejarle a alguien una caja fuerte cerrada para guardar: puede guardarla, pero nunca tiene la llave para abrirla ni ver qué hay adentro.
 
+Lo que el servidor sí ve son datos de la cuenta que necesita para funcionar: tu correo, tu nombre, a qué grupos pertenecés, fechas de creación y modificación, y la IP desde la que te conectás. Hay una excepción elegida a propósito: cuando compartís un secreto con alguien **de afuera** mediante un link externo, quien tenga el link completo puede abrir ese secreto (por eso esos links vencen rápido y pueden llevar una contraseña extra enviada por otro canal).
+
 **¿Qué pasa si alguien roba la base de datos del servidor?**
-No consigue tus contraseñas — sólo consigue cajas fuertes cerradas. Sin tu contraseña maestra (que nunca se guarda en ningún lado, ni en el servidor), no hay forma de abrirlas.
+No consigue tus contraseñas — sólo consigue cajas fuertes cerradas. Sin tu contraseña maestra (que el servidor nunca recibe), no hay forma de abrirlas con lo que hay en la base. Las únicas otras vías son las de recuperación de cuenta, y las activás vos o tu organización: tu propio kit de recuperación (un archivo que sólo vos guardás) o, si tu organización lo configuró, la recuperación aprobada por administradores.
 
 **¿Cómo protegen mis claves en la memoria de la computadora (RAM) mientras las uso?**
-La clave nunca queda "dando vueltas" guardada en la memoria, esperando a que alguien la agarre. Cada vez que hace falta usarla, se reconstruye al toque a partir de tu contraseña, se usa un instante, y se borra inmediatamente — como escribir algo en un papel, usarlo una vez, y romperlo al toque, en vez de dejarlo dando vueltas sobre el escritorio. Tu contraseña maestra se guarda sólo mientras tenés la sesión abierta y nunca toca el disco: si cerrás el navegador o la app, se pierde sola. Lo único que esto no puede evitar es que, si tu computadora ya tiene un virus espiándola, ese virus vea la clave justo en el instante en que la estás usando — ningún gestor de contraseñas puede protegerte de eso, porque ahí el atacante ya está adentro de tu máquina, no del sistema.
+La clave nunca queda "dando vueltas" guardada en la memoria, esperando a que alguien la agarre. Cada vez que hace falta usarla, se reconstruye al toque a partir de tu contraseña, se usa un instante, y se borra inmediatamente — como escribir algo en un papel, usarlo una vez, y romperlo al toque, en vez de dejarlo dando vueltas sobre el escritorio. Tu contraseña maestra se guarda sólo mientras tenés la sesión abierta y nunca toca el disco en claro: si cerrás el navegador o la app, se pierde sola. (Si activás el desbloqueo rápido —con un código TOTP o con Windows Hello— se guarda **cifrada** en ese dispositivo, para poder desbloquear sin tipearla.) Lo único que esto no puede evitar es que, si tu computadora ya tiene un virus espiándola, ese virus vea la clave justo en el instante en que la estás usando — ningún gestor de contraseñas puede protegerte de eso, porque ahí el atacante ya está adentro de tu máquina, no del sistema.
 
 ## Estado
 
 En desarrollo activo. Backend y frontend web funcionales de punta a punta (registro, login, vault, grupos, MFA, SSO/SCIM/LDAP, auditoría, panel de administración, exportación/backup). La extensión de navegador (Chrome, Edge, Brave, Opera, Firefox) también funciona de punta a punta — login, sesión inteligente, bóveda con autofill, generador de contraseñas — ver [extension/README.md](extension/README.md); Safari queda pendiente (exige empaquetado nativo vía Xcode).
 
+## Seguridad
+
+Ellkan no tuvo todavía una auditoría de seguridad externa propia. Si encontrás una vulnerabilidad, por favor no abras un issue público: seguí los pasos de [SECURITY.md](SECURITY.md).
+
+## Sin garantía
+
+Ellkan se distribuye **tal cual, sin ninguna garantía**, ni siquiera la implícita de comerciabilidad o de aptitud para un propósito particular, y sin responsabilidad por daños que resulten de su uso (secciones 15 y 16 de la AGPL-3.0). Está en beta: hacé copias de seguridad de tu bóveda.
+
 ## Licencia
 
-**AGPL-3.0** — ver [LICENSE](LICENSE) (texto oficial en inglés, el único legalmente vinculante) y [LICENSE.es.txt](LICENSE.es.txt) (traducción no oficial al español, sólo de referencia).
+Copyright (C) 2026 Athan Espinoza.
+
+**AGPL-3.0** — ver [LICENSE](LICENSE) (texto oficial en inglés, el único legalmente vinculante) y [LICENSE.es.txt](LICENSE.es.txt) (traducción no oficial al español, sólo de referencia). Si modificás Ellkan y lo ofrecés a otras personas por red, la AGPL te obliga a ofrecerles el código fuente de tu versión: la app muestra un link «Código fuente» que podés apuntar a tu repositorio con `VITE_ELLKAN_SOURCE_URL` al compilar el frontend.

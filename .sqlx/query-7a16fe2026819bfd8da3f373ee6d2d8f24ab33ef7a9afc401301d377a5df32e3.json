@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    select gm.user_id\n                    from permissions p\n                    join groups g on g.id = p.grantee_id and g.deleted_at is null\n                    join group_members gm on gm.group_id = g.id and gm.is_admin\n                    join users u on u.id = gm.user_id and u.active and u.deleted_at is null\n                    where p.subject_type = 'resource' and p.subject_id = $1\n                      and p.grantee_type = 'group' and p.grantee_id = $2\n                      and gm.user_id <> $3\n                      and exists (select 1 from secret_envelopes se where se.resource_id = $1 and se.user_id = gm.user_id)\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "group_members",
+            "name": "user_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7a16fe2026819bfd8da3f373ee6d2d8f24ab33ef7a9afc401301d377a5df32e3"
+}

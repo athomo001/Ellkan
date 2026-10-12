@@ -142,6 +142,9 @@ pub enum AuditEventType {
     SharingPolicyUpdated,
     /// 2026-08-13: `PUT /groups/{id}/share-exempt`.
     GroupShareExemptChanged,
+    /// F-40: un recurso cambia de propietario al bloquear o borrar a quien
+    /// era su único Owner — una entrada por recurso, con el destino elegido.
+    ResourceOwnershipTransferred,
 }
 
 impl AuditEventType {
@@ -234,6 +237,7 @@ impl AuditEventType {
             AuditEventType::EmailVerified => "user.email_verified",
             AuditEventType::SharingPolicyUpdated => "sharing_policy.updated",
             AuditEventType::GroupShareExemptChanged => "group.share_exempt_changed",
+            AuditEventType::ResourceOwnershipTransferred => "resource.ownership_transferred",
         }
     }
 
@@ -329,6 +333,7 @@ impl AuditEventType {
             "user.email_verified" => AuditEventType::EmailVerified,
             "sharing_policy.updated" => AuditEventType::SharingPolicyUpdated,
             "group.share_exempt_changed" => AuditEventType::GroupShareExemptChanged,
+            "resource.ownership_transferred" => AuditEventType::ResourceOwnershipTransferred,
             _ => return None,
         })
     }

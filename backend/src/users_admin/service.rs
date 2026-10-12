@@ -8,7 +8,7 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
-use super::models::{Bloqueos, ResultadoPurgaUsuario, ResumenUsuario, Transferencia};
+use super::models::{Bloqueos, DestinoPropiedad, RecursoTransferido, ResultadoPurgaUsuario, ResumenUsuario, Transferencia};
 use super::repository::UserPurgeRepository;
 
 /// Mismo techo que `audit::repository::LIMITE_PAGINA_MAXIMO` — evita que un
@@ -60,6 +60,7 @@ where
                 })),
         ));
 
+        self.auditar_transferidos(actor_id, user_id, &resultado.transferidos);
         Ok(resultado)
     }
 
@@ -71,6 +72,61 @@ where
             EventoAuditoria::nuevo(AuditEventType::UserDeactivated, Some(actor_id)).con_sujeto("user", user_id),
         ));
         Ok(())
+    }
+
+    /// Bloquear a alguien que es el único Owner de recursos compartidos,
+    /// pasándole antes la propiedad a otros (opcional y parcial: puede ser
+    /// una suspensión temporal). Todo en una transacción; si algún destino
+    /// ya no es válido (cambió algo desde el dry-run) no se bloquea nada.
+    pub async fn desactivar_con_transferencia(
+        &self,
+        actor_id: Uuid,
+        user_id: Uuid,
+        transferencia: Transferencia,
+    ) -> Result<(), DomainError> {
+        if transferencia.vacia() {
+            return self.desactivar(actor_id, user_id).await;
+        }
+        let transferidos = self
+            .repo
+            .desactivar_con_transferencia(user_id, &transferencia)
+            .await
+            .map_err(|e| match e {
+                crate::error::RepoError::Conflict => DomainError::Conflict,
+                otro => DomainError::Interno(otro),
+            })?
+            .ok_or(DomainError::NotFound)?;
+
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::UserDeactivated, Some(actor_id))
+                .con_sujeto("user", user_id)
+                .con_metadata(serde_json::json!({ "owners_transferidos": transferidos.len() })),
+        ));
+        self.auditar_transferidos(actor_id, user_id, &transferidos);
+        Ok(())
+    }
+
+    /// Una entrada por recurso transferido. El sujeto es el recurso: así el
+    /// aviso de sync en vivo les llega a sus destinatarios (los nuevos
+    /// propietarios incluidos) sin esperar el sync de respaldo.
+    fn auditar_transferidos(&self, actor_id: Uuid, desde_user_id: Uuid, transferidos: &[RecursoTransferido]) {
+        for t in transferidos {
+            let (tipo, destino_id) = match t.destino {
+                DestinoPropiedad::AdminsDeGrupo(id) => ("group_admins", id),
+                DestinoPropiedad::Grupo(id) => ("group", id),
+                DestinoPropiedad::Usuario(id) => ("user", id),
+            };
+            let _ = self.eventos.send(DomainEvent::Auditoria(
+                EventoAuditoria::nuevo(AuditEventType::ResourceOwnershipTransferred, Some(actor_id))
+                    .con_sujeto("resource", t.resource_id)
+                    .con_metadata(serde_json::json!({
+                        "from_user_id": desde_user_id,
+                        "to_type": tipo,
+                        "to_id": destino_id,
+                        "new_owners": t.nuevos_owners,
+                    })),
+            ));
+        }
     }
 
     pub async fn activar(&self, actor_id: Uuid, user_id: Uuid) -> Result<(), DomainError> {

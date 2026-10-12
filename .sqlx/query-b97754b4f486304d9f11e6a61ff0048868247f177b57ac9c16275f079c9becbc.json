@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    select count(*) as \"n!\"\n                    from permissions p\n                    join groups g on g.id = p.grantee_id and g.deleted_at is null\n                    join group_members gm on gm.group_id = g.id\n                    join users u on u.id = gm.user_id and u.active and u.deleted_at is null\n                    where p.subject_type = 'resource' and p.subject_id = $1\n                      and p.grantee_type = 'group' and p.grantee_id = $2\n                      and gm.user_id <> $3\n                      and exists (select 1 from secret_envelopes se where se.resource_id = $1 and se.user_id = gm.user_id)\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b97754b4f486304d9f11e6a61ff0048868247f177b57ac9c16275f079c9becbc"
+}

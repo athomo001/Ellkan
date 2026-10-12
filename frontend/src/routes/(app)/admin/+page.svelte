@@ -57,6 +57,6 @@
 		font-weight: 500;
 	}
 	.tarjeta:hover {
-		color: var(--accent-primary);
+		color: var(--accent-text);
 	}
 </style>

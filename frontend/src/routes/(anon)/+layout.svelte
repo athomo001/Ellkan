@@ -14,6 +14,7 @@
 	import { preferencias } from '$lib/state/session';
 	import { alternarTema } from '$lib/api/preferences';
 	import { t } from '$lib/i18n';
+	import CodigoFuente from '$lib/components/CodigoFuente.svelte';
 	let { children }: { children: Snippet } = $props();
 
 	function alternarIdioma() {
@@ -28,7 +29,7 @@
 			<span>Ellkan</span>
 		</div>
 		<div class="controles">
-			<button type="button" class="toggle-tema" onclick={(e) => alternarTema($preferencias.theme, e)} title={$t.appShell.cambiarTema}>
+			<button type="button" class="toggle-tema" onclick={(e) => alternarTema($preferencias.theme, e)} title={$t.appShell.cambiarTema} aria-label={$t.appShell.cambiarTema}>
 				{#if $preferencias.theme === 'light'}
 					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M3 12h2.25m-.386-6.364 1.591 1.591M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z" />
@@ -54,9 +55,17 @@
 			{@render children()}
 		</div>
 	</main>
+	<footer class="pie-anon">
+		<CodigoFuente />
+	</footer>
 </div>
 
 <style>
+	.pie-anon {
+		display: flex;
+		justify-content: center;
+		padding: var(--space-4);
+	}
 	.anon-shell {
 		min-height: calc(100vh - var(--titlebar-h));
 		display: flex;

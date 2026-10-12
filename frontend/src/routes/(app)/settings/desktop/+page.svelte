@@ -10,6 +10,7 @@
 	import { t } from '$lib/i18n';
 	import { puertoActual, puertoConfigurado, configurarPuertoFijo, infoApp, type InfoApp } from '$lib/tauri/puerto';
 	import { alCerrarConfigurado, configurarAlCerrar, type AlCerrar } from '$lib/tauri/ventana';
+	import { conexionesEnPestanas, guardarConexionesEnPestanas } from '$lib/tauri/conectar';
 	import {
 		estadoSistema,
 		configurarAutostart,
@@ -22,6 +23,7 @@
 
 	// Qué hace la "X" de la ventana: preguntar / bandeja / cerrar del todo.
 	let alCerrar = $state<AlCerrar>('preguntar');
+	let enPestanas = $state(conexionesEnPestanas());
 	let errorCierre = $state<string | undefined>();
 
 	$effect(() => {
@@ -262,6 +264,15 @@
 		</label>
 	{/each}
 	{#if errorCierre}<p class="error">{errorCierre}</p>{/if}
+</Card>
+
+<Card>
+	<h2>{$t.settingsDesktop.conexionesTitulo}</h2>
+	<p class="hint">{$t.settingsDesktop.conexionesHint}</p>
+	<label class="opcion-cierre">
+		<input type="checkbox" bind:checked={enPestanas} onchange={() => guardarConexionesEnPestanas(enPestanas)} />
+		{$t.settingsDesktop.conexionesPestanas}
+	</label>
 </Card>
 
 <Card>

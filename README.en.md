@@ -162,16 +162,28 @@ Detailed manuals are currently Spanish-only:
 **Can the server see my passwords?**
 No. Everything is encrypted and decrypted on your own device, never on the server — it's like handing someone a locked safe to hold onto: they can store it, but they never get a key to open it or see what's inside.
 
+What the server does see is the account data it needs to work: your email, your name, which groups you belong to, creation and modification dates, and the IP you connect from. There is one deliberate exception: when you share a secret with someone **outside** through an external link, whoever has the full link can open that secret (that's why those links expire quickly and can carry an extra password sent through a different channel).
+
 **What happens if someone steals the server's database?**
-They don't get your passwords — they only get locked safes. Without your master password (which is never stored anywhere, not even on the server), there's no way to open them.
+They don't get your passwords — they only get locked safes. Without your master password (which the server never receives), there's no way to open them with what's in the database. The only other ways in are account recovery, which you or your organization turn on: your own recovery kit (a file only you keep) or, if your organization set it up, admin-approved recovery.
 
 **How do you protect my keys in the computer's memory (RAM) while they're being used?**
-The key is never left sitting around in memory waiting for someone to grab it. Every time it's needed, it's rebuilt on the spot from your password, used for an instant, and immediately wiped — like writing something on a piece of paper, using it once, and tearing it up right away, instead of leaving it lying on the desk. Your master password is kept only while your session is open and never touches the disk: close the browser or app, and it's gone. The one thing this can't prevent: if your computer already has malware spying on it, that malware could see the key at the exact instant you're using it — no password manager can protect you from that, because at that point the attacker is already inside your machine, not inside the system.
+The key is never left sitting around in memory waiting for someone to grab it. Every time it's needed, it's rebuilt on the spot from your password, used for an instant, and immediately wiped — like writing something on a piece of paper, using it once, and tearing it up right away, instead of leaving it lying on the desk. Your master password is kept only while your session is open and never touches the disk unencrypted: close the browser or app, and it's gone. (If you turn on quick unlock — with a TOTP code or Windows Hello — it's stored **encrypted** on that device, so you can unlock without typing it.) The one thing this can't prevent: if your computer already has malware spying on it, that malware could see the key at the exact instant you're using it — no password manager can protect you from that, because at that point the attacker is already inside your machine, not inside the system.
 
 ## Status
 
 Actively in development. Backend and web frontend work end to end (registration, login, vault, groups, MFA, SSO/SCIM/LDAP, auditing, admin panel, export/backup). The browser extension (Chrome, Edge, Brave, Opera, Firefox) also works end to end — login, smart session handling, vault with autofill, password generator — see [extension/README.md](extension/README.md); Safari is still pending (requires native packaging via Xcode).
 
+## Security
+
+Ellkan has not had an independent security audit of its own yet. If you find a vulnerability, please don't open a public issue: follow the steps in [SECURITY.md](SECURITY.md).
+
+## No warranty
+
+Ellkan is provided **as is, without any warranty**, not even the implied warranty of merchantability or fitness for a particular purpose, and without liability for damages arising from its use (sections 15 and 16 of the AGPL-3.0). It's in beta: back up your vault.
+
 ## License
 
-**AGPL-3.0** — see [LICENSE](LICENSE) (official English text, the only legally binding one) and [LICENSE.es.txt](LICENSE.es.txt) (unofficial Spanish translation, for reference only).
+Copyright (C) 2026 Athan Espinoza.
+
+**AGPL-3.0** — see [LICENSE](LICENSE) (official English text, the only legally binding one) and [LICENSE.es.txt](LICENSE.es.txt) (unofficial Spanish translation, for reference only). If you modify Ellkan and offer it to other people over a network, the AGPL requires you to offer them the source code of your version: the app shows a "Source code" link you can point to your repository with `VITE_ELLKAN_SOURCE_URL` when building the frontend.

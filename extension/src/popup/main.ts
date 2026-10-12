@@ -21,6 +21,40 @@ import { generarFraseDePaso, type OpcionesFraseDePaso } from './passphrase-gener
 
 const cliente = new PortClient('QuickAccess');
 
+// Fuente de lectura (accesibilidad): el botón «Aa» rota entre la fuente
+// predeterminada y las tres de lectura. Preferencia local de este navegador
+// en `storage.local` — no es un secreto ni viaja al servidor.
+const FUENTES_LECTURA = ['predeterminada', 'opendyslexic', 'atkinson', 'lexend'] as const;
+type FuenteLectura = (typeof FUENTES_LECTURA)[number];
+const NOMBRE_FUENTE: Record<FuenteLectura, string> = {
+	predeterminada: 'predeterminada',
+	opendyslexic: 'OpenDyslexic',
+	atkinson: 'Atkinson Hyperlegible',
+	lexend: 'Lexend'
+};
+const CLAVE_LECTURA = 'fuenteLecturaPopup';
+const botonLectura = document.getElementById('boton-lectura') as HTMLButtonElement;
+
+function aplicarFuenteLectura(fuente: FuenteLectura): void {
+	document.documentElement.dataset.fuente = fuente;
+	const activa = fuente !== 'predeterminada';
+	botonLectura.setAttribute('aria-pressed', String(activa));
+	botonLectura.title = `Fuente de lectura: ${NOMBRE_FUENTE[fuente]}`;
+	botonLectura.setAttribute('aria-label', `Cambiar fuente de lectura (actual: ${NOMBRE_FUENTE[fuente]})`);
+}
+
+void BrowserApi.storageLocalGet<Record<string, unknown>>(CLAVE_LECTURA).then((guardado) => {
+	const valor = guardado[CLAVE_LECTURA];
+	aplicarFuenteLectura(FUENTES_LECTURA.includes(valor as FuenteLectura) ? (valor as FuenteLectura) : 'predeterminada');
+});
+
+botonLectura.addEventListener('click', () => {
+	const actual = (document.documentElement.dataset.fuente ?? 'predeterminada') as FuenteLectura;
+	const siguiente = FUENTES_LECTURA[(FUENTES_LECTURA.indexOf(actual) + 1) % FUENTES_LECTURA.length];
+	aplicarFuenteLectura(siguiente);
+	void BrowserApi.storageLocalSet({ [CLAVE_LECTURA]: siguiente });
+});
+
 const vistas = {
 	cargando: document.getElementById('vista-cargando') as HTMLElement,
 	login: document.getElementById('vista-login') as HTMLElement,

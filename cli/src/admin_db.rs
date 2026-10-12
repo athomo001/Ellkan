@@ -366,8 +366,8 @@ mod tests {
     //! controlan por completo, la cadena de cifrado `age` en streaming,
     //! alimentándola con datos de prueba en vez de shellear a un binario
     //! externo. El plumbing de `Command`/pipes en sí (E/S estándar, sin
-    //! lógica propia) queda documentado como no ejercitado en esta
-    //! máquina en `docs/pendientesVerificacionReal.md`, no simulado acá.
+    //! lógica propia) no se simula acá: se verificó a mano con un ciclo
+    //! completo `backup create` → `restore` contra `pg_dump`/`psql` reales.
 
     #[test]
     fn streaming_encrypt_decrypt_recupera_el_contenido_exacto() {

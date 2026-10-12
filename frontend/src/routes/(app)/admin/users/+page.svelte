@@ -10,7 +10,18 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import SecretField from '$lib/components/SecretField.svelte';
 	import Table from '$lib/components/Table.svelte';
-	import { usersAdminApi, obtenerAvatarUrlAdmin, groupsApi, type UsuarioAdmin, type PurgeDryRun, type Grupo } from '$lib/api/admin';
+	import {
+		usersAdminApi,
+		obtenerAvatarUrlAdmin,
+		groupsApi,
+		transferenciaSugerida,
+		type UsuarioAdmin,
+		type PurgeDryRun,
+		type Grupo,
+		type DestinoPropiedad,
+		type RecursoBloqueado,
+		type TransferenciaPropiedad
+	} from '$lib/api/admin';
 	import { crearUsuarioPorAdmin } from '$lib/crypto/identity';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -28,6 +39,9 @@
 	let creandoUsuario = $state(false);
 	let errorCrear = $state<string | undefined>();
 	let passphraseCreada = $state<string | undefined>();
+	// La frase temporal no se puede recuperar después (el servidor nunca la
+	// conoce): se exige confirmar que quedó guardada antes de crear la cuenta.
+	let fraseGuardada = $state(false);
 	// La frase temporal la escribe el admin (o la genera con el botón): antes se
 	// generaba sola y se mostraba una única vez, y si no se copiaba la cuenta
 	// quedaba inutilizable (zero-knowledge: el servidor no la conoce). El
@@ -79,6 +93,7 @@
 			const resultado = await crearUsuarioPorAdmin(nuevoEmail, nuevoNombre, passphrase);
 			passphraseCreada = passphrase;
 			nuevaPassphrase = '';
+			fraseGuardada = false;
 
 			// Grupo sin recursos compartidos todavía: `envelopes: []` alcanza
 			// (mismo criterio que `GroupService::agregar_miembro`). Si algún
@@ -163,7 +178,15 @@
 		for (const id of seleccionados) {
 			const u = listado.find((x) => x.id === id);
 			try {
-				await usersAdminApi.purgar(id);
+				// Con claves compartidas se aplica la transferencia que sugiere
+				// el servidor; si algo no tiene a quién pasar, queda bloqueado.
+				const bloqueos = await usersAdminApi.purgeDryRun(id);
+				const transferencia = bloqueos.blocks_purge ? transferenciaSugerida(bloqueos) : undefined;
+				if (transferencia === null) {
+					bloqueados.push(u?.email ?? id);
+					continue;
+				}
+				await usersAdminApi.purgar(id, transferencia);
 				ok++;
 			} catch (err) {
 				if (err instanceof ApiError && err.status === 409) {
@@ -238,13 +261,31 @@
 	}
 
 	let cambiandoActivo = $state(false);
+	/** Al bloquear a alguien que es el único propietario de claves
+	 * compartidas, primero se le muestra al admin a quién pasarlas. */
+	let confirmandoBloqueo = $state(false);
 	async function toggleActivo() {
 		if (!usuario) return;
+		if (usuario.active) {
+			await verDryRun();
+			if (dryRun?.blocked_resources_detail.length) {
+				confirmandoBloqueo = true;
+				return;
+			}
+		}
+		await cambiarActivo(!usuario.active, undefined);
+	}
+
+	async function cambiarActivo(active: boolean, transferencia: TransferenciaPropiedad | undefined) {
+		if (!usuario) return;
 		cambiandoActivo = true;
+		error = undefined;
 		try {
-			usuario = await usersAdminApi.actualizarActivo(usuario.id, !usuario.active);
+			usuario = await usersAdminApi.actualizarActivo(usuario.id, active, transferencia);
+			confirmandoBloqueo = false;
+			dryRun = undefined;
 		} catch (err) {
-			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
+			await manejarErrorDeTransferencia(err);
 		} finally {
 			cambiandoActivo = false;
 		}
@@ -252,12 +293,17 @@
 
 	let dryRun = $state<PurgeDryRun | undefined>();
 	let cargandoDryRun = $state(false);
+	/** Destino elegido por recurso, como `tipo:id` (el valor del `<select>`). */
+	let destinos = $state<Record<string, string>>({});
 	async function verDryRun() {
 		if (!usuario) return;
 		cargandoDryRun = true;
 		error = undefined;
 		try {
 			dryRun = await usersAdminApi.purgeDryRun(usuario.id);
+			destinos = Object.fromEntries(
+				dryRun.blocked_resources_detail.map((r) => [r.resource_id, r.suggestion ? claveDestino(r.suggestion) : ''])
+			);
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
 		} finally {
@@ -265,19 +311,83 @@
 		}
 	}
 
+	const claveDestino = (d: DestinoPropiedad) => `${d.type}:${d.id}`;
+
+	/** Opciones válidas para un recurso: sólo personas que ya pueden leerlo. */
+	function opcionesDe(r: RecursoBloqueado): { valor: string; texto: string }[] {
+		const opciones: { valor: string; texto: string }[] = [];
+		for (const g of r.groups) {
+			if (g.admins.length)
+				opciones.push({ valor: `group_admins:${g.group_id}`, texto: $t.admin.usuarios.destinoAdminsGrupo(g.name, g.admins.length) });
+		}
+		for (const g of r.groups) {
+			if (g.members_with_access > 0)
+				opciones.push({ valor: `group:${g.group_id}`, texto: $t.admin.usuarios.destinoGrupoEntero(g.name, g.members_with_access) });
+		}
+		for (const u of r.users) opciones.push({ valor: `user:${u.user_id}`, texto: `${u.display_name} (${u.email})` });
+		return opciones;
+	}
+
+	function destinoElegido(resourceId: string): DestinoPropiedad | null {
+		const [type, id] = (destinos[resourceId] ?? '').split(':');
+		return type && id ? { type: type as DestinoPropiedad['type'], id } : null;
+	}
+
+	/** La transferencia que armó el admin; `null` si falta elegir algo. */
+	function transferenciaElegida(d: PurgeDryRun): TransferenciaPropiedad | null {
+		const owners: TransferenciaPropiedad['owners'] = [];
+		for (const r of d.blocked_resources_detail) {
+			const to = destinoElegido(r.resource_id);
+			if (!to) return null;
+			owners.push({ resource_id: r.resource_id, to });
+		}
+		const managers: TransferenciaPropiedad['managers'] = [];
+		for (const g of d.blocked_groups) {
+			if (!g.suggested_manager) return null;
+			managers.push({ group_id: g.group_id, new_manager_user_id: g.suggested_manager.user_id });
+		}
+		return { owners, managers };
+	}
+
+	/** Al bloquear, la transferencia es parcial: sólo lo que tenga destino. */
+	function transferenciaParcial(d: PurgeDryRun): TransferenciaPropiedad {
+		const owners: TransferenciaPropiedad['owners'] = [];
+		for (const r of d.blocked_resources_detail) {
+			const to = destinoElegido(r.resource_id);
+			if (to) owners.push({ resource_id: r.resource_id, to });
+		}
+		return { owners, managers: [] };
+	}
+
+	const transferenciaCompleta = $derived(dryRun ? transferenciaElegida(dryRun) !== null : false);
+
+	/** 409 = cambió algo desde el dry-run (alguien salió del grupo, otro
+	 * admin ya transfirió, etc.): se recarga la lista para que se revise. */
+	async function manejarErrorDeTransferencia(err: unknown) {
+		if (err instanceof ApiError && err.status === 409 && dryRun) {
+			await verDryRun();
+			error = $t.admin.usuarios.transferenciaCambio;
+		} else {
+			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
+		}
+	}
+
 	let purgando = $state(false);
 	let purgaOk = $state<string | undefined>();
 	async function purgar() {
-		if (!usuario || !confirm($t.admin.usuarios.purgaConfirmar)) return;
+		if (!usuario || !dryRun || !confirm($t.admin.usuarios.purgaConfirmar)) return;
+		const transferencia = dryRun.blocks_purge ? transferenciaElegida(dryRun) : undefined;
+		if (transferencia === null) return;
 		purgando = true;
 		error = undefined;
 		try {
-			const r = await usersAdminApi.purgar(usuario.id);
+			const r = await usersAdminApi.purgar(usuario.id, transferencia);
 			purgaOk = $t.admin.usuarios.purgaOk(r.resources_huerfanos_eliminados);
 			usuario = undefined;
 			dryRun = undefined;
+			confirmandoBloqueo = false;
 		} catch (err) {
-			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
+			await manejarErrorDeTransferencia(err);
 		} finally {
 			purgando = false;
 		}
@@ -303,7 +413,11 @@
 		<Button type="button" variant="ghost" onclick={() => (nuevaPassphrase = generarPassphraseTemporal())}>
 			{$t.admin.usuarios.generarPassphrase}
 		</Button>
-		<Button type="submit" variant="primary" loading={creandoUsuario}>{$t.admin.usuarios.crear}</Button>
+		<label class="confirmar-frase">
+			<input type="checkbox" bind:checked={fraseGuardada} />
+			{$t.admin.usuarios.confirmarFraseGuardada}
+		</label>
+		<Button type="submit" variant="primary" loading={creandoUsuario} disabled={!fraseGuardada}>{$t.admin.usuarios.crear}</Button>
 	</form>
 	{#if gruposDisponibles.length > 0}
 		<div class="grupos-al-crear">
@@ -440,18 +554,86 @@
 			{#if dryRun}
 				<div class="dryrun">
 					{#if dryRun.blocks_purge}
-						<p class="error">{$t.admin.usuarios.purgaBloqueada}</p>
-						{#if dryRun.blocked_groups.length}
+						{#if dryRun.blocked_resources_detail.length}
+							<h3>{$t.admin.usuarios.transferenciaTitulo}</h3>
+							{#if confirmandoBloqueo}
+								<p class="error">{$t.admin.usuarios.bloqueoConClaves(dryRun.blocked_resources_detail.length)}</p>
+							{/if}
+							<p class="secundario">{$t.admin.usuarios.transferenciaHint}</p>
+							<table class="transferencia">
+								<thead>
+									<tr>
+										<th>{$t.admin.usuarios.colClave}</th>
+										<th>{$t.admin.usuarios.colCompartidaCon}</th>
+										<th>{$t.admin.usuarios.colNuevoPropietario}</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each dryRun.blocked_resources_detail as r (r.resource_id)}
+										{@const opciones = opcionesDe(r)}
+										<tr>
+											<td>
+												<code>{r.resource_id.slice(0, 8)}</code>
+												<span class="secundario">{$t.admin.usuarios.creadaEl(new Date(r.created_at).toLocaleDateString())}</span>
+											</td>
+											<td>
+												{#each r.groups as g (g.group_id)}
+													<span class="acceso">{g.name} · {$t.admin.usuarios.nivelPermiso(g.level)}</span>
+												{/each}
+												{#each r.users as u (u.user_id)}
+													<span class="acceso">{u.display_name} · {$t.admin.usuarios.nivelPermiso(u.level)}</span>
+												{/each}
+											</td>
+											<td>
+												{#if opciones.length}
+													<select bind:value={destinos[r.resource_id]} aria-label={$t.admin.usuarios.colNuevoPropietario}>
+														{#each opciones as o (o.valor)}<option value={o.valor}>{o.texto}</option>{/each}
+													</select>
+												{:else}
+													<span class="error">{$t.admin.usuarios.sinDestino}</span>
+												{/if}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+						{#if dryRun.blocked_groups.length && !confirmandoBloqueo}
 							<p class="secundario">{$t.admin.usuarios.gruposBloqueados}</p>
 							<ul>
-								{#each dryRun.blocked_groups as g (g.group_id)}<li>{g.name}</li>{/each}
+								{#each dryRun.blocked_groups as g (g.group_id)}
+									<li>
+										{g.name} —
+										{#if g.suggested_manager}
+											{$t.admin.usuarios.nuevoAdminDeGrupo(g.suggested_manager.display_name)}
+										{:else}
+											<span class="error">{$t.admin.usuarios.grupoSinCandidato}</span>
+										{/if}
+									</li>
+								{/each}
 							</ul>
 						{/if}
-						{#if dryRun.blocked_resources.length}
-							<p class="secundario">{$t.admin.usuarios.recursosBloqueados}</p>
-							<ul>
-								{#each dryRun.blocked_resources as r (r)}<li>{r}</li>{/each}
-							</ul>
+
+						<div class="botones">
+							{#if confirmandoBloqueo}
+								<Button
+									variant="secondary"
+									onclick={() => dryRun && cambiarActivo(false, transferenciaParcial(dryRun))}
+									loading={cambiandoActivo}
+								>
+									{$t.admin.usuarios.transferirYBloquear}
+								</Button>
+								<Button variant="ghost" onclick={() => cambiarActivo(false, undefined)} loading={cambiandoActivo}>
+									{$t.admin.usuarios.bloquearSinTransferir}
+								</Button>
+							{:else}
+								<Button variant="danger" onclick={purgar} loading={purgando} disabled={!transferenciaCompleta}>
+									{$t.admin.usuarios.transferirYPurgar}
+								</Button>
+							{/if}
+						</div>
+						{#if !transferenciaCompleta && !confirmandoBloqueo}
+							<p class="error">{$t.admin.usuarios.transferenciaIncompleta}</p>
 						{/if}
 					{:else}
 						<p class="ok">{$t.admin.usuarios.sinBloqueos}</p>
@@ -516,6 +698,13 @@
 		gap: var(--space-2);
 		max-width: 28rem;
 	}
+	.confirmar-frase {
+		flex-basis: 100%;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+	}
 	.form-crear {
 		display: flex;
 		align-items: flex-end;
@@ -563,6 +752,26 @@
 		display: flex;
 		gap: var(--space-2);
 		margin: var(--space-3) 0;
+	}
+	.transferencia {
+		width: 100%;
+		border-collapse: collapse;
+		margin: var(--space-3) 0;
+		font-size: var(--text-sm);
+	}
+	.transferencia th,
+	.transferencia td {
+		text-align: left;
+		vertical-align: top;
+		padding: var(--space-2);
+		border-bottom: 1px solid var(--border-color);
+	}
+	.transferencia td:first-child .secundario,
+	.acceso {
+		display: block;
+	}
+	.transferencia select {
+		width: 100%;
 	}
 	.dryrun {
 		margin-top: var(--space-3);

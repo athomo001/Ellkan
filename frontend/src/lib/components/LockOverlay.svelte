@@ -167,7 +167,7 @@
 		border: none;
 		padding: 0;
 		font: inherit;
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		cursor: pointer;
 	}
 </style>

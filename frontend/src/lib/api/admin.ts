@@ -317,15 +317,49 @@ export interface UsuarioAdmin {
 	owned_resources_count: number;
 	shared_with_count: number;
 }
+/** Alguien que ya puede leer el recurso: sólo a esas personas se les puede
+ * dar la propiedad (el servidor no puede sellarle el secreto a nadie). */
+export interface PersonaConAcceso {
+	user_id: string;
+	email: string;
+	display_name: string;
+}
 export interface GrupoBloqueado {
 	group_id: string;
 	name: string;
+	/** Miembro activo más antiguo, propuesto como nuevo admin del grupo. */
+	suggested_manager: PersonaConAcceso | null;
+}
+/** A quién pasa la propiedad de un recurso cuyo único propietario sale. */
+export interface DestinoPropiedad {
+	type: 'group_admins' | 'group' | 'user';
+	id: string;
+}
+export interface RecursoBloqueado {
+	resource_id: string;
+	created_at: string;
+	groups: {
+		group_id: string;
+		name: string;
+		level: string;
+		admins: PersonaConAcceso[];
+		members_with_access: number;
+	}[];
+	users: (PersonaConAcceso & { level: string })[];
+	/** `null` = nadie activo puede recibirlo. */
+	suggestion: DestinoPropiedad | null;
 }
 export interface PurgeDryRun {
 	blocked_groups: GrupoBloqueado[];
 	blocked_resources: string[];
+	blocked_resources_detail: RecursoBloqueado[];
 	blocks_purge: boolean;
 }
+export interface TransferenciaPropiedad {
+	owners: { resource_id: string; to: DestinoPropiedad }[];
+	managers: { group_id: string; new_manager_user_id: string }[];
+}
+const SIN_TRANSFERENCIA: TransferenciaPropiedad = { owners: [], managers: [] };
 export interface UsuariosPage {
 	items: UsuarioAdmin[];
 	next_cursor: string | null;
@@ -333,9 +367,12 @@ export interface UsuariosPage {
 export const usersAdminApi = {
 	buscarPorEmail: (email: string) => api.get<{ user_id: string }>(`/users/${encodeURIComponent(email)}/public-key`),
 	obtener: (id: string) => api.get<UsuarioAdmin>(`/admin/users/${id}`),
-	actualizarActivo: (id: string, active: boolean) => api.put<UsuarioAdmin>(`/admin/users/${id}`, { active }),
+	/** Al bloquear (`active: false`) acepta una transferencia opcional y parcial. */
+	actualizarActivo: (id: string, active: boolean, transfer: TransferenciaPropiedad = SIN_TRANSFERENCIA) =>
+		api.put<UsuarioAdmin>(`/admin/users/${id}`, { active, transfer }),
 	purgeDryRun: (id: string) => api.get<PurgeDryRun>(`/admin/users/${id}/purge/dry-run`),
-	purgar: (id: string) => api.post<{ resources_huerfanos_eliminados: number }>(`/admin/users/${id}/purge`, { transfer: {} }),
+	purgar: (id: string, transfer: TransferenciaPropiedad = SIN_TRANSFERENCIA) =>
+		api.post<{ resources_huerfanos_eliminados: number }>(`/admin/users/${id}/purge`, { transfer }),
 	/** F-29: listado completo paginado, además de la búsqueda por email de arriba. */
 	listar: (cursor?: string, active?: boolean) =>
 		api.get<UsuariosPage>(`/admin/users${queryString({ cursor, active: active === undefined ? undefined : String(active) })}`)
@@ -453,3 +490,20 @@ export interface GrupoChecks {
 export const systemStatusApi = {
 	obtener: () => api.get<GrupoChecks[]>('/admin/system-status')
 };
+
+/** La transferencia que propone el servidor, tal cual. `null` si algo no
+ * tiene a quién pasar (recurso sin nadie activo con acceso, o grupo sin
+ * otro miembro activo que pueda quedar como admin). */
+export function transferenciaSugerida(d: PurgeDryRun): TransferenciaPropiedad | null {
+	const owners: TransferenciaPropiedad['owners'] = [];
+	for (const r of d.blocked_resources_detail) {
+		if (!r.suggestion) return null;
+		owners.push({ resource_id: r.resource_id, to: r.suggestion });
+	}
+	const managers: TransferenciaPropiedad['managers'] = [];
+	for (const g of d.blocked_groups) {
+		if (!g.suggested_manager) return null;
+		managers.push({ group_id: g.group_id, new_manager_user_id: g.suggested_manager.user_id });
+	}
+	return { owners, managers };
+}

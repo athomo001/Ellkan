@@ -34,6 +34,12 @@
 		aplicarTema($preferencias.theme);
 	});
 
+	// `lang` del documento según el idioma elegido: los lectores de pantalla lo
+	// usan para la pronunciación (WCAG 3.1.1). `app.html` trae uno fijo.
+	$effect(() => {
+		document.documentElement.lang = $preferencias.locale;
+	});
+
 	// Fuente/espaciado/tamaño de lectura (accesibilidad), local por dispositivo.
 	$effect(() => {
 		aplicarLectura($preferenciasLectura);

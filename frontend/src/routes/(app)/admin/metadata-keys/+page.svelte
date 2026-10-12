@@ -236,7 +236,7 @@
 		margin-top: var(--space-2);
 		font: inherit;
 		font-size: var(--text-sm);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		cursor: pointer;
 		align-self: flex-start;
 	}

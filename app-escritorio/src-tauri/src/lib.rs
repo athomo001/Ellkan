@@ -1,14 +1,15 @@
 // Autor: Athan Espinoza
 
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
-use std::path::Path;
 
 use tauri::Manager;
 use zeroize::Zeroizing;
 
 mod portable;
 mod sistema;
+#[cfg(windows)]
+#[doc(hidden)]
+pub mod tuberia;
 
 /// Versión de la app: la de `tauri.conf.json` (la misma del instalador MSI), no la del
 /// `Cargo.toml`. La exporta `build.rs`.
@@ -209,7 +210,13 @@ fn buscar_en_path(nombre_exe: &str) -> Option<PathBuf> {
 
 /// Clientes que vienen con Windows y su carpeta dentro de `System32`.
 #[cfg(target_os = "windows")]
-const CLIENTES_DEL_SISTEMA: &[(&str, &str)] = &[("ssh.exe", "OpenSSH"), ("ftp.exe", ""), ("telnet.exe", ""), ("mstsc.exe", "")];
+const CLIENTES_DEL_SISTEMA: &[(&str, &str)] = &[
+  ("ssh.exe", "OpenSSH"),
+  ("ftp.exe", ""),
+  ("telnet.exe", ""),
+  ("mstsc.exe", ""),
+  ("powershell.exe", r"WindowsPowerShell\v1.0"),
+];
 
 /// Ruta absoluta de un cliente de `CLIENTES_DEL_SISTEMA` si está instalado.
 /// El directorio sale de `GetSystemDirectoryW` y no de `%SystemRoot%`, que es
@@ -245,32 +252,80 @@ fn ruta_askpass_helper() -> anyhow::Result<PathBuf> {
   Ok(candidato)
 }
 
-/// Arma el `Command` para lanzar `programa args..` dentro de Windows
-/// Terminal si está disponible, o en una consola nueva propia si no —
-/// mismo criterio en las 4 ramas de `conectar_recurso` (sin esto, `ssh`/
-/// `ftp`/`telnet` heredarían la consola de este proceso, que no es una
-/// terminal interactiva real). Nunca pasa por `cmd /c`/`powershell -Command`
-/// (evita el mismo tipo de bug de inyección que `ellkan_askpass.exe` evita
-/// del lado del secreto, pero acá con `host`/`usuario` — datos que sí puede
-/// traer un import CSV/KDBX externo, F-27): cada valor es un argumento de
-/// `Command` separado, sin intérprete de shell de por medio.
+/// Separador de argumentos en `ELLKAN_CONECTAR_ARGV` (carácter de control
+/// "unit separator"): no puede aparecer en ningún argumento válido.
 #[cfg(target_os = "windows")]
-fn comando_en_terminal(programa: &Path, args: &[String]) -> std::process::Command {
+const SEPARADOR_ARGV: char = '\u{1F}';
+
+/// Comando FIJO que corre la consola de PowerShell cuando no hay Windows
+/// Terminal. Los datos (programa, argumentos, título) llegan por variables de
+/// entorno y se usan como valores, nunca se interpolan en el texto del comando:
+/// un `host` raro no puede convertirse en código. Las variables se borran antes
+/// de ejecutar, y el secreto nunca pasa por acá (lo trae el lanzador).
+#[cfg(target_os = "windows")]
+const COMANDO_POWERSHELL: &str = "$a = @($env:ELLKAN_CONECTAR_ARGV -split [char]0x1F); \
+  $Host.UI.RawUI.WindowTitle = $env:ELLKAN_CONECTAR_TITULO; \
+  Remove-Item Env:ELLKAN_CONECTAR_ARGV, Env:ELLKAN_CONECTAR_TITULO; \
+  $r = @($a | Select-Object -Skip 1); & $a[0] $r";
+
+/// Título de la pestaña o ventana: sin caracteres de control ni `;` (que
+/// `wt` interpreta como separador de comandos), y corto.
+#[cfg(target_os = "windows")]
+fn titulo_seguro(titulo: Option<&str>, tipo: &str, host: &str) -> String {
+  let limpio: String = titulo
+    .unwrap_or_default()
+    .chars()
+    .filter(|c| !c.is_control() && *c != ';')
+    .take(60)
+    .collect::<String>()
+    .trim()
+    .to_string();
+  if limpio.is_empty() { format!("{tipo} · {host}") } else { limpio }
+}
+
+/// Arma el `Command` que abre `argv` en una terminal interactiva (sin esto,
+/// `ssh`/`ftp`/`telnet` heredarían la consola de este proceso, que no es una
+/// terminal real):
+/// - Con Windows Terminal: `wt -w ellkan new-tab --title … -- argv…`. Todas
+///   las conexiones van como pestañas de una misma ventana «ellkan», o una
+///   ventana nueva cada vez (`-w new`) si el usuario lo prefiere.
+/// - Sin Windows Terminal: una consola de PowerShell (`System32`) que ejecuta
+///   `argv` con `COMANDO_POWERSHELL` y queda abierta al terminar.
+///
+/// Nunca se arma un texto de comando con los datos (`cmd /c "…"`,
+/// `powershell -Command "… host …"`): `host`/`usuario` pueden venir de un import
+/// CSV/KDBX externo (F-27), así que cada valor viaja como argumento separado o
+/// como valor de una variable de entorno.
+#[cfg(target_os = "windows")]
+fn comando_en_terminal(argv: &[String], titulo: &str, en_pestanas: bool) -> std::process::Command {
+  use std::os::windows::process::CommandExt;
+  const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
   if let Some(wt) = buscar_en_path("wt.exe") {
     // `--` le dice a `wt` que todo lo que sigue es el programa+argumentos a
     // ejecutar tal cual, no opciones propias de `wt`.
     let mut c = std::process::Command::new(wt);
-    c.arg("--").arg(programa);
-    c.args(args);
-    c
-  } else {
-    let mut c = std::process::Command::new(programa);
-    c.args(args);
-    use std::os::windows::process::CommandExt;
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    c.creation_flags(CREATE_NEW_CONSOLE);
-    c
+    c.args(["-w", if en_pestanas { "ellkan" } else { "new" }, "new-tab", "--title", titulo, "--"]);
+    c.args(argv);
+    return c;
   }
+
+  // PowerShell 5.1 descarta los argumentos vacíos al llamar un programa: si
+  // hubiera alguno (o el separador), se lanza el programa directo.
+  let argv_apto = argv.iter().all(|a| !a.is_empty() && !a.contains(SEPARADOR_ARGV));
+  if let Some(powershell) = buscar_en_sistema("powershell.exe").filter(|_| argv_apto) {
+    let mut c = std::process::Command::new(powershell);
+    c.args(["-NoLogo", "-NoProfile", "-NoExit", "-Command", COMANDO_POWERSHELL]);
+    c.env("ELLKAN_CONECTAR_ARGV", argv.join(&SEPARADOR_ARGV.to_string()));
+    c.env("ELLKAN_CONECTAR_TITULO", titulo);
+    c.creation_flags(CREATE_NEW_CONSOLE);
+    return c;
+  }
+
+  let mut c = std::process::Command::new(&argv[0]);
+  c.args(&argv[1..]);
+  c.creation_flags(CREATE_NEW_CONSOLE);
+  c
 }
 
 /// "Conectar" desde la GUI (F-49, spec/13 §9). Qué se lanza y cómo se entrega
@@ -288,9 +343,27 @@ fn comando_en_terminal(programa: &Path, args: &[String]) -> std::process::Comman
 ///   teclas (el mismo anti-patrón que spec/13 §11bis rechaza para Wayland), el
 ///   frontend deja el secreto en el portapapeles con auto-limpieza ANTES de
 ///   llamar acá; el parámetro `secreto` no se usa para estos tipos.
+///
+/// En una terminal, `ssh`/`psql`/`mysql` no se lanzan directo: los lanza
+/// `ellkan_askpass.exe --lanzar`, que recibe el secreto por una tubería de un
+/// solo uso (`tuberia.rs`). Con pestañas de Windows Terminal el proceso de la
+/// pestaña no hereda el entorno de esta app, así que el secreto no puede viajar
+/// como variable de entorno desde acá.
+///
+/// `titulo` (nombre del recurso) va en la pestaña; `en_pestanas` (por defecto
+/// sí) elige entre una ventana «ellkan» con pestañas o una ventana por conexión.
 #[cfg(target_os = "windows")]
 #[tauri::command]
-fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto: u16, secreto: String) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn conectar_recurso(
+  tipo: String,
+  usuario: Option<String>,
+  host: String,
+  puerto: u16,
+  secreto: String,
+  titulo: Option<String>,
+  en_pestanas: Option<bool>,
+) -> Result<(), String> {
   use ellkan_backend::desktop::conectar::{planificar, Inyeccion, Ventana};
 
   let secreto = Zeroizing::new(secreto);
@@ -298,7 +371,24 @@ fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto:
   let programa = plan.programas.iter().find_map(|nombre| buscar_en_path(nombre)).ok_or_else(|| plan.falta.to_string())?;
 
   let mut comando = match plan.ventana {
-    Ventana::Terminal => comando_en_terminal(&programa, &plan.args),
+    Ventana::Terminal => {
+      let mut argv: Vec<String> = Vec::new();
+      let modo = match plan.inyeccion {
+        Inyeccion::Askpass => Some("askpass".to_string()),
+        Inyeccion::Entorno(variable) => Some(format!("env:{variable}")),
+        _ => None,
+      };
+      if let Some(modo) = modo {
+        let lanzador = ruta_askpass_helper()
+          .map_err(|e| format!("no se pudo preparar la conexión asistida ({e:#}) — copiá el comando y pegá la contraseña a mano"))?;
+        let tuberia = tuberia::servir_secreto_una_vez(Zeroizing::new(secreto.to_string()), &lanzador)?;
+        argv.extend([lanzador.to_string_lossy().into_owned(), "--lanzar".into(), tuberia, modo, "--".into()]);
+      }
+      argv.push(programa.to_string_lossy().into_owned());
+      argv.extend(plan.args.iter().cloned());
+      let titulo = titulo_seguro(titulo.as_deref(), &tipo, &host);
+      comando_en_terminal(&argv, &titulo, en_pestanas.unwrap_or(true))
+    }
     Ventana::Propia => {
       let mut c = std::process::Command::new(&programa);
       c.args(&plan.args);
@@ -308,6 +398,8 @@ fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto:
 
   let mut credencial_rdp = false;
   match plan.inyeccion {
+    // En terminal el secreto ya lo entrega la tubería (arriba).
+    Inyeccion::Askpass | Inyeccion::Entorno(_) if plan.ventana == Ventana::Terminal => {}
     Inyeccion::Askpass => {
       let askpass = ruta_askpass_helper()
         .map_err(|e| format!("no se pudo preparar la conexión asistida ({e:#}) — copiá el comando y pegá la contraseña a mano"))?;
@@ -344,8 +436,17 @@ fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto:
 
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
-fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto: u16, secreto: String) -> Result<(), String> {
-  let _ = (tipo, usuario, host, puerto, secreto);
+#[allow(clippy::too_many_arguments)]
+fn conectar_recurso(
+  tipo: String,
+  usuario: Option<String>,
+  host: String,
+  puerto: u16,
+  secreto: String,
+  titulo: Option<String>,
+  en_pestanas: Option<bool>,
+) -> Result<(), String> {
+  let _ = (tipo, usuario, host, puerto, secreto, titulo, en_pestanas);
   Err("Conectar (F-49) todavía sólo está implementado en Windows".to_string())
 }
 

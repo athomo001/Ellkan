@@ -481,7 +481,7 @@
 		border: none;
 		padding: 0;
 		font-size: var(--text-sm);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		cursor: pointer;
 	}
 </style>

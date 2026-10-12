@@ -15,6 +15,7 @@ use super::dto::{
     ActualizarActivoRequest, DryRunResponse, ListarUsuariosQuery, PurgaResponse, PurgarRequest, UsuarioResponse,
     UsuariosPageResponse,
 };
+use super::models::Transferencia;
 use super::repository::PgUserPurgeRepository;
 use super::service::UsersAdminService;
 
@@ -40,10 +41,14 @@ pub async fn actualizar_activo(
     Json(req): Json<ActualizarActivoRequest>,
 ) -> Result<Json<UsuarioResponse>, ApiError> {
     let servicio = servicio(&state);
+    let transferencia: Transferencia = req.transfer.try_into()?;
     if req.active {
+        if !transferencia.vacia() {
+            return Err(DomainError::ValidacionInvalida("la transferencia de propiedad sólo se usa al bloquear".into()).into());
+        }
         servicio.activar(admin.user_id, id).await?;
     } else {
-        servicio.desactivar(admin.user_id, id).await?;
+        servicio.desactivar_con_transferencia(admin.user_id, id, transferencia).await?;
     }
     let u = servicio.obtener(id).await?;
     Ok(Json(u.into()))
@@ -64,7 +69,7 @@ pub async fn purgar(
     Path(id): Path<Uuid>,
     Json(req): Json<PurgarRequest>,
 ) -> Result<Json<PurgaResponse>, ApiError> {
-    let resultado = servicio(&state).purgar(admin.user_id, id, req.transfer.into()).await?;
+    let resultado = servicio(&state).purgar(admin.user_id, id, req.transfer.try_into()?).await?;
     Ok(Json(PurgaResponse { resources_huerfanos_eliminados: resultado.resources_huerfanos_eliminados }))
 }
 

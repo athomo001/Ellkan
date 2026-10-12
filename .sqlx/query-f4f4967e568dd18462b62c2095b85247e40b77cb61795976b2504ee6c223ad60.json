@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select p.id, p.grantee_type, p.grantee_id\n        from permissions p\n        where (p.grantee_type = 'user' and not exists (select 1 from users u where u.id = p.grantee_id))\n           or (p.grantee_type = 'group' and not exists (select 1 from groups g where g.id = p.grantee_id))\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "grantee_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "grantee_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "grantee_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "grantee_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f4f4967e568dd18462b62c2095b85247e40b77cb61795976b2504ee6c223ad60"
+}

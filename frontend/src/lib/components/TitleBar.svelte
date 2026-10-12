@@ -155,7 +155,7 @@
 	}
 
 	.logo-badge {
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		display: flex;
 		align-items: center;
 	}

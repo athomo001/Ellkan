@@ -95,7 +95,7 @@
 	input {
 		width: 100%;
 		background: var(--bg-overlay);
-		border: 1px solid var(--border-color);
+		border: 1px solid var(--border-input);
 		border-radius: var(--radius-sm);
 		padding: var(--space-2) var(--space-3);
 		font-size: var(--text-sm);

@@ -56,7 +56,7 @@ tauri-plugin-single-instance = "2"
 # (`CredWriteW`). Ya está en el árbol de dependencias por Tauri
 # (misma versión), así que no agrega nada nuevo al binario.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Threading", "Win32_System_IO"] }
 
 # `keyring` 3 no trae ningún almacén del sistema por defecto: sin esta línea usa un
 # almacén de PRUEBA en memoria (cada `Entry` es independiente y nada se guarda), y el

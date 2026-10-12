@@ -369,8 +369,27 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         .await?;
 
         if !resource_ids_a_revocar.is_empty() {
+            // Sólo se revoca lo que este grupo era su única vía de acceso: si
+            // además tiene un permiso directo (por ejemplo, quedó como Owner
+            // al transferirse la propiedad) o lo ve por otro grupo, conserva
+            // su envelope. Borrarlo lo dejaría con un permiso que ya no
+            // puede descifrar. La membresía ya se borró arriba, así que este
+            // grupo no cuenta como "otro grupo".
             sqlx::query!(
-                r#"delete from secret_envelopes where user_id = $1 and resource_id = any($2)"#,
+                r#"
+                delete from secret_envelopes se
+                where se.user_id = $1 and se.resource_id = any($2)
+                  and not exists (
+                      select 1 from permissions p
+                      where p.subject_type = 'resource' and p.subject_id = se.resource_id
+                        and p.grantee_type = 'user' and p.grantee_id = $1
+                  )
+                  and not exists (
+                      select 1 from permissions p
+                      join group_members gm on gm.group_id = p.grantee_id and gm.user_id = $1
+                      where p.subject_type = 'resource' and p.subject_id = se.resource_id and p.grantee_type = 'group'
+                  )
+                "#,
                 user_id,
                 resource_ids_a_revocar,
             )

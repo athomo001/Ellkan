@@ -83,6 +83,7 @@
 							class="agregar"
 							onclick={() => onCompartir?.(nodo.id, nodo.nombre)}
 							title={$t.vault.carpetas.compartir}
+							aria-label={$t.vault.carpetas.compartir}
 						>
 							⇄
 						</button>
@@ -105,6 +106,8 @@
 							type="button"
 							class="agregar"
 							onclick={() => (creandoEn = creandoEn === nodo.id ? undefined : nodo.id)}
+							title={$t.vault.carpetas.nuevaCarpeta}
+							aria-label={$t.vault.carpetas.nuevaCarpeta}
 						>
 							+
 						</button>
@@ -128,7 +131,13 @@
 	<div class="cabecera">
 		<h2>{$t.vault.carpetas.titulo}</h2>
 		{#if onCrear}
-			<button type="button" class="agregar" onclick={() => (creandoEn = creandoEn === null ? undefined : null)}>
+			<button
+				type="button"
+				class="agregar"
+				onclick={() => (creandoEn = creandoEn === null ? undefined : null)}
+				title={$t.vault.carpetas.nuevaCarpeta}
+				aria-label={$t.vault.carpetas.nuevaCarpeta}
+			>
 				+
 			</button>
 		{/if}
@@ -204,7 +213,7 @@
 		cursor: pointer;
 	}
 	.nombre-clickeable.activo {
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		font-weight: 600;
 	}
 	.mover {

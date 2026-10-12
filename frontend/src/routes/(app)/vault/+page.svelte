@@ -50,7 +50,7 @@
 		type UsuarioBusqueda
 	} from '$lib/crypto/recursos';
 	import { detectarProveedor, estadoVencimiento } from '$lib/apiTokens';
-	import { conectar, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
+	import { conectar, conexionesEnPestanas, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
 	import type { EstrategiaMatch } from '$lib/crypto/matching';
 	import {
 		listarArbolCarpetas,
@@ -822,7 +822,9 @@
 				usuario: seleccionado.usuario || null,
 				host: destino.host,
 				puerto: destino.puerto,
-				secreto: password
+				secreto: password,
+				titulo: seleccionado.nombre,
+				enPestanas: conexionesEnPestanas()
 			});
 		} catch (err) {
 			errorConectar = err instanceof Error ? err.message : $t.vault.errorConectar;
@@ -1777,6 +1779,7 @@
 												copiarCampo('usuario', r.usuario!);
 											}}
 											title={$t.secretField.copiar}
+											aria-label={$t.secretField.copiar}
 										>
 											⧉
 										</button>
@@ -1816,6 +1819,7 @@
 										class="icono-copiar"
 										onclick={(e) => compartirDesdeIcono(r, e)}
 										title={$t.vault.compartir}
+										aria-label={$t.vault.compartir}
 									>
 										⇄
 									</button>
@@ -2791,7 +2795,7 @@
 		opacity: 1;
 	}
 	.icono-copiar-rapido:hover {
-		color: var(--accent-primary);
+		color: var(--accent-text);
 	}
 
 	/* Ventana angosta (web móvil o redimensión muy pequeña): no entran las 2 columnas a la vez */
@@ -3036,7 +3040,7 @@
 		flex: 1;
 		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 		font-size: var(--text-sm);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		word-break: break-all;
 	}
 	.campo-carpeta {
@@ -3311,7 +3315,7 @@
 		border: none;
 		padding: 0;
 		font-size: var(--text-xs);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		cursor: pointer;
 	}
 	.acciones-masivas {

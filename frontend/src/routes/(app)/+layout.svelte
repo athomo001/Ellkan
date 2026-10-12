@@ -38,6 +38,7 @@
 	import FolderTree from '$lib/components/FolderTree.svelte';
 	import { carpetasSidebar } from '$lib/state/carpetasSidebar';
 	import { t } from '$lib/i18n';
+	import CodigoFuente from '$lib/components/CodigoFuente.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -267,6 +268,8 @@
 					class="toggle-colapso"
 					onclick={toggleColapsado}
 					title={colapsado ? $t.appShell.expandirNav : $t.appShell.colapsarNav}
+					aria-label={colapsado ? $t.appShell.expandirNav : $t.appShell.colapsarNav}
+					aria-expanded={!colapsado}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
 						{#if colapsado}
@@ -304,7 +307,7 @@
 			{/if}
 			<div class="pie">
 				<div class="controles-topbar">
-					<button type="button" class="toggle-tema" onclick={(e) => alternarTema(e)} title={$t.appShell.cambiarTema}>
+					<button type="button" class="toggle-tema" onclick={(e) => alternarTema(e)} title={$t.appShell.cambiarTema} aria-label={$t.appShell.cambiarTema}>
 						{#if $preferencias.theme === 'light'}
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M3 12h2.25m-.386-6.364 1.591 1.591M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z" />
@@ -347,7 +350,8 @@
 						</span>
 					{/if}
 				</a>
-				<Button variant="ghost" onclick={salir}>{colapsado ? '⏻' : $t.appShell.cerrarSesion}</Button>
+				<Button variant="ghost" onclick={salir} ariaLabel={$t.appShell.cerrarSesion}>{colapsado ? '⏻' : $t.appShell.cerrarSesion}</Button>
+				<CodigoFuente compacto={colapsado} />
 			</div>
 		</nav>
 		<main>
