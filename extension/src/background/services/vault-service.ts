@@ -13,6 +13,8 @@ import { cargarCrypto } from '../wasm';
 import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/b64';
 import { uuidABytes } from '../../../../frontend/src/lib/crypto/uuid';
 import { SesionStorage } from '../storage/sesion-storage';
+import { pedirAlServidor } from '../transporte';
+import { AuthService } from './auth-service';
 import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './uri-match';
 
 interface ErrorApi {
@@ -28,14 +30,48 @@ async function sesionActiva(): Promise<{ serverUrl: string; sessionId: string; u
 	return { serverUrl, sessionId, userId, x25519Private: base64ABytes(x25519PrivateB64) };
 }
 
+/** Mensaje cuando la sesión dejó de valer y se cerró (revocación remota). */
+export const MENSAJE_SESION_INVALIDA = 'La sesión ya no es válida. Iniciá sesión de nuevo.';
+/** La sesión venció y el servidor pide un login a mano (MFA o dispositivo). */
+export const MENSAJE_SESION_VENCIDA = 'La sesión venció. Desbloqueá de nuevo para continuar.';
+
 async function peticion<T>(serverUrl: string, method: string, path: string, sessionId: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
-	const headers: Record<string, string> = { Authorization: `Bearer ${sessionId}`, ...extraHeaders };
-	if (body !== undefined) headers['Content-Type'] = 'application/json';
+	const enviar = (sesion: string) => {
+		const headers: Record<string, string> = { Authorization: `Bearer ${sesion}`, ...extraHeaders };
+		if (body !== undefined) headers['Content-Type'] = 'application/json';
+		return pedirAlServidor(`${serverUrl}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+	};
 	let resp: Response;
 	try {
-		resp = await fetch(`${serverUrl}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+		resp = await enviar(sessionId);
 	} catch {
 		throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
+	}
+	// Revocación remota: un 401 con una sesión que debería valer. Se intenta
+	// una vez una sesión nueva con las claves ya desbloqueadas; si el servidor
+	// no la da (cuenta bloqueada o borrada, o la app de escritorio se vació),
+	// se cierra sesión y se purga lo que guardó la extensión.
+	if (resp.status === 401) {
+		const resultado = await AuthService.reautenticar();
+		if (resultado === 'sin_respuesta') throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
+		if (resultado === 'interactivo') {
+			await AuthService.descartarSesion();
+			throw new Error(MENSAJE_SESION_VENCIDA);
+		}
+		const nueva = resultado === 'renovada' ? await SesionStorage.leer('session_id') : null;
+		if (!nueva) {
+			await AuthService.cerrarSesionPorInvalida();
+			throw new Error(MENSAJE_SESION_INVALIDA);
+		}
+		try {
+			resp = await enviar(nueva);
+		} catch {
+			throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
+		}
+		if (resp.status === 401) {
+			await AuthService.cerrarSesionPorInvalida();
+			throw new Error(MENSAJE_SESION_INVALIDA);
+		}
 	}
 	if (!resp.ok) {
 		let mensaje = `el servidor respondió ${resp.status}`;

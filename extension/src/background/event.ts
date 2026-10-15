@@ -12,6 +12,7 @@ import { VaultController } from './controllers/vault-controller';
 import { AutofillController } from './controllers/autofill-controller';
 import { TotpLocalController } from './controllers/totp-local-controller';
 import { LockService } from './services/lock-service';
+import { appEscritorioDisponible } from './transporte';
 
 type Handler = (payload: unknown) => Promise<unknown>;
 
@@ -19,6 +20,8 @@ type Handler = (payload: unknown) => Promise<unknown>;
 // sharing`, etc., spec 06 §2).
 const rutas: Record<string, Handler> = {
 	PING: () => SesionController.ping(),
+	// F-56: ¿está la app de escritorio de este equipo (native messaging)?
+	APP_ESCRITORIO_DISPONIBLE: () => appEscritorioDisponible(),
 	AUTH_LOGIN: (payload) => AuthController.login(payload),
 	AUTH_VERIFICAR_DISPOSITIVO: (payload) => AuthController.verificarDispositivo(payload),
 	AUTH_VERIFICAR_MFA: (payload) => AuthController.verificarMfa(payload),

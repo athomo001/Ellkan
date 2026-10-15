@@ -481,6 +481,19 @@ impl UserPurgeRepository for PgUserPurgeRepository {
         .execute(&mut *tx)
         .await?;
 
+        // Revocación remota: la clave pública de la cuenta queda registrada
+        // ANTES de borrarla (después la cascada se lleva `user_keys`). Es lo
+        // único que se conserva: sin ella, una app de escritorio vinculada que
+        // estaba sin red no tendría a quién preguntarle (ver `revocacion`).
+        sqlx::query(
+            "insert into cuentas_revocadas (public_key_ed25519, user_id)
+             select public_key_ed25519, user_id from user_keys where user_id = $1
+             on conflict (public_key_ed25519) do update set user_id = excluded.user_id, revocada_en = now()",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
         sqlx::query!(r#"delete from users where id = $1"#, user_id).execute(&mut *tx).await?;
 
         sqlx::query!(r#"delete from resource_tags where resource_id = any($1)"#, &huerfanos[..])

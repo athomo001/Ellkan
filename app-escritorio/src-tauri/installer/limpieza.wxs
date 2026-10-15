@@ -8,12 +8,13 @@
   entrada en Configuración > Aplicaciones y ellkan_askpass.exe; esto suma lo
   que falta para que instalar, actualizar y desinstalar sea limpio:
 
-  1. Cierra Ellkan si está abierto, ANTES de que Windows revise qué archivos
-     están en uso (InstallValidate). La app vive en la bandeja, así que casi
-     siempre está corriendo. Se termina el proceso en vez de pedirle que se
-     cierre: la ventana preguntaría "¿cerrar o dejar en la bandeja?" y el
-     instalador se quedaría esperando o terminaría pidiendo reiniciar. No se
-     pierde nada: la bóveda es SQLite y se recupera sola de un cierre brusco.
+  1. Cierra Ellkan si está abierto y espera a que termine, ANTES de que
+     Windows revise qué archivos están en uso (InstallValidate). La app vive
+     en la bandeja, así que casi siempre está corriendo. Se termina el proceso
+     en vez de pedirle que se cierre (por eso no `util:CloseApplication`, que
+     manda WM_CLOSE): la ventana preguntaría "¿cerrar o dejar en la bandeja?"
+     y el instalador se quedaría esperando. No se pierde nada: la bóveda es
+     SQLite y se recupera sola de un cierre brusco.
 
   2. Al DESINSTALAR (no al actualizar) corre `ellkan-desktop.exe` con el argumento
      limpiar-sistema, que borra lo que la app dejó fuera de su carpeta: inicio
@@ -30,8 +31,18 @@
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
+    <!--
+      Termina el proceso y ESPERA a que de verdad haya terminado (hasta ~20 s,
+      consultando cada segundo): antes era sólo `taskkill /F` sin comprobar, y
+      `taskkill` vuelve antes de que el proceso termine de cerrarse, así que
+      InstallValidate todavía podía verlo abierto. Sale apenas ya no está. Si
+      no se pudo cerrar (por ejemplo, otro usuario o un proceso elevado), el
+      propio Windows Installer muestra su diálogo de "archivos en uso" para
+      que el usuario lo cierre a mano; en silencio (/qn) programa el reemplazo
+      al reiniciar, como cualquier MSI.
+    -->
     <CustomAction Id="CerrarEllkanAntes" Directory="TARGETDIR"
-                  ExeCommand="&quot;[SystemFolder]taskkill.exe&quot; /F /IM ellkan-desktop.exe"
+                  ExeCommand="&quot;[SystemFolder]cmd.exe&quot; /d /s /c &quot;taskkill /F /IM ellkan-desktop.exe &gt;nul 2&gt;&amp;1 &amp; for /l %i in (1,1,20) do @(tasklist /NH /FI &quot;IMAGENAME eq ellkan-desktop.exe&quot; | find /i &quot;ellkan-desktop.exe&quot; &gt;nul || exit /b 0 &amp; ping -n 2 127.0.0.1 &gt;nul)&quot;"
                   Return="ignore" />
 
     <CustomAction Id="LimpiarSistemaEllkan" Directory="INSTALLDIR"

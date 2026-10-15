@@ -21,10 +21,21 @@ import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/stat
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { uuidABytes } from '../crypto/uuid';
-import { obtenerVinculacion, obtenerCursor, guardarCursor, sesionRemotaVigente, olvidarSesionRemota } from './vinculacion';
+import {
+	obtenerVinculacion,
+	obtenerCursor,
+	guardarCursor,
+	sesionRemotaVigente,
+	olvidarSesionRemota,
+	fijarIdentidadDelServidor
+} from './vinculacion';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { obtenerPersistencia } from './persistencia';
 import { necesitaAdaptacion, adaptarRecurso, marcarAdaptado, type CuerpoLocal } from './adaptacion';
+import { sincronizarAvatar } from './avatar';
+import { sincronizarKit } from './kit';
+import { obtenerPendientes, marcarPendiente, quitarPendiente } from './pendientes';
+import { subirPendientes } from './notificador';
 
 interface SyncSecretCrudo {
 	sealed_dek_b64: string;
@@ -74,6 +85,9 @@ export interface ResultadoSync {
 	/** Recursos que no se pudieron traer: metadata con una clave de equipo a
 	 * la que no hay acceso, o de otra persona en un modo sin réplica. */
 	recursosOmitidos: number;
+	/** Cambios hechos en la app que no habían llegado al servidor (estaba
+	 * caído o sin red) y se subieron en este sync. */
+	recursosSubidos: number;
 	carpetasNuevas: number;
 	carpetasBorradas: number;
 	tagsNuevos: number;
@@ -133,27 +147,28 @@ function aad(resourceId: string, createdBy: string): Uint8Array {
  * servidor, la local se guarda como un recurso nuevo, nada se pierde".
  * Mismo patrón cripto que `recursos.ts::verSecreto`/`crearRecurso`: abrir
  * la DEK sellada con la clave privada, descifrar con ESA dek (nunca
- * directo con la clave privada).
+ * directo con la clave privada). Devuelve el id de la copia, o `null` si no
+ * se pudo hacer.
  */
-async function copiarComoConflicto(resourceId: string): Promise<void> {
+async function copiarComoConflicto(resourceId: string): Promise<string | null> {
 	const wasm = await cargarCrypto();
 	const claves = get(clavesDesbloqueadas);
 	// Sin claves desbloqueadas no hay forma de leer la metadata local para
 	// renombrarla — no se pierde el dato (sigue tal cual en `resources`),
 	// sólo este intento puntual de preservarlo aparte; un sync posterior
 	// con la bóveda desbloqueada lo vuelve a intentar.
-	if (!claves) return;
+	if (!claves) return null;
 
 	const recurso = await ignorarAusente(
 		api.get<{ id: string; resource_type_slug: string; metadata_ciphertext_b64: string; metadata_nonce_b64: string; created_by: string | null }>(
 			`/resources/${resourceId}`
 		)
 	);
-	if (!recurso || !recurso.created_by) return;
+	if (!recurso?.created_by) return null;
 	const secreto = await ignorarAusente(
 		api.get<{ sealed_dek_b64: string; secret_ciphertext_b64: string; secret_nonce_b64: string }>(`/resources/${resourceId}/secret`)
 	);
-	if (!secreto) return;
+	if (!secreto) return null;
 
 	const aadVieja = aad(resourceId, recurso.created_by);
 	const dek = wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
@@ -185,6 +200,15 @@ async function copiarComoConflicto(resourceId: string): Promise<void> {
 		secret_ciphertext_b64: bytesABase64(secretoCifrado.ciphertext),
 		secret_nonce_b64: bytesABase64(secretoCifrado.nonce)
 	});
+	return nuevoId;
+}
+
+/** Guarda aparte la versión local y deja la copia en la cola para que también
+ * llegue al servidor: antes quedaba sólo en la app. */
+async function preservarVersionLocal(email: string, resourceId: string): Promise<void> {
+	const copia = await copiarComoConflicto(resourceId);
+	if (copia) marcarPendiente(email, copia, 'subir');
+	quitarPendiente(email, resourceId);
 }
 
 export async function sincronizarAhora(): Promise<ResultadoSync> {
@@ -225,14 +249,28 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 		recursosBorrados: 0,
 		recursosEnConflicto: 0,
 		recursosOmitidos: 0,
+		recursosSubidos: 0,
 		carpetasNuevas: 0,
 		carpetasBorradas: 0,
 		tagsNuevos: 0,
 		tagsBorrados: 0
 	};
 
+	// Cambios hechos en la app que todavía no llegaron al servidor. Se bajan
+	// los del servidor primero y recién al final se suben estos: un recurso
+	// que cambió en los dos lados pasa por la detección de conflictos de abajo
+	// en vez de pisar la versión del servidor.
+	const enCola = obtenerPendientes(email);
+
 	for (const item of resultado.resources) {
 		if (item.deleted) {
+			// Borrado allá pero editado acá sin llegar a subirse: la edición
+			// local se guarda aparte antes de borrar, para no perderla.
+			if (enCola[item.id] === 'subir') {
+				await preservarVersionLocal(email, item.id);
+				stats.recursosEnConflicto++;
+			}
+			quitarPendiente(email, item.id);
 			await ignorarAusente(api.delete(`/resources/${item.id}`));
 			stats.recursosBorrados++;
 			continue;
@@ -266,7 +304,15 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 		// mismo ciphertext (con su nonce aleatorio, imposible de repetir por
 		// casualidad). No hay nada que aplicar, y no es un conflicto aunque la
 		// copia local sea más nueva que el cursor anterior.
-		if (local && local.metadata_ciphertext_b64 === cuerpo.metadata_ciphertext_b64) continue;
+		// Si estaba en la cola, el push sí llegó y sólo se perdió la respuesta.
+		if (local && local.metadata_ciphertext_b64 === cuerpo.metadata_ciphertext_b64) {
+			quitarPendiente(email, item.id);
+			continue;
+		}
+
+		// Borrado acá sin llegar a subirse, pero editado allá: gana la edición
+		// del servidor (se vuelve a crear localmente abajo) en vez de perderla.
+		if (enCola[item.id] === 'borrar') quitarPendiente(email, item.id);
 
 		if (!local) {
 			if (soloMetadata) {
@@ -293,9 +339,11 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 			// Conflicto: la copia local cambió DESPUÉS del último cursor que
 			// este dispositivo ya había sincronizado con éxito — spec 13 §7,
 			// primera versión simplificada (cursor único por bóveda en vez de
-			// `base_updated_at` por recurso, ver `vinculacion.ts`).
-			if (cursorAnterior && local.updated_at > cursorAnterior) {
-				await copiarComoConflicto(item.id);
+			// `base_updated_at` por recurso, ver `vinculacion.ts`). Un recurso
+			// en la cola también es conflicto aunque sea más viejo que el cursor:
+			// un sync anterior pudo bajar sin poder subirlo.
+			if ((cursorAnterior && local.updated_at > cursorAnterior) || enCola[item.id] === 'subir') {
+				await preservarVersionLocal(email, item.id);
 				stats.recursosEnConflicto++;
 			}
 			if (soloMetadata) {
@@ -377,5 +425,18 @@ export async function sincronizarAhora(): Promise<ResultadoSync> {
 	}
 
 	guardarCursor(email, resultado.cursor);
+
+	// Lo que se creó, editó o borró en la app mientras el servidor no
+	// respondía. Si vuelve a fallar no corta el sync: lo bajado ya quedó
+	// aplicado y el resto sigue en la cola.
+	stats.recursosSubidos = await subirPendientes(remoto, email, userIdLocal).catch(() => 0);
+
+	// Revocación remota: el primer sync exitoso fija la clave del servidor.
+	await fijarIdentidadDelServidor(email, userIdLocal).catch(() => {});
+
+	// El avatar va aparte del delta de `/sync` (ver `avatar.ts`); un fallo acá
+	// no invalida lo ya aplicado, se reintenta en el próximo sync.
+	await sincronizarAvatar().catch(() => false);
+	await sincronizarKit().catch(() => {});
 	return stats;
 }

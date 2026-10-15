@@ -11,7 +11,10 @@ import { cargarCrypto } from '../wasm';
 import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/b64';
 import { deviceTokenHashB64, borrarTokenDeDispositivo } from '../storage/device-storage';
 import { SesionStorage } from '../storage/sesion-storage';
+import { pedirAlServidor } from '../transporte';
 import { CuentaStorage } from '../storage/cuenta-storage';
+import { MetadataCache } from '../storage/metadata-cache';
+import { BrowserApi } from '../../browser-api';
 
 function aadClavePrivada(email: string): Uint8Array {
 	return new TextEncoder().encode(email);
@@ -33,7 +36,7 @@ async function pedido<T>(
 
 	let resp: Response;
 	try {
-		resp = await fetch(`${serverUrl}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+		resp = await pedirAlServidor(`${serverUrl}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
 	} catch {
 		throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
 	}
@@ -70,6 +73,9 @@ export interface ResultadoLogin {
 	userId?: string;
 	deviceChallengeId?: string;
 }
+
+/** Ver `AuthService.reautenticar`. */
+export type ResultadoReautenticar = 'renovada' | 'interactivo' | 'cuenta_rechazada' | 'sin_respuesta';
 
 export interface EstadoSesionActual {
 	sessionId: string;
@@ -278,8 +284,85 @@ export const AuthService = {
 		}
 		await CuentaStorage.purgar();
 		await borrarTokenDeDispositivo();
+	},
+
+	/**
+	 * Revocación remota (docs/revocacion-remota.md): ante un 401 con una
+	 * sesión que debería valer, se intenta UNA vez obtener una nueva con las
+	 * claves que ya están en `storage.session` (sin pedir la passphrase). Si el
+	 * servidor no la da en un login directo, la sesión ya no es válida: cuenta
+	 * bloqueada o borrada, o un backend local que se vació.
+	 */
+	async reautenticar(): Promise<ResultadoReautenticar> {
+		const serverUrl = await SesionStorage.leer('server_url');
+		const email = await SesionStorage.leer('email');
+		const ed25519PrivateB64 = await SesionStorage.leer('ed25519_private');
+		if (!serverUrl || !email || !ed25519PrivateB64) return 'interactivo';
+
+		const pedir = async (path: string, body: unknown): Promise<Response> =>
+			pedirAlServidor(`${serverUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+		try {
+			const wasm = await cargarCrypto();
+			const respChallenge = await pedir('/auth/challenge', { email });
+			// La app de escritorio con la cuenta revocada rechaza todo con 401.
+			if (respChallenge.status === 401 || respChallenge.status === 403) return 'cuenta_rechazada';
+			if (!respChallenge.ok) return 'sin_respuesta';
+			const challenge = (await respChallenge.json()) as { nonce_b64: string };
+			const firma = wasm.firmar(base64ABytes(ed25519PrivateB64), base64ABytes(challenge.nonce_b64));
+			const respVerify = await pedir('/auth/verify', {
+				email,
+				nonce_b64: challenge.nonce_b64,
+				signature_b64: bytesABase64(firma),
+				device_token_hash_b64: await deviceTokenHashB64()
+			});
+			// El servidor no acepta estas claves para este correo: cuenta
+			// bloqueada, borrada, o un backend que ya no la tiene.
+			if (respVerify.status === 401 || respVerify.status === 403) return 'cuenta_rechazada';
+			if (!respVerify.ok) return 'sin_respuesta';
+			const verify = (await respVerify.json()) as { estado: string; session_id?: string; user_id?: string };
+			// Pide MFA o verificar el dispositivo: la cuenta sigue viva, sólo
+			// hace falta un login a mano.
+			if (verify.estado !== 'completo' || !verify.session_id) return 'interactivo';
+			await SesionStorage.guardar('session_id', verify.session_id);
+			if (verify.user_id) await SesionStorage.guardar('user_id', verify.user_id);
+			return 'renovada';
+		} catch {
+			return 'sin_respuesta';
+		}
+	},
+
+	/** La cuenta ya no vale (`reautenticar` → `cuenta_rechazada`): cierre de
+	 * sesión con la purga completa, más la caché de metadata, y una marca para
+	 * que el popup explique por qué pide entrar de nuevo. No hace falta un
+	 * aviso firmado: no se borra nada que el servidor no tenga, sólo lo que
+	 * guardó la extensión. */
+	async cerrarSesionPorInvalida(): Promise<void> {
+		await AuthService.logout();
+		await MetadataCache.limpiar();
+		await BrowserApi.storageLocalSet({ [MARCA_SESION_INVALIDA]: true });
+	},
+
+	/** La sesión venció pero la cuenta sigue viva y hace falta un login a mano
+	 * (MFA / dispositivo): se descarta la sesión y las claves, como un
+	 * bloqueo — servidor y correo quedan recordados. */
+	async descartarSesion(): Promise<void> {
+		for (const clave of ['session_id', 'user_id', 'x25519_private', 'ed25519_private']) {
+			await SesionStorage.limpiar(clave);
+		}
+		await MetadataCache.limpiar();
+	},
+
+	/** Lee y borra la marca de `cerrarSesionPorInvalida`. */
+	async consumirAvisoSesionInvalida(): Promise<boolean> {
+		const r = await BrowserApi.storageLocalGet<Record<string, boolean>>(MARCA_SESION_INVALIDA);
+		if (!r[MARCA_SESION_INVALIDA]) return false;
+		await BrowserApi.storageLocalRemove(MARCA_SESION_INVALIDA);
+		return true;
 	}
 };
+
+/** Leída también por el popup (`main.ts`), con el mismo valor. */
+const MARCA_SESION_INVALIDA = 'ellkan.aviso.sesion_invalida';
 
 async function guardarClaves(
 	serverUrl: string,

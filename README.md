@@ -126,6 +126,74 @@ DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_passwor
 
 Ver [manual/cli.md](manual/cli.md#comandos) para el resto de los comandos.
 
+### Windows (PowerShell)
+
+Los comandos de arriba son para Linux/macOS (`bash`). En Windows, desde cero:
+
+**1. Instalar lo necesario** (una sola vez, en PowerShell; reiniciá la sesión al terminar):
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Docker.DockerDesktop -e
+winget install --id Rustlang.Rustup -e   # sólo para compilar la CLI (paso 5)
+```
+
+Abrí Docker Desktop y esperá a que diga que el motor está corriendo. Rust en Windows necesita las *Build Tools de Visual Studio* (C++): si faltan, `cargo build` lo avisa; se instalan con `winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive"`.
+
+**2. Clonar y cargar el `.env`:**
+
+```powershell
+git clone https://github.com/athomo001/Ellkan.git
+cd Ellkan
+Copy-Item .env.example .env
+
+# Equivalente a `set -a && source .env`: sólo dura en esta ventana.
+Get-Content .env | Where-Object { $_ -match '^\s*[^#\s][^=]*=' } | ForEach-Object {
+    $k, $v = $_ -split '=', 2
+    Set-Item "env:$($k.Trim())" $v.Trim()
+}
+```
+
+**3. Generar los secretos** (sólo la primera vez — si ya levantaste el servidor, no los regeneres: la base guarda la contraseña en su volumen y la clave de secretos protege datos ya cifrados):
+
+```powershell
+function Aleatorio([int]$n) {
+    $b = New-Object byte[] $n
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+    return ,$b
+}
+
+# Equivalente a `openssl rand -hex 24` y `openssl rand -base64 32`.
+$pass = -join ((Aleatorio 24) | ForEach-Object { $_.ToString('x2') })
+Set-Content secrets/postgres_password.txt $pass -NoNewline -Encoding ascii
+Set-Content secrets/ellkan_secrets_key.txt ([Convert]::ToBase64String((Aleatorio 32))) -NoNewline -Encoding ascii
+Set-Content secrets/database_url.txt "postgres://$($env:POSTGRES_USER):$pass@ellkan-db:5432/$($env:POSTGRES_DB)" -NoNewline -Encoding ascii
+```
+
+`-NoNewline -Encoding ascii` importa: con `>` o `echo`, PowerShell escribe UTF-16 o agrega un `\r\n`, y ese `\r` queda pegado a la contraseña dentro del contenedor Linux.
+
+**4. Levantar:**
+
+```powershell
+docker compose up -d
+```
+
+La app queda en `http://localhost:8080` (el primer build tarda varios minutos).
+
+**5. Crear el primer admin:**
+
+```powershell
+cargo build --release -p ellkan-cli
+
+$pass = (Get-Content secrets/postgres_password.txt -Raw).Trim()
+$env:DATABASE_URL = "postgres://$($env:POSTGRES_USER):$pass@localhost:$($env:POSTGRES_PORT)/$($env:POSTGRES_DB)"
+
+.\target\release\ellkan-cli.exe admin create-user --email vos@ejemplo.com --display-name "Tu nombre" --role admin
+.\target\release\ellkan-cli.exe --server-url "http://localhost:$($env:ELLKAN_PORT)" login --email vos@ejemplo.com
+```
+
+Si abrís otra ventana de PowerShell, repetí la carga del `.env` (paso 2, desde `Get-Content .env`) antes del paso 5. Para actualizar tras un cambio, los mismos dos comandos de la sección siguiente funcionan igual en PowerShell.
+
 Por defecto el backend sirve HTTP plano — para TLS (terminado por el propio Ellkan, sin reverse proxy aparte, o con uno), backup/restauración y solución de problemas comunes, ver [manual/instalacion.md](manual/instalacion.md).
 
 ### Actualizar / reconstruir tras un cambio
@@ -154,6 +222,7 @@ Los dos comandos son necesarios: `build` arma la imagen nueva, pero `up -d` es e
 - [manual/funcionalidades.md](manual/funcionalidades.md) — qué hace Ellkan, por área.
 - [manual/cli.md](manual/cli.md) — referencia completa de `ellkan-cli`.
 - [manual/instalacion.md](manual/instalacion.md) — TLS, backup/restauración, troubleshooting, requisitos de hardware.
+- [manual/seguridad.md](manual/seguridad.md) — qué está cifrado y qué no, y qué pasa si alguien intenta sacar los datos (con diagramas).
 - [extension/README.md](extension/README.md) — desarrollo, build y empaquetado de la extensión de navegador.
 
 ## Preguntas frecuentes
@@ -167,7 +236,7 @@ Lo que el servidor sí ve son datos de la cuenta que necesita para funcionar: tu
 No consigue tus contraseñas — sólo consigue cajas fuertes cerradas. Sin tu contraseña maestra (que el servidor nunca recibe), no hay forma de abrirlas con lo que hay en la base. Las únicas otras vías son las de recuperación de cuenta, y las activás vos o tu organización: tu propio kit de recuperación (un archivo que sólo vos guardás) o, si tu organización lo configuró, la recuperación aprobada por administradores.
 
 **¿Cómo protegen mis claves en la memoria de la computadora (RAM) mientras las uso?**
-La clave nunca queda "dando vueltas" guardada en la memoria, esperando a que alguien la agarre. Cada vez que hace falta usarla, se reconstruye al toque a partir de tu contraseña, se usa un instante, y se borra inmediatamente — como escribir algo en un papel, usarlo una vez, y romperlo al toque, en vez de dejarlo dando vueltas sobre el escritorio. Tu contraseña maestra se guarda sólo mientras tenés la sesión abierta y nunca toca el disco en claro: si cerrás el navegador o la app, se pierde sola. (Si activás el desbloqueo rápido —con un código TOTP o con Windows Hello— se guarda **cifrada** en ese dispositivo, para poder desbloquear sin tipearla.) Lo único que esto no puede evitar es que, si tu computadora ya tiene un virus espiándola, ese virus vea la clave justo en el instante en que la estás usando — ningún gestor de contraseñas puede protegerte de eso, porque ahí el atacante ya está adentro de tu máquina, no del sistema.
+Mientras la bóveda está **bloqueada**, en tu equipo no hay ninguna clave en memoria: sólo texto cifrado en disco, y tu contraseña maestra no se guarda en ningún lado (si activás el desbloqueo rápido —con un código TOTP o con Windows Hello— queda **cifrada** en ese dispositivo). Mientras está **desbloqueada**, tus claves privadas sí están en memoria, porque hacen falta para descifrar: un programa malicioso que ya esté en tu sesión, o un volcado de memoria en ese momento, podría leerlas. Al bloquear (a mano, por inactividad o al bloquear Windows) se descartan. Ningún gestor de contraseñas puede protegerte de un equipo ya comprometido; por eso conviene bloquear al alejarte. El detalle, con casos de qué pasa si alguien intenta sacar los datos, está en [manual/seguridad.md](manual/seguridad.md).
 
 ## Estado
 
@@ -186,3 +255,14 @@ Ellkan se distribuye **tal cual, sin ninguna garantía**, ni siquiera la implíc
 Copyright (C) 2026 Athan Espinoza.
 
 **AGPL-3.0** — ver [LICENSE](LICENSE) (texto oficial en inglés, el único legalmente vinculante) y [LICENSE.es.txt](LICENSE.es.txt) (traducción no oficial al español, sólo de referencia). Si modificás Ellkan y lo ofrecés a otras personas por red, la AGPL te obliga a ofrecerles el código fuente de tu versión: la app muestra un link «Código fuente» que podés apuntar a tu repositorio con `VITE_ELLKAN_SOURCE_URL` al compilar el frontend.
+
+Las dependencias de terceros y sus licencias están en [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+### Propiedad intelectual y política de marca
+
+El código fuente de este proyecto se distribuye bajo la licencia AGPL-3.0. Sin embargo, los siguientes elementos quedan expresamente excluidos de dicha licencia:
+
+- El nombre **Ellkan**.
+- El diseño, imagotipo y archivos visuales contenidos en [`assets/logo/`](assets/logo/), cuya autoría y derechos de autor pertenecen exclusivamente al autor del proyecto.
+
+Se autoriza el uso del nombre y logo exclusivamente con fines descriptivos o de atribución. Cualquier bifurcación (fork), distribución modificada o servicio derivado no oficial debe eliminar toda la identidad visual original y adoptar una denominación propia.

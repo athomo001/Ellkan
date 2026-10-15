@@ -24,6 +24,9 @@
 	import { clavesDesbloqueadas } from '$lib/state/session';
 	import { obtenerVinculacion } from '$lib/sync/vinculacion';
 	import { iniciarSyncAutomatico } from '$lib/sync/automatico';
+	import { avatarCambiado } from '$lib/sync/avatar';
+	import { cuentaRevocada } from '$lib/sync/revocacion';
+	import CuentaRevocada from '$lib/components/CuentaRevocada.svelte';
 
 	// F-47: bóveda de escritorio vinculada y desbloqueada → trae lo nuevo del
 	// servidor sola (al entrar, cada pocos minutos y al volver a la ventana).
@@ -114,6 +117,10 @@
 	let avatarUrl = $state<string | null>(null);
 	onMount(() => {
 		perfilApi.obtener().then((p) => (perfil = p)).catch(() => {});
+	});
+	// Se vuelve a pedir cuando cambia (subida en Ajustes o traída por el sync).
+	$effect(() => {
+		void $avatarCambiado;
 		obtenerAvatarUrl().then((u) => (avatarUrl = u)).catch(() => {});
 	});
 
@@ -361,6 +368,9 @@
 	{#if bloqueado}
 		<LockOverlay email={$sesion.email ?? ''} onDesbloqueado={alDesbloquear} />
 	{/if}
+{/if}
+{#if $cuentaRevocada}
+	<CuentaRevocada servidor={$cuentaRevocada.servidor} motivo={$cuentaRevocada.motivo} />
 {/if}
 
 <style>

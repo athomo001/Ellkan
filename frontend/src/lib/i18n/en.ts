@@ -7,6 +7,9 @@
 import type { Diccionario } from './es';
 
 const en: Diccionario = {
+	comun: {
+		cerrar: 'Close'
+	},
 	login: {
 		titulo: 'Sign in — Ellkan',
 		subtitulo: 'Sign in with your Ellkan account.',
@@ -283,6 +286,18 @@ const en: Diccionario = {
 		archivoLabelTotp: 'TOTP (secret)',
 		externoArchivoListo: "File downloaded. The password isn't stored anywhere — let the recipient know it through another channel.",
 		externoLinkListo: 'Link ready — copy it now, it will not be shown again:',
+		alcanceLink: {
+			titulo: 'Who will be able to open the link?',
+			explicacion: (host: string) =>
+				`The link points to this server (${host}). Only someone who can reach that address from their device can open it.`,
+			local: 'You are using Ellkan on «localhost»: the link only works on this same computer. To share it with someone else, open Ellkan using the server network or public address.',
+			privada:
+				'This is a local network address: the link only works for someone on the same network (or VPN). It will not open from the internet unless the server is published outside.',
+			publica:
+				'If the server is published on the internet, the recipient can open it from anywhere. If it is only reachable inside your company network, they must be connected to it.',
+			noMostrar: 'Do not show this notice again',
+			crearIgual: 'Got it, create the link'
+		},
 		errorExterno: 'Could not create the external link.',
 		seleccionarTodos: 'Select all',
 		deseleccionarTodos: 'Deselect all',
@@ -513,6 +528,16 @@ const en: Diccionario = {
 		dispositivosRevocar: 'Revoke',
 		dispositivosError: 'Could not load the device list.'
 	},
+	revocacion: {
+		titulo: 'The account was revoked',
+		textoBloqueada: (servidor: string) =>
+			`The administrator of the server ${servidor} blocked this account.`,
+		textoPurgada: (servidor: string) =>
+			`The administrator of the server ${servidor} deleted this account.`,
+		borrado:
+			'For security, the data of this vault was erased from this device. When you open Ellkan again, it starts as freshly installed.',
+		cerrar: 'Close Ellkan'
+	},
 	settingsSync: {
 		navTitulo: 'Connected mode',
 		tituloModoConectado: 'Connect to an Ellkan server',
@@ -532,6 +557,11 @@ const en: Diccionario = {
 			explicacion:
 				'It was created separately, so it has a different key. Enter the passphrase of that server account and the app merges everything by itself: uploads the passwords from this device, saves a backup, switches to your server account and syncs both sides. From then on the app unlocks with the server passphrase.',
 			passphrase: 'Passphrase of your server account',
+			fraseTemporal:
+				'That passphrase is temporary (an administrator created the account) and the server requires changing it. Choose a new one: it becomes your server account passphrase and the one that unlocks this app.',
+			fraseNueva: 'New passphrase',
+			fraseNuevaConfirmar: 'Repeat the new passphrase',
+			noCoinciden: 'The new passphrases do not match.',
 			unir: 'Merge and sync',
 			cancelar: 'Cancel',
 			pasos: {
@@ -545,10 +575,14 @@ const en: Diccionario = {
 		hintOmitidos: (n: number) =>
 			`${n} ${n === 1 ? 'item could not be brought over' : 'items could not be brought over'}: they are encrypted with a team key this account cannot access, or belong to someone else and the current mode does not keep secrets on this device (use «Full replica» to bring them).`,
 		hintConflictos: 'A resource changed on both sides at once — your local version was saved separately, with "(conflict)" in the name.',
+		hintSubidos: (n: number) => `${n} ${n === 1 ? 'change' : 'changes'} made offline ${n === 1 ? 'was' : 'were'} uploaded to the server.`,
 		ultimoPushFallo: "The last change couldn't be sent to the server yet",
 		errorSinClaves: 'The vault needs to be unlocked to connect to a server.',
 		errorGenerico: 'Could not complete the operation.',
 		persistenciaTitulo: 'Secret persistence',
+		huellaServidor: 'Server key fingerprint (only a notice signed with this key can erase the vault):',
+		modoHabilitado: 'Enabled',
+		modoDeshabilitado: 'Disabled',
 		persistenciaHint: 'What gets stored on this device while the vault is connected to a server.',
 		persistenciaSoloLocalHint: "Without a server connection, the vault always uses full replica — there's nowhere to fetch the secret on demand from.",
 		persistenciaRequiereServidor: 'Available once the vault is connected to an Ellkan server (see the "Connected mode" card above).',
@@ -811,6 +845,8 @@ const en: Diccionario = {
 			titulo: 'Users',
 			listadoTitulo: 'All users',
 			listadoVacio: 'No users to show.',
+			avisoBorradoRemoto:
+				'When you deactivate or purge someone, their desktop apps connected to this server erase the local vault: right away if they are online, or the next time they connect. It does not replace changing the passwords they had access to: what they already saw could have been copied, and a device that never connects again keeps its data.',
 			buscarTitulo: 'Search by email',
 			hint: 'Search by email to operate on a specific user, or pick one from the list above.',
 			email: 'Email',

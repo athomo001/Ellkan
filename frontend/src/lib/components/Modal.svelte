@@ -7,6 +7,8 @@
 	// layout). Cierra con click en el fondo, Escape, o el botón X.
 	import type { Snippet } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
+	import { atraparFoco } from '$lib/a11y/foco';
+	import { t } from '$lib/i18n';
 
 	let {
 		titulo,
@@ -14,6 +16,8 @@
 		onCerrar,
 		children
 	}: { titulo: string; subtitulo?: string; onCerrar: () => void; children: Snippet } = $props();
+
+	const idTitulo = `modal-titulo-${Math.random().toString(36).slice(2, 10)}`;
 
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') onCerrar();
@@ -29,16 +33,17 @@
 		class="panel"
 		role="dialog"
 		aria-modal="true"
-		aria-label={titulo}
+		aria-labelledby={idTitulo}
 		tabindex="-1"
+		use:atraparFoco
 		onclick={(e) => e.stopPropagation()}
 		transition:scale={{ duration: 150, start: 0.96, opacity: 0 }}
 	>
 		<div class="cabecera">
 			<div>
-				<h2>{titulo}{#if subtitulo}<span class="subtitulo">{subtitulo}</span>{/if}</h2>
+				<h2 id={idTitulo}>{titulo}{#if subtitulo}<span class="subtitulo">{subtitulo}</span>{/if}</h2>
 			</div>
-			<button type="button" class="cerrar" onclick={onCerrar} aria-label="Cerrar">✕</button>
+			<button type="button" class="cerrar" onclick={onCerrar} aria-label={$t.comun.cerrar}><span aria-hidden="true">✕</span></button>
 		</div>
 		<div class="contenido">
 			{@render children()}

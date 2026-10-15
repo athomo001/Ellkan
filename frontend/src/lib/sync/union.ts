@@ -27,7 +27,14 @@ import { listarArbolCarpetas } from '$lib/crypto/carpetas';
 import { desactivar as desactivarLlavero } from '$lib/crypto/llavero-local';
 import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
-import { diagnosticarCuentaRemota, ErrorCuentaRemota, registrarVinculacion, reiniciarCursor } from './vinculacion';
+import {
+	diagnosticarCuentaRemota,
+	ErrorCuentaRemota,
+	esFraseTemporal,
+	registrarVinculacion,
+	reiniciarCursor,
+	resolverFraseTemporal
+} from './vinculacion';
 import { sincronizarAhora } from './motor';
 
 export type PasoUnion = 'servidor' | 'subiendo' | 'respaldo' | 'adoptando' | 'sincronizando';
@@ -57,7 +64,8 @@ interface RecursoLocalCrudo {
 export async function unirConCuentaDelServidor(
 	serverUrlCrudo: string,
 	passphraseServidor: string,
-	alAvanzar: (paso: PasoUnion) => void = () => {}
+	alAvanzar: (paso: PasoUnion) => void = () => {},
+	passphraseNueva?: string
 ): Promise<ResultadoUnion> {
 	const serverUrl = serverUrlCrudo.trim().replace(/\/+$/, '');
 	const email = get(sesion).email;
@@ -93,7 +101,16 @@ export async function unirConCuentaDelServidor(
 		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
 		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
 	};
-	const diagnostico = await diagnosticarCuentaRemota(serverUrl, email, clavesServidor);
+	let diagnostico = await diagnosticarCuentaRemota(serverUrl, email, clavesServidor);
+
+	// Cuenta creada por un admin con frase temporal: el servidor exige
+	// cambiarla antes de dejar entrar. Se hace acá mismo con la sesión parcial
+	// (igual que el login web), y desde ahí todo sigue con la frase nueva.
+	if (esFraseTemporal(diagnostico)) {
+		material = await resolverFraseTemporal(serverUrl, email, abierta, diagnostico.sessionId, passphraseNueva);
+		passphraseServidor = passphraseNueva!;
+		diagnostico = await diagnosticarCuentaRemota(serverUrl, email, clavesServidor);
+	}
 	if (diagnostico.estado !== 'ok') throw new ErrorCuentaRemota(diagnostico);
 	if (!diagnostico.userId) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
 	const userIdServidor = diagnostico.userId;

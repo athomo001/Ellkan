@@ -8,6 +8,7 @@
 	import { bytesABase64 } from '$lib/crypto/b64';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+	import { avatarCambiado, publicarAvatarLocal } from '$lib/sync/avatar';
 
 	let perfil = $state<Perfil | undefined>();
 	let avatarUrl = $state<string | null>(null);
@@ -23,9 +24,14 @@
 		}
 	}
 
-	onMount(async () => {
-		cargarAvatar();
+	onMount(() => {
 		perfilApi.obtener().then((p) => (perfil = p)).catch(() => {});
+	});
+
+	// Al entrar y cada vez que el sync trae una foto nueva del servidor.
+	$effect(() => {
+		void $avatarCambiado;
+		cargarAvatar();
 	});
 
 	function alElegirAvatar(e: Event) {
@@ -42,6 +48,8 @@
 			await avatarApi.actualizar(bytesABase64(bytes), archivoAvatar.type);
 			archivoAvatar = undefined;
 			await cargarAvatar();
+			// Escritorio vinculado: la foto nueva también va al servidor.
+			await publicarAvatarLocal();
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.settingsProfile.avatarErrorSubir;
 		} finally {
@@ -55,6 +63,7 @@
 		try {
 			await avatarApi.eliminar();
 			avatarUrl = null;
+			await publicarAvatarLocal();
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.settingsProfile.avatarErrorQuitar;
 		} finally {

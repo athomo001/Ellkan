@@ -70,7 +70,24 @@ async function conectarUnaVez(alCambiar: () => void, signal: AbortSignal): Promi
 		while ((corte = pendiente.indexOf('\n\n')) >= 0) {
 			const mensaje = pendiente.slice(0, corte);
 			pendiente = pendiente.slice(corte + 2);
-			if (mensaje.split('\n').some((linea) => linea.trim() === 'event: cambio')) alCambiar();
+			const lineas = mensaje.split('\n');
+			const evento = lineas.find((l) => l.startsWith('event:'))?.slice(6).trim();
+			if (evento === 'cambio') alCambiar();
+			else if (evento === 'cuenta_revocada') {
+				// Revocación remota: el aviso firmado viene en `data`. `revocacion.ts`
+				// lo verifica contra la clave fijada antes de tocar nada.
+				const datos = lineas
+					.filter((l) => l.startsWith('data:'))
+					.map((l) => l.slice(5).trimStart())
+					.join('\n');
+				try {
+					const { procesarAvisoRevocacion } = await import('./revocacion');
+					await procesarAvisoRevocacion(JSON.parse(datos));
+				} catch {
+					/* aviso ilegible: no se borra nada */
+				}
+				return true;
+			}
 		}
 	}
 }

@@ -40,6 +40,12 @@ for (const archivo of readdirSync(resolve(raiz, '../frontend/static/fonts'))) {
 	if (archivo.startsWith('LICENSE-')) cpSync(resolve(raiz, '../frontend/static/fonts', archivo), resolve(dist, 'fonts', archivo));
 }
 
+// spec/14 punto 6.9: la licencia de Ellkan y los avisos de terceros viajan
+// dentro de la extensión empaquetada.
+for (const archivo of ['LICENSE', 'THIRD-PARTY-NOTICES.md']) {
+	cpSync(resolve(raiz, '..', archivo), resolve(dist, archivo));
+}
+
 // El wasm-bindgen glue resuelve `import.meta.url` sólo si `init()` no recibe
 // argumento (ver comentario en `src/background/wasm.ts`) — como siempre le
 // pasamos una URL explícita, ese binario tiene que existir de verdad en

@@ -452,6 +452,7 @@
 
 <Card>
 	<h2>{$t.admin.usuarios.listadoTitulo}</h2>
+	<p class="hint">{$t.admin.usuarios.avisoBorradoRemoto}</p>
 	{#if errorListado}<p class="error">{errorListado}</p>{/if}
 
 	<div class="barra-masiva">

@@ -33,7 +33,10 @@ tauri-plugin-log = "2"
 # migrados (auth/mfa/smtp_config/self_registration/recovery_kit).
 ellkan-backend = { path = "../../backend", features = ["desktop"] }
 axum = "0.8.9"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "net"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "io-util"] }
+# F-56: el canal de la extensión ejecuta cada pedido contra el router del
+# backend local en el propio proceso (`ServiceExt::oneshot`), sin TCP.
+tower = { version = "0.5.3", features = ["util"] }
 anyhow = "1.0.104"
 tauri-plugin-opener = "2.5.5"
 # F-49 ("Conectar" desde la GUI, spec/13 §9): el secreto de un recurso cruza

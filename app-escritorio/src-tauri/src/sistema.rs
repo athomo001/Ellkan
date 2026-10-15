@@ -22,6 +22,8 @@ pub fn limpiar() {
   // Cada paso es independiente y ninguno debe frenar la desinstalación.
   let _ = configurar_autostart(false);
   let _ = configurar_enlaces(false);
+  #[cfg(windows)]
+  quitar_host_nativo();
 }
 
 /// Junto con `ARG_LIMPIAR`: además borra los datos del usuario (bóveda, ajustes,
@@ -158,6 +160,41 @@ mod windows_impl {
       reg(&["delete", &clave, "/f"]).map(|_| ())
     } else {
       Ok(())
+    }
+  }
+
+  /// F-56: dónde busca cada navegador los hosts de native messaging del
+  /// usuario (`HKCU`, sin permisos de administrador). Opera usa la de Chrome.
+  /// `true` = Firefox (manifiesto con `allowed_extensions`).
+  const CLAVES_HOST_NATIVO: &[(&str, bool)] = &[
+    (r"Google\Chrome\NativeMessagingHosts", false),
+    (r"Chromium\NativeMessagingHosts", false),
+    (r"Microsoft\Edge\NativeMessagingHosts", false),
+    (r"BraveSoftware\Brave-Browser\NativeMessagingHosts", false),
+    (r"Mozilla\NativeMessagingHosts", true),
+  ];
+
+  fn clave_host_nativo(rama: &str) -> String {
+    format!(r"HKCU\{}\{rama}\{}", raiz(), crate::canal_extension::NOMBRE_HOST)
+  }
+
+  /// Registra el host de native messaging en todos los navegadores: el valor
+  /// por defecto de cada clave es la ruta de su manifiesto. Idempotente.
+  pub fn registrar_host_nativo(manifiesto_chromium: &std::path::Path, manifiesto_firefox: &std::path::Path) -> Result<(), String> {
+    for (rama, es_firefox) in CLAVES_HOST_NATIVO {
+      let manifiesto = if *es_firefox { manifiesto_firefox } else { manifiesto_chromium };
+      reg(&["add", &clave_host_nativo(rama), "/ve", "/t", "REG_SZ", "/d", &manifiesto.display().to_string(), "/f"])?;
+    }
+    Ok(())
+  }
+
+  /// Lo deshace (lo llama el desinstalador vía `limpiar`).
+  pub fn quitar_host_nativo() {
+    for (rama, _) in CLAVES_HOST_NATIVO {
+      let clave = clave_host_nativo(rama);
+      if reg(&["query", &clave]).is_ok() {
+        let _ = reg(&["delete", &clave, "/f"]);
+      }
     }
   }
 
@@ -455,7 +492,8 @@ mod windows_impl {
 #[cfg(windows)]
 pub use windows_impl::{
   autostart_activo, borrar_credencial_rdp, borrar_credenciales_llavero, configurar_autostart, configurar_enlaces, copiar_sin_historial,
-  enlaces_activos, guardar_credencial_rdp, preguntar_borrar_datos, simular_bloqueo, vaciar_portapapeles, vigilar_bloqueo,
+  enlaces_activos, guardar_credencial_rdp, preguntar_borrar_datos, quitar_host_nativo, registrar_host_nativo, simular_bloqueo,
+  vaciar_portapapeles, vigilar_bloqueo,
 };
 
 #[cfg(all(test, windows))]

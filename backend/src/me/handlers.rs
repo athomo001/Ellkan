@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
 use axum::extract::State;
-use axum::http::header;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 
@@ -102,11 +102,25 @@ pub async fn grupos(
 
 /// `GET /me/avatar` — `404` si no tiene avatar cargado, nunca un `200` con
 /// body vacío (evita que el cliente tenga que distinguir "vacío" de "no
-/// existe" a partir del content-length).
-pub async fn avatar_obtener(State(state): State<AppState>, user: AuthenticatedUser) -> Result<impl IntoResponse, ApiError> {
+/// existe" a partir del content-length). Lleva `ETag` (SHA-256 de los bytes)
+/// y responde `304` a un `If-None-Match` igual: la app de escritorio vinculada
+/// lo consulta en cada sync y así no baja la imagen si no cambió.
+pub async fn avatar_obtener(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ApiError> {
+    use sha2::{Digest, Sha256};
     let avatar = AvatarService { avatar: &state.preferencias_usuario }.obtener(user.user_id).await?;
     match avatar {
-        Some(a) => Ok(([(header::CONTENT_TYPE, a.content_type)], a.bytes).into_response()),
+        Some(a) => {
+            let etag = format!("\"{}\"", hex::encode(Sha256::digest(&a.bytes)));
+            let coincide = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) == Some(etag.as_str());
+            if coincide {
+                return Ok((StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response());
+            }
+            Ok(([(header::CONTENT_TYPE, a.content_type), (header::ETAG, etag)], a.bytes).into_response())
+        }
         None => Err(ApiError::from(DomainError::NotFound)),
     }
 }
@@ -121,11 +135,16 @@ pub async fn avatar_actualizar(
     AvatarService { avatar: &state.preferencias_usuario }
         .actualizar(user.user_id, Avatar { bytes, content_type: req.content_type })
         .await?;
+    // Aviso en vivo a la app de escritorio vinculada (F-47) para que traiga
+    // la foto nueva sin esperar al sync de respaldo. Sin nadie escuchando,
+    // `send` da error: no es un problema.
+    let _ = state.avisos_sync.send(crate::sync::avisos::AvisoSync::Cambio(user.user_id));
     Ok(())
 }
 
 pub async fn avatar_eliminar(State(state): State<AppState>, user: AuthenticatedUser) -> Result<(), ApiError> {
     AvatarService { avatar: &state.preferencias_usuario }.eliminar(user.user_id).await?;
+    let _ = state.avisos_sync.send(crate::sync::avisos::AvisoSync::Cambio(user.user_id));
     Ok(())
 }
 

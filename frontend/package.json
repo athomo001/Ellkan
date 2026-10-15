@@ -11,9 +11,12 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"tauri": "cd ../app-escritorio/src-tauri && node ../../frontend/node_modules/@tauri-apps/cli/tauri.js",
-		"build:desktop": "node ../app-escritorio/scripts/compilar.mjs"
+		"build:desktop": "node ../app-escritorio/scripts/compilar.mjs",
+		"test:a11y": "playwright test"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "^4.13.0",
+		"@playwright/test": "^1.64.0",
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.70.3",

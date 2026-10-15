@@ -1,5 +1,6 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
+	import { atraparFoco } from '$lib/a11y/foco';
 	// F-39: overlay de auto-bloqueo — cubre el contenido sin desmontarlo y
 	// sin tocar la sesión HTTP (`sesion` store nunca se limpia acá, sólo
 	// `clavesDesbloqueadas` ya se limpió antes de mostrar esto). Reanuda con
@@ -64,9 +65,9 @@
 	}
 </script>
 
-<div class="overlay" role="alertdialog" aria-modal="true" aria-label={$t.lockOverlay.titulo}>
-	<div class="panel">
-		<h2>{$t.lockOverlay.titulo}</h2>
+<div class="overlay" role="alertdialog" aria-modal="true" aria-labelledby="bloqueo-titulo">
+	<div class="panel" use:atraparFoco>
+		<h2 id="bloqueo-titulo">{$t.lockOverlay.titulo}</h2>
 		<p class="hint">{email} {$t.lockOverlay.hint}</p>
 
 		{#if conCodigoLocal}

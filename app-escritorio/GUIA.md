@@ -27,7 +27,7 @@ Está en **beta** y sólo corre en **Windows 10/11 de 64 bits**. Linux y macOS t
 
 - **WebView2.** Viene con Windows 11 y, normalmente, con Windows 10 actualizado. Si falta, instálalo desde Microsoft.
 - **Con instalador (recomendado).** Ejecuta `Ellkan_<versión>_x64_es-ES.msi`. Pide permisos de administrador porque se instala en `C:\Program Files\Ellkan`, y crea un acceso en el menú Inicio y otro en el escritorio. Si tu equipo no tiene WebView2, el instalador lo descarga (necesita internet).
-- **Sin instalador.** Copia `ellkan-desktop.exe` y `ellkan_askpass.exe` a una carpeta (los dos juntos: el segundo lo usa «Conectar» por SSH) y ejecuta el primero. Para llevarla en un pendrive, ver *Modo portable* en la [sección 8](#8-opciones-del-sistema).
+- **Sin instalador.** Copia `ellkan-desktop.exe`, `ellkan_askpass.exe` y `ellkan_nm_host.exe` a una carpeta (juntos: el segundo lo usa «Conectar» por SSH y el tercero, la extensión del navegador) y ejecuta el primero. Para llevarla en un pendrive, ver *Modo portable* en la [sección 8](#8-opciones-del-sistema).
 - **Ni el instalador ni el ejecutable están firmados.** La primera vez SmartScreen puede advertirlo: «Más información» → «Ejecutar de todos modos».
 
 ![Asistente de instalación de Ellkan](../assets/screenshots/escritorio-instalador.png)
@@ -109,7 +109,7 @@ Los recursos de estos tipos guardan `host:puerto` en el campo URI y muestran el 
 
 ## 4. Salud de la bóveda
 
-Entrada **Salud** del menú. El análisis se hace en tu equipo: las contraseñas se descifran ahí y nunca se envían a ningún servidor.
+Entrada **Salud** del menú. El análisis se hace en tu equipo: las contraseñas se descifran ahí y no se envían a ningún servidor. La única consulta externa es la de «Filtradas», sólo si la activas: a Have I Been Pwned van los primeros 5 caracteres del hash SHA-1 de cada contraseña (k-anonimato), nunca la contraseña.
 
 | Categoría | Criterio |
 | --- | --- |
@@ -130,7 +130,11 @@ Cada hallazgo enlaza con «Editar». La app nunca cambia nada por su cuenta.
 
 1. Elige tu navegador (sólo se ofrecen los instalados: Chrome, Edge, Brave, Opera, Firefox). La app deja la extensión en `Documentos\Ellkan extensión` (`Ellkan extensión Firefox` para Firefox) y abre la página de extensiones del navegador.
 2. Termina a mano, **una sola vez**: activa el modo de desarrollador, pulsa *Cargar descomprimida* y elige esa carpeta. Ningún navegador permite que otra aplicación instale una extensión por su cuenta; la única instalación de un clic sería publicarla en las tiendas, y aún no lo está.
-3. Al abrir la extensión, el campo **Servidor** ya trae la dirección de la app (`http://127.0.0.1:<puerto>`); no tienes que averiguar el puerto. Inicias sesión con tu correo y contraseña.
+3. Al abrir la extensión con la app abierta, el campo **Servidor** ya viene puesto como *App de escritorio de este equipo*; no hay dirección ni puerto que averiguar. Inicias sesión con tu correo y contraseña.
+
+   **Cómo se comunican.** La extensión no usa la red para hablarle a la app: el navegador lanza `ellkan_nm_host.exe` (junto a la app) y le pasa los pedidos por *native messaging*; el host se los entrega a la app por una tubería que sólo tu usuario puede abrir. Sólo la extensión oficial (su ID está registrado) puede abrir ese canal, y la app sólo atiende a su propio host. La app lo registra al arrancar en Chrome, Edge, Brave, Opera y Firefox, y el desinstalador lo quita. Con una app anterior sin este canal, la extensión usa la dirección `http://127.0.0.1:<puerto>` como antes.
+
+   La extensión ahora tiene un ID fijo: si la tenías cargada desde la carpeta, la primera vez vas a tener que iniciar sesión de nuevo.
 
 La app vuelve a copiar la extensión en cada arranque si su versión cambió, así que se actualiza con la app. Tras una actualización, recarga la extensión en la página de extensiones del navegador o reinicia el navegador.
 
@@ -173,7 +177,7 @@ Las copias son bases completas y siguen cifradas. Sirven tanto como tu contrase�
 En la pantalla de acceso, *¿Olvidaste tu contraseña?* → escribe tu correo → pega el kit de recuperación → elige una contraseña nueva. Todo ocurre en tu equipo, sin correo.
 
 - El kit se **usa una sola vez**: al terminar, la app te obliga a generar uno nuevo.
-- Sin el kit y sin la contraseña **no hay forma de recuperar los datos**. Nadie más tiene tus claves.
+- En una bóveda **sólo local**, sin el kit y sin la contraseña **no hay forma de recuperar los datos**: nadie más tiene tus claves. Si la bóveda está **conectada a un servidor**, también cuenta lo que ese servidor permita: por ejemplo, la recuperación aprobada por administradores, si tu organización la configuró.
 - Puedes generar un kit nuevo cuando quieras en *Ajustes → Seguridad* (el anterior deja de servir).
 
 ### Cambiar el correo
@@ -186,7 +190,7 @@ En la pantalla de acceso, *¿Olvidaste tu contraseña?* → escribe tu correo �
 
 **Si ya tenés cuenta en un servidor Ellkan**, elegí *Tengo cuenta en un servidor* en la primera pantalla de la app: pide la dirección del servidor (la misma que abrís en el navegador), tu correo, tu frase de contraseña y qué se guarda en este equipo (los tres modos de la tabla de abajo). La app arma la bóveda con tu misma cuenta, trae tus contraseñas y, desde ahí, lo que guardes en la app se sube al servidor y lo nuevo del servidor baja solo: el servidor avisa a la app en el momento en que algo cambia (y, por las dudas, la app revisa también al entrar, al volver a la ventana y cada 5 minutos), y la pantalla se actualiza sola. Se desbloquea con la misma frase que usás en la web.
 
-- Si la cuenta la creó un administrador, el servidor pide cambiar la frase antes de usarla: entrá una vez por la web, cambiala y usá la nueva.
+- Si la cuenta la creó un administrador, la frase que te dio es temporal: al conectar con ella, la app te pide en la misma pantalla una frase nueva, la cambia en el servidor y sigue. Desde ahí esa es tu frase, en la app y en la web.
 - Todavía no funciona si tu cuenta exige MFA o aprobación de dispositivo en el servidor.
 - Los recursos que el servidor guarda con una clave de equipo, o que te compartió otra persona, se ven en la app pero los cambios que les hagas acá no se suben: editalos en la web.
 - Para probarlo en un equipo que ya tiene una cuenta local, usá el modo portable (sección 8): arranca con una bóveda vacía y muestra la primera pantalla.
@@ -213,7 +217,7 @@ Los dos últimos están deshabilitados hasta que conectes un servidor: sin él n
 
 En *Ajustes → Escritorio*.
 
-**Puerto.** El backend local escucha sólo en `127.0.0.1`. En el primer arranque elige un puerto libre del rango 49152–65535 y lo recuerda. Puedes fijar otro (el cambio se aplica al reiniciar). Si el puerto guardado está ocupado, la app usa otro **sólo esa sesión** y te lo avisa; en ese caso cierra y vuelve a abrir la extensión.
+**Puerto.** El backend local escucha sólo en `127.0.0.1`. En el primer arranque elige un puerto libre del rango 36000–47999 y lo recuerda. Ese rango queda por debajo del dinámico de Windows (49152–65535), donde Hyper-V, WSL y Docker reservan bloques que cambian en cada reinicio. Puedes fijar otro (el cambio se aplica al reiniciar). Si el puerto guardado está ocupado, la app usa otro **sólo esa sesión** y te lo avisa; en ese caso cierra y vuelve a abrir la extensión. Si Windows lo reservó y estaba en el rango dinámico (lo eligieron versiones anteriores), la app se muda a uno nuevo **de forma permanente**.
 
 **Abrir Ellkan al iniciar sesión en Windows.** Arranca directamente en la bandeja, sin abrir la ventana. Si mueves el `.exe` a otra carpeta, vuelve a activarlo para que apunte a la nueva ruta.
 
@@ -235,7 +239,7 @@ Un enlace nunca muestra contraseñas ni ejecuta nada: sólo navega. Si la bóved
 **Cómo funciona.**
 
 - Todo se cifra y descifra en la ventana. El backend local y `ellkan.db` sólo ven datos cifrados; tu contraseña maestra no se guarda.
-- El backend local sólo acepta conexiones de la propia app, de una extensión de navegador o de clientes que no son navegadores (la CLI, el helper de SSH). Una página web cualquiera recibe un 403 y no puede leer nada, aunque sepa el puerto. Las rutas privadas exigen además una sesión abierta, y *Cerrar sesión* la revoca en el backend.
+- La extensión le habla a la app por *native messaging* y una tubería con nombre, sin puerto (sección 5). El backend local sigue escuchando en `127.0.0.1` para la ventana de la app, la CLI y el helper de SSH, y sólo acepta conexiones de la propia app, de una extensión de navegador o de clientes que no son navegadores. Una página web cualquiera recibe un 403 y no puede leer nada, aunque sepa el puerto. Las rutas privadas exigen además una sesión abierta, y *Cerrar sesión* la revoca en el backend.
 - Ninguna contraseña viaja por línea de comandos ni queda en el historial del shell (ver la tabla de «Conectar»).
 
 **Lo que no protege.**
@@ -255,6 +259,7 @@ Un enlace nunca muestra contraseñas ni ejecuta nada: sólo navega. Si la bóved
 | SmartScreen bloquea el ejecutable o el instalador | No están firmados. «Más información» → «Ejecutar de todos modos». |
 | La extensión no pide/trae la dirección | Recarga la extensión (o reinicia el navegador) tras actualizar la app. Comprueba que hayas cargado la carpeta `Ellkan extensión` y no `Documentos`. |
 | Aviso «El puerto N estaba ocupado» | Otra aplicación tiene el puerto guardado. Se usó otro sólo esta vez; fija uno distinto en *Ajustes → Escritorio* si se repite. |
+| Aviso «Windows reservó el puerto N» (error 10013) | Hyper-V, WSL o Docker reservaron un rango que incluye ese puerto. Los rangos se ven con `netsh int ipv4 show excludedportrange protocol=tcp`; fija un puerto fuera de ellos en *Ajustes → Escritorio* (entre 36000 y 47999 suele ser seguro). |
 | «Conectar» no abre nada | El mensaje indica qué cliente falta. Tiene que estar en el `PATH` (ver la tabla de la sección 3). |
 | La app no arranca tras actualizar | Revisa `logs\Ellkan.log` y restaura la última copia `antes-de-migrar` (sección 6). |
 | Olvidé la contraseña | Sección 6, «Perdí la contraseña». |

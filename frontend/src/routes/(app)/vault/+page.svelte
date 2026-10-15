@@ -68,7 +68,7 @@
 	import { misGruposApi, type GrupoDeUsuario } from '$lib/api/profile';
 	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
 	import { externalSharesApi, externalSharePolicyApi, type ExternalSharePolicy } from '$lib/api/externalShares';
-	import { cifrarContenidoDeShare, crearArchivoCompartido } from '$lib/crypto/externalShare';
+	import { cifrarContenidoDeShare, crearArchivoCompartido, alcanceDelHost } from '$lib/crypto/externalShare';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
 	import { cambiosDelServidor } from '$lib/sync/automatico';
 	import { copiarConLimpieza } from '$lib/clipboard';
@@ -1179,8 +1179,49 @@
 		}
 	}
 
+	// El link apunta a este mismo servidor (`location.origin`): sólo lo puede
+	// abrir quien llegue a esta dirección. Antes de crearlo se avisa con un
+	// popup — en localhost o en una red privada no funciona desde internet.
+	const AVISO_ALCANCE_VISTO = 'ellkan:aviso-alcance-link-visto';
+	const alcanceLink = $derived(alcanceDelHost(location.hostname));
+	let avisoAlcanceAbierto = $state(false);
+	let avisoAlcanceNoMostrar = $state(false);
+
+	function avisoAlcanceYaVisto(): boolean {
+		try {
+			return localStorage.getItem(AVISO_ALCANCE_VISTO) === '1';
+		} catch {
+			return false;
+		}
+	}
+
+	function confirmarAvisoAlcance() {
+		if (avisoAlcanceNoMostrar) {
+			try {
+				localStorage.setItem(AVISO_ALCANCE_VISTO, '1');
+			} catch {
+				/* sin almacenamiento: se vuelve a mostrar la próxima vez */
+			}
+		}
+		avisoAlcanceAbierto = false;
+		void generarLinkExterno();
+	}
+
 	async function crearExterno(e: SubmitEvent) {
 		e.preventDefault();
+		if (!seleccionado || !$clavesDesbloqueadas) return;
+		// En localhost / red privada se avisa siempre (es casi seguro que el
+		// destinatario no llega); con una dirección pública, hasta que se marque
+		// "no volver a mostrar".
+		if (alcanceLink !== 'publica' || !avisoAlcanceYaVisto()) {
+			avisoAlcanceNoMostrar = false;
+			avisoAlcanceAbierto = true;
+			return;
+		}
+		await generarLinkExterno();
+	}
+
+	async function generarLinkExterno() {
 		if (!seleccionado || !$clavesDesbloqueadas) return;
 		externoError = undefined;
 		externoCreando = true;
@@ -2138,6 +2179,23 @@
 	</div>
 {/if}
 
+{#if avisoAlcanceAbierto}
+	<Modal titulo={$t.vault.alcanceLink.titulo} onCerrar={() => (avisoAlcanceAbierto = false)}>
+		<p class="hint">{$t.vault.alcanceLink.explicacion(location.host)}</p>
+		<p class:error={alcanceLink !== 'publica'} class:hint={alcanceLink === 'publica'}>{$t.vault.alcanceLink[alcanceLink]}</p>
+		{#if alcanceLink === 'publica'}
+			<label class="campo-check">
+				<input type="checkbox" bind:checked={avisoAlcanceNoMostrar} />
+				{$t.vault.alcanceLink.noMostrar}
+			</label>
+		{/if}
+		<div class="botones">
+			<Button variant="primary" onclick={confirmarAvisoAlcance}>{$t.vault.alcanceLink.crearIgual}</Button>
+			<Button variant="ghost" onclick={() => (avisoAlcanceAbierto = false)}>{$t.vault.cancelar}</Button>
+		</div>
+	</Modal>
+{/if}
+
 {#if compartiendoCarpeta}
 	<Modal titulo={$t.vault.carpetas.compartirCon(compartiendoCarpeta.nombre)} onCerrar={() => (compartiendoCarpeta = null)}>
 		<form onsubmit={confirmarCompartirCarpeta}>
@@ -2921,6 +2979,14 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
+	}
+	.campo-check {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		margin: 0 0 var(--space-4) 0;
 	}
 	.tabs-externo {
 		display: flex;

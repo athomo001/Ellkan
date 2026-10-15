@@ -146,3 +146,77 @@ async fn purga_no_toca_lo_que_todavia_no_vencio() {
         sqlx::query_as("select exists(select 1 from groups where id = $1)").bind(group_id).fetch_one(&entorno.pool).await.unwrap();
     assert!(existe.0);
 }
+
+/// spec/14 punto 6.11 (minimización): lo efímero de la autenticación ya
+/// vencido (sesiones, desafíos) y los correos ya enviados de hace más de una
+/// semana se borran; lo vigente y los correos pendientes se quedan.
+#[tokio::test]
+async fn purga_borra_datos_efimeros_vencidos_y_conserva_los_vigentes() {
+    let entorno = common::levantar().await;
+    let usuario = common::registrar(&entorno, "efimeros@test.ellkan").await;
+    let sesion_vigente = common::login(&entorno, &usuario).await;
+    let pool = &entorno.pool;
+
+    // Una sesión vencida hace dos días, otra revocada hace dos días
+    // (desfases en días respecto de ahora; `None` = sin revocar).
+    for (vence, revocada) in [(-2, None), (1, Some(-2))] {
+        sqlx::query(
+            "insert into sessions (user_id, security_stamp, expires_at, revoked_at)
+             select id, security_stamp, now() + make_interval(days => $2), now() + make_interval(days => $3) from users where id = $1",
+        )
+        .bind(usuario.user_id)
+        .bind(vence)
+        .bind(revocada)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    // Un desafío de login vencido y uno vigente.
+    for (nonce, minutos) in [(vec![1u8; 32], -2 * 24 * 60), (vec![2u8; 32], 5)] {
+        sqlx::query("insert into auth_challenges (user_id, nonce, expires_at) values ($1, $2, now() + make_interval(mins => $3))")
+            .bind(usuario.user_id)
+            .bind(nonce)
+            .bind(minutos)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    // Correos: enviado viejo (se borra), enviado reciente y pendiente viejo (quedan).
+    for (estado, dias) in [("enviado", -8), ("enviado", 0), ("pendiente", -8)] {
+        sqlx::query(
+            "insert into outbound_emails (recipient, subject, body, status, created_at)
+             values ('x@test.ellkan', 's', 'b', $1, now() + make_interval(days => $2))",
+        )
+        .bind(estado)
+        .bind(dias)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    let correos_antes: i64 = sqlx::query_scalar("select count(*) from outbound_emails").fetch_one(pool).await.unwrap();
+
+    let politica = PgRetentionPolicyRepository { pool: pool.clone() }.obtener().await.unwrap();
+    let resultado = PgPurgeRepository { pool: pool.clone() }
+        .purgar(politica.data_retention_days, politica.audit_log_retention_days)
+        .await
+        .unwrap();
+    assert!(resultado.datos_efimeros >= 4, "dos sesiones, un desafío y un correo: {}", resultado.datos_efimeros);
+
+    let sesiones: i64 = sqlx::query_scalar("select count(*) from sessions where user_id = $1").bind(usuario.user_id).fetch_one(pool).await.unwrap();
+    assert_eq!(sesiones, 1, "sólo queda la sesión vigente");
+    let vigente: bool = sqlx::query_scalar("select exists(select 1 from sessions where id = $1)").bind(sesion_vigente).fetch_one(pool).await.unwrap();
+    assert!(vigente);
+
+    let desafio_vencido: bool = sqlx::query_scalar("select exists(select 1 from auth_challenges where expires_at < now())").fetch_one(pool).await.unwrap();
+    assert!(!desafio_vencido, "el desafío vencido se borró");
+    let desafio_vigente: bool = sqlx::query_scalar("select exists(select 1 from auth_challenges where expires_at > now())").fetch_one(pool).await.unwrap();
+    assert!(desafio_vigente, "el vigente sigue");
+
+    let correos_despues: i64 = sqlx::query_scalar("select count(*) from outbound_emails").fetch_one(pool).await.unwrap();
+    assert_eq!(correos_despues, correos_antes - 1, "sólo se borra el enviado de hace más de una semana");
+    let pendiente_viejo: bool = sqlx::query_scalar("select exists(select 1 from outbound_emails where status = 'pendiente' and created_at < now() - interval '7 days')")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert!(pendiente_viejo, "un correo pendiente nunca se borra");
+}

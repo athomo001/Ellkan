@@ -36,6 +36,7 @@ pub mod recovery_kit;
 pub mod reports;
 pub mod resources;
 pub mod retention;
+pub mod revocacion;
 pub mod scim;
 pub mod self_registration;
 pub mod sharing_policy;
@@ -120,7 +121,9 @@ fn capa_cors() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(ORIGENES_ESCRITORIO.map(HeaderValue::from_static)))
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::IF_MATCH])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::IF_MATCH, header::IF_NONE_MATCH])
+        // `ETag` de `GET /me/avatar`: la app lo guarda para no volver a bajar la foto.
+        .expose_headers([header::ETAG])
         .max_age(std::time::Duration::from_secs(3600))
 }
 
@@ -391,6 +394,9 @@ pub fn construir_router(estado: AppState) -> Router {
     // F-47: avisos en vivo a la app de escritorio (`GET /sync/eventos`).
     sync::avisos::spawn_consumidor(&estado.eventos, estado.recursos.clone(), estado.avisos_sync.clone());
 
+    // Revocación remota: aviso firmado a las apps vinculadas al bloquear o purgar.
+    revocacion::spawn_consumidor(&estado.eventos, estado.pool.clone(), estado.avisos_sync.clone());
+
     // F-40: purga física de lo soft-deleted vencido — diaria, idempotente,
     // sin cursor propio (cada corrida sólo actúa sobre lo que siga vencido).
     retention::job::spawn(
@@ -449,6 +455,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/verify-email", post(auth::handlers::verify_email))
         .route("/verify-email/resend", post(auth::handlers::resend_verification))
         .route("/logout", post(auth::handlers::logout))
+        // Revocación remota: sin sesión, la pregunta va firmada con la clave
+        // de la cuenta (ver `revocacion`).
+        .route("/estado-cuenta", post(revocacion::estado_cuenta))
         .nest("/webauthn", webauthn_router)
         .nest("/device-approval", device_approval_router)
         .nest("/mfa", auth_mfa_router)
@@ -646,7 +655,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/reject", post(account_recovery::handlers::rechazar));
 
     let me_recovery_kit_router = Router::new()
-        .route("/", get(recovery_kit::handlers::estado).put(recovery_kit::handlers::generar_o_regenerar));
+        .route("/", get(recovery_kit::handlers::estado).put(recovery_kit::handlers::generar_o_regenerar))
+        .route("/material", get(recovery_kit::handlers::material_propio));
 
     // Recovery kit: reset por email sin sesión — mismo patrón de rate limit
     // por IP que `external_shares_router` (`GovernorLayer` + `retain_recent()`

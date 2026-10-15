@@ -54,7 +54,7 @@ fn a_utf16(texto: &str) -> Vec<u16> {
   texto.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn nombre_aleatorio() -> Result<String, String> {
+pub(crate) fn nombre_aleatorio() -> Result<String, String> {
   let mut bytes = [0u8; 16];
   // SAFETY: el buffer es válido y su largo lo da el slice.
   unsafe { BCryptGenRandom(None, &mut bytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG) }
@@ -64,7 +64,7 @@ fn nombre_aleatorio() -> Result<String, String> {
 }
 
 /// Ruta del ejecutable del proceso `pid`.
-fn ejecutable_de(pid: u32) -> Option<PathBuf> {
+pub(crate) fn ejecutable_de(pid: u32) -> Option<PathBuf> {
   // SAFETY: handle propio, se cierra antes de salir.
   let proceso = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
   let mut buffer = [0u16; 1024];
@@ -77,7 +77,7 @@ fn ejecutable_de(pid: u32) -> Option<PathBuf> {
 }
 
 /// Compara dos rutas de ejecutable ignorando mayúsculas y resolviendo enlaces.
-fn misma_ruta(a: &Path, b: &Path) -> bool {
+pub(crate) fn misma_ruta(a: &Path, b: &Path) -> bool {
   match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
     (Ok(a), Ok(b)) => a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy()),
     _ => false,

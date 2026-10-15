@@ -16,9 +16,19 @@
 	--ellkan-dorado: #e0b860; /* --color-gold / --accent-secondary */
 	--ellkan-texto: #f8f8f8; /* --text-primary */
 	--ellkan-texto-secundario: #a9b8c7; /* --text-secondary */
-	--ellkan-error: #e2695f; /* --danger */
+	--ellkan-error: #e57a71; /* --danger (≥4.5:1 sobre los dos fondos) */
 	--ellkan-exito: #4caf7d; /* --success */
 	--ellkan-advertencia: #e0b860; /* --warning (dorado) */
+	/* spec/14 punto 6.12 (WCAG 2.2 AA), mismos valores que `frontend/src/lib/styles/tokens.css`:
+	   el teal de marca sirve de fondo/borde, pero como TEXTO sobre estos fondos
+	   da 2.9-3.1:1 — para texto va `--ellkan-teal-texto` (5.2:1). Los bordes de
+	   campos necesitan 3:1 (`--ellkan-borde` da 1.4:1, queda para separadores).
+	   El degradé de los botones arranca en un teal más claro para que el texto
+	   oscuro llegue a 4.5:1 en todo el ancho (con el teal de marca daba 3.5:1). */
+	--ellkan-teal-texto: #61a3b3; /* --accent-text */
+	--ellkan-borde-campo: #6b7d8f; /* --border-input */
+	--ellkan-foco: #61a3b3; /* --focus-ring */
+	--ellkan-teal-cta: #3c90a5;
 }
 
 * {
@@ -131,7 +141,7 @@ select,
 textarea {
 	width: 100%;
 	background: var(--ellkan-fondo-tarjeta);
-	border: 1px solid var(--ellkan-borde);
+	border: 1px solid var(--ellkan-borde-campo);
 	border-radius: 14px;
 	color: var(--ellkan-texto);
 	padding: 10px 12px;
@@ -154,8 +164,17 @@ textarea::placeholder {
 input:focus,
 select:focus,
 textarea:focus {
-	border-color: var(--ellkan-teal);
-	box-shadow: 0 0 0 3px rgba(24, 120, 144, 0.25);
+	border-color: var(--ellkan-foco);
+	box-shadow: 0 0 0 3px rgba(97, 163, 179, 0.35);
+}
+
+/* Foco visible y consistente al navegar con teclado (WCAG 2.4.7/2.4.11):
+   antes los botones dependían del anillo por defecto de cada navegador. */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+	outline: 2px solid var(--ellkan-foco);
+	outline-offset: 2px;
 }
 
 /* Campo con botón de mostrar/ocultar adentro (mismo patrón que TextField.svelte
@@ -209,7 +228,7 @@ textarea:focus {
 	margin: 0;
 	padding: 0;
 	border-radius: 999px;
-	background: linear-gradient(90deg, var(--ellkan-teal), var(--ellkan-dorado));
+	background: linear-gradient(90deg, var(--ellkan-teal-cta), var(--ellkan-dorado));
 	color: #0b1a28;
 	font-size: 20px;
 	font-weight: 700;
@@ -237,7 +256,7 @@ button {
 
 button[type='submit'],
 #boton-copiar-cerrar-generador {
-	background: linear-gradient(90deg, var(--ellkan-teal), var(--ellkan-dorado));
+	background: linear-gradient(90deg, var(--ellkan-teal-cta), var(--ellkan-dorado));
 }
 
 button[type='submit']:hover:not(:disabled),
@@ -295,7 +314,7 @@ button[type='submit']:disabled {
 	padding: 0;
 	font: inherit;
 	font-size: 12px;
-	color: var(--ellkan-teal);
+	color: var(--ellkan-teal-texto);
 	cursor: pointer;
 	text-decoration: underline;
 }
@@ -349,7 +368,7 @@ button[type='submit']:disabled {
 
 .boton-hamburguesa:hover {
 	border-color: var(--ellkan-teal);
-	color: var(--ellkan-teal);
+	color: var(--ellkan-teal-texto);
 }
 
 .buscador-vault {
@@ -400,7 +419,8 @@ button[type='submit']:disabled {
 
 .tab-vault-activo {
 	background: var(--ellkan-fondo-tarjeta);
-	border-color: var(--ellkan-teal);
+	/* Indica la pestaña elegida: necesita 3:1 contra el fondo (el teal de marca da 2.9). */
+	border-color: var(--ellkan-foco);
 	color: var(--ellkan-texto);
 }
 
@@ -444,7 +464,7 @@ button[type='submit']:disabled {
 }
 
 .item-vault:focus-visible {
-	outline: 2px solid var(--ellkan-teal);
+	outline: 2px solid var(--ellkan-foco);
 	outline-offset: -2px;
 }
 
@@ -511,7 +531,7 @@ button[type='submit']:disabled {
 
 .item-vault:hover .item-vault-chevron {
 	opacity: 1;
-	color: var(--ellkan-teal);
+	color: var(--ellkan-teal-texto);
 }
 
 
@@ -595,7 +615,7 @@ button[type='submit']:disabled {
 	flex: 1;
 	min-width: 0;
 	font-size: 13px;
-	color: var(--ellkan-teal);
+	color: var(--ellkan-teal-texto);
 	text-decoration: none;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -631,7 +651,7 @@ button[type='submit']:disabled {
 
 .boton-campo:hover {
 	background: var(--ellkan-borde);
-	color: var(--ellkan-teal);
+	color: var(--ellkan-teal-texto);
 }
 
 .detalle-nota {
@@ -758,7 +778,7 @@ button[type='submit']:disabled {
 }
 
 .generador-valor .numero {
-	color: var(--ellkan-teal);
+	color: var(--ellkan-teal-texto);
 }
 
 .generador-valor .simbolo {

@@ -317,6 +317,8 @@ try {
         Iniciar-Paso "Copiar los binarios"
         $ExePrincipal = Join-Path $DirRaiz "target\release\ellkan-desktop.exe"
         $ExeAskpass = Join-Path $DirRaiz "target\release\ellkan_askpass.exe"
+        # F-56: host de native messaging (canal extensión ↔ app, sin puerto).
+        $ExeHostNativo = Join-Path $DirRaiz "target\release\ellkan_nm_host.exe"
         if (-not (Test-Path $ExePrincipal)) {
             throw "Error: No se encontró el ejecutable principal '$ExePrincipal'."
         }
@@ -324,13 +326,17 @@ try {
         if (Test-Path $ExeAskpass) {
             Copy-Item $ExeAskpass -Destination $DirDestino -Force
         }
+        if (Test-Path $ExeHostNativo) {
+            Copy-Item $ExeHostNativo -Destination $DirDestino -Force
+        }
         Terminar-Paso
 
         Iniciar-Paso "Generar el ZIP portable"
         $ZipDestino = Join-Path $DirDestino "ellkan-desktop-portable.zip"
         $ArchivosZip = @(
             (Join-Path $DirDestino "ellkan-desktop.exe"),
-            (Join-Path $DirDestino "ellkan_askpass.exe")
+            (Join-Path $DirDestino "ellkan_askpass.exe"),
+            (Join-Path $DirDestino "ellkan_nm_host.exe")
         ) | Where-Object { Test-Path $_ }
         Compress-Archive -Path $ArchivosZip -DestinationPath $ZipDestino -Force
         Terminar-Paso

@@ -15,6 +15,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod avatar;
 pub mod folders;
 pub mod groups;
 pub mod mfa;

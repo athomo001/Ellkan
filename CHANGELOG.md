@@ -4,6 +4,24 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.68] - 2026-10-15
+
+### Modo conectado (F-47): los cambios hechos con el servidor caído se suben al volver
+
+Pregunta del usuario: «si el servidor muere, ¿puedo entrar igual?». Sí, el login de la app es local. Pero revisando el código apareció el problema: el push al servidor se intentaba una sola vez y, si fallaba, se perdía. El sync sólo baja cambios, así que lo creado, editado o borrado en la app con el servidor caído quedaba sólo en la app para siempre.
+
+- **Cola nueva** (`frontend/src/lib/sync/pendientes.ts`): `{id: 'subir' | 'borrar'}` en `localStorage`, por correo. Guarda sólo ids, nunca el ciphertext. Se marca **antes** del push y se quita al confirmarse, así que también sobrevive a cerrar la app a mitad de un pedido.
+- **Qué se reintenta** (`notificador.ts::esReintentable`): sin red (`fetch` tira `TypeError`), 5xx, 401 (sesión imposible de renovar), 408 y 429. Cualquier otro 4xx (409, 422) es un rechazo de ese pedido: se descarta y queda el aviso en `estadoSync`.
+- **Cuándo se sube** (`notificador.ts::subirPendientes`, llamado al final de `motor.ts::sincronizarAhora`): en cada sync que logra hablar con el servidor. Eso incluye la reconexión: al volver, el aviso en vivo (SSE) dispara un sync enseguida, y hay uno de respaldo cada 5 minutos. El cuerpo se reconstruye desde la copia local (el mismo ciphertext, sin descifrar nada), así que siempre se sube la última versión. Si el servidor vuelve a fallar se corta ahí y el resto queda para el próximo.
+- **Primero se baja y después se sube**, para no pisar lo que se editó en la web mientras tanto:
+  - recurso en cola y modificado en el servidor → conflicto (la versión local se guarda aparte como `(conflicto <fecha>)`), aunque sea más viejo que el cursor;
+  - recurso en cola y **borrado** en el servidor → también se guarda aparte antes de borrarlo localmente;
+  - borrado en la app sin subir, pero editado en el servidor → gana la edición (se vuelve a crear localmente);
+  - **la copia de conflicto entra a la cola**: antes quedaba sólo en la app.
+- **Se saltan** (igual que el push en vivo): recursos con metadata de equipo (`shared_key`), los adaptados al bajarlos, y los modos «sólo memoria» y «sólo nombres» (el secreto no está en disco; el dueño es el servidor).
+- **Ajustes → Sincronización** muestra «N cambios hechos sin conexión se subieron al servidor» (`ResultadoSync.recursosSubidos`). Desvincular vacía la cola.
+- **Verificado:** `pnpm check` limpio (499 archivos, 0 errores, 0 warnings). **Sin probar en vivo**: no hay tests unitarios en el frontend y el modo conectado sigue sin probarse contra un servidor real. Sigue sin cubrirse: carpetas y tags creados en la app nunca se suben, con o sin servidor (límite ya conocido de F-47).
+
 ## [0.1.67] - 2026-10-12
 
 ### Escritorio (Windows): «Conectar» en pestañas de Windows Terminal y consola de PowerShell

@@ -52,6 +52,19 @@ pub async fn estado(State(state): State<AppState>, auth: AuthenticatedUser) -> R
     Ok(Json(kit_a_estado_response(kit)))
 }
 
+/// `GET /me/recovery-kit/material` — 404 si no hay kit. Ver `MaterialKitResponse`.
+pub async fn material_propio(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+) -> Result<Json<super::dto::MaterialKitResponse>, ApiError> {
+    let kit = servicio(&state).estado(auth.user_id).await?.ok_or(DomainError::NotFound)?;
+    Ok(Json(super::dto::MaterialKitResponse {
+        kit_public_key_x25519_b64: B64.encode(&kit.kit_public_key_x25519),
+        sealed_identity_material_b64: B64.encode(&kit.sealed_identity_material),
+        created_at: kit.created_at,
+    }))
+}
+
 pub async fn generar_o_regenerar(
     State(state): State<AppState>,
     auth: AuthenticatedUser,

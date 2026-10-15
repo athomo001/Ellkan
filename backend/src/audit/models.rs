@@ -145,6 +145,9 @@ pub enum AuditEventType {
     /// F-40: un recurso cambia de propietario al bloquear o borrar a quien
     /// era su único Owner — una entrada por recurso, con el destino elegido.
     ResourceOwnershipTransferred,
+    /// Revocación remota: el servidor emitió el aviso firmado de cuenta
+    /// revocada para las apps de escritorio vinculadas (docs/revocacion-remota.md).
+    UserRemoteWipeSignaled,
 }
 
 impl AuditEventType {
@@ -238,6 +241,7 @@ impl AuditEventType {
             AuditEventType::SharingPolicyUpdated => "sharing_policy.updated",
             AuditEventType::GroupShareExemptChanged => "group.share_exempt_changed",
             AuditEventType::ResourceOwnershipTransferred => "resource.ownership_transferred",
+            AuditEventType::UserRemoteWipeSignaled => "user.remote_wipe_signaled",
         }
     }
 
@@ -334,6 +338,7 @@ impl AuditEventType {
             "sharing_policy.updated" => AuditEventType::SharingPolicyUpdated,
             "group.share_exempt_changed" => AuditEventType::GroupShareExemptChanged,
             "resource.ownership_transferred" => AuditEventType::ResourceOwnershipTransferred,
+            "user.remote_wipe_signaled" => AuditEventType::UserRemoteWipeSignaled,
             _ => return None,
         })
     }

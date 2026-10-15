@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use tauri::Manager;
 use zeroize::Zeroizing;
 
+#[cfg(windows)]
+mod canal_extension;
 mod portable;
 mod sistema;
 #[cfg(windows)]
@@ -69,6 +71,37 @@ fn borrar_datos_del_usuario() {
   sistema::borrar_credenciales_llavero();
 }
 
+/// Revocación remota (docs/revocacion-remota.md), lo que vive fuera de la
+/// carpeta de datos: la credencial del llavero de Windows (desbloqueo rápido,
+/// F-50) y `desktop.json`.
+fn borrar_restos_de_revocacion() {
+  sistema::borrar_credenciales_llavero();
+  let config = std::env::var_os("ELLKAN_CONFIG_DIR")
+    .map(PathBuf::from)
+    .or_else(|| std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join(".ellkan")));
+  if let Some(config) = config {
+    let _ = std::fs::remove_file(config.join("desktop.json"));
+  }
+}
+
+/// Arranque con un borrado remoto que quedó a medias (un archivo bloqueado):
+/// se completa antes de abrir la base. Si vuelve a fallar, la marca queda y
+/// el backend local no sirve nada hasta el próximo intento (ver `router`).
+fn ejecutar_borrado_remoto(dir: &std::path::Path) {
+  match ellkan_backend::desktop::borrado_remoto::ejecutar(dir) {
+    Ok(()) => log::warn!("borrado remoto completado al arrancar"),
+    Err(e) => log::error!("{e:#}"),
+  }
+  borrar_restos_de_revocacion();
+}
+
+/// Lo llama el frontend apenas el backend local borró la bóveda por
+/// revocación remota.
+#[tauri::command]
+fn limpiar_restos_revocacion() {
+  borrar_restos_de_revocacion();
+}
+
 /// Puerto real ya bindeado (spec/13 §3) — el SPA lo lee vía el comando
 /// `puerto_backend` en vez de un valor hardcodeado, porque desde
 /// 2026-09-16 el puerto es dinámico (`ellkan_backend::desktop::
@@ -117,7 +150,7 @@ struct ResultadoConfigurarPuerto {
 async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto, String> {
   if puerto < 1024 {
     return Err(format!(
-      "El puerto {puerto} está reservado por el sistema operativo — elegí uno de 1024 en adelante (se sugiere el rango 49152-65535)."
+      "El puerto {puerto} está reservado por el sistema operativo — elegí uno de 1024 en adelante (se sugiere el rango 36000-47999)."
     ));
   }
 
@@ -126,9 +159,16 @@ async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto
   // no elimina la posibilidad de una carrera con otro proceso entre este
   // chequeo y el próximo arranque real, pero es la misma garantía (ni más
   // ni menos) que ya acepta `bindear_puerto` para el puerto autoelegido.
-  tokio::net::TcpListener::bind(("127.0.0.1", puerto))
-    .await
-    .map_err(|e| format!("el puerto {puerto} no está disponible ahora mismo: {e}"))?;
+  tokio::net::TcpListener::bind(("127.0.0.1", puerto)).await.map_err(|e| {
+    // 10013: Windows lo tiene en un rango excluido (Hyper-V/WSL/Docker), no es que esté en uso.
+    if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(10013) {
+      format!(
+        "Windows tiene reservado el puerto {puerto} (Hyper-V, WSL o Docker). Elegí otro, idealmente entre 36000 y 47999; los rangos reservados se ven con «netsh int ipv4 show excludedportrange protocol=tcp»."
+      )
+    } else {
+      format!("el puerto {puerto} está ocupado por otro programa ahora mismo: {e}")
+    }
+  })?;
 
   const PUERTOS_COMUNES: &[u16] = &[80, 443, 1433, 3000, 3306, 5000, 5432, 6379, 8000, 8080, 8443, 27017];
   let advertencia = PUERTOS_COMUNES.contains(&puerto).then(|| {
@@ -153,9 +193,16 @@ async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto
 /// evento de "backend listo" que inventar. Devuelve el listener YA
 /// bindeado (se mueve tal cual al `spawn` de `axum::serve`, sin re-bindear)
 /// y el puerto, para poblar el estado gestionado de Tauri.
-async fn preparar_backend_local() -> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<u16>)> {
+async fn preparar_backend_local(
+) -> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<ellkan_backend::desktop::FalloPuertoFijo>)> {
   let dir = datadir();
   std::fs::create_dir_all(&dir)?;
+
+  // Revocación remota: si el servidor vinculado revocó la cuenta, la bóveda se
+  // borra ACÁ, antes de abrir la base (con la app corriendo estaba en uso).
+  if ellkan_backend::desktop::borrado_remoto::pendiente(&dir) {
+    ejecutar_borrado_remoto(&dir);
+  }
 
   let pool = ellkan_backend::desktop::bootstrap_sqlite(&dir).await?;
   let server_public_key = ellkan_backend::desktop::cargar_o_generar_server_key(&pool).await?;
@@ -164,14 +211,30 @@ async fn preparar_backend_local() -> anyhow::Result<(tokio::net::TcpListener, u1
   let estado = ellkan_backend::desktop::state::AppStateDesktop::nuevo(dir.clone(), pool, server_public_key, secrets_key);
   let router = ellkan_backend::desktop::router::construir_router_desktop(estado);
 
-  let fijo_configurado = ellkan_backend::desktop::cargar_config(&dir).ok().and_then(|c| c.puerto_fijo);
-  let (listener, puerto) = ellkan_backend::desktop::bindear_puerto(&dir).await?;
-  ellkan_backend::desktop::escribir_desktop_json(puerto, VERSION_APP)?;
+  let (listener, puerto, fallo_fijo) = ellkan_backend::desktop::bindear_puerto(&dir).await?;
 
-  // Si el puerto fijo estaba ocupado se usó otro sólo para esta sesión: se
-  // devuelve cuál era para avisarle al usuario (F-52), no fallar en silencio.
-  let puerto_ocupado = fijo_configurado.filter(|fijo| *fijo != puerto);
-  Ok((listener, puerto, router, puerto_ocupado))
+  // F-56: canal de la extensión por native messaging + tubería, sin TCP. Si
+  // no se puede crear, la extensión sigue pudiendo usar el puerto (fallback).
+  #[cfg(windows)]
+  let tuberia_extension = match canal_extension::iniciar(router.clone()) {
+    Ok(nombre) => {
+      if let Err(e) = canal_extension::registrar_host(&dir) {
+        log::warn!("no se registró el host de native messaging: {e}");
+      }
+      Some(nombre)
+    }
+    Err(e) => {
+      log::warn!("canal de la extensión no disponible: {e}");
+      None
+    }
+  };
+  #[cfg(not(windows))]
+  let tuberia_extension: Option<String> = None;
+  ellkan_backend::desktop::escribir_desktop_json(puerto, VERSION_APP, tuberia_extension.as_deref())?;
+
+  // Si el puerto fijo no se pudo usar se devuelve por qué (ocupado o
+  // reservado por Windows) para avisarle al usuario (F-52), no fallar en silencio.
+  Ok((listener, puerto, router, fallo_fijo))
 }
 
 /// Busca `nombre_exe` en `%PATH%` (y en el alias de apps empaquetadas de
@@ -1017,7 +1080,8 @@ pub fn run() {
       enlace_pendiente,
       simular_bloqueo_de_pantalla,
       copiar_secreto,
-      vaciar_portapapeles
+      vaciar_portapapeles,
+      limpiar_restos_revocacion
     ])
     // F-45: qué hace la "X" depende de la preferencia del usuario (`AlCerrar`).
     // Antes SIEMPRE ocultaba a la bandeja sin avisar: el usuario "cerraba" la
@@ -1149,11 +1213,17 @@ pub fn run() {
       }
 
       match tauri::async_runtime::block_on(preparar_backend_local()) {
-        Ok((listener, puerto, router, puerto_ocupado)) => {
+        Ok((listener, puerto, router, fallo_fijo)) => {
           app.manage(PuertoBackend(puerto));
-          if let Some(esperado) = puerto_ocupado {
-            log::warn!("el puerto fijo {esperado} estaba ocupado: se usa el {puerto} sólo en esta sesión");
-            mostrar_aviso(app.handle(), serde_json::json!({ "tipo": "puerto", "esperado": esperado, "actual": puerto }));
+          if let Some(fallo) = fallo_fijo {
+            let esperado = fallo.puerto;
+            let tipo = match (fallo.reservado, fallo.reemplazado) {
+              (true, true) => "puerto_reservado_cambiado",
+              (true, false) => "puerto_reservado",
+              (false, _) => "puerto",
+            };
+            log::warn!("el puerto fijo {esperado} no estaba disponible ({tipo}): se usa el {puerto}");
+            mostrar_aviso(app.handle(), serde_json::json!({ "tipo": tipo, "esperado": esperado, "actual": puerto }));
           }
           // Punto 9: si la app se actualizó, las extensiones de navegador que
           // el usuario ya instaló desde acá se actualizan con ella, y llevan

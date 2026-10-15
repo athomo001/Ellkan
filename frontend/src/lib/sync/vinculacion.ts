@@ -11,14 +11,36 @@
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { deviceTokenHashB64 } from '../crypto/device';
-import { abrirClavePrivadaEnWorker } from '../crypto/argon2WorkerClient';
+import { abrirClavePrivadaEnWorker, sellarClavePrivadaEnWorker } from '../crypto/argon2WorkerClient';
 import { api } from '$lib/api/client';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
+import { olvidarPendientes } from './pendientes';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 
 export interface VinculacionServidor {
 	serverUrl: string;
 	email: string;
+	/** Revocación remota: clave pública Ed25519 del servidor, fijada en el
+	 * primer sync exitoso (TOFU). Sólo un aviso firmado con ESTA clave puede
+	 * ordenar borrar la bóveda (ver `revocacion.ts`). */
+	serverKeyB64?: string;
+	/** Id de la cuenta (el mismo en la app y en el servidor). */
+	userId?: string;
+	/** Cuándo se fijó la clave: un aviso emitido antes no vale. */
+	fijadaEn?: string;
+}
+
+/**
+ * Fija la clave del servidor y el id de la cuenta si todavía no estaban
+ * (vinculaciones nuevas, o las de antes de la revocación remota). Se llama
+ * tras un sync exitoso: recién ahí se sabe que la cuenta y el servidor son
+ * los correctos. No cambia una clave ya fijada.
+ */
+export async function fijarIdentidadDelServidor(email: string, userId: string): Promise<void> {
+	const v = obtenerVinculacion(email);
+	if (!v || v.serverKeyB64) return;
+	const { public_key_ed25519_b64 } = await clienteRemoto(v.serverUrl, null).get<{ public_key_ed25519_b64: string }>('/auth/server-key');
+	guardarVinculacion({ ...v, serverKeyB64: public_key_ed25519_b64, userId, fijadaEn: new Date().toISOString() });
 }
 
 function claveVinculacion(email: string): string {
@@ -27,6 +49,12 @@ function claveVinculacion(email: string): string {
 
 function claveCursor(email: string): string {
 	return `ellkan:sync-cursor:${email}`;
+}
+
+/** Estado de sync del avatar (`avatar.ts`): sin él, la próxima conexión
+ * reconcilia desde cero (gana la foto del servidor; si no tiene, se sube la local). */
+export function claveEstadoAvatar(email: string): string {
+	return `ellkan:sync-avatar:${email}`;
 }
 
 export function obtenerVinculacion(email: string): VinculacionServidor | null {
@@ -54,6 +82,8 @@ export function registrarVinculacion(serverUrl: string, email: string): void {
 export function desvincular(email: string): void {
 	localStorage.removeItem(claveVinculacion(email));
 	localStorage.removeItem(claveCursor(email));
+	localStorage.removeItem(claveEstadoAvatar(email));
+	olvidarPendientes(email);
 }
 
 export function obtenerCursor(email: string): string | null {
@@ -101,7 +131,9 @@ export type DiagnosticoCuentaRemota =
 	| { estado: 'sin_conexion' }
 	| { estado: 'servidor_invalido' }
 	| { estado: 'no_autenticado' }
-	| { estado: 'requiere_paso_extra'; paso: string }
+	/** `sessionId`: la sesión parcial que da el servidor en ese estado (sirve,
+	 * por ejemplo, para `POST /me/change-passphrase` si pide cambiar la frase). */
+	| { estado: 'requiere_paso_extra'; paso: string; sessionId?: string }
 	| { estado: 'error'; mensaje: string };
 
 export type DiagnosticoFallido = Exclude<DiagnosticoCuentaRemota, { estado: 'ok' }>;
@@ -132,6 +164,56 @@ export class ErrorCuentaRemota extends Error {
 	constructor(public diagnostico: DiagnosticoFallido) {
 		super(mensajeDeDiagnostico(diagnostico));
 	}
+}
+
+/** El servidor pide cambiar la frase temporal (cuenta creada por un admin):
+ * la UI pide una nueva y vuelve a llamar pasándola. */
+export class ErrorRequiereNuevaFrase extends Error {
+	constructor() {
+		super('El servidor pide cambiar la frase temporal de esta cuenta.');
+	}
+}
+
+interface MaterialClave {
+	encrypted_private_key_blob_b64: string;
+	private_key_nonce_b64: string;
+	kdf_salt_b64: string;
+}
+
+/**
+ * Cuenta creada por un admin con frase temporal: el servidor la deja entrar
+ * sólo con una sesión parcial que sirve para `POST /me/change-passphrase`
+ * (igual que el login web). Re-sella la clave privada con la frase nueva, la
+ * cambia en el servidor y devuelve el material nuevo. Sin `passphraseNueva`
+ * lanza `ErrorRequiereNuevaFrase` para que la UI la pida.
+ */
+export async function resolverFraseTemporal(
+	serverUrl: string,
+	email: string,
+	abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array },
+	sessionIdParcial: string | undefined,
+	passphraseNueva: string | undefined
+): Promise<MaterialClave> {
+	if (!passphraseNueva) throw new ErrorRequiereNuevaFrase();
+	if (!sessionIdParcial) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
+	const wasm = await cargarCrypto();
+	const salt = wasm.generar_salt_kdf();
+	const sellado = await sellarClavePrivadaEnWorker(passphraseNueva, salt, abierta.x25519Private, abierta.ed25519Private, new TextEncoder().encode(email));
+	const material: MaterialClave = {
+		encrypted_private_key_blob_b64: bytesABase64(sellado.ciphertext),
+		private_key_nonce_b64: bytesABase64(sellado.nonce),
+		kdf_salt_b64: bytesABase64(salt)
+	};
+	try {
+		await clienteRemoto(serverUrl, sessionIdParcial).post('/me/change-passphrase', material);
+	} catch (err) {
+		throw new ErrorCuentaRemota({ estado: 'error', mensaje: err instanceof Error ? err.message : String(err) });
+	}
+	return material;
+}
+
+export function esFraseTemporal(d: DiagnosticoCuentaRemota): d is Extract<DiagnosticoCuentaRemota, { estado: 'requiere_paso_extra' }> {
+	return d.estado === 'requiere_paso_extra' && d.paso === 'requiere_cambiar_passphrase';
 }
 
 function diagnosticoDeError(err: unknown, etapa: 'challenge' | 'verify'): DiagnosticoFallido {
@@ -187,7 +269,7 @@ export async function diagnosticarCuentaRemota(
 	}
 
 	if (verify?.estado !== 'completo' || !verify.session_id) {
-		return { estado: 'requiere_paso_extra', paso: verify?.estado ?? 'desconocido' };
+		return { estado: 'requiere_paso_extra', paso: verify?.estado ?? 'desconocido', sessionId: verify?.session_id };
 	}
 	return { estado: 'ok', sessionId: verify.session_id, userId: verify.user_id };
 }
@@ -206,7 +288,18 @@ export async function sesionRemotaVigente(v: VinculacionServidor, claves: Claves
 	const clave = `${v.serverUrl}|${v.email}`;
 	const guardada = sesionesRemotas.get(clave);
 	if (guardada && guardada.vence > Date.now()) return guardada.sessionId;
-	const sessionId = await autenticarContraRemoto(v.serverUrl, v.email, claves);
+	let sessionId: string;
+	try {
+		sessionId = await autenticarContraRemoto(v.serverUrl, v.email, claves);
+	} catch (err) {
+		// El servidor ya no acepta esta cuenta: puede que la hayan bloqueado o
+		// borrado. Se le pregunta con una consulta firmada (revocación remota);
+		// nunca se borra nada sólo por este error.
+		if (err instanceof ErrorCuentaRemota && err.diagnostico.estado === 'no_autenticado') {
+			void import('./revocacion').then((m) => m.comprobarEstadoCuenta(v, claves)).catch(() => {});
+		}
+		throw err;
+	}
 	sesionesRemotas.set(clave, { sessionId, vence: Date.now() + VIDA_SESION_REMOTA_MS });
 	return sessionId;
 }
@@ -281,7 +374,12 @@ export async function vincularComoBovedaNueva(
  * abrir el material. Después del alta local hay que iniciar sesión local
  * normal con el mismo correo y passphrase.
  */
-export async function conectarDesdeServidor(serverUrlCrudo: string, email: string, passphrase: string): Promise<void> {
+export async function conectarDesdeServidor(
+	serverUrlCrudo: string,
+	email: string,
+	passphrase: string,
+	passphraseNueva?: string
+): Promise<void> {
 	const serverUrl = serverUrlCrudo.trim().replace(/\/+$/, '');
 	const wasm = await cargarCrypto();
 	const remoto = clienteRemoto(serverUrl, null);
@@ -312,7 +410,13 @@ export async function conectarDesdeServidor(serverUrlCrudo: string, email: strin
 		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
 	};
 
-	const diagnostico = await diagnosticarCuentaRemota(serverUrl, email, claves);
+	let diagnostico = await diagnosticarCuentaRemota(serverUrl, email, claves);
+	// Cuenta nueva creada por un admin: la frase es temporal y se cambia acá
+	// mismo; la bóveda local nace ya con la frase nueva.
+	if (esFraseTemporal(diagnostico)) {
+		material = await resolverFraseTemporal(serverUrl, email, abierta, diagnostico.sessionId, passphraseNueva);
+		diagnostico = await diagnosticarCuentaRemota(serverUrl, email, claves);
+	}
 	if (diagnostico.estado !== 'ok') throw new ErrorCuentaRemota(diagnostico);
 	if (!diagnostico.userId) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
 

@@ -2306,6 +2306,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "tower",
  "webkit2gtk",
  "windows",
  "zeroize",

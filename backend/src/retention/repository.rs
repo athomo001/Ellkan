@@ -177,6 +177,39 @@ impl PurgeRepository for PgPurgeRepository {
         .await?;
         resultado.audit_log_entries = r.rows_affected();
 
+        // Minimización de datos (spec/14 punto 6.11): lo efímero de la
+        // autenticación no sirve de nada una vez vencido o usado, y antes no
+        // lo borraba nadie (crecía para siempre). Plazos fijos, no
+        // configurables: un día de gracia para lo vencido (por si un reloj
+        // está corrido) y una semana para los correos ya enviados o fallidos
+        // (destinatario + cuerpo con códigos de verificación), que sólo sirven
+        // para diagnosticar un envío. Los pendientes no se tocan. Orden: los
+        // pedidos de aprobación de dispositivo antes que las sesiones que
+        // referencian.
+        let mut efimeros = 0;
+        for sentencia in [
+            "delete from device_approval_requests where expires_at < now() - interval '1 day'",
+            "delete from sessions s where (s.expires_at < now() - interval '1 day' or s.revoked_at < now() - interval '1 day')
+               and not exists (select 1 from device_approval_requests d where d.session_id = s.id)",
+            "delete from auth_challenges where expires_at < now() - interval '1 day'",
+            "delete from device_challenges where expires_at < now() - interval '1 day'",
+            "delete from mfa_challenges where expires_at < now() - interval '1 day'",
+            "delete from email_verification_challenges where expires_at < now() - interval '1 day'",
+            "delete from recovery_reset_tokens where expires_at < now() - interval '1 day'",
+            "delete from outbound_emails where status <> 'pendiente' and created_at < now() - interval '7 days'",
+        ] {
+            efimeros += sqlx::query(sentencia).execute(&mut *tx).await?.rows_affected();
+        }
+        resultado.datos_efimeros = efimeros;
+
+        // Revocación remota: la clave pública de una cuenta purgada se guarda
+        // sólo mientras haga falta avisarle a una app que estaba sin red —
+        // misma retención que el log de auditoría (docs/revocacion-remota.md).
+        sqlx::query("delete from cuentas_revocadas where revocada_en < now() - make_interval(days => $1)")
+            .bind(audit_log_retention_days)
+            .execute(&mut *tx)
+            .await?;
+
         tx.commit().await?;
         Ok(resultado)
     }

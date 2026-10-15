@@ -361,6 +361,14 @@ where
         for external_id in &resultado.would_deactivate {
             if let Some(u) = self.usuarios.buscar_por_external_id(external_id).await? {
                 self.usuarios.actualizar_activo(u.id, false).await?;
+                // Un evento por usuario (antes sólo el resumen `directory_sync.applied`):
+                // queda auditado quién se desactivó, y dispara la revocación
+                // remota en sus apps de escritorio vinculadas (`revocacion`).
+                let _ = self.eventos.send(DomainEvent::Auditoria(
+                    EventoAuditoria::nuevo(AuditEventType::UserDeactivated, Some(actor_id))
+                        .con_sujeto("user", u.id)
+                        .con_metadata(serde_json::json!({ "origen": "directory_sync" })),
+                ));
             }
         }
 
