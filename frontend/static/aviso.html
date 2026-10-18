@@ -7,6 +7,8 @@
   `window.__AVISO__`, que inyecta la app al crear la ventana:
     { tipo: 'bandeja' }                       la ventana se escondió en la bandeja
     { tipo: 'puerto', esperado: N, actual: M } el puerto fijo estaba ocupado
+    { tipo: 'puerto_reservado', … }           Windows lo reservó (error 10013)
+    { tipo: 'puerto_reservado_cambiado', … }  ídem, y se cambió para siempre
   Un tipo desconocido no muestra nada. Idioma y tema salen de las preferencias
   que la app ya guardó (mismo origen).
 -->
@@ -95,6 +97,26 @@
 					en: {
 						titulo: 'Port {esperado} was busy',
 						texto: 'Ellkan is using {actual} for this session only. If the browser extension was open, close it and open it again.'
+					}
+				},
+				puerto_reservado: {
+					es: {
+						titulo: 'Windows reservó el puerto {esperado}',
+						texto: 'Lo tomó Hyper-V, WSL o Docker. Ellkan usa el {actual} solo en esta sesión; si pasa seguido, elegí otro puerto en Ajustes → Escritorio.'
+					},
+					en: {
+						titulo: 'Windows reserved port {esperado}',
+						texto: 'Hyper-V, WSL or Docker took it. Ellkan is using {actual} for this session only; if it keeps happening, pick another port in Settings → Desktop.'
+					}
+				},
+				puerto_reservado_cambiado: {
+					es: {
+						titulo: 'Windows reservó el puerto {esperado}',
+						texto: 'Ellkan pasó a usar el {actual} de forma permanente, fuera del rango que reserva Windows. Si la extensión estaba abierta, ciérrala y ábrela de nuevo.'
+					},
+					en: {
+						titulo: 'Windows reserved port {esperado}',
+						texto: 'Ellkan now uses {actual} permanently, outside the range Windows reserves. If the extension was open, close it and open it again.'
 					}
 				}
 			};

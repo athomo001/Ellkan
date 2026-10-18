@@ -56,6 +56,26 @@ Comandos completos en [manual/cli.md](cli.md#comandos) (`ellkan-cli admin backup
 - **Restaurar es destructivo sobre la base destino** — pensalo como "reemplazar", no "fusionar". El flujo recomendado para migrar de servidor: levantar el `docker-compose.yml` nuevo con la base vacía (migraciones corren solas al arrancar), después `backup restore` apuntando su `DATABASE_URL` a esa base recién creada, antes de exponerla a usuarios reales.
 - **Restaurar no reimporta `ellkan_secrets_key.txt`** — ese archivo es del *servidor* (cifra en reposo el TOTP de login), no de los datos. Si el backup se restaura en una instancia nueva con una `ellkan_secrets_key` distinta a la original, todo TOTP de login ya configurado queda indescifrable — cada usuario tiene que reconfigurar su TOTP. Para evitar esto, restaurá también el `ellkan_secrets_key.txt` original junto con los datos, guardado en el mismo lugar frío que la clave `age`.
 
+## Ver qué está pasando (logs)
+
+```bash
+docker logs -f ellkan                      # en vivo
+docker logs ellkan --since 10m | grep -E "WARN|ERROR"   # sólo problemas recientes
+```
+
+Sin configurar nada, el servidor registra lo que sale mal: arranque, solicitudes rechazadas (4xx), límites de solicitudes (429) y fallos del servidor (5xx). Cada línea trae método, ruta, IP de origen, `actor_id` (si había sesión), status y latencia. Nunca headers, cuerpo ni secretos.
+
+| Nivel | Qué significa |
+| --- | --- |
+| `ERROR` … `solicitud falló en el servidor` | 5xx: bug o problema de base de datos. Revisar la línea anterior para el detalle |
+| `WARN` … `límite de solicitudes por IP agotado` (`limite="ip"`) | Muchas solicitudes **sin sesión** desde la misma IP (10/s, ráfaga 250): intentos de login, registro, recuperación, enlaces públicos. Posible abuso |
+| `WARN` … `límite de solicitudes por usuario agotado` (`limite="usuario"`) | Un mismo usuario con sesión pidiendo demasiado rápido (20/s, ráfaga 300). Los usuarios con sesión no comparten cupo aunque estén detrás de la misma IP |
+| `INFO` … `solicitud rechazada` | 4xx normal: sesión vencida, sin permiso, dato inválido |
+
+Para ver también cada solicitud exitosa, definí `RUST_LOG=ellkan_backend=debug` en el `environment:` del servicio `ellkan` y recreá el contenedor (`docker compose up -d ellkan`). `RUST_LOG` reemplaza al filtro por defecto (`warn,ellkan_backend=info`).
+
+En la web y en la app de escritorio, el error real de una pantalla que no carga queda en la consola de DevTools (F12 → Console).
+
 ## Problemas comunes y cómo repararlos
 
 | Síntoma | Causa | Reparación |
@@ -64,6 +84,7 @@ Comandos completos en [manual/cli.md](cli.md#comandos) (`ellkan-cli admin backup
 | `ellkan-cli` no puede conectar a Postgres aunque el contenedor esté sano | `DATABASE_URL` de la CLI (host) usa `localhost:${POSTGRES_PORT}`, **no** el mismo valor que `secrets/database_url.txt` (que usa el hostname interno `ellkan-db`, sólo resuelve dentro de la red de Docker) | Usar el `DATABASE_URL` armado con `localhost`, ver el snippet en [manual/cli.md](cli.md#administración-ellkan-cli-admin-subcomando) |
 | `ellkan-cli`/`docker` no ven el daemon aunque Docker Desktop esté corriendo (Linux con Docker Desktop instalado) | El contexto de Docker activo puede seguir apuntando al socket de Docker Desktop en vez del daemon real del sistema — nos pasó en desarrollo | `docker context ls` para confirmar, `docker context use default` para volver al daemon real |
 | `docker compose up` falla con el password de Postgres / la URL no parsea bien el puerto | `postgres_password.txt` generado con caracteres que rompen una URL (`+`, `/` — típico si se generó con `base64` en vez de `hex`) | Regenerar con `openssl rand -hex 24` (nunca `base64`) para ese archivo puntual — ver [secrets/README.md](../secrets/README.md) |
+| `docker compose up` falla en Windows con `invalid mount config for type "bind": bind source path does not exist: /run/desktop/mnt/host/e/.../secrets/postgres_password.txt`, aunque el archivo existe | Docker Desktop quedó con una vista vieja del disco (típico si el disco se montó o cambió después de que Docker arrancó): ve la carpeta `secrets/` **vacía**. Para confirmarlo: `docker run --rm -v "E:/ruta/a/Ellkan/secrets:/s" alpine ls /s` no lista nada | Reiniciar Docker Desktop (ícono de la bandeja → Restart). Si no alcanza, `wsl --shutdown` y volver a abrir Docker Desktop. Repetir el `docker run ... ls /s`: tiene que listar los tres archivos. Si sigue vacío, revisar que el disco esté habilitado en Docker Desktop → **Settings → Resources → File sharing / WSL integration** |
 | Login nuevo pide un código por email y nunca llega | SMTP no configurado todavía — el poller de envío es un stub hasta que se configure un relay real | Configurar SMTP en `/admin/smtp` (necesita un admin ya existente — para el primer admin, usar `ellkan-cli admin create-user --role admin`, que marca el dispositivo como conocido y no depende de email) |
 | El puerto 8080 (u otro elegido) ya está ocupado al levantar | Otro proceso/contenedor usando el mismo puerto en el host | Cambiar `ELLKAN_PORT` en `.env` antes de `docker compose up`, o liberar el puerto |
 | TLS in-process no arranca, error menciona `ELLKAN_TLS_CERT_FILE`/`KEY_FILE` | Sólo una de las dos variables está seteada, o la ruta no es legible dentro del contenedor (volumen no montado) | Confirmar que las dos estén presentes y que el `volumes:` del compose realmente monte el directorio con los PEM — ver la Opción A de arriba |
@@ -99,7 +120,7 @@ docker compose up -d ellkan
 
 Lo que de verdad determina el techo de concurrencia hoy:
 
-- **El pool de conexiones a Postgres es el default de `sqlx` (10 conexiones), sin override en el código** — es un límite duro de cuántos requests pueden estar tocando la base al mismo tiempo, configurable (`PgPoolOptions::max_connections`) pero hoy fijo en ese valor. Subir este número es la primera palanca real para más concurrencia, antes que agregar CPU/RAM.
+- **El pool de conexiones a Postgres es de 30 por defecto** (antes el default de `sqlx`, 10). Es el límite de cuántos requests pueden estar tocando la base al mismo tiempo. Se cambia con la variable `ELLKAN_DB_MAX_CONNECTIONS` en el `environment:` del servicio `ellkan`; dejarlo por debajo del `max_connections` de Postgres (100 por defecto). Medido (2026-10-17, build de debug): 25 usuarios importando 200 claves cada uno al mismo tiempo, desde la misma IP, crearon las 5.000 en 34 s sin ningún rechazo.
 - **La derivación de clave (Argon2id) corre 100% client-side** (navegador/CLI del usuario, WASM) — el servidor nunca la computa. Esto es una diferencia real contra un backend "tradicional" con auth por password: el costo de CPU más pesado de un login no le pega al servidor.
 - El binario del servidor no tiene runtime pesado (sin JVM, sin Node en producción — imagen final `distroless`, 60.7 MB medidos) — el grueso del consumo de RAM en producción es el propio Postgres (buffer cache), no el proceso de Ellkan.
 
@@ -109,6 +130,6 @@ Lo que de verdad determina el techo de concurrencia hoy:
 | RAM | 512 MB | 2 GB |
 | Disco | 1 GB + tamaño de los datos | 10 GB + tamaño de los datos |
 | Usuarios totales registrados | hasta ~50 | cientos a bajos miles |
-| Usuarios concurrentes activos (estimado) | ~10-20 (== tamaño del pool default) | ~50-100 (con `max_connections` subido y Postgres con más RAM para buffer cache) |
+| Usuarios concurrentes activos | ~25 importando a la vez (medido, pool de 30) | ~50-100 (con `ELLKAN_DB_MAX_CONNECTIONS` subido y Postgres con más RAM para buffer cache) |
 
 Si tu organización va a superar esos órdenes de magnitud, lo correcto es medir contra tu propia carga real (`oha`/`wrk` contra `/auth/challenge` y `/resources` con un dataset representativo) en vez de confiar en esta estimación — subí un issue o correlo vos mismo, la app no tiene ninguna telemetría que se lo reporte a nadie por default.

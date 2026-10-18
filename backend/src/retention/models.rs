@@ -16,4 +16,6 @@ pub struct ResultadoPurga {
     pub groups: u64,
     pub user_totp_credentials: u64,
     pub audit_log_entries: u64,
+    /// Desafíos, sesiones, tokens y correos ya vencidos o usados (spec/14 6.11).
+    pub datos_efimeros: u64,
 }

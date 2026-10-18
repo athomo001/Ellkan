@@ -23,6 +23,7 @@ use crate::desktop::repositories::auth::{
     SqliteAuthChallengeRepository, SqliteDeviceChallengeRepository, SqliteKnownDeviceRepository,
     SqliteSessionRepository, SqliteUserRepository,
 };
+use crate::desktop::repositories::avatar::SqliteAvatarRepository;
 use crate::desktop::repositories::folders::{SqliteFolderItemRepository, SqliteFolderRepository};
 use crate::desktop::repositories::groups::SqliteGroupMemberRepository;
 use crate::desktop::repositories::mfa::{SqliteMfaChallengeRepository, SqliteMfaPolicyRepository, SqliteTotpCredentialRepository};
@@ -66,6 +67,11 @@ pub struct AppStateDesktop {
     pub tags: SqliteTagRepository,
     pub miembros_de_grupo: SqliteGroupMemberRepository,
     pub roles: SqliteRoleRepository,
+    pub avatar: SqliteAvatarRepository,
+    /// Revocación remota: la cuenta fue revocada en el servidor vinculado y
+    /// la bóveda se borra en el próximo arranque. Mientras tanto el router
+    /// rechaza todo (`borrado_remoto`).
+    pub revocada: Arc<std::sync::atomic::AtomicBool>,
     pub eventos: EmisorDeEventos,
     /// F-14: misma clave maestra de servidor que la versión Postgres usa
     /// para cifrar el secreto TOTP en reposo.
@@ -74,6 +80,7 @@ pub struct AppStateDesktop {
 
 impl AppStateDesktop {
     pub fn nuevo(datadir: PathBuf, pool: SqlitePool, server_public_key_ed25519: [u8; 32], secrets_key: ClaveSecreta32) -> Self {
+        let revocada = crate::desktop::borrado_remoto::pendiente(&datadir);
         Self {
             datadir: Arc::new(datadir),
             usuarios: SqliteUserRepository { pool: pool.clone() },
@@ -98,6 +105,8 @@ impl AppStateDesktop {
             tags: SqliteTagRepository { pool: pool.clone() },
             miembros_de_grupo: SqliteGroupMemberRepository,
             roles: SqliteRoleRepository,
+            avatar: SqliteAvatarRepository { pool: pool.clone() },
+            revocada: Arc::new(std::sync::atomic::AtomicBool::new(revocada)),
             eventos: eventos::nuevo_canal(),
             secrets_key: Arc::new(secrets_key),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),

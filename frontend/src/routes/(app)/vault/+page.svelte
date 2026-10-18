@@ -19,6 +19,8 @@
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
+	import BarraProgreso from '$lib/components/BarraProgreso.svelte';
+	import type { AvanceCarga } from '$lib/crypto/recursos';
 	import SecretField from '$lib/components/SecretField.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
 	import { carpetasSidebar } from '$lib/state/carpetasSidebar';
@@ -50,7 +52,7 @@
 		type UsuarioBusqueda
 	} from '$lib/crypto/recursos';
 	import { detectarProveedor, estadoVencimiento } from '$lib/apiTokens';
-	import { conectar, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
+	import { conectar, conexionesEnPestanas, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
 	import type { EstrategiaMatch } from '$lib/crypto/matching';
 	import {
 		listarArbolCarpetas,
@@ -68,7 +70,7 @@
 	import { misGruposApi, type GrupoDeUsuario } from '$lib/api/profile';
 	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
 	import { externalSharesApi, externalSharePolicyApi, type ExternalSharePolicy } from '$lib/api/externalShares';
-	import { cifrarContenidoDeShare, crearArchivoCompartido } from '$lib/crypto/externalShare';
+	import { cifrarContenidoDeShare, crearArchivoCompartido, alcanceDelHost } from '$lib/crypto/externalShare';
 	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
 	import { cambiosDelServidor } from '$lib/sync/automatico';
 	import { copiarConLimpieza } from '$lib/clipboard';
@@ -79,6 +81,7 @@
 		descargarArchivo,
 		parsearArchivoImport,
 		importar,
+		ErrorImportParcial,
 		detectarFormatoPorNombre,
 		type FormatoExport,
 		type FilaExport
@@ -97,6 +100,8 @@
 	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+	import { porLotes } from '$lib/api/reintento';
+	import { registrar } from '$lib/tauri/registro';
 
 	// Heroicons outline (24x24, stroke-width 1.5) — mismo set que ya usa la
 	// nav (`(app)/+layout.svelte::ICONOS`), verificados contra el repo real
@@ -118,6 +123,8 @@
 	const ICONO_NUEVO = 'M12 4.5v15m7.5-7.5h-15';
 
 	let cargando = $state(true);
+	/** Barra de progreso de `cargar()`: `undefined` hasta que se sabe el total. */
+	let avanceCarga = $state<AvanceCarga | undefined>();
 	let error = $state<string | undefined>();
 	let recursos = $state<Recurso[]>([]);
 
@@ -399,17 +406,23 @@
 		if (!$clavesDesbloqueadas) return;
 		cargando = true;
 		error = undefined;
+		avanceCarga = undefined;
 		try {
 			// `conDeduplicacion` (07-frontend-web.md §2): si el refresco por
 			// foco de pestaña dispara mientras ya hay una carga en curso (ej.
 			// el usuario cambia de pestaña y vuelve rápido), la segunda
 			// llamada espera la primera en vez de disparar una request nueva.
-			const nuevos = await conDeduplicacion('vault:listar', () => listarRecursos($clavesDesbloqueadas!));
+			const nuevos = await conDeduplicacion('vault:listar', () =>
+				listarRecursos($clavesDesbloqueadas!, (avance) => (avanceCarga = avance))
+			);
 			// F-30: si nada cambió (mismo conteo, mismo `updated_at` más
 			// reciente), no reemplaza la lista — preserva estado de UI local
 			// (ej. el panel abierto) en un refresco por foco sin cambios reales.
 			if (huboCambios(recursos, nuevos)) recursos = nuevos;
 		} catch (err) {
+			// La pantalla muestra un mensaje corto; la causa real queda en la
+			// consola de DevTools (antes se perdía: bug del 429, 2026-10-17).
+			console.error('[vault] no se pudo cargar la lista', err);
 			error = err instanceof ApiError ? err.message : $t.vault.error;
 		} finally {
 			cargando = false;
@@ -774,6 +787,10 @@
 		try {
 			secretoAbierto = await verSecreto(seleccionado, $clavesDesbloqueadas);
 		} catch (err) {
+			// La causa real a la consola (y al `Ellkan.log` en el escritorio):
+			// el mensaje genérico de abajo no dice si fue el sobre, la clave o
+			// el JSON. Sin datos del recurso, sólo el id.
+			console.error(`No se pudo abrir el secreto de ${seleccionado.id}:`, err);
 			errorSecreto = err instanceof ApiError ? err.message : $t.vault.errorVerSecreto;
 		} finally {
 			cargandoSecreto = false;
@@ -822,7 +839,9 @@
 				usuario: seleccionado.usuario || null,
 				host: destino.host,
 				puerto: destino.puerto,
-				secreto: password
+				secreto: password,
+				titulo: seleccionado.nombre,
+				enPestanas: conexionesEnPestanas()
 			});
 		} catch (err) {
 			errorConectar = err instanceof Error ? err.message : $t.vault.errorConectar;
@@ -916,6 +935,16 @@
 			);
 			recursos = recursos.map((r) => (r.id === seleccionado!.id ? actualizado : r));
 			seleccionado = actualizado;
+			// Si la contraseña estaba a la vista, se muestra la nueva: antes
+			// quedaba la vieja hasta recargar la página (2026-10-18).
+			if (secretoAbierto) {
+				secretoAbierto = {
+					password: editPassword,
+					notes: editNotas,
+					totpSecret: editTotp || undefined,
+					tokenSecret: editTokenSecret || undefined
+				};
+			}
 			panelModo = 'detalle';
 		} catch (err) {
 			errorEditar = err instanceof ApiError ? err.message : $t.vault.errorEditar;
@@ -1177,8 +1206,49 @@
 		}
 	}
 
+	// El link apunta a este mismo servidor (`location.origin`): sólo lo puede
+	// abrir quien llegue a esta dirección. Antes de crearlo se avisa con un
+	// popup — en localhost o en una red privada no funciona desde internet.
+	const AVISO_ALCANCE_VISTO = 'ellkan:aviso-alcance-link-visto';
+	const alcanceLink = $derived(alcanceDelHost(location.hostname));
+	let avisoAlcanceAbierto = $state(false);
+	let avisoAlcanceNoMostrar = $state(false);
+
+	function avisoAlcanceYaVisto(): boolean {
+		try {
+			return localStorage.getItem(AVISO_ALCANCE_VISTO) === '1';
+		} catch {
+			return false;
+		}
+	}
+
+	function confirmarAvisoAlcance() {
+		if (avisoAlcanceNoMostrar) {
+			try {
+				localStorage.setItem(AVISO_ALCANCE_VISTO, '1');
+			} catch {
+				/* sin almacenamiento: se vuelve a mostrar la próxima vez */
+			}
+		}
+		avisoAlcanceAbierto = false;
+		void generarLinkExterno();
+	}
+
 	async function crearExterno(e: SubmitEvent) {
 		e.preventDefault();
+		if (!seleccionado || !$clavesDesbloqueadas) return;
+		// En localhost / red privada se avisa siempre (es casi seguro que el
+		// destinatario no llega); con una dirección pública, hasta que se marque
+		// "no volver a mostrar".
+		if (alcanceLink !== 'publica' || !avisoAlcanceYaVisto()) {
+			avisoAlcanceNoMostrar = false;
+			avisoAlcanceAbierto = true;
+			return;
+		}
+		await generarLinkExterno();
+	}
+
+	async function generarLinkExterno() {
 		if (!seleccionado || !$clavesDesbloqueadas) return;
 		externoError = undefined;
 		externoCreando = true;
@@ -1227,17 +1297,35 @@
 	let aplicandoMasivo = $state(false);
 	let errorMasivo = $state<string | undefined>();
 
+	// Las acciones masivas van por `porLotes`: lo que se aplicó sale de la
+	// lista/selección aunque otro ítem falle, y quedan seleccionados sólo los
+	// que hay que reintentar.
+	function mensajeMasivo(err: unknown): string {
+		return err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+	}
+
+	/** Resumen de una acción masiva al `Ellkan.log` (escritorio): cuántos
+	 * salieron bien y el primer error. Sin nombres ni datos. */
+	function registrarMasivo(accion: string, total: number, r: { aplicados: Set<string>; error?: unknown }): void {
+		const fallaron = total - r.aplicados.size;
+		registrar(
+			fallaron > 0 ? 'warn' : 'info',
+			`[masivo] ${accion}: ${r.aplicados.size} de ${total} OK${fallaron > 0 ? `, ${fallaron} fallaron:` : ''}`,
+			...(r.error ? [r.error] : [])
+		);
+	}
+
 	async function moverSeleccionADeCarpeta() {
 		if (seleccionados.size === 0) return;
 		aplicandoMasivo = true;
 		errorMasivo = undefined;
 		try {
 			const destino = carpetaMasiva === '' ? null : carpetaMasiva;
-			await Promise.all([...seleccionados].map((id) => moverRecursoACarpeta(id, destino)));
-			recursos = recursos.map((r) => (seleccionados.has(r.id) ? { ...r, folderId: destino } : r));
-			seleccionados = new Set();
-		} catch (err) {
-			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+			const { aplicados, error } = await porLotes([...seleccionados], (id) => moverRecursoACarpeta(id, destino));
+			registrarMasivo('mover a carpeta', seleccionados.size, { aplicados, error });
+			recursos = recursos.map((r) => (aplicados.has(r.id) ? { ...r, folderId: destino } : r));
+			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
+			if (error) errorMasivo = mensajeMasivo(error);
 		} finally {
 			aplicandoMasivo = false;
 		}
@@ -1256,12 +1344,12 @@
 		errorMasivo = undefined;
 		try {
 			const nuevoTipo = tipoMasivo;
-			await Promise.all([...seleccionados].map((id) => cambiarTipoRecurso(id, nuevoTipo)));
-			recursos = recursos.map((r) => (seleccionados.has(r.id) ? { ...r, resourceTypeSlug: nuevoTipo } : r));
-			seleccionados = new Set();
-			tipoMasivo = '';
-		} catch (err) {
-			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+			const { aplicados, error } = await porLotes([...seleccionados], (id) => cambiarTipoRecurso(id, nuevoTipo));
+			registrarMasivo(`cambiar tipo a ${nuevoTipo}`, seleccionados.size, { aplicados, error });
+			recursos = recursos.map((r) => (aplicados.has(r.id) ? { ...r, resourceTypeSlug: nuevoTipo } : r));
+			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
+			if (error) errorMasivo = mensajeMasivo(error);
+			else tipoMasivo = '';
 		} finally {
 			aplicandoMasivo = false;
 		}
@@ -1274,10 +1362,10 @@
 		aplicandoMasivo = true;
 		errorMasivo = undefined;
 		try {
-			await Promise.all([...seleccionados].map((id) => tagsApi.aplicar(id, tagMasivo)));
-			seleccionados = new Set();
-		} catch (err) {
-			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+			const { aplicados, error } = await porLotes([...seleccionados], (id) => tagsApi.aplicar(id, tagMasivo));
+			registrarMasivo('agregar tag', seleccionados.size, { aplicados, error });
+			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
+			if (error) errorMasivo = mensajeMasivo(error);
 		} finally {
 			aplicandoMasivo = false;
 		}
@@ -1296,12 +1384,12 @@
 		aplicandoMasivo = true;
 		errorMasivo = undefined;
 		try {
-			await Promise.all(borrables.map((id) => eliminarRecurso(id)));
-			recursos = recursos.filter((r) => !borrables.includes(r.id));
-			seleccionados = new Set();
-			confirmandoEliminarSeleccion = false;
-		} catch (err) {
-			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+			const { aplicados, error } = await porLotes(borrables, (id) => eliminarRecurso(id));
+			registrarMasivo('eliminar', borrables.length, { aplicados, error });
+			recursos = recursos.filter((r) => !aplicados.has(r.id));
+			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
+			if (error) errorMasivo = mensajeMasivo(error);
+			else confirmandoEliminarSeleccion = false;
 		} finally {
 			aplicandoMasivo = false;
 		}
@@ -1317,12 +1405,12 @@
 		aplicandoMasivo = true;
 		errorMasivo = undefined;
 		try {
-			await Promise.all(compartidos.map((id) => salirDeRecurso(id)));
-			recursos = recursos.filter((r) => !compartidos.includes(r.id));
-			seleccionados = new Set();
-			confirmandoSalirSeleccion = false;
-		} catch (err) {
-			errorMasivo = err instanceof ApiError ? err.message : $t.vault.errorMasivo;
+			const { aplicados, error } = await porLotes(compartidos, (id) => salirDeRecurso(id));
+			registrarMasivo('salir de compartidos', compartidos.length, { aplicados, error });
+			recursos = recursos.filter((r) => !aplicados.has(r.id));
+			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
+			if (error) errorMasivo = mensajeMasivo(error);
+			else confirmandoSalirSeleccion = false;
 		} finally {
 			aplicandoMasivo = false;
 		}
@@ -1509,6 +1597,8 @@
 	let filasPreview = $state<FilaExport[] | undefined>();
 	let previsualizando = $state(false);
 	let importando = $state(false);
+	/** Barra de progreso de la importación (fila actual y total). */
+	let avanceImport = $state<AvanceCarga | undefined>();
 	let errorImport = $state<string | undefined>();
 	let okImport = $state<number | undefined>();
 
@@ -1600,8 +1690,18 @@
 		if (!filas) return;
 		errorImport = undefined;
 		importando = true;
+		avanceImport = { hechos: 0, total: filas.length };
 		try {
-			const creados = await importar(formato, filas, $clavesDesbloqueadas, $sesion.userId, formato === 'csv' ? tipoDestinoImport : undefined);
+			registrar('info', `[importar] ${formato}: empezando con ${filas.length} claves`);
+			const creados = await importar(
+				formato,
+				filas,
+				$clavesDesbloqueadas,
+				$sesion.userId,
+				formato === 'csv' ? tipoDestinoImport : undefined,
+				(avance) => (avanceImport = avance)
+			);
+			registrar('info', `[importar] ${formato}: ${creados} de ${filas.length} importadas`);
 			okImport = creados;
 			filasPreview = undefined;
 			csvCrudo = undefined;
@@ -1610,9 +1710,21 @@
 			passwordImport = '';
 			await cargar();
 		} catch (err) {
-			errorImport = err instanceof ApiError ? err.message : err instanceof Error ? err.message : $t.exportImport.errorImportar;
+			registrar(
+				'warn',
+				`[importar] cortada${err instanceof ErrorImportParcial ? ` en la fila ${err.creados + 1} de ${err.total} (${err.creados} ya importadas)` : ''}:`,
+				err instanceof ErrorImportParcial ? err.causa : err
+			);
+			if (err instanceof ErrorImportParcial) {
+				errorImport = $t.exportImport.errorImportParcial(err.creados, err.total, err.nombre, err.message);
+				// Las que sí se crearon tienen que aparecer en la lista.
+				if (err.creados > 0) void cargar();
+			} else {
+				errorImport = err instanceof ApiError ? err.message : err instanceof Error ? err.message : $t.exportImport.errorImportar;
+			}
 		} finally {
 			importando = false;
+			avanceImport = undefined;
 		}
 	}
 </script>
@@ -1629,7 +1741,12 @@
 	<div class="vault-layout" class:con-panel={!!seleccionado || (esModoDesktop && mostrarCrear)} class:modo-desktop={esModoDesktop}>
 		<Card>
 			{#if cargando}
-				<p>{$t.vault.cargando}</p>
+				<BarraProgreso
+					titulo={$t.vault.cargandoClaves}
+					hechos={avanceCarga?.hechos ?? 0}
+					total={avanceCarga?.total ?? 0}
+					detalle={avanceCarga?.nombre ? $t.vault.ultimaCargada(avanceCarga.nombre) : undefined}
+				/>
 			{:else if error}
 				<p class="error">{error}</p>
 			{:else}
@@ -1777,6 +1894,7 @@
 												copiarCampo('usuario', r.usuario!);
 											}}
 											title={$t.secretField.copiar}
+											aria-label={$t.secretField.copiar}
 										>
 											⧉
 										</button>
@@ -1816,6 +1934,7 @@
 										class="icono-copiar"
 										onclick={(e) => compartirDesdeIcono(r, e)}
 										title={$t.vault.compartir}
+										aria-label={$t.vault.compartir}
 									>
 										⇄
 									</button>
@@ -2132,6 +2251,23 @@
 			</Card>
 		{/if}
 	</div>
+{/if}
+
+{#if avisoAlcanceAbierto}
+	<Modal titulo={$t.vault.alcanceLink.titulo} onCerrar={() => (avisoAlcanceAbierto = false)}>
+		<p class="hint">{$t.vault.alcanceLink.explicacion(location.host)}</p>
+		<p class:error={alcanceLink !== 'publica'} class:hint={alcanceLink === 'publica'}>{$t.vault.alcanceLink[alcanceLink]}</p>
+		{#if alcanceLink === 'publica'}
+			<label class="campo-check">
+				<input type="checkbox" bind:checked={avisoAlcanceNoMostrar} />
+				{$t.vault.alcanceLink.noMostrar}
+			</label>
+		{/if}
+		<div class="botones">
+			<Button variant="primary" onclick={confirmarAvisoAlcance}>{$t.vault.alcanceLink.crearIgual}</Button>
+			<Button variant="ghost" onclick={() => (avisoAlcanceAbierto = false)}>{$t.vault.cancelar}</Button>
+		</div>
+	</Modal>
 {/if}
 
 {#if compartiendoCarpeta}
@@ -2637,6 +2773,14 @@
 						{/if}
 					{/if}
 
+					{#if importando && avanceImport}
+						<BarraProgreso
+							titulo={$t.exportImport.importandoTitulo}
+							hechos={avanceImport.hechos}
+							total={avanceImport.total}
+							detalle={avanceImport.nombre ? $t.exportImport.importandoActual(avanceImport.nombre) : undefined}
+						/>
+					{/if}
 					{#if okImport !== undefined}<p class="ok">{$t.exportImport.importadoOk(okImport)}</p>{/if}
 				</section>
 			{/if}
@@ -2791,7 +2935,7 @@
 		opacity: 1;
 	}
 	.icono-copiar-rapido:hover {
-		color: var(--accent-primary);
+		color: var(--accent-text);
 	}
 
 	/* Ventana angosta (web móvil o redimensión muy pequeña): no entran las 2 columnas a la vez */
@@ -2918,6 +3062,14 @@
 		flex-wrap: wrap;
 		gap: var(--space-2);
 	}
+	.campo-check {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+		margin: 0 0 var(--space-4) 0;
+	}
 	.tabs-externo {
 		display: flex;
 		gap: var(--space-1);
@@ -3036,7 +3188,7 @@
 		flex: 1;
 		font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 		font-size: var(--text-sm);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		word-break: break-all;
 	}
 	.campo-carpeta {
@@ -3311,7 +3463,7 @@
 		border: none;
 		padding: 0;
 		font-size: var(--text-xs);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		cursor: pointer;
 	}
 	.acciones-masivas {

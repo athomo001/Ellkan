@@ -10,6 +10,7 @@
 		disabled = false,
 		loading = false,
 		onclick,
+		ariaLabel,
 		children
 	}: {
 		variant?: Variante;
@@ -17,6 +18,8 @@
 		disabled?: boolean;
 		loading?: boolean;
 		onclick?: (e: MouseEvent) => void;
+		/** Nombre accesible cuando el contenido visible es sólo un ícono. */
+		ariaLabel?: string;
 		children: Snippet;
 	} = $props();
 </script>
@@ -26,6 +29,7 @@
 	{type}
 	disabled={disabled || loading}
 	aria-busy={loading}
+	aria-label={ariaLabel}
 	{onclick}
 >
 	{#if loading}<span class="spinner" aria-hidden="true"></span>{/if}
@@ -65,7 +69,7 @@
 	/* CTA primario: único lugar además del logo/nav activo donde el degradé
 	   de marca es aceptable (01-propuesta-tecnica.md §2.5). */
 	.btn-primary {
-		background: var(--gradient-brand, var(--accent-primary));
+		background: var(--gradient-cta, var(--accent-primary));
 		color: #06131d;
 		font-weight: 600;
 	}
@@ -98,7 +102,9 @@
 	}
 	.btn-danger:hover:not(:disabled) {
 		background: var(--danger);
-		color: #fff;
+		/* `--bg-base` y no blanco: en tema oscuro el rojo es claro y el blanco
+		   encima no llega a 4.5:1. */
+		color: var(--bg-base);
 	}
 
 	.spinner {

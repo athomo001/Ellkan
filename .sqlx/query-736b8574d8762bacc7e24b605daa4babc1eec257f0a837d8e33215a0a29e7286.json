@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select exists(\n            select 1 from users u\n            join role_permissions rp on rp.role_id = u.role_id\n            where rp.permission = '*' and u.active and u.deleted_at is null\n        ) as \"existe!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "736b8574d8762bacc7e24b605daa4babc1eec257f0a837d8e33215a0a29e7286"
+}

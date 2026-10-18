@@ -11,6 +11,18 @@ pub struct EstadoResponse {
     pub must_rotate: bool,
 }
 
+/// `GET /me/recovery-kit/material` — el registro completo del kit propio,
+/// para que la app de escritorio vinculada use el MISMO kit que el servidor
+/// (misma identidad en los dos lados). Nada de esto es secreto sin la privada
+/// del kit, que sólo tiene el usuario en el archivo que descargó.
+#[derive(Debug, Serialize)]
+pub struct MaterialKitResponse {
+    pub kit_public_key_x25519_b64: String,
+    pub sealed_identity_material_b64: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GenerarRequest {
     pub kit_public_key_x25519_b64: String,

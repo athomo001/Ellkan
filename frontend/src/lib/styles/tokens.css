@@ -48,25 +48,33 @@
 
 	color-scheme: dark;
 
-	/* Modo oscuro — default de marca */
+	/* Modo oscuro — default de marca. Tonos de texto/estado verificados contra
+	   WCAG 2.2 AA sobre los tres fondos (texto >= 4.5:1, bordes de campos y
+	   anillo de foco >= 3:1); `--accent-text` es el teal para usar como color
+	   de texto, más claro que el de fondo de botones. */
 	--bg-base: #102335;
 	--bg-raised: #16293c;
 	--bg-overlay: #1c3245;
 	--border-color: #26405a;
 	--text-primary: #f8f8f8;
 	--text-secondary: #a9b8c7;
-	--text-muted: #6f8298;
+	--text-muted: #8c9bad;
 	--accent-primary: var(--color-teal);
-	--accent-primary-hover: #1e8ba6;
+	--accent-primary-hover: #1b7f98;
 	--accent-secondary: var(--color-gold);
-	--focus-ring: var(--color-teal);
-	--danger: #e2695f;
+	--accent-text: #61a3b3;
+	--border-input: #6b7d8f;
+	--focus-ring: #61a3b3;
+	--danger: #e57a71;
 	--success: #4caf7d;
 	--warning: var(--color-gold);
 
 	/* Degradé de marca — sólo para el logo/CTA primario/estado activo de
 	   nav, nunca fondo general (01-propuesta-tecnica.md §2.5). */
 	--gradient-brand: linear-gradient(135deg, var(--color-teal) 0%, var(--color-gold) 100%);
+	/* Variante para el botón primario: arranca en un teal un poco más claro
+	   para que el texto oscuro llegue a 4.5:1 (WCAG AA) en todo el degradé. */
+	--gradient-cta: linear-gradient(135deg, #34889d 0%, var(--color-gold) 100%);
 }
 
 :root[data-theme='light'] {
@@ -77,14 +85,16 @@
 	--border-color: #d7dee4;
 	--text-primary: #16232e;
 	--text-secondary: #445362;
-	--text-muted: #74838f;
+	--text-muted: #616e78;
 	--accent-primary: var(--color-teal);
 	--accent-primary-hover: #0f6070;
-	--accent-secondary: #a9791f;
+	--accent-text: #18768e;
+	--border-input: #84898c;
+	--accent-secondary: #8d651a;
 	--focus-ring: var(--color-teal);
 	--danger: #c0392b;
 	--success: #1f7a4d;
-	--warning: #a9791f;
+	--warning: #8d651a;
 }
 
 @media (prefers-color-scheme: light) {
@@ -96,13 +106,15 @@
 		--border-color: #d7dee4;
 		--text-primary: #16232e;
 		--text-secondary: #445362;
-		--text-muted: #74838f;
+		--text-muted: #616e78;
 		--accent-primary: var(--color-teal);
 		--accent-primary-hover: #0f6070;
-		--accent-secondary: #a9791f;
+		--accent-text: #18768e;
+		--border-input: #84898c;
+		--accent-secondary: #8d651a;
 		--focus-ring: var(--color-teal);
 		--danger: #c0392b;
 		--success: #1f7a4d;
-		--warning: #a9791f;
+		--warning: #8d651a;
 	}
 }

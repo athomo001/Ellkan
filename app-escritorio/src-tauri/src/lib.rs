@@ -1,18 +1,92 @@
 // Autor: Athan Espinoza
 
 use std::path::PathBuf;
-#[cfg(target_os = "windows")]
-use std::path::Path;
 
 use tauri::Manager;
 use zeroize::Zeroizing;
 
+#[cfg(windows)]
+mod canal_extension;
 mod portable;
 mod sistema;
+#[cfg(windows)]
+#[doc(hidden)]
+pub mod tuberia;
 
 /// Versión de la app: la de `tauri.conf.json` (la misma del instalador MSI), no la del
 /// `Cargo.toml`. La exporta `build.rs`.
 const VERSION_APP: &str = env!("ELLKAN_VERSION");
+
+/// Handle de la app para avisos que nacen fuera de la ventana (cambios de la
+/// extensión); se fija en `setup`.
+static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Cambios de la extensión que la interfaz todavía no recogió
+/// (`<datadir>/cambios-extension.json`, `{id: "subir" | "borrar"}`). Sólo ids,
+/// nunca datos. Sobrevive a la bóveda bloqueada y a cerrar la app: la interfaz
+/// lo vacía al empezar cada sync (`tomar_cambios_extension`).
+static CAMBIOS_EXTENSION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn archivo_cambios_extension() -> PathBuf {
+  datadir().join("cambios-extension.json")
+}
+
+fn leer_cambios_extension() -> serde_json::Map<String, serde_json::Value> {
+  std::fs::read(archivo_cambios_extension())
+    .ok()
+    .and_then(|b| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&b).ok())
+    .unwrap_or_default()
+}
+
+fn anotar_cambio_de_extension(id: &str, operacion: &str) {
+  let _guardia = CAMBIOS_EXTENSION.lock().unwrap_or_else(|e| e.into_inner());
+  let mut cambios = leer_cambios_extension();
+  cambios.insert(id.to_string(), serde_json::Value::String(operacion.to_string()));
+  if let Err(e) = std::fs::write(archivo_cambios_extension(), serde_json::Value::Object(cambios).to_string()) {
+    log::warn!("no se pudo anotar el cambio de la extensión {id}: {e}");
+  }
+}
+
+/// Devuelve y borra los cambios de la extensión pendientes de subir.
+#[tauri::command]
+fn tomar_cambios_extension() -> serde_json::Map<String, serde_json::Value> {
+  let _guardia = CAMBIOS_EXTENSION.lock().unwrap_or_else(|e| e.into_inner());
+  let cambios = leer_cambios_extension();
+  if !cambios.is_empty() {
+    let _ = std::fs::remove_file(archivo_cambios_extension());
+  }
+  cambios
+}
+
+/// Log a archivo: tamaño máximo de cada `Ellkan.log` y cuántos anteriores se
+/// guardan (5 MB × (1 + 3) ≈ 20 MB como tope en disco).
+const LOG_MAX_BYTES: u128 = 5_000_000;
+const LOG_ARCHIVOS_VIEJOS: usize = 3;
+/// Target de los mensajes que manda la interfaz (`registrar_desde_web`).
+const TARGET_WEB: &str = "ellkan_web";
+/// Largo máximo de un mensaje de la interfaz: un error con un objeto enorme
+/// no puede llenar el archivo de una vez.
+const LOG_MAX_MENSAJE_WEB: usize = 2_000;
+
+/// Errores y avisos de la interfaz (`console.error`/`console.warn`, errores
+/// sin capturar) al mismo `Ellkan.log` que el backend. Antes se perdían: la
+/// consola de WebView2 no está abierta en release. La interfaz nunca manda
+/// secretos acá (mismo criterio que sus `console.error`: ids y mensajes de
+/// error); igual se recorta el largo y se sacan caracteres de control para
+/// que nadie pueda falsear líneas del log.
+#[tauri::command]
+fn registrar_desde_web(nivel: String, mensaje: String) {
+  let limpio: String = mensaje
+    .chars()
+    .map(|c| if c.is_control() { ' ' } else { c })
+    .take(LOG_MAX_MENSAJE_WEB)
+    .collect();
+  match nivel.as_str() {
+    "error" => log::error!(target: TARGET_WEB, "{limpio}"),
+    "warn" => log::warn!(target: TARGET_WEB, "{limpio}"),
+    _ => log::info!(target: TARGET_WEB, "{limpio}"),
+  }
+}
 
 /// Resuelve el directorio de datos según el sistema operativo:
 /// - Windows: `%APPDATA%\Ellkan`
@@ -68,6 +142,37 @@ fn borrar_datos_del_usuario() {
   sistema::borrar_credenciales_llavero();
 }
 
+/// Revocación remota (docs/revocacion-remota.md), lo que vive fuera de la
+/// carpeta de datos: la credencial del llavero de Windows (desbloqueo rápido,
+/// F-50) y `desktop.json`.
+fn borrar_restos_de_revocacion() {
+  sistema::borrar_credenciales_llavero();
+  let config = std::env::var_os("ELLKAN_CONFIG_DIR")
+    .map(PathBuf::from)
+    .or_else(|| std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join(".ellkan")));
+  if let Some(config) = config {
+    let _ = std::fs::remove_file(config.join("desktop.json"));
+  }
+}
+
+/// Arranque con un borrado remoto que quedó a medias (un archivo bloqueado):
+/// se completa antes de abrir la base. Si vuelve a fallar, la marca queda y
+/// el backend local no sirve nada hasta el próximo intento (ver `router`).
+fn ejecutar_borrado_remoto(dir: &std::path::Path) {
+  match ellkan_backend::desktop::borrado_remoto::ejecutar(dir) {
+    Ok(()) => log::warn!("borrado remoto completado al arrancar"),
+    Err(e) => log::error!("{e:#}"),
+  }
+  borrar_restos_de_revocacion();
+}
+
+/// Lo llama el frontend apenas el backend local borró la bóveda por
+/// revocación remota.
+#[tauri::command]
+fn limpiar_restos_revocacion() {
+  borrar_restos_de_revocacion();
+}
+
 /// Puerto real ya bindeado (spec/13 §3) — el SPA lo lee vía el comando
 /// `puerto_backend` en vez de un valor hardcodeado, porque desde
 /// 2026-09-16 el puerto es dinámico (`ellkan_backend::desktop::
@@ -116,7 +221,7 @@ struct ResultadoConfigurarPuerto {
 async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto, String> {
   if puerto < 1024 {
     return Err(format!(
-      "El puerto {puerto} está reservado por el sistema operativo — elegí uno de 1024 en adelante (se sugiere el rango 49152-65535)."
+      "El puerto {puerto} está reservado por el sistema operativo — elegí uno de 1024 en adelante (se sugiere el rango 36000-47999)."
     ));
   }
 
@@ -125,9 +230,16 @@ async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto
   // no elimina la posibilidad de una carrera con otro proceso entre este
   // chequeo y el próximo arranque real, pero es la misma garantía (ni más
   // ni menos) que ya acepta `bindear_puerto` para el puerto autoelegido.
-  tokio::net::TcpListener::bind(("127.0.0.1", puerto))
-    .await
-    .map_err(|e| format!("el puerto {puerto} no está disponible ahora mismo: {e}"))?;
+  tokio::net::TcpListener::bind(("127.0.0.1", puerto)).await.map_err(|e| {
+    // 10013: Windows lo tiene en un rango excluido (Hyper-V/WSL/Docker), no es que esté en uso.
+    if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(10013) {
+      format!(
+        "Windows tiene reservado el puerto {puerto} (Hyper-V, WSL o Docker). Elegí otro, idealmente entre 36000 y 47999; los rangos reservados se ven con «netsh int ipv4 show excludedportrange protocol=tcp»."
+      )
+    } else {
+      format!("el puerto {puerto} está ocupado por otro programa ahora mismo: {e}")
+    }
+  })?;
 
   const PUERTOS_COMUNES: &[u16] = &[80, 443, 1433, 3000, 3306, 5000, 5432, 6379, 8000, 8080, 8443, 27017];
   let advertencia = PUERTOS_COMUNES.contains(&puerto).then(|| {
@@ -152,9 +264,16 @@ async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto
 /// evento de "backend listo" que inventar. Devuelve el listener YA
 /// bindeado (se mueve tal cual al `spawn` de `axum::serve`, sin re-bindear)
 /// y el puerto, para poblar el estado gestionado de Tauri.
-async fn preparar_backend_local() -> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<u16>)> {
+async fn preparar_backend_local(
+) -> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<ellkan_backend::desktop::FalloPuertoFijo>)> {
   let dir = datadir();
   std::fs::create_dir_all(&dir)?;
+
+  // Revocación remota: si el servidor vinculado revocó la cuenta, la bóveda se
+  // borra ACÁ, antes de abrir la base (con la app corriendo estaba en uso).
+  if ellkan_backend::desktop::borrado_remoto::pendiente(&dir) {
+    ejecutar_borrado_remoto(&dir);
+  }
 
   let pool = ellkan_backend::desktop::bootstrap_sqlite(&dir).await?;
   let server_public_key = ellkan_backend::desktop::cargar_o_generar_server_key(&pool).await?;
@@ -163,14 +282,30 @@ async fn preparar_backend_local() -> anyhow::Result<(tokio::net::TcpListener, u1
   let estado = ellkan_backend::desktop::state::AppStateDesktop::nuevo(dir.clone(), pool, server_public_key, secrets_key);
   let router = ellkan_backend::desktop::router::construir_router_desktop(estado);
 
-  let fijo_configurado = ellkan_backend::desktop::cargar_config(&dir).ok().and_then(|c| c.puerto_fijo);
-  let (listener, puerto) = ellkan_backend::desktop::bindear_puerto(&dir).await?;
-  ellkan_backend::desktop::escribir_desktop_json(puerto, VERSION_APP)?;
+  let (listener, puerto, fallo_fijo) = ellkan_backend::desktop::bindear_puerto(&dir).await?;
 
-  // Si el puerto fijo estaba ocupado se usó otro sólo para esta sesión: se
-  // devuelve cuál era para avisarle al usuario (F-52), no fallar en silencio.
-  let puerto_ocupado = fijo_configurado.filter(|fijo| *fijo != puerto);
-  Ok((listener, puerto, router, puerto_ocupado))
+  // F-56: canal de la extensión por native messaging + tubería, sin TCP. Si
+  // no se puede crear, la extensión sigue pudiendo usar el puerto (fallback).
+  #[cfg(windows)]
+  let tuberia_extension = match canal_extension::iniciar(router.clone()) {
+    Ok(nombre) => {
+      if let Err(e) = canal_extension::registrar_host(&dir) {
+        log::warn!("no se registró el host de native messaging: {e}");
+      }
+      Some(nombre)
+    }
+    Err(e) => {
+      log::warn!("canal de la extensión no disponible: {e}");
+      None
+    }
+  };
+  #[cfg(not(windows))]
+  let tuberia_extension: Option<String> = None;
+  ellkan_backend::desktop::escribir_desktop_json(puerto, VERSION_APP, tuberia_extension.as_deref())?;
+
+  // Si el puerto fijo no se pudo usar se devuelve por qué (ocupado o
+  // reservado por Windows) para avisarle al usuario (F-52), no fallar en silencio.
+  Ok((listener, puerto, router, fallo_fijo))
 }
 
 /// Busca `nombre_exe` en `%PATH%` (y en el alias de apps empaquetadas de
@@ -209,7 +344,13 @@ fn buscar_en_path(nombre_exe: &str) -> Option<PathBuf> {
 
 /// Clientes que vienen con Windows y su carpeta dentro de `System32`.
 #[cfg(target_os = "windows")]
-const CLIENTES_DEL_SISTEMA: &[(&str, &str)] = &[("ssh.exe", "OpenSSH"), ("ftp.exe", ""), ("telnet.exe", ""), ("mstsc.exe", "")];
+const CLIENTES_DEL_SISTEMA: &[(&str, &str)] = &[
+  ("ssh.exe", "OpenSSH"),
+  ("ftp.exe", ""),
+  ("telnet.exe", ""),
+  ("mstsc.exe", ""),
+  ("powershell.exe", r"WindowsPowerShell\v1.0"),
+];
 
 /// Ruta absoluta de un cliente de `CLIENTES_DEL_SISTEMA` si está instalado.
 /// El directorio sale de `GetSystemDirectoryW` y no de `%SystemRoot%`, que es
@@ -245,32 +386,80 @@ fn ruta_askpass_helper() -> anyhow::Result<PathBuf> {
   Ok(candidato)
 }
 
-/// Arma el `Command` para lanzar `programa args..` dentro de Windows
-/// Terminal si está disponible, o en una consola nueva propia si no —
-/// mismo criterio en las 4 ramas de `conectar_recurso` (sin esto, `ssh`/
-/// `ftp`/`telnet` heredarían la consola de este proceso, que no es una
-/// terminal interactiva real). Nunca pasa por `cmd /c`/`powershell -Command`
-/// (evita el mismo tipo de bug de inyección que `ellkan_askpass.exe` evita
-/// del lado del secreto, pero acá con `host`/`usuario` — datos que sí puede
-/// traer un import CSV/KDBX externo, F-27): cada valor es un argumento de
-/// `Command` separado, sin intérprete de shell de por medio.
+/// Separador de argumentos en `ELLKAN_CONECTAR_ARGV` (carácter de control
+/// "unit separator"): no puede aparecer en ningún argumento válido.
 #[cfg(target_os = "windows")]
-fn comando_en_terminal(programa: &Path, args: &[String]) -> std::process::Command {
+const SEPARADOR_ARGV: char = '\u{1F}';
+
+/// Comando FIJO que corre la consola de PowerShell cuando no hay Windows
+/// Terminal. Los datos (programa, argumentos, título) llegan por variables de
+/// entorno y se usan como valores, nunca se interpolan en el texto del comando:
+/// un `host` raro no puede convertirse en código. Las variables se borran antes
+/// de ejecutar, y el secreto nunca pasa por acá (lo trae el lanzador).
+#[cfg(target_os = "windows")]
+const COMANDO_POWERSHELL: &str = "$a = @($env:ELLKAN_CONECTAR_ARGV -split [char]0x1F); \
+  $Host.UI.RawUI.WindowTitle = $env:ELLKAN_CONECTAR_TITULO; \
+  Remove-Item Env:ELLKAN_CONECTAR_ARGV, Env:ELLKAN_CONECTAR_TITULO; \
+  $r = @($a | Select-Object -Skip 1); & $a[0] $r";
+
+/// Título de la pestaña o ventana: sin caracteres de control ni `;` (que
+/// `wt` interpreta como separador de comandos), y corto.
+#[cfg(target_os = "windows")]
+fn titulo_seguro(titulo: Option<&str>, tipo: &str, host: &str) -> String {
+  let limpio: String = titulo
+    .unwrap_or_default()
+    .chars()
+    .filter(|c| !c.is_control() && *c != ';')
+    .take(60)
+    .collect::<String>()
+    .trim()
+    .to_string();
+  if limpio.is_empty() { format!("{tipo} · {host}") } else { limpio }
+}
+
+/// Arma el `Command` que abre `argv` en una terminal interactiva (sin esto,
+/// `ssh`/`ftp`/`telnet` heredarían la consola de este proceso, que no es una
+/// terminal real):
+/// - Con Windows Terminal: `wt -w ellkan new-tab --title … -- argv…`. Todas
+///   las conexiones van como pestañas de una misma ventana «ellkan», o una
+///   ventana nueva cada vez (`-w new`) si el usuario lo prefiere.
+/// - Sin Windows Terminal: una consola de PowerShell (`System32`) que ejecuta
+///   `argv` con `COMANDO_POWERSHELL` y queda abierta al terminar.
+///
+/// Nunca se arma un texto de comando con los datos (`cmd /c "…"`,
+/// `powershell -Command "… host …"`): `host`/`usuario` pueden venir de un import
+/// CSV/KDBX externo (F-27), así que cada valor viaja como argumento separado o
+/// como valor de una variable de entorno.
+#[cfg(target_os = "windows")]
+fn comando_en_terminal(argv: &[String], titulo: &str, en_pestanas: bool) -> std::process::Command {
+  use std::os::windows::process::CommandExt;
+  const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
   if let Some(wt) = buscar_en_path("wt.exe") {
     // `--` le dice a `wt` que todo lo que sigue es el programa+argumentos a
     // ejecutar tal cual, no opciones propias de `wt`.
     let mut c = std::process::Command::new(wt);
-    c.arg("--").arg(programa);
-    c.args(args);
-    c
-  } else {
-    let mut c = std::process::Command::new(programa);
-    c.args(args);
-    use std::os::windows::process::CommandExt;
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    c.creation_flags(CREATE_NEW_CONSOLE);
-    c
+    c.args(["-w", if en_pestanas { "ellkan" } else { "new" }, "new-tab", "--title", titulo, "--"]);
+    c.args(argv);
+    return c;
   }
+
+  // PowerShell 5.1 descarta los argumentos vacíos al llamar un programa: si
+  // hubiera alguno (o el separador), se lanza el programa directo.
+  let argv_apto = argv.iter().all(|a| !a.is_empty() && !a.contains(SEPARADOR_ARGV));
+  if let Some(powershell) = buscar_en_sistema("powershell.exe").filter(|_| argv_apto) {
+    let mut c = std::process::Command::new(powershell);
+    c.args(["-NoLogo", "-NoProfile", "-NoExit", "-Command", COMANDO_POWERSHELL]);
+    c.env("ELLKAN_CONECTAR_ARGV", argv.join(&SEPARADOR_ARGV.to_string()));
+    c.env("ELLKAN_CONECTAR_TITULO", titulo);
+    c.creation_flags(CREATE_NEW_CONSOLE);
+    return c;
+  }
+
+  let mut c = std::process::Command::new(&argv[0]);
+  c.args(&argv[1..]);
+  c.creation_flags(CREATE_NEW_CONSOLE);
+  c
 }
 
 /// "Conectar" desde la GUI (F-49, spec/13 §9). Qué se lanza y cómo se entrega
@@ -288,9 +477,27 @@ fn comando_en_terminal(programa: &Path, args: &[String]) -> std::process::Comman
 ///   teclas (el mismo anti-patrón que spec/13 §11bis rechaza para Wayland), el
 ///   frontend deja el secreto en el portapapeles con auto-limpieza ANTES de
 ///   llamar acá; el parámetro `secreto` no se usa para estos tipos.
+///
+/// En una terminal, `ssh`/`psql`/`mysql` no se lanzan directo: los lanza
+/// `ellkan_askpass.exe --lanzar`, que recibe el secreto por una tubería de un
+/// solo uso (`tuberia.rs`). Con pestañas de Windows Terminal el proceso de la
+/// pestaña no hereda el entorno de esta app, así que el secreto no puede viajar
+/// como variable de entorno desde acá.
+///
+/// `titulo` (nombre del recurso) va en la pestaña; `en_pestanas` (por defecto
+/// sí) elige entre una ventana «ellkan» con pestañas o una ventana por conexión.
 #[cfg(target_os = "windows")]
 #[tauri::command]
-fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto: u16, secreto: String) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn conectar_recurso(
+  tipo: String,
+  usuario: Option<String>,
+  host: String,
+  puerto: u16,
+  secreto: String,
+  titulo: Option<String>,
+  en_pestanas: Option<bool>,
+) -> Result<(), String> {
   use ellkan_backend::desktop::conectar::{planificar, Inyeccion, Ventana};
 
   let secreto = Zeroizing::new(secreto);
@@ -298,7 +505,24 @@ fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto:
   let programa = plan.programas.iter().find_map(|nombre| buscar_en_path(nombre)).ok_or_else(|| plan.falta.to_string())?;
 
   let mut comando = match plan.ventana {
-    Ventana::Terminal => comando_en_terminal(&programa, &plan.args),
+    Ventana::Terminal => {
+      let mut argv: Vec<String> = Vec::new();
+      let modo = match plan.inyeccion {
+        Inyeccion::Askpass => Some("askpass".to_string()),
+        Inyeccion::Entorno(variable) => Some(format!("env:{variable}")),
+        _ => None,
+      };
+      if let Some(modo) = modo {
+        let lanzador = ruta_askpass_helper()
+          .map_err(|e| format!("no se pudo preparar la conexión asistida ({e:#}) — copiá el comando y pegá la contraseña a mano"))?;
+        let tuberia = tuberia::servir_secreto_una_vez(Zeroizing::new(secreto.to_string()), &lanzador)?;
+        argv.extend([lanzador.to_string_lossy().into_owned(), "--lanzar".into(), tuberia, modo, "--".into()]);
+      }
+      argv.push(programa.to_string_lossy().into_owned());
+      argv.extend(plan.args.iter().cloned());
+      let titulo = titulo_seguro(titulo.as_deref(), &tipo, &host);
+      comando_en_terminal(&argv, &titulo, en_pestanas.unwrap_or(true))
+    }
     Ventana::Propia => {
       let mut c = std::process::Command::new(&programa);
       c.args(&plan.args);
@@ -308,6 +532,8 @@ fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto:
 
   let mut credencial_rdp = false;
   match plan.inyeccion {
+    // En terminal el secreto ya lo entrega la tubería (arriba).
+    Inyeccion::Askpass | Inyeccion::Entorno(_) if plan.ventana == Ventana::Terminal => {}
     Inyeccion::Askpass => {
       let askpass = ruta_askpass_helper()
         .map_err(|e| format!("no se pudo preparar la conexión asistida ({e:#}) — copiá el comando y pegá la contraseña a mano"))?;
@@ -344,8 +570,17 @@ fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto:
 
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
-fn conectar_recurso(tipo: String, usuario: Option<String>, host: String, puerto: u16, secreto: String) -> Result<(), String> {
-  let _ = (tipo, usuario, host, puerto, secreto);
+#[allow(clippy::too_many_arguments)]
+fn conectar_recurso(
+  tipo: String,
+  usuario: Option<String>,
+  host: String,
+  puerto: u16,
+  secreto: String,
+  titulo: Option<String>,
+  en_pestanas: Option<bool>,
+) -> Result<(), String> {
+  let _ = (tipo, usuario, host, puerto, secreto, titulo, en_pestanas);
   Err("Conectar (F-49) todavía sólo está implementado en Windows".to_string())
 }
 
@@ -891,6 +1126,8 @@ pub fn run() {
     // esos clics y los manda al navegador default del SO.
     .plugin(tauri_plugin_opener::init())
     .invoke_handler(tauri::generate_handler![
+      registrar_desde_web,
+      tomar_cambios_extension,
       puerto_backend,
       puerto_configurado,
       configurar_puerto_fijo,
@@ -916,7 +1153,8 @@ pub fn run() {
       enlace_pendiente,
       simular_bloqueo_de_pantalla,
       copiar_secreto,
-      vaciar_portapapeles
+      vaciar_portapapeles,
+      limpiar_restos_revocacion
     ])
     // F-45: qué hace la "X" depende de la preferencia del usuario (`AlCerrar`).
     // Antes SIEMPRE ocultaba a la bandeja sin avisar: el usuario "cerraba" la
@@ -952,21 +1190,37 @@ pub fn run() {
     })
     .setup(|app| {
       // Log a archivo (`Ellkan.log` en la carpeta de logs de la app), con
-      // rotación. En debug también va a la salida estándar, con más detalle;
-      // en release sólo avisos y errores (no hay consola) para que haya con
-      // qué diagnosticar sin llenar el disco ni registrar de más.
+      // rotación: hasta `LOG_MAX_BYTES` por archivo y los `LOG_ARCHIVOS_VIEJOS`
+      // anteriores; lo más viejo se borra solo, nunca pasa de ~20 MB.
+      //
+      // 2026-10-18: antes en release sólo guardaba avisos y errores, y el
+      // «error interno» del sync no dejó ni una línea para diagnosticar. Ahora
+      // el código de Ellkan (app + backend local + errores de la interfaz,
+      // `registrar_desde_web`) va en `info`; las dependencias (webview, sqlx,
+      // hyper…) siguen en `warn` para no llenarlo de ruido. Nunca secretos:
+      // el backend sólo registra método, ruta, status y latencia.
       let mut registro = tauri_plugin_log::Builder::default()
-        .max_file_size(2_000_000)
-        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3));
-      registro = if cfg!(debug_assertions) {
-        registro.level(log::LevelFilter::Info)
-      } else {
-        registro
-          .level(log::LevelFilter::Warn)
+        .max_file_size(LOG_MAX_BYTES)
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(LOG_ARCHIVOS_VIEJOS))
+        .level(log::LevelFilter::Warn)
+        .level_for("ellkan_desktop_lib", log::LevelFilter::Info)
+        .level_for("ellkan_desktop", log::LevelFilter::Info)
+        .level_for("ellkan_backend", log::LevelFilter::Info)
+        .level_for(TARGET_WEB, log::LevelFilter::Info);
+      if !cfg!(debug_assertions) {
+        // Release: sin consola, sólo el archivo.
+        registro = registro
           .clear_targets()
-          .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }))
-      };
+          .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }));
+      }
       app.handle().plugin(registro.build())?;
+      log::info!(
+        "Ellkan {VERSION_APP} iniciando — {} {}, {}, datos en {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        if portable::activo() { "modo portable" } else { "instalada" },
+        datadir().display()
+      );
 
       // F-51: Atajo global de teclado (Ctrl+Shift+Espacio) para invocar acceso rápido
       let atajo = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
@@ -1047,12 +1301,32 @@ pub fn run() {
           .build(app)?;
       }
 
+      // Cuando la extensión cambia un recurso (por native messaging o por el
+      // puerto TCP), el backend local avisa acá y se le pasa a la interfaz
+      // para que lo suba al servidor vinculado (`cambios_extension`).
+      let _ = APP.set(app.handle().clone());
+      ellkan_backend::desktop::cambios_extension::al_cambiar(|id, operacion| {
+        use tauri::Emitter;
+        // Primero al archivo: si la bóveda está bloqueada nadie escucha el
+        // evento y el cambio se perdía (bug real 2026-10-18).
+        anotar_cambio_de_extension(id, operacion);
+        if let Some(app) = APP.get() {
+          let _ = app.emit("recurso-cambiado-por-extension", serde_json::json!({ "id": id, "operacion": operacion }));
+        }
+      });
+
       match tauri::async_runtime::block_on(preparar_backend_local()) {
-        Ok((listener, puerto, router, puerto_ocupado)) => {
+        Ok((listener, puerto, router, fallo_fijo)) => {
           app.manage(PuertoBackend(puerto));
-          if let Some(esperado) = puerto_ocupado {
-            log::warn!("el puerto fijo {esperado} estaba ocupado: se usa el {puerto} sólo en esta sesión");
-            mostrar_aviso(app.handle(), serde_json::json!({ "tipo": "puerto", "esperado": esperado, "actual": puerto }));
+          if let Some(fallo) = fallo_fijo {
+            let esperado = fallo.puerto;
+            let tipo = match (fallo.reservado, fallo.reemplazado) {
+              (true, true) => "puerto_reservado_cambiado",
+              (true, false) => "puerto_reservado",
+              (false, _) => "puerto",
+            };
+            log::warn!("el puerto fijo {esperado} no estaba disponible ({tipo}): se usa el {puerto}");
+            mostrar_aviso(app.handle(), serde_json::json!({ "tipo": tipo, "esperado": esperado, "actual": puerto }));
           }
           // Punto 9: si la app se actualizó, las extensiones de navegador que
           // el usuario ya instaló desde acá se actualizan con ella, y llevan

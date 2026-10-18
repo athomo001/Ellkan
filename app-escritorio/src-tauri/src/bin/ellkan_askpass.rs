@@ -82,8 +82,122 @@ fn confirmar(_texto: &str) -> bool {
     false
 }
 
+/// Modo lanzador de «Conectar»: `--lanzar <tubería> <modo> -- <programa> <args...>`.
+///
+/// Lo ejecuta la terminal (pestaña de Windows Terminal o consola de
+/// PowerShell) en lugar del cliente. Lee el secreto de la tubería que publicó
+/// la app (sólo este ejecutable puede leerla, una vez) y lanza el cliente con
+/// el secreto en SU entorno: así funciona aunque la pestaña la cree un proceso
+/// de Windows Terminal que no heredó nada de la app.
+///
+/// `modo`: `askpass` (ssh: este mismo ejecutable como `SSH_ASKPASS`) o
+/// `env:<VARIABLE>` (psql/mysql). Si la tubería falla, el cliente arranca
+/// igual sin secreto y lo pide en la terminal: degradación segura.
+const ARG_LANZAR: &str = "--lanzar";
+
+/// Variables que el lanzador acepta para entregar el secreto: no se deja
+/// elegir una arbitraria (por ejemplo `PATH` o `COMSPEC`).
+const VARIABLES_PERMITIDAS: &[&str] = &["PGPASSWORD", "MYSQL_PWD"];
+
+/// Nombre corto válido de una tubería creada por la app.
+fn nombre_de_tuberia_valido(nombre: &str) -> bool {
+    nombre
+        .strip_prefix("ellkan-conectar-")
+        .is_some_and(|resto| resto.len() == 32 && resto.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Entrega {
+    Askpass,
+    Variable(&'static str),
+}
+
+/// Valida `<tubería> <modo> -- <programa> <args...>`.
+fn interpretar_lanzar(args: &[String]) -> Result<(&str, Entrega, &str, &[String]), String> {
+    let [tuberia, modo, separador, programa, resto @ ..] = args else {
+        return Err("uso: --lanzar <tubería> <modo> -- <programa> [args...]".into());
+    };
+    if separador != "--" {
+        return Err("falta `--` antes del programa".into());
+    }
+    if !nombre_de_tuberia_valido(tuberia) {
+        return Err("nombre de tubería inválido".into());
+    }
+    let entrega = match modo.as_str() {
+        "askpass" => Entrega::Askpass,
+        otro => {
+            let variable = otro.strip_prefix("env:").unwrap_or_default();
+            let permitida = VARIABLES_PERMITIDAS
+                .iter()
+                .find(|v| **v == variable)
+                .ok_or_else(|| format!("modo de entrega no permitido: {otro}"))?;
+            Entrega::Variable(permitida)
+        }
+    };
+    Ok((tuberia.as_str(), entrega, programa.as_str(), resto))
+}
+
+fn leer_secreto(tuberia: &str) -> std::io::Result<zeroize::Zeroizing<String>> {
+    use std::io::Read;
+    let mut archivo = std::fs::File::open(format!(r"\\.\pipe\{tuberia}"))?;
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    let mut bloque = zeroize::Zeroizing::new([0u8; 512]);
+    loop {
+        match archivo.read(&mut bloque[..]) {
+            Ok(0) => break,
+            Ok(n) => bytes.extend_from_slice(&bloque[..n]),
+            // 233 = ERROR_PIPE_NOT_CONNECTED: la app cerró su lado después de escribir.
+            Err(e) if e.raw_os_error() == Some(233) || e.kind() == std::io::ErrorKind::BrokenPipe => break,
+            Err(e) => return Err(e),
+        }
+    }
+    if bytes.is_empty() {
+        return Err(std::io::Error::other("la tubería no entregó nada"));
+    }
+    let texto = std::str::from_utf8(&bytes).map_err(|_| std::io::Error::other("secreto no es UTF-8"))?;
+    Ok(zeroize::Zeroizing::new(texto.to_string()))
+}
+
+fn lanzar(args: &[String]) -> i32 {
+    let (tuberia, entrega, programa, resto) = match interpretar_lanzar(args) {
+        Ok(partes) => partes,
+        Err(e) => {
+            eprintln!("Ellkan: {e}");
+            return 2;
+        }
+    };
+    let mut comando = std::process::Command::new(programa);
+    comando.args(resto);
+    match leer_secreto(tuberia) {
+        Ok(secreto) => match entrega {
+            Entrega::Askpass => {
+                if let Ok(yo) = std::env::current_exe() {
+                    comando.env("SSH_ASKPASS_REQUIRE", "force");
+                    comando.env("SSH_ASKPASS", yo);
+                    comando.env("ELLKAN_ASKPASS_SECRET", secreto.as_str());
+                }
+            }
+            Entrega::Variable(variable) => {
+                comando.env(variable, secreto.as_str());
+            }
+        },
+        Err(e) => eprintln!("Ellkan: no se pudo recibir la contraseña ({e}); escribila a mano cuando te la pidan."),
+    }
+    match comando.status() {
+        Ok(estado) => estado.code().unwrap_or(1),
+        Err(e) => {
+            eprintln!("Ellkan: no se pudo ejecutar {programa}: {e}");
+            1
+        }
+    }
+}
+
 fn main() {
-    let pregunta = std::env::args().nth(1).unwrap_or_default();
+    let argumentos: Vec<String> = std::env::args().skip(1).collect();
+    if argumentos.first().map(String::as_str) == Some(ARG_LANZAR) {
+        std::process::exit(lanzar(&argumentos[1..]));
+    }
+    let pregunta = argumentos.first().cloned().unwrap_or_default();
     let modo = std::env::var("SSH_ASKPASS_PROMPT").ok();
 
     match clasificar(&pregunta, modo.as_deref()) {
@@ -109,6 +223,31 @@ fn main() {
 #[cfg(test)]
 mod pruebas {
     use super::*;
+
+    fn v(partes: &[&str]) -> Vec<String> {
+        partes.iter().map(|p| p.to_string()).collect()
+    }
+
+    const TUBERIA: &str = "ellkan-conectar-0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn lanzar_acepta_askpass_y_las_variables_permitidas() {
+        let args = v(&[TUBERIA, "askpass", "--", "ssh.exe", "-p", "22", "u@h"]);
+        let (t, e, p, r) = interpretar_lanzar(&args).unwrap();
+        assert_eq!((t, e, p, r.len()), (TUBERIA, Entrega::Askpass, "ssh.exe", 3));
+        let args = v(&[TUBERIA, "env:PGPASSWORD", "--", "psql.exe"]);
+        assert_eq!(interpretar_lanzar(&args).unwrap().1, Entrega::Variable("PGPASSWORD"));
+    }
+
+    #[test]
+    fn lanzar_rechaza_variables_y_tuberias_arbitrarias() {
+        assert!(interpretar_lanzar(&v(&[TUBERIA, "env:PATH", "--", "x.exe"])).is_err());
+        assert!(interpretar_lanzar(&v(&[TUBERIA, "env:", "--", "x.exe"])).is_err());
+        assert!(interpretar_lanzar(&v(&["otra-tuberia", "askpass", "--", "x.exe"])).is_err());
+        assert!(interpretar_lanzar(&v(&[r"..\pipe\x", "askpass", "--", "x.exe"])).is_err());
+        assert!(interpretar_lanzar(&v(&[TUBERIA, "askpass", "x.exe"])).is_err());
+        assert!(interpretar_lanzar(&v(&[TUBERIA, "askpass", "-x", "x.exe"])).is_err());
+    }
 
     const HUELLA: &str = "The authenticity of host 'srv (10.0.0.5)' can't be established.\nED25519 key fingerprint is SHA256:abc123.\nThis key is not known by any other names.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ";
 

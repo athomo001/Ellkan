@@ -12,7 +12,9 @@ node_modules/
 /target/
 **/target/
 
-# Investigación local, nunca debe entrar a una imagen
+# Investigación local, nunca debe entrar a una imagen (los clones viven en
+# `investigacion/`; las dos rutas de abajo son las de antes).
+/investigacion/
 /passbolt/
 /bitwarden/
 

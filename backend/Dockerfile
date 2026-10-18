@@ -68,6 +68,8 @@ COPY --from=frontend-builder /build/build /app/frontend
 # runtime a propósito: un operador puede montar un volumen encima de
 # `/app/templates` para personalizar los correos sin reconstruir la imagen.
 COPY backend/templates /app/templates
+# spec/14 punto 6.9: la licencia y los avisos de terceros viajan en la imagen.
+COPY LICENSE THIRD-PARTY-NOTICES.md /app/
 
 # Las migraciones quedan embebidas en el binario en tiempo de compilación
 # (`sqlx::migrate!`), no se leen de disco en runtime — nada que copiar acá.

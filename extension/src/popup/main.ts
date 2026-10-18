@@ -10,6 +10,12 @@ import { PortClient } from '../shared/port-client';
 import { BrowserApi } from '../browser-api';
 import type { ResultadoLogin } from '../background/services/auth-service';
 import type { ItemVault, SecretoRevelado, DatosRecurso } from '../background/services/vault-service';
+
+/** Mismos valores que `vault-service.ts`/`auth-service.ts` (importarlos desde
+ * ahí arrastraría el código del service worker al popup). */
+const MENSAJE_SESION_INVALIDA = 'La sesión ya no es válida. Iniciá sesión de nuevo.';
+const MENSAJE_SESION_VENCIDA = 'La sesión venció. Desbloqueá de nuevo para continuar.';
+const MARCA_SESION_INVALIDA = 'ellkan.aviso.sesion_invalida';
 import { comandoDeConexion, urlAbrible, hostnameParaFavicon } from './conexion';
 import { generarPassword, type ReglasCharset } from '../../../frontend/src/lib/crypto/passwordGenerator';
 import { evaluarFortaleza, cargarMedidor } from '../../../frontend/src/lib/crypto/passwordStrength';
@@ -18,8 +24,43 @@ import { evaluarFortaleza, cargarMedidor } from '../../../frontend/src/lib/crypt
 // popup conviene tenerlo listo antes de abrir un detalle o el generador.
 void cargarMedidor();
 import { generarFraseDePaso, type OpcionesFraseDePaso } from './passphrase-generator';
+import { atraparFoco } from '../../../frontend/src/lib/a11y/foco';
 
 const cliente = new PortClient('QuickAccess');
+
+// Fuente de lectura (accesibilidad): el botón «Aa» rota entre la fuente
+// predeterminada y las tres de lectura. Preferencia local de este navegador
+// en `storage.local` — no es un secreto ni viaja al servidor.
+const FUENTES_LECTURA = ['predeterminada', 'opendyslexic', 'atkinson', 'lexend'] as const;
+type FuenteLectura = (typeof FUENTES_LECTURA)[number];
+const NOMBRE_FUENTE: Record<FuenteLectura, string> = {
+	predeterminada: 'predeterminada',
+	opendyslexic: 'OpenDyslexic',
+	atkinson: 'Atkinson Hyperlegible',
+	lexend: 'Lexend'
+};
+const CLAVE_LECTURA = 'fuenteLecturaPopup';
+const botonLectura = document.getElementById('boton-lectura') as HTMLButtonElement;
+
+function aplicarFuenteLectura(fuente: FuenteLectura): void {
+	document.documentElement.dataset.fuente = fuente;
+	const activa = fuente !== 'predeterminada';
+	botonLectura.setAttribute('aria-pressed', String(activa));
+	botonLectura.title = `Fuente de lectura: ${NOMBRE_FUENTE[fuente]}`;
+	botonLectura.setAttribute('aria-label', `Cambiar fuente de lectura (actual: ${NOMBRE_FUENTE[fuente]})`);
+}
+
+void BrowserApi.storageLocalGet<Record<string, unknown>>(CLAVE_LECTURA).then((guardado) => {
+	const valor = guardado[CLAVE_LECTURA];
+	aplicarFuenteLectura(FUENTES_LECTURA.includes(valor as FuenteLectura) ? (valor as FuenteLectura) : 'predeterminada');
+});
+
+botonLectura.addEventListener('click', () => {
+	const actual = (document.documentElement.dataset.fuente ?? 'predeterminada') as FuenteLectura;
+	const siguiente = FUENTES_LECTURA[(FUENTES_LECTURA.indexOf(actual) + 1) % FUENTES_LECTURA.length];
+	aplicarFuenteLectura(siguiente);
+	void BrowserApi.storageLocalSet({ [CLAVE_LECTURA]: siguiente });
+});
 
 const vistas = {
 	cargando: document.getElementById('vista-cargando') as HTMLElement,
@@ -65,6 +106,21 @@ const hintServidorEscritorio = document.getElementById('hint-servidor-escritorio
 const SERVIDOR_POR_DEFECTO = 'http://localhost:8080';
 const SERVIDOR_LOCAL_VALIDO = /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}$/;
 let servidorInicial = SERVIDOR_POR_DEFECTO;
+
+/** F-56: mismo valor que `background/transporte.ts` (importarlo desde ahí
+ * arrastraría código del service worker al popup). */
+const URL_APP_ESCRITORIO = 'ellkan-app://este-equipo';
+
+/** Cómo se muestra el servidor: la app de escritorio no tiene URL legible. */
+function nombreDeServidor(serverUrl: string): string {
+	return serverUrl.startsWith('ellkan-app:') ? 'App de escritorio de este equipo' : serverUrl;
+}
+
+/** Enlace "abrir": con la app de escritorio, la abre (`ellkan://abrir`); con
+ * un servidor, su app web en `ruta`. */
+function enlaceAlServidor(serverUrl: string, ruta: string): string {
+	return serverUrl.startsWith('ellkan-app:') ? 'ellkan://abrir' : `${serverUrl}${ruta}`;
+}
 
 async function leerServidorDeEscritorio(): Promise<string | null> {
 	try {
@@ -375,7 +431,7 @@ function abrirDetalle(item: ItemVault): void {
 	// todavía (sólo `/vault` general) — igual sirve como salida real a
 	// compartir/editar/borrar, que Quick Access no hace (sigue siendo sólo
 	// lectura, spec 06 §5bis).
-	detalleAbrirWeb.href = `${servidorActual}/vault`;
+	detalleAbrirWeb.href = enlaceAlServidor(servidorActual, '/vault');
 
 	detalleCreado.textContent = FORMATO_FECHA.format(new Date(item.createdAt));
 	detalleModificado.textContent = FORMATO_FECHA.format(new Date(item.updatedAt));
@@ -677,10 +733,18 @@ function abrirGenerador(standalone: boolean): void {
 	generadorCantidadPalabrasValor.textContent = generadorCantidadPalabras.value;
 	cambiarModoGenerador('aleatoria');
 	modalGenerador.classList.remove('oculto');
+	// WCAG 2.4.3: el foco entra al diálogo, Tab queda adentro y al cerrar
+	// vuelve al botón que lo abrió (misma acción que los modales de la web).
+	liberarFocoGenerador?.();
+	liberarFocoGenerador = atraparFoco(modalGenerador.querySelector('.modal-generador') as HTMLElement).destroy;
 }
+
+let liberarFocoGenerador: (() => void) | undefined;
 
 function cerrarGenerador(): void {
 	modalGenerador.classList.add('oculto');
+	liberarFocoGenerador?.();
+	liberarFocoGenerador = undefined;
 }
 
 generadorLargo.addEventListener('input', () => {
@@ -731,8 +795,8 @@ botonCopiarCerrarGenerador.addEventListener('click', async () => {
 // passphrase/avatar/MFA, eso sigue siendo trabajo de la app completa. ---
 botonCuenta.addEventListener('click', () => {
 	cuentaEmail.textContent = emailActual;
-	cuentaServidor.textContent = servidorActual;
-	cuentaAbrirWeb.href = `${servidorActual}/settings`;
+	cuentaServidor.textContent = nombreDeServidor(servidorActual);
+	cuentaAbrirWeb.href = enlaceAlServidor(servidorActual, '/settings');
 	void refrescarEstadoF38();
 	mostrarVista('cuenta');
 });
@@ -853,8 +917,30 @@ async function cargarVault(): Promise<void> {
 		// esto la columna derecha queda vacía hasta el primer clic.
 		if (!itemDetalleActual && itemsVault.length > 0) abrirDetalle(itemsVault[0]);
 	} catch (error) {
+		// Revocación remota: el service worker ya cerró la sesión y purgó todo.
+		if (error instanceof Error && error.message === MENSAJE_SESION_INVALIDA) {
+			void irAlLoginPorSesionInvalida();
+			return;
+		}
+		// Sesión vencida que pide MFA o dispositivo: el popup vuelve a armar su
+		// estado inicial, que ahora cae en la vista de desbloqueo.
+		if (error instanceof Error && error.message === MENSAJE_SESION_VENCIDA) {
+			location.reload();
+			return;
+		}
 		mostrarError(vaultError, error instanceof Error ? error.message : 'No se pudo cargar la bóveda.');
 	}
+}
+
+/** La sesión dejó de valer (cuenta bloqueada o borrada en el servidor, o la
+ * app de escritorio se vació): login desde cero, explicando por qué. */
+async function irAlLoginPorSesionInvalida(): Promise<void> {
+	await BrowserApi.storageLocalRemove(MARCA_SESION_INVALIDA);
+	itemsVault = [];
+	formLogin.reset();
+	campoServidor.value = servidorInicial;
+	mostrarVista('login');
+	mostrarError(errorLogin, MENSAJE_SESION_INVALIDA);
 }
 
 campoBuscar.addEventListener('input', () => renderizarLista(campoBuscar.value));
@@ -1020,7 +1106,7 @@ formDesbloqueo.addEventListener('submit', async (evento) => {
 	evento.preventDefault();
 	ocultarError(errorDesbloqueo);
 
-	const serverUrl = desbloqueoServidor.textContent ?? '';
+	const serverUrl = desbloqueoServidor.dataset.servidor ?? desbloqueoServidor.textContent ?? '';
 	const email = desbloqueoEmail.textContent ?? '';
 
 	botonDesbloquear.disabled = true;
@@ -1112,7 +1198,10 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 // estado siguiera vigente (bug real reportado por el usuario, para el caso
 // de dispositivo). ---
 (async () => {
-	const servidorDeEscritorio = await leerServidorDeEscritorio();
+	// F-56: con la app de escritorio de este equipo abierta, se usa por native
+	// messaging (sin puerto). Si no, el archivo de conexión de siempre.
+	const appDisponible = await cliente.request<boolean>('APP_ESCRITORIO_DISPONIBLE').catch(() => false);
+	const servidorDeEscritorio = appDisponible ? URL_APP_ESCRITORIO : await leerServidorDeEscritorio();
 	if (servidorDeEscritorio) {
 		servidorInicial = servidorDeEscritorio;
 		campoServidor.value = servidorDeEscritorio;
@@ -1145,11 +1234,19 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 		if (cuenta) {
 			cuentaBloqueadaPorInactividad = cuenta.lockedPorInactividad;
 			desbloqueoEmail.textContent = cuenta.email;
-			desbloqueoServidor.textContent = cuenta.serverUrl;
+			desbloqueoServidor.dataset.servidor = cuenta.serverUrl;
+			desbloqueoServidor.textContent = nombreDeServidor(cuenta.serverUrl);
 			campoDesbloqueoPassphrase.value = '';
 			ocultarError(errorDesbloqueo);
 			await prepararDesbloqueoF38();
 			mostrarVista('desbloqueo');
+			return;
+		}
+
+		// La sesión se cerró sola porque dejó de valer (ver `irAlLoginPorSesionInvalida`).
+		const marca = await BrowserApi.storageLocalGet<Record<string, boolean>>(MARCA_SESION_INVALIDA);
+		if (marca[MARCA_SESION_INVALIDA]) {
+			await irAlLoginPorSesionInvalida();
 			return;
 		}
 

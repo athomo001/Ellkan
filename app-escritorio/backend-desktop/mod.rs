@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 
+pub mod borrado_remoto;
+pub mod cambios_extension;
 pub mod conectar;
 pub mod descargas;
 pub mod enlaces;
@@ -155,6 +157,10 @@ struct DesktopJson {
     token: String,
     pid: u32,
     version: String,
+    /// F-56: nombre de la tubería por la que el host de native messaging
+    /// (`ellkan_nm_host.exe`) le pasa a la app los pedidos de la extensión.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pipe: Option<String>,
 }
 
 /// Escribe `~/.ellkan/desktop.json` (spec/13 §3) — el archivo de
@@ -171,9 +177,9 @@ struct DesktopJson {
 /// consumidores, pero no reemplaza ni debilita el `Authorization: Bearer
 /// <session_id>` real que `AuthenticatedUserDesktop` ya exige en cada
 /// request — ver `router.rs`.
-pub fn escribir_desktop_json(port: u16, version: &str) -> anyhow::Result<()> {
+pub fn escribir_desktop_json(port: u16, version: &str, pipe: Option<&str>) -> anyhow::Result<()> {
     let token = crate::b64::encode(&ellkan_crypto::aleatoriedad::bytes_aleatorios::<32>());
-    let datos = DesktopJson { port, token, pid: std::process::id(), version: version.to_string() };
+    let datos = DesktopJson { port, token, pid: std::process::id(), version: version.to_string(), pipe: pipe.map(str::to_string) };
     let ruta = dir_home_ellkan()?.join("desktop.json");
     escribir_archivo_privado(&ruta, &serde_json::to_vec_pretty(&datos)?)?;
     Ok(())
@@ -273,53 +279,82 @@ pub fn guardar_config(datadir: &Path, config: &ConfigApp) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// Rango del que se elige el puerto automático: 36000-47999, por DEBAJO del
+/// rango dinámico de Windows (49152-65535). Ahí Hyper-V, WSL y Docker
+/// reservan bloques enteros que cambian en cada reinicio (se ven con
+/// `netsh int ipv4 show excludedportrange protocol=tcp`), así que un puerto
+/// que hoy funciona mañana puede dar el error 10013. Antes se elegía en ese
+/// rango dinámico.
+pub const RANGO_PUERTO_AUTO: std::ops::RangeInclusive<u16> = 36000..=47999;
+
+/// Inicio del rango dinámico de Windows/IANA, donde están las reservas.
+const INICIO_RANGO_DINAMICO: u16 = 49152;
+
+/// Por qué no se pudo usar el puerto fijo guardado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FalloPuertoFijo {
+    pub puerto: u16,
+    /// `true`: Windows lo tiene reservado (error 10013, `PermissionDenied`);
+    /// `false`: otro proceso lo está usando.
+    pub reservado: bool,
+    /// `true` si se reemplazó para siempre por el puerto nuevo (ver `bindear_puerto`).
+    pub reemplazado: bool,
+}
+
+/// Error 10013 (`WSAEACCES`): el puerto está en un rango excluido del sistema.
+fn es_puerto_reservado(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(10013)
+}
+
 /// Bindea el backend local a un puerto real (spec/13 §3). Si ya hay un
 /// puerto fijo persistido (elegido por el usuario en Ajustes → Escritorio,
 /// vía el comando Tauri `configurar_puerto_fijo`, o autoelegido en un
-/// arranque anterior de este mismo mecanismo) intenta
-/// bindearlo primero; si no existe todavía o ya está tomado por otro
-/// proceso, prueba puertos al azar dentro del rango IANA privado/dinámico
-/// (`49152-65535`, nunca asignado oficialmente a ningún servicio — mismo
-/// rango que sugeriría el wizard) hasta lograr un bind real, y lo persiste
-/// como el nuevo fijo si todavía no había ninguno.
+/// arranque anterior de este mismo mecanismo) intenta bindearlo primero; si
+/// no existe todavía o no está disponible, prueba puertos al azar de
+/// `RANGO_PUERTO_AUTO` hasta lograr un bind real, y lo persiste como el nuevo
+/// fijo si todavía no había ninguno.
 ///
-/// **Nunca falla en silencio ni crashea el arranque**: si el puerto fijo
-/// configurado no pudo bindearse, se loguea como advertencia y se sigue
-/// con el fallback — la notificación nativa que spec/13 §3 pide para este
-/// caso (F-52) todavía no existe, pendiente de esa fase.
-pub async fn bindear_puerto(datadir: &Path) -> anyhow::Result<(tokio::net::TcpListener, u16)> {
+/// Si el fijo no se pudo usar, se devuelve el motivo para avisarle al usuario
+/// (F-52). Un fijo ocupado por otro proceso se reemplaza sólo en esta sesión.
+/// Un fijo RESERVADO por Windows que además está en el rango dinámico (lo
+/// eligió la versión anterior, que usaba ese rango) se reemplaza para siempre:
+/// ahí la reserva puede volver en cualquier reinicio.
+pub async fn bindear_puerto(datadir: &Path) -> anyhow::Result<(tokio::net::TcpListener, u16, Option<FalloPuertoFijo>)> {
     let mut config = cargar_config(datadir)?;
+    let mut fallo = None;
 
     if let Some(fijo) = config.puerto_fijo {
         match tokio::net::TcpListener::bind(("127.0.0.1", fijo)).await {
-            Ok(listener) => return Ok((listener, fijo)),
-            Err(e) => tracing::warn!(
-                puerto = fijo,
-                error = %e,
-                "puerto fijo configurado no está disponible — se usa uno libre sólo para esta sesión"
-            ),
+            Ok(listener) => return Ok((listener, fijo, None)),
+            Err(e) => {
+                let reservado = es_puerto_reservado(&e);
+                tracing::warn!(puerto = fijo, reservado, error = %e, "el puerto fijo configurado no está disponible");
+                fallo = Some(FalloPuertoFijo { puerto: fijo, reservado, reemplazado: reservado && fijo >= INICIO_RANGO_DINAMICO });
+            }
         }
     }
+    let persistir = config.puerto_fijo.is_none() || fallo.is_some_and(|f| f.reemplazado);
 
-    const RANGO_MIN: u16 = 49152;
-    const RANGO_ANCHO: u16 = 65535 - RANGO_MIN;
+    let inicio = *RANGO_PUERTO_AUTO.start();
+    let ancho = RANGO_PUERTO_AUTO.end() - inicio + 1;
     for _ in 0..50 {
         let bytes = ellkan_crypto::aleatoriedad::bytes_aleatorios::<2>();
-        let candidato = RANGO_MIN + (u16::from_le_bytes(bytes) % RANGO_ANCHO);
+        let candidato = inicio + (u16::from_le_bytes(bytes) % ancho);
         if let Ok(listener) = tokio::net::TcpListener::bind(("127.0.0.1", candidato)).await {
-            if config.puerto_fijo.is_none() {
+            if persistir {
                 config.puerto_fijo = Some(candidato);
                 if let Err(e) = guardar_config(datadir, &config) {
                     tracing::warn!(puerto = candidato, error = %e, "no se pudo persistir el puerto elegido");
                 }
             }
-            return Ok((listener, candidato));
+            return Ok((listener, candidato, fallo));
         }
     }
 
-    // Últimos recursos: dejar que el SO elija (puerto 0) — no debería
-    // llegar acá con 50 intentos sobre un rango de más de 16 mil puertos.
+    // Último recurso: dejar que el SO elija (puerto 0) — no debería llegar
+    // acá con 50 intentos sobre un rango de 12 mil puertos. No se persiste:
+    // el SO lo da del rango dinámico, el mismo que se quiere evitar.
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let puerto = listener.local_addr()?.port();
-    Ok((listener, puerto))
+    Ok((listener, puerto, fallo.map(|f| FalloPuertoFijo { reemplazado: false, ..f })))
 }

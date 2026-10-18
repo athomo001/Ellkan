@@ -19,7 +19,7 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 - **Búsqueda** por nombre, usuario o URI sobre lo ya cargado.
 - **Editar un recurso ya creado** — funciona tanto para recursos personales (`user_key`) como compartidos (`shared_key`); en este último caso re-cifra la metadata con la clave de metadata compartida y re-sella el secreto para todos los destinatarios actuales.
 - **Compartir un recurso** con otro usuario de la organización (sólo recursos de tipo compartible).
-- **Compartir externo** (`/s/{id}`): genera un link de un solo uso (o hasta N vistas) para alguien sin cuenta en Ellkan, con expiración configurable y contraseña adicional opcional. El servidor sólo guarda un blob cifrado — la clave vive en el fragmento de la URL, que nunca se manda al servidor.
+- **Compartir externo** (`/s/{id}`): genera un link de un solo uso (o hasta N vistas) para alguien sin cuenta en Ellkan, con expiración configurable y contraseña adicional opcional. El servidor sólo guarda un blob cifrado — la clave vive en el fragmento de la URL, que el navegador no le manda al servidor. **Es una excepción deliberada al zero-knowledge**: quien tenga el link completo puede abrir ese secreto (por eso los links vencen, se agotan y pueden exigir una contraseña adicional enviada por otro canal).
 
 ## Organización
 
@@ -32,7 +32,7 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 - Política de MFA (TOTP obligatorio u opcional, días de gracia).
 - Política de contraseña/passphrase (longitud, entropía mínima, reglas del generador).
 - Retención y purga automática de datos vencidos (nunca toca el audit log).
-- Recuperación de cuenta con custodia y aprobación por umbral de administradores.
+- Recuperación de cuenta con custodia y aprobación por umbral de administradores. Si se activa, es otra vía para recuperar el acceso además de la passphrase y del kit de recuperación propio: la organización custodia una copia sellada de las claves que sólo se abre con la aprobación de varios administradores.
 - Acceso de emergencia entre pares (designar un contacto de confianza, solicitar, aprobar, o resolución automática por tiempo agotado).
 - Política de aprobación de dispositivo nuevo (email vs. dispositivo de confianza).
 - Política de Compartir Externo (habilitar/deshabilitar, expiración máxima, exigir contraseña adicional).

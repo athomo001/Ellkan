@@ -133,35 +133,57 @@ export async function importar(
 	userId: string,
 	/** Tipo para las filas sin columna `type` (o con uno desconocido, ej. el
 	 * `login` de Bitwarden). F-58: permite importar un CSV de tokens. */
-	tipoPorDefecto: TipoRecurso = 'login-password'
+	tipoPorDefecto: TipoRecurso = 'login-password',
+	/** Barra de progreso: se llama antes de cada fila con la que va. */
+	alAvanzar?: (avance: { hechos: number; total: number; nombre?: string }) => void
 ): Promise<number> {
 	await exportEventsApi.reportar({ event_type: 'import', format: formato, resource_count: filas.length });
 
 	let creados = 0;
 	for (const fila of filas) {
+		alAvanzar?.({ hechos: creados, total: filas.length, nombre: fila.name });
 		// `login-password-totp` lo vuelve a derivar `crearRecurso` si hay TOTP.
 		const slug = fila.type === 'login-password-totp' ? 'login-password' : fila.type;
 		const tipo = TIPOS_RECURSO.find((t) => t === slug) ?? tipoPorDefecto;
-		await crearRecurso(
-			{
-				tipo,
-				nombre: fila.name,
-				usuario: fila.username,
-				uri: fila.uri,
-				password: fila.password,
-				notas: fila.notes,
-				totpSecretBase32: fila.totp_secret || undefined,
-				keyId: fila.key_id,
-				tokenSecret: fila.token_secret,
-				scopes: fila.scopes,
-				expiresAt: fila.expires_at
-			},
-			claves,
-			userId
-		);
+		try {
+			await crearRecurso(
+				{
+					tipo,
+					nombre: fila.name,
+					usuario: fila.username,
+					uri: fila.uri,
+					password: fila.password,
+					notas: fila.notes,
+					totpSecretBase32: fila.totp_secret || undefined,
+					keyId: fila.key_id,
+					tokenSecret: fila.token_secret,
+					scopes: fila.scopes,
+					expiresAt: fila.expires_at
+				},
+				claves,
+				userId
+			);
+		} catch (err) {
+			// Las anteriores ya quedaron creadas: el error dice en cuál cortó,
+			// así se puede reimportar sólo lo que falta.
+			throw new ErrorImportParcial(creados, filas.length, fila.name, err);
+		}
 		creados++;
 	}
+	alAvanzar?.({ hechos: creados, total: filas.length });
 	return creados;
+}
+
+/** Importación cortada a mitad de camino: `creados` filas ya están en el vault. */
+export class ErrorImportParcial extends Error {
+	constructor(
+		public creados: number,
+		public total: number,
+		public nombre: string,
+		public causa: unknown
+	) {
+		super(causa instanceof Error ? causa.message : String(causa));
+	}
 }
 
 export function detectarFormatoPorNombre(nombreArchivo: string): FormatoExport | undefined {

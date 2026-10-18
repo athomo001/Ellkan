@@ -55,3 +55,7 @@ Thumbs.db
 # Logs y artefactos de test
 *.log
 coverage/
+
+# Resultados de Playwright (pnpm test:a11y)
+frontend/test-results/
+frontend/playwright-report/

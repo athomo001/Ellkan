@@ -22,6 +22,7 @@
 	} from '$lib/sync/vinculacion';
 	import { sincronizarAhora, type ResultadoSync } from '$lib/sync/motor';
 	import { unirConCuentaDelServidor, type PasoUnion } from '$lib/sync/union';
+	import { ErrorRequiereNuevaFrase } from '$lib/sync/vinculacion';
 	import { goto } from '$app/navigation';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import { estadoSync } from '$lib/sync/notificador';
@@ -31,11 +32,26 @@
 	import { verificarTraspaso } from '$lib/sync/diagnostico';
 	import type { InformeTraspaso } from '$lib/sync/traspaso';
 	import { ApiError } from '$lib/api/client';
+	import { base64ABytes } from '$lib/crypto/b64';
 
 	const email = $derived($sesion.email ?? '');
 	let vinculacion = $state<ReturnType<typeof obtenerVinculacion>>(null);
 	$effect(() => {
 		vinculacion = email ? obtenerVinculacion(email) : null;
+	});
+
+	// Revocación remota: huella de la clave del servidor fijada al vincular
+	// (SHA-256, primeros 16 bytes), para compararla con la del servidor.
+	let huellaServidor = $state<string | null>(null);
+	$effect(() => {
+		const clave = vinculacion?.serverKeyB64;
+		huellaServidor = null;
+		if (!clave) return;
+		crypto.subtle.digest('SHA-256', base64ABytes(clave) as BufferSource).then((h) => {
+			huellaServidor = Array.from(new Uint8Array(h).slice(0, 16), (b) => b.toString(16).padStart(2, '0'))
+				.join('')
+				.replace(/(.{4})(?!$)/g, '$1 ');
+		});
 	});
 
 	let modo = $state<'existente' | 'nueva'>('existente');
@@ -54,17 +70,29 @@
 	let pasoUnion = $state<PasoUnion | undefined>();
 	let errorUnion = $state<string | undefined>();
 
+	// Cuenta del servidor con frase temporal (creada por un admin): se pide una nueva.
+	let pedirFraseNueva = $state(false);
+	let passphraseNueva = $state('');
+	let passphraseNuevaConfirmar = $state('');
+
 	async function unir() {
 		errorUnion = undefined;
+		if (pedirFraseNueva && passphraseNueva !== passphraseNuevaConfirmar) {
+			errorUnion = $t.settingsSync.union.noCoinciden;
+			return;
+		}
 		uniendo = true;
 		try {
-			await unirConCuentaDelServidor(serverUrl, passphraseServidor, (p) => (pasoUnion = p));
+			await unirConCuentaDelServidor(serverUrl, passphraseServidor, (p) => (pasoUnion = p), pedirFraseNueva ? passphraseNueva : undefined);
 			passphraseServidor = '';
+			passphraseNueva = '';
+			passphraseNuevaConfirmar = '';
 			// La identidad es nueva: el kit de recuperación anterior ya no sirve.
 			const kit = await recoveryKitApi.estado().catch(() => undefined);
 			goto(kit && !kit.configured ? '/onboarding/recovery-kit' : '/vault');
 		} catch (err) {
-			errorUnion = textoDeError(err, $t.settingsSync.errorGenerico);
+			if (err instanceof ErrorRequiereNuevaFrase) pedirFraseNueva = true;
+			else errorUnion = textoDeError(err, $t.settingsSync.errorGenerico);
 		} finally {
 			uniendo = false;
 			pasoUnion = undefined;
@@ -340,6 +368,9 @@
 
 	{#if vinculacion}
 		<p class="ok">{$t.settingsSync.conectadaA} <strong>{vinculacion.serverUrl}</strong></p>
+		{#if huellaServidor}
+			<p class="hint">{$t.settingsSync.huellaServidor} <code>{huellaServidor}</code></p>
+		{/if}
 
 		<div class="acciones">
 			<Button variant="primary" onclick={alSincronizar} loading={sincronizando}>{$t.settingsSync.sincronizarAhora}</Button>
@@ -363,6 +394,9 @@
 			</p>
 			{#if ultimoResultado.recursosEnConflicto > 0}
 				<p class="hint">{$t.settingsSync.hintConflictos}</p>
+			{/if}
+			{#if ultimoResultado.recursosSubidos > 0}
+				<p class="hint">{$t.settingsSync.hintSubidos(ultimoResultado.recursosSubidos)}</p>
 			{/if}
 			{#if ultimoResultado.recursosOmitidos > 0}
 				<p class="hint">{$t.settingsSync.hintOmitidos(ultimoResultado.recursosOmitidos)}</p>
@@ -401,11 +435,16 @@
 				<h3>{$t.settingsSync.union.titulo.replace('{{email}}', email)}</h3>
 				<p class="hint">{$t.settingsSync.union.explicacion}</p>
 				<TextField label={$t.settingsSync.union.passphrase} type="password" bind:value={passphraseServidor} autocomplete="current-password" />
+				{#if pedirFraseNueva}
+					<p class="hint">{$t.settingsSync.union.fraseTemporal}</p>
+					<TextField label={$t.settingsSync.union.fraseNueva} type="password" bind:value={passphraseNueva} autocomplete="new-password" />
+					<TextField label={$t.settingsSync.union.fraseNuevaConfirmar} type="password" bind:value={passphraseNuevaConfirmar} autocomplete="new-password" />
+				{/if}
 				{#if pasoUnion}<p class="hint">{$t.settingsSync.union.pasos[pasoUnion]}</p>{/if}
 				{#if errorUnion}<p class="error">{errorUnion}</p>{/if}
 				<div class="botones-union">
-					<Button variant="primary" onclick={unir} loading={uniendo} disabled={!passphraseServidor}>{$t.settingsSync.union.unir}</Button>
-					<Button variant="ghost" onclick={() => (ofrecerUnion = false)} disabled={uniendo}>{$t.settingsSync.union.cancelar}</Button>
+					<Button variant="primary" onclick={unir} loading={uniendo} disabled={!passphraseServidor || (pedirFraseNueva && !passphraseNueva)}>{$t.settingsSync.union.unir}</Button>
+					<Button variant="ghost" onclick={() => ((ofrecerUnion = false), (pedirFraseNueva = false))} disabled={uniendo}>{$t.settingsSync.union.cancelar}</Button>
 				</div>
 			</div>
 		{/if}
@@ -433,7 +472,14 @@
 				disabled={deshabilitado || cambiandoPersistencia}
 				onclick={() => elegirPersistencia(m.valor)}
 			>
-				<span class="cajonTitulo">{m.titulo()}</span>
+				<span class="cajonCabecera">
+					<span class="cajonTitulo">{m.titulo()}</span>
+					{#if persistencia === m.valor}
+						<span class="estado habilitado">{$t.settingsSync.modoHabilitado}</span>
+					{:else}
+						<span class="estado deshabilitado">{$t.settingsSync.modoDeshabilitado}</span>
+					{/if}
+				</span>
 				<span class="cajonDescripcion">{m.descripcion()}</span>
 				{#if m.valor !== 'full'}
 					{#if !vinculacion}
@@ -582,9 +628,31 @@
 	.cajon.activo {
 		border-color: var(--accent-primary);
 	}
+	.cajonCabecera {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		width: 100%;
+	}
 	.cajonTitulo {
 		font-weight: 600;
 		color: var(--text-primary);
+	}
+	/* Qué modo está activo, de un vistazo: verde el elegido, rojo el resto. */
+	.estado {
+		flex-shrink: 0;
+		font-size: var(--text-xs);
+		font-weight: 600;
+		padding: 2px var(--space-2);
+		border-radius: 999px;
+		border: 1px solid currentColor;
+	}
+	.estado.habilitado {
+		color: var(--success);
+	}
+	.estado.deshabilitado {
+		color: var(--danger);
 	}
 	.cajonDescripcion {
 		font-size: var(--text-sm);

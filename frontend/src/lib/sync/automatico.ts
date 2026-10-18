@@ -11,9 +11,11 @@
 // solo). Si llegó algo, avisa por `cambiosDelServidor` para que la pantalla se
 // recargue sola. Un fallo (sin red, servidor caído) se reintenta en la próxima.
 
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { sincronizarAhora, type ResultadoSync } from './motor';
 import { escucharAvisosDelServidor } from './avisosServidor';
+import { obtenerVinculacion } from './vinculacion';
+import { sesion } from '$lib/state/session';
 
 const INTERVALO_RESPALDO_MS = 5 * 60_000;
 
@@ -61,7 +63,33 @@ export function iniciarSyncAutomatico(): () => void {
 	};
 	window.addEventListener('focus', alEnfocar);
 	document.addEventListener('visibilitychange', alEnfocar);
+
+	// La extensión del navegador cambió un recurso hablando directo con el
+	// backend local (native messaging): esta interfaz no se enteró, así que
+	// nadie lo subía al servidor (bug 2026-10-18). Se anota en la cola de
+	// pendientes (el sync lo sube reconstruyendo el cuerpo desde la copia
+	// local) y se refresca la pantalla.
+	let dejarDeEscucharExtension: (() => void) | undefined;
+	let cancelado = false;
+	if ('__TAURI_INTERNALS__' in window) {
+		void import('@tauri-apps/api/event').then(({ listen }) =>
+			// El cambio ya quedó anotado por la app (`cambios-extension.json`);
+			// el sync lo recoge y lo sube (`motor.ts::recogerCambiosDeExtension`).
+			listen('recurso-cambiado-por-extension', () => {
+				const email = get(sesion).email;
+				if (!email || !obtenerVinculacion(email)) return;
+				cambiosDelServidor.update((n) => n + 1);
+				void sincronizarSiCorresponde();
+			}).then((unlisten) => {
+				if (cancelado) unlisten();
+				else dejarDeEscucharExtension = unlisten;
+			})
+		);
+	}
+
 	return () => {
+		cancelado = true;
+		dejarDeEscucharExtension?.();
 		dejarDeEscuchar();
 		clearInterval(intervalo);
 		window.removeEventListener('focus', alEnfocar);

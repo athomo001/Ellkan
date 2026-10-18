@@ -16,6 +16,7 @@
 	import { ApiError } from '$lib/api/client';
 	import { enModoEscritorio } from '$lib/tauri/conectar';
 	import { copiarConLimpieza } from '$lib/clipboard';
+	import { sincronizarKit } from '$lib/sync/kit';
 
 	let { mensaje, onGenerado }: { mensaje: string; onGenerado: () => void } = $props();
 
@@ -98,6 +99,9 @@
 		error = undefined;
 		try {
 			await recoveryKitApi.generar(kitPublicaB64, selladoB64);
+			// Escritorio vinculado: el mismo kit pasa al servidor al momento
+			// (sin vinculación no hace nada). Si falla, lo hace el próximo sync.
+			if (enModoEscritorio()) await sincronizarKit().catch(() => {});
 			onGenerado();
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.recoveryKit.errorGenerico;

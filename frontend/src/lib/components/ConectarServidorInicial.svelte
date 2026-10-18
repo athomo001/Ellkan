@@ -14,7 +14,7 @@
 	import { iniciarSesion } from '$lib/crypto/identity';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import { conectarDesdeServidor } from '$lib/sync/vinculacion';
+	import { conectarDesdeServidor, ErrorRequiereNuevaFrase } from '$lib/sync/vinculacion';
 	import { cambiarPersistencia, type ModoPersistencia } from '$lib/sync/persistencia';
 	import { sincronizarAhora } from '$lib/sync/motor';
 
@@ -25,6 +25,10 @@
 	let cargando = $state(false);
 	let paso = $state<string | undefined>();
 	let error = $state<string | undefined>();
+	// Cuenta creada por un admin: la frase que dio es temporal y se elige una nueva acá.
+	let pedirFraseNueva = $state(false);
+	let passphraseNueva = $state('');
+	let passphraseNuevaConfirmar = $state('');
 
 	const MODOS: ModoPersistencia[] = ['full', 'memory', 'names_only'];
 
@@ -33,13 +37,19 @@
 		error = undefined;
 		cargando = true;
 		const textos = get(t).conectarInicial;
+		if (pedirFraseNueva && passphraseNueva !== passphraseNuevaConfirmar) {
+			error = get(t).settingsSync.union.noCoinciden;
+			cargando = false;
+			return;
+		}
 		try {
 			paso = textos.pasoServidor;
-			await conectarDesdeServidor(servidor, email, passphrase);
+			await conectarDesdeServidor(servidor, email, passphrase, pedirFraseNueva ? passphraseNueva : undefined);
 
-			// La bóveda local ya existe con la misma passphrase: login local normal.
+			// La bóveda local ya existe con la misma passphrase (la nueva, si la
+			// del servidor era temporal): login local normal.
 			paso = textos.pasoLocal;
-			const login = await iniciarSesion(email, passphrase);
+			const login = await iniciarSesion(email, pedirFraseNueva ? passphraseNueva : passphrase);
 			if (login.estado !== 'completo' || !login.claves) throw new Error(textos.errorLoginLocal);
 			sesion.set({ sessionId: login.sessionId ?? null, userId: login.userId ?? null, email });
 			clavesDesbloqueadas.set(login.claves);
@@ -58,7 +68,8 @@
 			const kit = await recoveryKitApi.estado().catch(() => undefined);
 			goto(kit && !kit.configured ? '/onboarding/recovery-kit' : '/vault');
 		} catch (err) {
-			error = err instanceof ApiError || err instanceof Error ? err.message : textos.errorGenerico;
+			if (err instanceof ErrorRequiereNuevaFrase) pedirFraseNueva = true;
+			else error = err instanceof ApiError || err instanceof Error ? err.message : textos.errorGenerico;
 		} finally {
 			cargando = false;
 			paso = undefined;
@@ -76,6 +87,11 @@
 	/>
 	<TextField label={$t.registro.email} type="email" bind:value={email} autocomplete="email" required />
 	<TextField label={$t.conectarInicial.passphrase} type="password" bind:value={passphrase} autocomplete="current-password" required />
+	{#if pedirFraseNueva}
+		<p class="paso">{$t.settingsSync.union.fraseTemporal}</p>
+		<TextField label={$t.settingsSync.union.fraseNueva} type="password" bind:value={passphraseNueva} autocomplete="new-password" required />
+		<TextField label={$t.settingsSync.union.fraseNuevaConfirmar} type="password" bind:value={passphraseNuevaConfirmar} autocomplete="new-password" required />
+	{/if}
 
 	<fieldset>
 		<legend>{$t.conectarInicial.modo}</legend>

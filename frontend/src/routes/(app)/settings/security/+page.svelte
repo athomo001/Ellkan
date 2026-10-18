@@ -3,9 +3,8 @@
 	// F-03: registrar una passkey nueva para este dispositivo/cuenta. Sin
 	// PRF (ver nota en `$lib/crypto/passkeys.ts`) — reemplaza el paso HTTP
 	// de login, la passphrase sigue haciendo falta para operaciones
-	// criptográficas. No hay todavía un `GET /me/passkeys` en el backend
-	// para listar/revocar las ya registradas — sólo alta, documentado como
-	// gap real en `docs/pendientesVerificacionReal.md`.
+	// criptográficas. Las ya registradas se listan y revocan más abajo en
+	// esta misma página (`GET`/`DELETE /me/passkeys`).
 	//
 	// F-38: desbloqueo rápido local con TOTP — la passphrase que se tipea
 	// acá para activar NUNCA se manda al servidor, sólo se usa localmente

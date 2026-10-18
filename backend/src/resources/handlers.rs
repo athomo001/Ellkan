@@ -61,6 +61,7 @@ fn a_response(recurso: super::models::Resource, resource_type_slug: String, pued
         metadata_key_id: recurso.metadata_key_id,
         folder_id: None,
         puede_borrar,
+        own_sealed_dek_b64: None,
     }
 }
 
@@ -143,6 +144,9 @@ pub async fn listar(
     // sin una consulta aparte por fila.
     let posiciones = state.items_de_carpeta.posiciones_de_recursos(auth.user_id).await.map_err(DomainError::from)?;
     let slugs = state.tipos_recurso.mapa_id_a_slug().await.map_err(DomainError::from)?;
+    // Una consulta para todas las DEK propias (ver `sealed_deks_de`). Sólo
+    // se adjunta a recursos que ya pasaron el filtro de visibilidad.
+    let deks_propias = state.envolturas.sealed_deks_de(auth.user_id).await.map_err(DomainError::from)?;
 
     let servicio_recursos = servicio(&state);
     let mut respuesta = Vec::with_capacity(recursos.len());
@@ -151,6 +155,7 @@ pub async fn listar(
         let puede_borrar = servicio_recursos.puede_borrar(r.id, auth.user_id).await?;
         let mut resp = a_response(r, slug, puede_borrar);
         resp.folder_id = posiciones.get(&resp.id).copied();
+        resp.own_sealed_dek_b64 = deks_propias.get(&resp.id).map(|d| b64::encode(d));
         respuesta.push(resp);
     }
     let recursos = respuesta;

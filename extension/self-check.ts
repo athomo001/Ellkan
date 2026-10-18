@@ -419,7 +419,9 @@ async function main() {
 	// medidor distingue débil de fuerte, no que el algoritmo de zxcvbn en sí
 	// sea correcto (eso ya lo verifica su propio paquete). ---
 	const { generarPassword } = await import('../frontend/src/lib/crypto/passwordGenerator.ts');
-	const { evaluarFortaleza } = await import('../frontend/src/lib/crypto/passwordStrength.ts');
+	const { evaluarFortaleza, cargarMedidor } = await import('../frontend/src/lib/crypto/passwordStrength.ts');
+	// zxcvbn se carga al primer uso: sin esperarlo, todo puntúa 0 (`cargando`).
+	await cargarMedidor();
 	const generada = generarPassword(21, { uppercase: true, lowercase: true, digits: true, symbols: true, exclude_ambiguous: true });
 	assert.equal(generada.length, 21, 'debe respetar el largo pedido');
 	assert.ok(/[A-Z]/.test(generada) && /[0-9]/.test(generada), 'con mayúsculas+dígitos habilitados, al menos un carácter de cada uno debe aparecer');

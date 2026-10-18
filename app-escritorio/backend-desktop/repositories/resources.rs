@@ -72,7 +72,14 @@ impl ResourceRepository for SqliteResourceRepository {
         .bind(metadata_key_type)
         .bind(&ahora)
         .execute(&self.pool)
-        .await?;
+        .await
+        // El id ya existe (típicamente una fila borrada acá, soft-delete, que
+        // el sync intenta volver a crear): es un conflicto, no una falla.
+        // Antes salía como 500 "error interno" (2026-10-18).
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+            _ => RepoError::Database(e),
+        })?;
 
         Ok(Resource {
             id,

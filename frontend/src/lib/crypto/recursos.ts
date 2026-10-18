@@ -56,6 +56,18 @@ interface RecursoCrudo {
 	/** 2026-08-11: si el caller puede `DELETE` este recurso — ver
 	 * `ResourceService::puede_borrar`. */
 	puede_borrar?: boolean;
+	/** 2026-10-17: DEK sellada del sobre propio, sólo en `GET /resources` del
+	 * servidor. Ausente en el backend local del escritorio → se pide por
+	 * recurso como antes. */
+	own_sealed_dek_b64?: string;
+}
+
+/** Avance de `listarRecursos`, para la barra de progreso del vault. */
+export interface AvanceCarga {
+	hechos: number;
+	total: number;
+	/** Nombre del último recurso descifrado (ya en claro, sólo en memoria). */
+	nombre?: string;
 }
 
 interface MetadataKeyCruda {
@@ -201,19 +213,27 @@ async function cargarClavesMetadataCompartidas(claves: ClavesDesbloqueadas): Pro
 	const mapa = new Map<string, Uint8Array>();
 	for (const clave of activas) {
 		if (!clave.own_sealed_private_key_b64) continue;
-		const privada = wasm.abrir_sellado(claves.x25519Private, base64ABytes(clave.own_sealed_private_key_b64));
-		mapa.set(clave.id, privada);
+		// Una clave que no abre deja sin nombre sólo a sus recursos, no a
+		// todo el vault (se omiten más abajo por `!clave`).
+		try {
+			mapa.set(clave.id, wasm.abrir_sellado(claves.x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
+		} catch (err) {
+			console.error(`[vault] no se pudo abrir la metadata key ${clave.id}`, err);
+		}
 	}
 	return mapa;
 }
 
-export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recurso[]> {
+export async function listarRecursos(claves: ClavesDesbloqueadas, alAvanzar?: (avance: AvanceCarga) => void): Promise<Recurso[]> {
 	const wasm = await cargarCrypto();
 	const crudos = await api.get<RecursoCrudo[]>('/resources');
 	const clavesMetadata = await cargarClavesMetadataCompartidas(claves);
 
 	const resultado: Recurso[] = [];
-	for (const r of crudos) {
+	const total = crudos.length;
+	for (const [i, r] of crudos.entries()) {
+		// Antes de procesar cada uno: "i de total" + el último que ya salió.
+		alAvanzar?.({ hechos: i, total, nombre: resultado.at(-1)?.nombre });
 		if (!r.created_by) continue;
 
 		// F-30 (07-frontend-web.md §4): evita re-pedir/desenvolver la DEK y
@@ -262,21 +282,32 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 			claveMetadata = clave;
 		} else {
 			// `user_key`: la DEK por-recurso es la misma clave que la metadata
-			// — sólo se obtiene pidiendo el envelope propio.
+			// — viene en la lista (servidor) o se pide el envelope propio.
 			let sealedDekB64: string;
-			try {
-				const secreto = await api.get<SecretoCrudo>(`/resources/${r.id}/secret`);
-				sealedDekB64 = secreto.sealed_dek_b64;
-			} catch (err) {
-				if (!es404(err)) throw err;
+			if (r.own_sealed_dek_b64) {
+				sealedDekB64 = r.own_sealed_dek_b64;
+			} else {
 				try {
-					const dek = await api.get<{ sealed_dek_b64: string }>(`/resources/${r.id}/metadata-dek`);
-					sealedDekB64 = dek.sealed_dek_b64;
-				} catch {
-					continue;
+					const secreto = await api.get<SecretoCrudo>(`/resources/${r.id}/secret`);
+					sealedDekB64 = secreto.sealed_dek_b64;
+				} catch (err) {
+					if (!es404(err)) throw err;
+					try {
+						const dek = await api.get<{ sealed_dek_b64: string }>(`/resources/${r.id}/metadata-dek`);
+						sealedDekB64 = dek.sealed_dek_b64;
+					} catch {
+						continue;
+					}
 				}
 			}
-			dekPropia = wasm.abrir_sellado(claves.x25519Private, base64ABytes(sealedDekB64));
+			// Un sobre que no abre con esta clave (sellado para otra, dato
+			// corrupto) se omite: antes tiraba y dejaba la lista entera vacía.
+			try {
+				dekPropia = wasm.abrir_sellado(claves.x25519Private, base64ABytes(sealedDekB64));
+			} catch (err) {
+				console.error(`[vault] no se pudo abrir el sobre del recurso ${r.id}`, err);
+				continue;
+			}
 			claveMetadata = dekPropia;
 		}
 
@@ -330,6 +361,7 @@ export async function listarRecursos(claves: ClavesDesbloqueadas): Promise<Recur
 			continue;
 		}
 	}
+	alAvanzar?.({ hechos: total, total, nombre: resultado.at(-1)?.nombre });
 	return resultado;
 }
 
@@ -456,7 +488,11 @@ export async function verSecreto(
 		return resultado;
 	}
 
-	const dek = recurso.dekPropia ?? wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
+	// Siempre la DEK del sobre recién pedido, nunca `recurso.dekPropia` (la de
+	// cuando se cargó la lista): si la clave se editó después en otro
+	// dispositivo, cada edición trae DEK nueva y la vieja ya no abre el secreto
+	// («No se pudo abrir el secreto», bug 2026-10-18).
+	const dek = wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
 	const aad = aadDeRecurso(recurso.id, recurso.createdBy);
 	const bytes = wasm.descifrar_aead(
 		dek,
@@ -600,6 +636,17 @@ export async function crearRecurso(datos: NuevoRecurso, claves: ClavesDesbloquea
  * `listarRecursos`), nunca con la DEK nueva del recurso — esa DEK nueva
  * sigue siendo sólo para el secreto, igual que en un recurso `user_key`.
  */
+/** Saca un secreto del caché del modo «sólo memoria» (F-48). Se llama cuando
+ * el recurso cambia (edición local, o el sync trajo otra versión): si no,
+ * revelarlo devolvía la contraseña vieja hasta reiniciar (2026-10-18). */
+export function olvidarSecretoEnMemoria(resourceId: string): void {
+	secretosEnMemoria.update((actual) => {
+		if (!(resourceId in actual)) return actual;
+		const { [resourceId]: _, ...resto } = actual;
+		return resto;
+	});
+}
+
 export async function editarRecurso(
 	recurso: Recurso,
 	datos: NuevoRecurso,
@@ -663,6 +710,9 @@ export async function editarRecurso(
 			secret_nonce_b64: envelopes[0].secret_nonce_b64
 		});
 	}
+
+	// La versión cacheada (modo «sólo memoria») ya no es la vigente.
+	olvidarSecretoEnMemoria(recurso.id);
 
 	return {
 		...recurso,
@@ -814,7 +864,11 @@ export async function compartirRecursoConDestinatario(
 ): Promise<void> {
 	const wasm = await cargarCrypto();
 	const secreto = await api.get<SecretoCrudo>(`/resources/${recurso.id}/secret`);
-	const dek = recurso.dekPropia ?? wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
+	// Siempre la DEK del sobre recién pedido, nunca `recurso.dekPropia` (la de
+	// cuando se cargó la lista): si la clave se editó después en otro
+	// dispositivo, cada edición trae DEK nueva y la vieja ya no abre el secreto
+	// («No se pudo abrir el secreto», bug 2026-10-18).
+	const dek = wasm.abrir_sellado(claves.x25519Private, base64ABytes(secreto.sealed_dek_b64));
 	const aad = aadDeRecurso(recurso.id, recurso.createdBy);
 	const bytes = wasm.descifrar_aead(
 		dek,

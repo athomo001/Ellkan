@@ -32,6 +32,11 @@ export const BrowserApi = {
 		return api.runtime.connect(connectInfo);
 	},
 
+	/** F-56: canal de native messaging con la app de escritorio. */
+	connectNative(nombre: string): chrome.runtime.Port {
+		return api.runtime.connectNative(nombre);
+	},
+
 	onConnect(listener: (port: chrome.runtime.Port) => void): void {
 		api.runtime.onConnect.addListener(listener);
 	},

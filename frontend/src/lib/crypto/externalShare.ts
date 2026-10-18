@@ -108,3 +108,30 @@ export async function crearArchivoCompartido(contenido: string, passwordArchivo:
 	const wasm = await cargarCrypto();
 	return wasm.crear_archivo_7z_cifrado('ellkan.txt', new TextEncoder().encode(contenido), passwordArchivo);
 }
+
+/**
+ * Desde dónde se puede abrir un link externo: el link apunta a este mismo
+ * servidor, así que sirve sólo para quien llegue a esa dirección.
+ * - `local`: localhost / loopback — sólo esta computadora.
+ * - `privada`: IP privada, `.local`/`.lan`/`.internal` o un nombre sin punto —
+ *   sólo la red local (o la VPN).
+ * - `publica`: cualquier otra; puede ser accesible desde internet, pero no se
+ *   puede saber desde el navegador (un DNS interno también "parece" público).
+ */
+export function alcanceDelHost(hostname: string): 'local' | 'privada' | 'publica' {
+	const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+	if (h === 'localhost' || h.endsWith('.localhost') || h === '::1' || /^127\./.test(h)) return 'local';
+	if (
+		/^10\./.test(h) ||
+		/^192\.168\./.test(h) ||
+		/^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+		/^169\.254\./.test(h) ||
+		/^(fc|fd)[0-9a-f]{2}:/.test(h) ||
+		/^fe80:/.test(h) ||
+		/\.(local|lan|internal|home\.arpa)$/.test(h) ||
+		!h.includes('.')
+	) {
+		return 'privada';
+	}
+	return 'publica';
+}

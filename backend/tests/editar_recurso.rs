@@ -448,3 +448,61 @@ async fn api_token_existe_y_no_es_intercambiable_con_login_password() {
     let cuerpo_get: Value = get.json().await.unwrap();
     assert_eq!(cuerpo_get["resource_type_slug"], "api-token");
 }
+
+/// Todos los tipos que ofrece el selector «Crear» del frontend (`TIPOS_RECURSO`)
+/// tienen que existir en el servidor: si un tipo nuevo se agrega sólo en la app
+/// de escritorio (SQLite) sin su migración Postgres, crear o sincronizar ese
+/// recurso falla con "resource_type_slug desconocido". La lista se lee del
+/// propio archivo del frontend para que este test no quede desactualizado.
+#[tokio::test]
+async fn todos_los_tipos_del_frontend_existen_en_el_servidor() {
+    let fuente = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/src/lib/crypto/recursos.ts")).unwrap();
+    let linea = fuente
+        .lines()
+        .find(|l| l.starts_with("export const TIPOS_RECURSO"))
+        .expect("no se encontró TIPOS_RECURSO en recursos.ts");
+    let slugs: Vec<&str> = linea.split('\'').skip(1).step_by(2).collect();
+    assert!(slugs.len() >= 10, "lista de tipos inesperadamente corta: {slugs:?}");
+
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "todos-los-tipos@test.ellkan").await;
+    let sesion = common::login(&entorno, &owner).await;
+
+    for slug in slugs {
+        let dek = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios::<32>()));
+        let resource_id = Uuid::now_v7();
+        let aad = aad_de(resource_id, owner.user_id);
+        let metadata_env = aead::cifrar(&dek, br#"{"name":"tipo"}"#, &aad).unwrap();
+        let secreto_env = aead::cifrar(&dek, br#"{"password":"x"}"#, &aad).unwrap();
+        let sealed_dek = sellado::sellar_dek(owner.x25519.publica(), &dek);
+        let resp = entorno
+            .cliente
+            .post(format!("{}/resources", entorno.base))
+            .bearer_auth(sesion)
+            .json(&json!({
+                "id": resource_id,
+                "resource_type_slug": slug,
+                "metadata_ciphertext_b64": B64.encode(&metadata_env.ciphertext),
+                "metadata_nonce_b64": B64.encode(metadata_env.nonce),
+                "sealed_dek_b64": B64.encode(&sealed_dek),
+                "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+                "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "el tipo `{slug}` no existe en el servidor (¿falta su migración Postgres?)");
+
+        let get: Value = entorno
+            .cliente
+            .get(format!("{}/resources/{}", entorno.base, resource_id))
+            .bearer_auth(sesion)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(get["resource_type_slug"], slug);
+    }
+}

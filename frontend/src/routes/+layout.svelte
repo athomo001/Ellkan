@@ -9,8 +9,12 @@
 	import CerrarAppDialogo from '$lib/components/CerrarAppDialogo.svelte';
 	import { goto } from '$app/navigation';
 	import { enlacePendiente } from '$lib/tauri/sistema';
+	import { instalarRegistroEnArchivo } from '$lib/tauri/registro';
 
 	let { children } = $props();
+
+	// Escritorio: errores de la interfaz al `Ellkan.log` (no-op en la web).
+	instalarRegistroEnArchivo();
 
 	// El backend emite `cierre-solicitado` cuando el usuario cierra la ventana
 	// y la preferencia es "preguntar" — ver `$lib/tauri/ventana.ts`.
@@ -32,6 +36,12 @@
 	// respetar la preferencia elegida en una sesión anterior.
 	$effect(() => {
 		aplicarTema($preferencias.theme);
+	});
+
+	// `lang` del documento según el idioma elegido: los lectores de pantalla lo
+	// usan para la pronunciación (WCAG 3.1.1). `app.html` trae uno fijo.
+	$effect(() => {
+		document.documentElement.lang = $preferencias.locale;
 	});
 
 	// Fuente/espaciado/tamaño de lectura (accesibilidad), local por dispositivo.

@@ -294,7 +294,14 @@ impl ResourceRepository for PgResourceRepository {
             metadata_key_type,
         )
         .fetch_one(&self.pool)
-        .await?;
+        .await
+        // El id ya existe (típicamente un recurso borrado, soft-delete, que la
+        // app de escritorio intenta volver a subir): conflicto, no 500.
+        // Encontrado en el log nuevo del servidor el 2026-10-18.
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+            _ => RepoError::Database(e),
+        })?;
 
         Ok(Resource {
             id: fila.id,
@@ -646,6 +653,23 @@ impl SecretEnvelopeRepository for PgSecretEnvelopeRepository {
             secret_ciphertext: f.secret_ciphertext,
             secret_nonce: f.secret_nonce,
         }))
+    }
+}
+
+impl PgSecretEnvelopeRepository {
+    /// `GET /resources`: la `sealed_dek` propia de cada recurso, en una sola
+    /// consulta. Antes el cliente pedía `GET /resources/{id}/secret` por cada
+    /// recurso sólo para descifrar el nombre (N+1): 139 claves eran ~141
+    /// pedidos por carga y agotaban el límite de solicitudes (2026-10-17).
+    /// Sólo la DEK sellada, nunca el ciphertext del secreto: revelar el
+    /// secreto sigue siendo un pedido explícito.
+    pub async fn sealed_deks_de(&self, user_id: Uuid) -> Result<std::collections::HashMap<Uuid, Vec<u8>>, RepoError> {
+        let filas: Vec<(Uuid, Vec<u8>)> =
+            sqlx::query_as("select resource_id, sealed_dek from secret_envelopes where user_id = $1")
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(filas.into_iter().collect())
     }
 }
 

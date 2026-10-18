@@ -15,6 +15,7 @@
 
 use std::collections::HashSet;
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::State;
@@ -28,8 +29,18 @@ use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
 use crate::resources::repository::{PgResourceRepository, ResourceRepository};
 use crate::state::AppState;
 
-/// Canal interno: cada mensaje es el id de un usuario al que hay que avisar.
-pub type CanalAvisos = broadcast::Sender<Uuid>;
+/// Mensaje del canal interno de avisos.
+#[derive(Debug, Clone)]
+pub enum AvisoSync {
+    /// Hubo un cambio para este usuario: la app pide el delta de `/sync`.
+    Cambio(Uuid),
+    /// La cuenta fue bloqueada o purgada (docs/revocacion-remota.md): se le
+    /// manda a la app el aviso FIRMADO por el servidor y se cierra el stream.
+    Revocada { user_id: Uuid, aviso: Arc<crate::revocacion::AvisoFirmado> },
+}
+
+/// Canal interno de avisos para las apps de escritorio conectadas.
+pub type CanalAvisos = broadcast::Sender<AvisoSync>;
 
 pub fn nuevo_canal() -> CanalAvisos {
     broadcast::channel(1024).0
@@ -56,7 +67,7 @@ pub fn spawn_consumidor(eventos: &EmisorDeEventos, recursos: PgResourceRepositor
             }
             for usuario in usuarios {
                 // Sin nadie escuchando, `send` devuelve error: no es un problema.
-                let _ = avisos.send(usuario);
+                let _ = avisos.send(AvisoSync::Cambio(usuario));
             }
         }
     });
@@ -66,21 +77,37 @@ fn aviso() -> Result<Event, Infallible> {
     Ok(Event::default().event("cambio").data("1"))
 }
 
+/// `event: cuenta_revocada` con el aviso firmado (`{aviso, firma_b64}`) en `data`.
+fn aviso_revocada(firmado: &crate::revocacion::AvisoFirmado) -> Result<Event, Infallible> {
+    let datos = serde_json::to_string(firmado).unwrap_or_default();
+    Ok(Event::default().event("cuenta_revocada").data(datos))
+}
+
 /// `GET /sync/eventos` — Server-Sent Events, sólo con los avisos del usuario
 /// autenticado. Se cierra sola a los `VIDA_CONEXION`; un `keep-alive` cada 20 s
-/// evita que un proxy la corte por inactividad.
+/// evita que un proxy la corte por inactividad. Si la cuenta se revoca, manda
+/// el aviso firmado y se cierra en el acto.
 pub async fn eventos(State(state): State<AppState>, auth: AuthenticatedUser) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let receptor = state.avisos_sync.subscribe();
     let usuario = auth.user_id;
     let fin = tokio::time::Instant::now() + VIDA_CONEXION;
-    let flujo = futures_util::stream::unfold(receptor, move |mut receptor| async move {
+    // Estado: (receptor, ya se mandó la revocación → cortar en el próximo paso).
+    let flujo = futures_util::stream::unfold((receptor, false), move |(mut receptor, revocada)| async move {
+        if revocada {
+            return None;
+        }
         loop {
             match tokio::time::timeout_at(fin, receptor.recv()).await {
                 Err(_) | Ok(Err(broadcast::error::RecvError::Closed)) => return None,
-                Ok(Ok(destino)) if destino == usuario => return Some((aviso(), receptor)),
+                Ok(Ok(AvisoSync::Cambio(destino))) if destino == usuario => return Some((aviso(), (receptor, false))),
+                Ok(Ok(AvisoSync::Revocada { user_id, aviso })) if user_id == usuario => {
+                    return Some((aviso_revocada(&aviso), (receptor, true)));
+                }
                 Ok(Ok(_)) => continue,
                 // Se perdieron avisos (ráfaga): avisar igual, el delta de `/sync` pone todo al día.
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => return Some((aviso(), receptor)),
+                // Una revocación perdida la recupera la app con `POST /auth/estado-cuenta`
+                // cuando la re-autenticación falle.
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => return Some((aviso(), (receptor, false))),
             }
         }
     });

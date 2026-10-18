@@ -41,6 +41,7 @@ pub fn spawn(
                                 "groups": resultado.groups,
                                 "user_totp_credentials": resultado.user_totp_credentials,
                                 "audit_log_entries": resultado.audit_log_entries,
+                                "datos_efimeros": resultado.datos_efimeros,
                             }),
                         ),
                     ));

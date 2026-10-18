@@ -254,7 +254,7 @@
 		border: none;
 		padding: 0;
 		font: inherit;
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		cursor: pointer;
 	}
 	.fortaleza {
@@ -273,6 +273,6 @@
 		color: var(--success);
 	}
 	a {
-		color: var(--accent-primary);
+		color: var(--accent-text);
 	}
 </style>

@@ -155,6 +155,7 @@ Detailed manuals are currently Spanish-only:
 - [manual/funcionalidades.md](manual/funcionalidades.md) — what Ellkan does, by area.
 - [manual/cli.md](manual/cli.md) — full `ellkan-cli` reference.
 - [manual/instalacion.md](manual/instalacion.md) — TLS, backup/restore, troubleshooting, hardware requirements.
+- [manual/seguridad.md](manual/seguridad.md) — what is encrypted and what isn't, and what happens if someone tries to extract the data (with diagrams, Spanish).
 - [extension/README.md](extension/README.md) — browser extension development, build, and packaging (Spanish only).
 
 ## FAQ
@@ -162,16 +163,39 @@ Detailed manuals are currently Spanish-only:
 **Can the server see my passwords?**
 No. Everything is encrypted and decrypted on your own device, never on the server — it's like handing someone a locked safe to hold onto: they can store it, but they never get a key to open it or see what's inside.
 
+What the server does see is the account data it needs to work: your email, your name, which groups you belong to, creation and modification dates, and the IP you connect from. There is one deliberate exception: when you share a secret with someone **outside** through an external link, whoever has the full link can open that secret (that's why those links expire quickly and can carry an extra password sent through a different channel).
+
 **What happens if someone steals the server's database?**
-They don't get your passwords — they only get locked safes. Without your master password (which is never stored anywhere, not even on the server), there's no way to open them.
+They don't get your passwords — they only get locked safes. Without your master password (which the server never receives), there's no way to open them with what's in the database. The only other ways in are account recovery, which you or your organization turn on: your own recovery kit (a file only you keep) or, if your organization set it up, admin-approved recovery.
 
 **How do you protect my keys in the computer's memory (RAM) while they're being used?**
-The key is never left sitting around in memory waiting for someone to grab it. Every time it's needed, it's rebuilt on the spot from your password, used for an instant, and immediately wiped — like writing something on a piece of paper, using it once, and tearing it up right away, instead of leaving it lying on the desk. Your master password is kept only while your session is open and never touches the disk: close the browser or app, and it's gone. The one thing this can't prevent: if your computer already has malware spying on it, that malware could see the key at the exact instant you're using it — no password manager can protect you from that, because at that point the attacker is already inside your machine, not inside the system.
+While the vault is **locked**, there are no keys in your device's memory: only encrypted data on disk, and your master password is not stored anywhere (if you turn on quick unlock — with a TOTP code or Windows Hello — it's stored **encrypted** on that device). While it's **unlocked**, your private keys are in memory, because they're needed to decrypt: malware already running in your session, or a memory dump taken at that moment, could read them. Locking (manually, after inactivity or when you lock Windows) discards them. No password manager can protect you from an already compromised machine, so lock it when you step away. Details, with scenarios of what happens if someone tries to extract the data, are in [manual/seguridad.md](manual/seguridad.md) (Spanish).
 
 ## Status
 
 Actively in development. Backend and web frontend work end to end (registration, login, vault, groups, MFA, SSO/SCIM/LDAP, auditing, admin panel, export/backup). The browser extension (Chrome, Edge, Brave, Opera, Firefox) also works end to end — login, smart session handling, vault with autofill, password generator — see [extension/README.md](extension/README.md); Safari is still pending (requires native packaging via Xcode).
 
+## Security
+
+Ellkan has not had an independent security audit of its own yet. If you find a vulnerability, please don't open a public issue: follow the steps in [SECURITY.md](SECURITY.md).
+
+## No warranty
+
+Ellkan is provided **as is, without any warranty**, not even the implied warranty of merchantability or fitness for a particular purpose, and without liability for damages arising from its use (sections 15 and 16 of the AGPL-3.0). It's in beta: back up your vault.
+
 ## License
 
-**AGPL-3.0** — see [LICENSE](LICENSE) (official English text, the only legally binding one) and [LICENSE.es.txt](LICENSE.es.txt) (unofficial Spanish translation, for reference only).
+Copyright (C) 2026 Athan Espinoza.
+
+**AGPL-3.0** — see [LICENSE](LICENSE) (official English text, the only legally binding one) and [LICENSE.es.txt](LICENSE.es.txt) (unofficial Spanish translation, for reference only). If you modify Ellkan and offer it to other people over a network, the AGPL requires you to offer them the source code of your version: the app shows a "Source code" link you can point to your repository with `VITE_ELLKAN_SOURCE_URL` when building the frontend.
+
+Third-party dependencies and their licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+### Intellectual property and trademark policy
+
+The source code of this project is distributed under the AGPL-3.0 license. However, the following elements are expressly excluded from that license:
+
+- The name **Ellkan**.
+- The design, logo and visual files contained in [`assets/logo/`](assets/logo/), whose authorship and copyright belong exclusively to the project's author.
+
+Use of the name and logo is permitted solely for descriptive or attribution purposes. Any fork, modified distribution or unofficial derivative service must remove all of the original visual identity and adopt its own name.

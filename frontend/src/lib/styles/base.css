@@ -44,7 +44,7 @@ h3 {
 }
 
 a {
-	color: var(--accent-primary);
+	color: var(--accent-text);
 }
 
 input,
@@ -92,4 +92,22 @@ table {
 }
 ::view-transition-new(root) {
 	z-index: 9999;
+}
+
+/* Quien pide menos movimiento en el sistema no ve animaciones ni transiciones
+   (incluida la del cambio de tema). */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
 }

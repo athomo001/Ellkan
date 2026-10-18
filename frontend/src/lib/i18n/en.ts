@@ -7,6 +7,9 @@
 import type { Diccionario } from './es';
 
 const en: Diccionario = {
+	comun: {
+		cerrar: 'Close'
+	},
 	login: {
 		titulo: 'Sign in — Ellkan',
 		subtitulo: 'Sign in with your Ellkan account.',
@@ -139,6 +142,8 @@ const en: Diccionario = {
 	},
 	appShell: {
 		fuenteLectura: 'Reading font (on/off)',
+		codigoFuente: 'Source code (AGPL-3.0)',
+		codigoFuenteTitulo: 'Ellkan is free software under the AGPL-3.0 license. View the source code.',
 		vault: 'Vault',
 		miCuenta: 'My account',
 		preferencias: 'Preferences',
@@ -187,6 +192,8 @@ const en: Diccionario = {
 		titulo: 'Vault',
 		cargando: 'Loading…',
 		conteo: (n: number) => `${n} ${n === 1 ? 'resource' : 'resources'} in your vault.`,
+		cargandoClaves: 'Decrypting your passwords',
+		ultimaCargada: (nombre: string) => `Last: ${nombre}`,
 		sinRecursos: "You don't have any resources yet.",
 		nuevoRecurso: 'New resource',
 		nombre: 'Name',
@@ -281,6 +288,18 @@ const en: Diccionario = {
 		archivoLabelTotp: 'TOTP (secret)',
 		externoArchivoListo: "File downloaded. The password isn't stored anywhere — let the recipient know it through another channel.",
 		externoLinkListo: 'Link ready — copy it now, it will not be shown again:',
+		alcanceLink: {
+			titulo: 'Who will be able to open the link?',
+			explicacion: (host: string) =>
+				`The link points to this server (${host}). Only someone who can reach that address from their device can open it.`,
+			local: 'You are using Ellkan on «localhost»: the link only works on this same computer. To share it with someone else, open Ellkan using the server network or public address.',
+			privada:
+				'This is a local network address: the link only works for someone on the same network (or VPN). It will not open from the internet unless the server is published outside.',
+			publica:
+				'If the server is published on the internet, the recipient can open it from anywhere. If it is only reachable inside your company network, they must be connected to it.',
+			noMostrar: 'Do not show this notice again',
+			crearIgual: 'Got it, create the link'
+		},
 		errorExterno: 'Could not create the external link.',
 		seleccionarTodos: 'Select all',
 		deseleccionarTodos: 'Deselect all',
@@ -400,6 +419,10 @@ const en: Diccionario = {
 		confirmarImportar: 'Confirm import',
 		importando: 'Importing…',
 		importadoOk: (n: number) => `Done — ${n} ${n === 1 ? 'resource imported' : 'resources imported'}.`,
+		importandoTitulo: 'Importing',
+		importandoActual: (nombre: string) => `Now: ${nombre}`,
+		errorImportParcial: (creados: number, total: number, nombre: string, detalle: string) =>
+			`Imported ${creados} of ${total}. Failed at “${nombre}”: ${detalle}. The ones already imported are in your vault; to continue, import a file with the remaining ones.`,
 		errorImportar: 'Could not import.',
 		errorFormatoDesconocido: 'Could not determine the file format from its extension.'
 	},
@@ -511,7 +534,19 @@ const en: Diccionario = {
 		dispositivosRevocar: 'Revoke',
 		dispositivosError: 'Could not load the device list.'
 	},
+	revocacion: {
+		titulo: 'The account was revoked',
+		textoBloqueada: (servidor: string) =>
+			`The administrator of the server ${servidor} blocked this account.`,
+		textoPurgada: (servidor: string) =>
+			`The administrator of the server ${servidor} deleted this account.`,
+		borrado:
+			'For security, the data of this vault was erased from this device. When you open Ellkan again, it starts as freshly installed.',
+		cerrar: 'Close Ellkan'
+	},
 	settingsSync: {
+		progresoBajando: 'Bringing passwords from the server',
+		progresoSubiendo: 'Uploading changes to the server',
 		navTitulo: 'Connected mode',
 		tituloModoConectado: 'Connect to an Ellkan server',
 		hintModoConectado:
@@ -530,6 +565,11 @@ const en: Diccionario = {
 			explicacion:
 				'It was created separately, so it has a different key. Enter the passphrase of that server account and the app merges everything by itself: uploads the passwords from this device, saves a backup, switches to your server account and syncs both sides. From then on the app unlocks with the server passphrase.',
 			passphrase: 'Passphrase of your server account',
+			fraseTemporal:
+				'That passphrase is temporary (an administrator created the account) and the server requires changing it. Choose a new one: it becomes your server account passphrase and the one that unlocks this app.',
+			fraseNueva: 'New passphrase',
+			fraseNuevaConfirmar: 'Repeat the new passphrase',
+			noCoinciden: 'The new passphrases do not match.',
 			unir: 'Merge and sync',
 			cancelar: 'Cancel',
 			pasos: {
@@ -543,10 +583,14 @@ const en: Diccionario = {
 		hintOmitidos: (n: number) =>
 			`${n} ${n === 1 ? 'item could not be brought over' : 'items could not be brought over'}: they are encrypted with a team key this account cannot access, or belong to someone else and the current mode does not keep secrets on this device (use «Full replica» to bring them).`,
 		hintConflictos: 'A resource changed on both sides at once — your local version was saved separately, with "(conflict)" in the name.',
+		hintSubidos: (n: number) => `${n} ${n === 1 ? 'change' : 'changes'} made offline ${n === 1 ? 'was' : 'were'} uploaded to the server.`,
 		ultimoPushFallo: "The last change couldn't be sent to the server yet",
 		errorSinClaves: 'The vault needs to be unlocked to connect to a server.',
 		errorGenerico: 'Could not complete the operation.',
 		persistenciaTitulo: 'Secret persistence',
+		huellaServidor: 'Server key fingerprint (only a notice signed with this key can erase the vault):',
+		modoHabilitado: 'Enabled',
+		modoDeshabilitado: 'Disabled',
 		persistenciaHint: 'What gets stored on this device while the vault is connected to a server.',
 		persistenciaSoloLocalHint: "Without a server connection, the vault always uses full replica — there's nowhere to fetch the secret on demand from.",
 		persistenciaRequiereServidor: 'Available once the vault is connected to an Ellkan server (see the "Connected mode" card above).',
@@ -668,6 +712,9 @@ const en: Diccionario = {
 		hintAplicaProximoArranque: "Saved — it will only be used the next time you open Ellkan, not in this session.",
 		errorGenerico: 'Could not save the port.',
 		sistemaTitulo: 'Startup and system',
+		conexionesTitulo: 'Connections («Connect» button)',
+		conexionesPestanas: 'Open connections as tabs of a single window',
+		conexionesHint: 'With Windows Terminal, each SSH, FTP or database connection opens as a new tab of the «ellkan» window. Unchecked, each connection opens its own window. Without Windows Terminal, a PowerShell console is used per connection.',
 		sistemaNoSoportado: 'These options are only available on Windows for now.',
 		autostartEtiqueta: 'Open Ellkan when I sign in to Windows',
 		autostartHint: 'It starts in the tray, without opening the window. If you move the app to another folder, turn it on again.',
@@ -806,6 +853,8 @@ const en: Diccionario = {
 			titulo: 'Users',
 			listadoTitulo: 'All users',
 			listadoVacio: 'No users to show.',
+			avisoBorradoRemoto:
+				'When you deactivate or purge someone, their desktop apps connected to this server erase the local vault: right away if they are online, or the next time they connect. It does not replace changing the passwords they had access to: what they already saw could have been copied, and a device that never connects again keeps its data.',
 			buscarTitulo: 'Search by email',
 			hint: 'Search by email to operate on a specific user, or pick one from the list above.',
 			email: 'Email',
@@ -822,6 +871,26 @@ const en: Diccionario = {
 			gruposBloqueados: 'Groups where they are the sole manager:',
 			recursosBloqueados: 'Resources where they are the sole owner:',
 			sinBloqueos: 'No blockers — can be purged.',
+			transferenciaTitulo: 'Hand ownership to others',
+			transferenciaHint:
+				"They are the only owner of these shared passwords. Choose who takes charge of each one; nobody loses the access they already had. The password's name isn't shown because it's encrypted and the server doesn't know it.",
+			colClave: 'Password',
+			colCompartidaCon: 'Shared with',
+			colNuevoPropietario: 'New owner',
+			creadaEl: (fecha: string) => `created ${fecha}`,
+			nivelPermiso: (nivel: string) => ({ read: 'reads', update: 'edits', owner: 'owner' } as Record<string, string>)[nivel] ?? nivel,
+			destinoAdminsGrupo: (grupo: string, n: number) => `Admins of ${grupo} (${n})`,
+			destinoGrupoEntero: (grupo: string, n: number) => `The whole ${grupo} group (${n}): anyone can edit and delete`,
+			sinDestino: 'No active person can receive it',
+			nuevoAdminDeGrupo: (nombre: string) => `New admin: ${nombre}`,
+			grupoSinCandidato: 'No other active member left',
+			transferirYPurgar: 'Transfer and purge',
+			transferirYBloquear: 'Transfer and deactivate',
+			bloquearSinTransferir: 'Deactivate without transferring',
+			bloqueoConClaves: (n: number) =>
+				`They are the only owner of ${n} shared ${n === 1 ? 'password' : 'passwords'}. If deactivated without transferring, nobody else can edit, share or delete ${n === 1 ? 'it' : 'them'}.`,
+			transferenciaIncompleta: 'Some passwords or groups have nobody to hand them to. Reactivate someone with access before purging.',
+			transferenciaCambio: 'Something changed since the list was loaded. It was reloaded: review it and confirm again.',
 			errorBuscar: 'No user found with that email.',
 			seleccionarTodos: 'Select all',
 			deseleccionarTodos: 'Deselect all',
@@ -849,6 +918,7 @@ const en: Diccionario = {
 			passphraseTemporalHint: 'Used for the first sign-in, where changing it is mandatory.',
 			passphraseTemporalCorta: (n: number) => `The temporary passphrase must be at least ${n} characters long.`,
 			generarPassphrase: 'Generate',
+			confirmarFraseGuardada: "I saved the temporary passphrase somewhere safe to hand it over (it can't be shown again)",
 			passphraseGenerada: 'Temporary passphrase',
 			errorCrear: 'Could not create the user.'
 		},

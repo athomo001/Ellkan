@@ -53,6 +53,12 @@ pub struct RecursoResponse {
     /// que siempre va a devolver 403.
     #[serde(default)]
     pub puede_borrar: bool,
+    /// 2026-10-17: `sealed_dek` del sobre propio del caller, sólo en
+    /// `GET /resources` — evita un `GET /resources/{id}/secret` por recurso
+    /// para descifrar la metadata `user_key`. `None` si el caller no tiene
+    /// sobre propio (metadata compartida, o `pending_envelopes` de grupo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_sealed_dek_b64: Option<String>,
 }
 
 /// `GET /resources/{id}/recipients` (F-07).

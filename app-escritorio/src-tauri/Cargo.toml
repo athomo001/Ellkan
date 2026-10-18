@@ -33,7 +33,10 @@ tauri-plugin-log = "2"
 # migrados (auth/mfa/smtp_config/self_registration/recovery_kit).
 ellkan-backend = { path = "../../backend", features = ["desktop"] }
 axum = "0.8.9"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "net"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "io-util"] }
+# F-56: el canal de la extensión ejecuta cada pedido contra el router del
+# backend local en el propio proceso (`ServiceExt::oneshot`), sin TCP.
+tower = { version = "0.5.3", features = ["util"] }
 anyhow = "1.0.104"
 tauri-plugin-opener = "2.5.5"
 # F-49 ("Conectar" desde la GUI, spec/13 §9): el secreto de un recurso cruza
@@ -56,7 +59,7 @@ tauri-plugin-single-instance = "2"
 # (`CredWriteW`). Ya está en el árbol de dependencias por Tauri
 # (misma versión), así que no agrega nada nuevo al binario.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_Threading", "Win32_System_IO"] }
 
 # `keyring` 3 no trae ningún almacén del sistema por defecto: sin esta línea usa un
 # almacén de PRUEBA en memoria (cada `Entry` es independiente y nada se guarda), y el

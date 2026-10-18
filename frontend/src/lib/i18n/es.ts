@@ -6,6 +6,9 @@
 // reorganizar nada existente.
 
 const es = {
+	comun: {
+		cerrar: 'Cerrar'
+	},
 	login: {
 		titulo: 'Iniciar sesión — Ellkan',
 		subtitulo: 'Ingresá con tu cuenta de Ellkan.',
@@ -140,6 +143,8 @@ const es = {
 	},
 	appShell: {
 		fuenteLectura: 'Fuente de lectura (activar/desactivar)',
+		codigoFuente: 'Código fuente (AGPL-3.0)',
+		codigoFuenteTitulo: 'Ellkan es software libre bajo la licencia AGPL-3.0. Ver el código fuente.',
 		vault: 'Vault',
 		miCuenta: 'Mi cuenta',
 		preferencias: 'Preferencias',
@@ -188,6 +193,8 @@ const es = {
 		titulo: 'Vault',
 		cargando: 'Cargando…',
 		conteo: (n: number) => `${n} ${n === 1 ? 'recurso' : 'recursos'} en tu vault.`,
+		cargandoClaves: 'Descifrando tus claves',
+		ultimaCargada: (nombre: string) => `Última: ${nombre}`,
 		sinRecursos: 'Todavía no tenés recursos.',
 		nuevoRecurso: 'Nuevo recurso',
 		nombre: 'Nombre',
@@ -282,6 +289,18 @@ const es = {
 		archivoLabelTotp: 'TOTP (secreto)',
 		externoArchivoListo: 'Archivo descargado. La contraseña no queda guardada en ningún lado, avisale al destinatario por otro canal.',
 		externoLinkListo: 'Link listo — copialo ahora, no se vuelve a mostrar:',
+		alcanceLink: {
+			titulo: '¿Quién va a poder abrir el link?',
+			explicacion: (host: string) =>
+				`El link apunta a este servidor (${host}). Sólo lo puede abrir quien llegue a esa dirección desde su equipo.`,
+			local: 'Estás usando Ellkan en «localhost»: el link sólo funciona en esta misma computadora. Para compartirlo con otra persona, entrá a Ellkan con la dirección de red o pública del servidor.',
+			privada:
+				'Esta dirección es de una red local: el link sólo funciona para alguien conectado a la misma red (o por VPN). Desde internet no va a abrir, salvo que el servidor esté publicado hacia afuera.',
+			publica:
+				'Si el servidor está publicado en internet, el destinatario lo abre desde cualquier lado. Si sólo es accesible en la red de tu empresa, tiene que estar conectado a esa red.',
+			noMostrar: 'No volver a mostrar este aviso',
+			crearIgual: 'Entendido, crear el link'
+		},
 		errorExterno: 'No se pudo crear el link externo.',
 		seleccionarTodos: 'Seleccionar todos',
 		deseleccionarTodos: 'Deseleccionar todos',
@@ -403,6 +422,10 @@ const es = {
 		confirmarImportar: 'Confirmar importación',
 		importando: 'Importando…',
 		importadoOk: (n: number) => `Listo — ${n} ${n === 1 ? 'recurso importado' : 'recursos importados'}.`,
+		importandoTitulo: 'Importando',
+		importandoActual: (nombre: string) => `Ahora: ${nombre}`,
+		errorImportParcial: (creados: number, total: number, nombre: string, detalle: string) =>
+			`Se importaron ${creados} de ${total}. Falló en «${nombre}»: ${detalle}. Las ya importadas quedaron en tu vault; para seguir, importá un archivo con las que faltan.`,
 		errorImportar: 'No se pudo importar.',
 		errorFormatoDesconocido: 'No se pudo determinar el formato del archivo por su extensión.'
 	},
@@ -514,7 +537,19 @@ const es = {
 		dispositivosRevocar: 'Revocar',
 		dispositivosError: 'No se pudo cargar la lista de dispositivos.'
 	},
+	revocacion: {
+		titulo: 'La cuenta fue revocada',
+		textoBloqueada: (servidor: string) =>
+			`El administrador del servidor ${servidor} bloqueó esta cuenta.`,
+		textoPurgada: (servidor: string) =>
+			`El administrador del servidor ${servidor} eliminó esta cuenta.`,
+		borrado:
+			'Por seguridad, los datos de esta bóveda se borraron de este equipo. Al volver a abrir Ellkan, arranca como recién instalado.',
+		cerrar: 'Cerrar Ellkan'
+	},
 	settingsSync: {
+		progresoBajando: 'Trayendo claves del servidor',
+		progresoSubiendo: 'Subiendo cambios al servidor',
 		navTitulo: 'Modo conectado',
 		tituloModoConectado: 'Conectar con un servidor Ellkan',
 		hintModoConectado:
@@ -534,6 +569,11 @@ const es = {
 			explicacion:
 				'Se creó por separado, así que tiene otra clave. Escribí la frase de esa cuenta del servidor y la app une todo sola: sube tus contraseñas de este equipo, guarda una copia de seguridad, pasa a usar tu cuenta del servidor y sincroniza los dos lados. Desde ese momento la app se desbloquea con la frase del servidor.',
 			passphrase: 'Frase de contraseña de tu cuenta del servidor',
+			fraseTemporal:
+				'Esa frase es temporal (la cuenta la creó un administrador) y el servidor pide cambiarla. Elegí una nueva: va a ser la frase de tu cuenta del servidor y con la que se desbloquea esta app.',
+			fraseNueva: 'Frase nueva',
+			fraseNuevaConfirmar: 'Repetí la frase nueva',
+			noCoinciden: 'Las frases nuevas no coinciden.',
 			unir: 'Unir y sincronizar',
 			cancelar: 'Cancelar',
 			pasos: {
@@ -547,10 +587,15 @@ const es = {
 		hintOmitidos: (n: number) =>
 			`${n} ${n === 1 ? 'recurso no se pudo traer' : 'recursos no se pudieron traer'}: están cifrados con una clave de equipo a la que esta cuenta no tiene acceso, o son de otra persona y el modo actual no guarda secretos en este equipo (usá «Réplica completa» para traerlos).`,
 		hintConflictos: 'Un recurso cambió en los dos lados a la vez — se guardó tu versión local aparte, con "(conflicto)" en el nombre.',
+		hintSubidos: (n: number) =>
+			`${n} ${n === 1 ? 'cambio hecho' : 'cambios hechos'} sin conexión ${n === 1 ? 'se subió' : 'se subieron'} al servidor.`,
 		ultimoPushFallo: 'El último cambio no se pudo enviar al servidor todavía',
 		errorSinClaves: 'La bóveda tiene que estar desbloqueada para conectarse a un servidor.',
 		errorGenerico: 'No se pudo completar la operación.',
 		persistenciaTitulo: 'Persistencia de secretos',
+		huellaServidor: 'Huella de la clave del servidor (sólo un aviso firmado con esta clave puede borrar la bóveda):',
+		modoHabilitado: 'Habilitado',
+		modoDeshabilitado: 'Deshabilitado',
 		persistenciaHint: 'Qué se guarda en este dispositivo cuando la bóveda está conectada a un servidor.',
 		persistenciaSoloLocalHint: 'Sin conexión a un servidor, la bóveda siempre usa réplica completa — no hay de dónde bajar el secreto bajo demanda.',
 		persistenciaRequiereServidor: 'Se habilita al conectar la bóveda a un servidor Ellkan (tarjeta "Modo conectado", arriba).',
@@ -673,6 +718,9 @@ const es = {
 		hintAplicaProximoArranque: 'Guardado — se va a usar recién la próxima vez que abras Ellkan, no en esta sesión.',
 		errorGenerico: 'No se pudo guardar el puerto.',
 		sistemaTitulo: 'Inicio y sistema',
+		conexionesTitulo: 'Conexiones (botón «Conectar»)',
+		conexionesPestanas: 'Abrir las conexiones como pestañas de una misma ventana',
+		conexionesHint: 'Con Windows Terminal, cada conexión SSH, FTP o de base de datos se abre como una pestaña nueva de la ventana «ellkan». Desmarcado, cada conexión abre su propia ventana. Sin Windows Terminal se usa una consola de PowerShell por conexión.',
 		sistemaNoSoportado: 'Estas opciones sólo están disponibles en Windows por ahora.',
 		autostartEtiqueta: 'Abrir Ellkan al iniciar sesión en Windows',
 		autostartHint: 'Arranca en la bandeja, sin abrir la ventana. Si movés la app de carpeta, volvé a activarlo.',
@@ -814,6 +862,8 @@ const es = {
 			titulo: 'Usuarios',
 			listadoTitulo: 'Todos los usuarios',
 			listadoVacio: 'No hay usuarios para mostrar.',
+			avisoBorradoRemoto:
+				'Al desactivar o purgar a alguien, sus apps de escritorio conectadas a este servidor borran la bóveda local: al instante si están en línea, o la próxima vez que se conecten. No reemplaza cambiar las contraseñas a las que tenía acceso: lo que ya vio pudo copiarlo, y un equipo que nunca vuelve a conectarse conserva sus datos.',
 			buscarTitulo: 'Buscar por email',
 			hint: 'Buscar por email para operar sobre un usuario puntual, o elegir uno del listado de arriba.',
 			email: 'Email',
@@ -830,6 +880,27 @@ const es = {
 			gruposBloqueados: 'Grupos donde es el único manager:',
 			recursosBloqueados: 'Recursos donde es el único owner:',
 			sinBloqueos: 'Sin bloqueos — se puede purgar.',
+			transferenciaTitulo: 'Pasar la propiedad a otros',
+			transferenciaHint:
+				'Es el único propietario de estas claves compartidas. Elige quién queda a cargo de cada una; nadie pierde el acceso que ya tenía. El nombre de la clave no aparece porque está cifrado y el servidor no lo conoce.',
+			colClave: 'Clave',
+			colCompartidaCon: 'Compartida con',
+			colNuevoPropietario: 'Nuevo propietario',
+			creadaEl: (fecha: string) => `creada el ${fecha}`,
+			nivelPermiso: (nivel: string) => ({ read: 'lee', update: 'edita', owner: 'propietario' } as Record<string, string>)[nivel] ?? nivel,
+			destinoAdminsGrupo: (grupo: string, n: number) => `Admins de ${grupo} (${n})`,
+			destinoGrupoEntero: (grupo: string, n: number) => `Todo el grupo ${grupo} (${n}): cualquiera podrá editar y borrar`,
+			sinDestino: 'Nadie activo puede recibirla',
+			nuevoAdminDeGrupo: (nombre: string) => `Nuevo admin: ${nombre}`,
+			grupoSinCandidato: 'No queda otro miembro activo',
+			transferirYPurgar: 'Transferir y purgar',
+			transferirYBloquear: 'Transferir y bloquear',
+			bloquearSinTransferir: 'Bloquear sin transferir',
+			bloqueoConClaves: (n: number) =>
+				`Es el único propietario de ${n} ${n === 1 ? 'clave compartida' : 'claves compartidas'}. Si se bloquea sin transferir, nadie más podrá editarlas, compartirlas ni borrarlas.`,
+			transferenciaIncompleta:
+				'Hay claves o grupos sin nadie a quién pasarlos. Reactiva a alguien con acceso antes de purgar.',
+			transferenciaCambio: 'Algo cambió desde que se cargó la lista. Se volvió a cargar: revísala y confirma de nuevo.',
 			errorBuscar: 'No se encontró un usuario con ese email.',
 			seleccionarTodos: 'Seleccionar todos',
 			deseleccionarTodos: 'Deseleccionar todos',
@@ -858,6 +929,7 @@ const es = {
 			passphraseTemporalHint: 'La usa para entrar la primera vez; ahí se le obliga a cambiarla.',
 			passphraseTemporalCorta: (n: number) => `La frase temporal tiene que tener al menos ${n} caracteres.`,
 			generarPassphrase: 'Generar',
+			confirmarFraseGuardada: "Guardé la passphrase temporal en un lugar seguro para entregársela (no se podrá ver de nuevo)",
 			passphraseGenerada: 'Passphrase temporal',
 			errorCrear: 'No se pudo crear el usuario.'
 		},

@@ -24,8 +24,8 @@
 //! `/{id}/leave`), `export`/`external_shares`/audit-lite (sin SQLite
 //! todavía, ver spec/10-mapa-mental.md). También fuera de alcance:
 //! `verify-email`/`resend` (el bootstrap siempre los saltea, spec/13 §16),
-//! `logout`/`public_key`/`buscar`/`avatar` (necesitan el extractor
-//! `AuthenticatedUser`, atado también a `AppState`).
+//! `public_key`/`buscar` (necesitan el extractor `AuthenticatedUser`, atado
+//! también a `AppState`).
 
 use axum::extract::{Path, Query, State};
 use axum::http::header::{self, HeaderMap};
@@ -49,6 +49,9 @@ use crate::auth::repository::{SessionRepository, UserRepository};
 use crate::auth::service::AuthService;
 use crate::b64;
 use crate::error::{ApiError, DomainError, RepoError};
+use crate::me::dto::ActualizarAvatarRequest;
+use crate::me::models::Avatar;
+use crate::me::service::AvatarService;
 use crate::folders::dto::{CrearCarpetaRequest, MoverCarpetaRequest, NodoArbolResponse};
 use crate::folders::repository::{FolderItemRepository, FolderRepository};
 use crate::folders::service::FolderService;
@@ -329,6 +332,53 @@ async fn guardia_origen_y_host(req: axum::extract::Request, next: Next) -> Respo
         .into_response()
 }
 
+/// Revocación remota: con el borrado pendiente, el backend local no sirve
+/// nada más (ni a la ventana ni a la extensión) hasta que el próximo arranque
+/// borre la bóveda. La extensión ve el 401 y cierra sesión sola.
+async fn guardia_revocada(State(state): State<AppStateDesktop>, req: axum::extract::Request, next: Next) -> Response {
+    if !state.revocada.load(std::sync::atomic::Ordering::SeqCst) {
+        return next.run(req).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({ "error": { "code": "CUENTA_REVOCADA", "message": "la cuenta fue revocada por el servidor vinculado" } })),
+    )
+        .into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct BorradoRemotoRequest {
+    /// Servidor que revocó la cuenta, sólo como referencia en la marca.
+    servidor: String,
+}
+
+/// `POST /desktop/borrado-remoto` — el frontend ya verificó el aviso firmado
+/// por el servidor vinculado (docs/revocacion-remota.md). Deja la marca, corta
+/// el acceso, cierra la base y borra la bóveda en el acto. Si algo no se pudo
+/// borrar (un archivo bloqueado), la marca queda y el próximo arranque lo
+/// completa antes de abrir nada. Sólo existe en el router de escritorio.
+async fn borrado_remoto(
+    State(state): State<AppStateDesktop>,
+    _auth: AuthenticatedUserDesktop,
+    Json(req): Json<BorradoRemotoRequest>,
+) -> Result<StatusCode, ApiError> {
+    super::borrado_remoto::marcar(&state.datadir, &req.servidor).map_err(|e| interno(e.into()))?;
+    state.revocada.store(true, std::sync::atomic::Ordering::SeqCst);
+    tracing::warn!(servidor = %req.servidor, "cuenta revocada por el servidor vinculado: se borra la bóveda local");
+
+    // Todos los repositorios comparten este pool: cerrarlo suelta la base
+    // (y sus `-wal`/`-shm`) para poder borrarla con la app abierta.
+    state.pool.close().await;
+    let datadir = state.datadir.clone();
+    let resultado = tokio::task::spawn_blocking(move || super::borrado_remoto::ejecutar(&datadir)).await;
+    match resultado {
+        Ok(Ok(())) => tracing::warn!("bóveda local borrada por revocación remota"),
+        Ok(Err(e)) => tracing::error!(error = %format!("{e:#}"), "borrado remoto incompleto: se completa en el próximo arranque"),
+        Err(e) => tracing::error!(error = %e, "borrado remoto interrumpido: se completa en el próximo arranque"),
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Un fallo de E/S (copias de seguridad) como error interno: al cliente sólo
 /// le llega "error interno", el detalle queda en el log.
 fn interno(e: anyhow::Error) -> DomainError {
@@ -487,6 +537,9 @@ fn recurso_a_response(recurso: crate::resources::models::Resource, resource_type
         // Modo escritorio: dueño único, siempre puede borrar lo suyo — sin
         // el camino de "admin de grupo" de la versión servidor.
         puede_borrar: true,
+        // Loopback sin límite de solicitudes: el cliente sigue pidiendo el
+        // sobre por recurso (incluye el fallback a `metadata_deks`).
+        own_sealed_dek_b64: None,
     }
 }
 
@@ -925,11 +978,37 @@ async fn me_grupos() -> Json<Vec<serde_json::Value>> {
     Json(Vec::new())
 }
 
-/// `GET /me/avatar` — `404` real es la respuesta correcta acá (mismo
-/// criterio que la versión servidor: "sin avatar" es un 404, no un `200`
-/// vacío) — el frontend ya lo maneja (`obtenerAvatarUrl` trata `404` como
-/// "no hay avatar", no como error). No hace falta un handler nuevo.
-///
+/// `GET/PUT/DELETE /me/avatar` — mismo contrato que la versión servidor
+/// ("sin avatar" es un 404, no un `200` vacío) y misma validación (se reusa
+/// `me::service::AvatarService`). Antes no estaba montado: subir una foto en
+/// escritorio daba "Not Found". La sincronización con el servidor vinculado
+/// la hace el frontend (`$lib/sync/avatar.ts`), igual que el resto del sync.
+fn servicio_avatar(state: &AppStateDesktop) -> AvatarService<'_, crate::desktop::repositories::avatar::SqliteAvatarRepository> {
+    AvatarService { avatar: &state.avatar }
+}
+
+async fn avatar_obtener(State(state): State<AppStateDesktop>, auth: AuthenticatedUserDesktop) -> Result<Response, ApiError> {
+    match servicio_avatar(&state).obtener(auth.user_id).await? {
+        Some(a) => Ok(([(header::CONTENT_TYPE, a.content_type)], a.bytes).into_response()),
+        None => Err(DomainError::NotFound.into()),
+    }
+}
+
+async fn avatar_actualizar(
+    State(state): State<AppStateDesktop>,
+    auth: AuthenticatedUserDesktop,
+    Json(req): Json<ActualizarAvatarRequest>,
+) -> Result<(), ApiError> {
+    let bytes = b64::decode(&req.avatar_b64).map_err(|_| DomainError::ValidacionInvalida("avatar_b64 inválido".into()))?;
+    servicio_avatar(&state).actualizar(auth.user_id, Avatar { bytes, content_type: req.content_type }).await?;
+    Ok(())
+}
+
+async fn avatar_eliminar(State(state): State<AppStateDesktop>, auth: AuthenticatedUserDesktop) -> Result<(), ApiError> {
+    servicio_avatar(&state).eliminar(auth.user_id).await?;
+    Ok(())
+}
+
 /// `GET /admin/password-policy` — mismos defaults que `/password-policy`
 /// (sin distinción admin/no-admin en un solo usuario).
 async fn admin_password_policy_default() -> Json<serde_json::Value> {
@@ -1224,6 +1303,20 @@ async fn recovery_kit_estado(
     }))
 }
 
+/// `GET /me/recovery-kit/material` — mismo contrato que el servidor: el sync
+/// lo usa para que la app y el servidor vinculado compartan el MISMO kit.
+async fn recovery_kit_material_propio(
+    State(state): State<AppStateDesktop>,
+    auth: AuthenticatedUserDesktop,
+) -> Result<Json<crate::recovery_kit::dto::MaterialKitResponse>, ApiError> {
+    let kit = state.recovery_kits.buscar_por_usuario(auth.user_id).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
+    Ok(Json(crate::recovery_kit::dto::MaterialKitResponse {
+        kit_public_key_x25519_b64: b64::encode(&kit.kit_public_key_x25519),
+        sealed_identity_material_b64: b64::encode(&kit.sealed_identity_material),
+        created_at: kit.created_at,
+    }))
+}
+
 /// `PUT /me/recovery-kit` — sirve para la generación inicial y para
 /// regenerar: el `upsert` pisa el kit anterior y limpia `must_rotate`.
 async fn recovery_kit_generar(
@@ -1487,6 +1580,32 @@ async fn sync_post(
     })))
 }
 
+/// Una línea en `Ellkan.log` por cada pedido que cambia algo (POST/PUT/
+/// DELETE) y por cada error; las lecturas exitosas no se registran (son
+/// cientos por minuto y no dicen nada). Pedido 2026-10-18: el sync borró 126
+/// claves sin dejar una sola línea. Sólo método, ruta (con ids, que no son
+/// secretos), status y duración: nunca headers ni cuerpo. El mensaje va
+/// armado en el texto (no en campos de `tracing`) porque llega al archivo por
+/// el puente `tracing` → `log`, que no conserva los campos de un span.
+async fn registrar_solicitud(req: axum::extract::Request, next: Next) -> Response {
+    let metodo = req.method().clone();
+    let ruta = req.uri().path().to_string();
+    let inicio = std::time::Instant::now();
+    let respuesta = next.run(req).await;
+    let status = respuesta.status();
+    let ms = inicio.elapsed().as_millis();
+    let modifica = !matches!(metodo, axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS);
+    if status.is_server_error() {
+        tracing::error!("{metodo} {ruta} → {} ({ms} ms)", status.as_u16());
+    } else if status.is_client_error() && modifica {
+        tracing::warn!("{metodo} {ruta} → {} ({ms} ms)", status.as_u16());
+    } else if modifica || (status.is_client_error() && status != StatusCode::NOT_FOUND) {
+        // Lecturas con 404 (ej. «sin avatar») son normales: no ensucian el log.
+        tracing::info!("{metodo} {ruta} → {} ({ms} ms)", status.as_u16());
+    }
+    respuesta
+}
+
 pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
     Router::new()
         .route("/auth/register", post(register))
@@ -1519,7 +1638,17 @@ pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
         .route("/me/permissions", get(me_permisos))
         .route("/me/preferences", get(preferencias_default).put(preferencias_actualizar))
         .route("/me/email", put(cambiar_email_local))
+        // 2 MB de imagen pasan de 2.6 MB en base64, más que el límite por
+        // defecto de axum — mismo límite que la versión servidor.
+        .route(
+            "/me/avatar",
+            get(avatar_obtener)
+                .put(avatar_actualizar)
+                .delete(avatar_eliminar)
+                .layer(axum::extract::DefaultBodyLimit::max(3 * 1024 * 1024)),
+        )
         .route("/me/recovery-kit", get(recovery_kit_estado).put(recovery_kit_generar))
+        .route("/me/recovery-kit/material", get(recovery_kit_material_propio))
         .route("/auth/logout", post(logout_local))
         .route("/auth/recovery-kit/local/material", post(recovery_kit_local_material))
         .route("/auth/recovery-kit/local/complete", post(recovery_kit_local_completar))
@@ -1531,6 +1660,12 @@ pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
         .route("/vault/persistence", get(obtener_persistencia).put(cambiar_persistencia))
         .route("/vault/backups", get(listar_respaldos).post(crear_respaldo))
         .route("/sync", get(sync_get).post(sync_post))
+        .route("/desktop/borrado-remoto", post(borrado_remoto))
+        .layer(middleware::from_fn_with_state(estado.clone(), guardia_revocada))
+        // Cambios que la extensión hace por el puerto TCP → aviso a la app
+        // para subirlos al servidor (ver `cambios_extension`).
+        .layer(middleware::from_fn(crate::desktop::cambios_extension::middleware_tcp))
+        .layer(middleware::from_fn(registrar_solicitud))
         // CORS sólo para los orígenes de `origen::origen_permitido`: la app
         // embebida, las extensiones y (en debug) el servidor de Vite. Antes era
         // `Any`, que dejaba a cualquier página web abierta en el navegador leer

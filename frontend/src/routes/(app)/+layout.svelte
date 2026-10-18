@@ -24,6 +24,13 @@
 	import { clavesDesbloqueadas } from '$lib/state/session';
 	import { obtenerVinculacion } from '$lib/sync/vinculacion';
 	import { iniciarSyncAutomatico } from '$lib/sync/automatico';
+	import { escucharAvisosEnWeb } from '$lib/sync/avisosWeb';
+	import { progresoSync } from '$lib/sync/motor';
+	import { vigilarEstados } from '$lib/tauri/vigilancia';
+	import BarraProgreso from '$lib/components/BarraProgreso.svelte';
+	import { avatarCambiado } from '$lib/sync/avatar';
+	import { cuentaRevocada } from '$lib/sync/revocacion';
+	import CuentaRevocada from '$lib/components/CuentaRevocada.svelte';
 
 	// F-47: bóveda de escritorio vinculada y desbloqueada → trae lo nuevo del
 	// servidor sola (al entrar, cada pocos minutos y al volver a la ventana).
@@ -33,13 +40,24 @@
 		if (!enModoEscritorio() || !$clavesDesbloqueadas || !email || !obtenerVinculacion(email)) return;
 		return iniciarSyncAutomatico();
 	});
+
+	// Web: el Vault se recarga solo cuando otro dispositivo del usuario cambia
+	// algo (app de escritorio, extensión, otra pestaña), sin F5.
+	$effect(() => {
+		if (enModoEscritorio() || !$sesion.sessionId || !$clavesDesbloqueadas) return;
+		return escucharAvisosEnWeb();
+	});
 	import Button from '$lib/components/Button.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
 	import FolderTree from '$lib/components/FolderTree.svelte';
 	import { carpetasSidebar } from '$lib/state/carpetasSidebar';
 	import { t } from '$lib/i18n';
+	import CodigoFuente from '$lib/components/CodigoFuente.svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	// Escritorio: cambios de estado (sesión, bloqueo, servidor) al `Ellkan.log`.
+	vigilarEstados();
 
 	let verificando = $state(true);
 
@@ -113,6 +131,10 @@
 	let avatarUrl = $state<string | null>(null);
 	onMount(() => {
 		perfilApi.obtener().then((p) => (perfil = p)).catch(() => {});
+	});
+	// Se vuelve a pedir cuando cambia (subida en Ajustes o traída por el sync).
+	$effect(() => {
+		void $avatarCambiado;
 		obtenerAvatarUrl().then((u) => (avatarUrl = u)).catch(() => {});
 	});
 
@@ -267,6 +289,8 @@
 					class="toggle-colapso"
 					onclick={toggleColapsado}
 					title={colapsado ? $t.appShell.expandirNav : $t.appShell.colapsarNav}
+					aria-label={colapsado ? $t.appShell.expandirNav : $t.appShell.colapsarNav}
+					aria-expanded={!colapsado}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
 						{#if colapsado}
@@ -304,7 +328,7 @@
 			{/if}
 			<div class="pie">
 				<div class="controles-topbar">
-					<button type="button" class="toggle-tema" onclick={(e) => alternarTema(e)} title={$t.appShell.cambiarTema}>
+					<button type="button" class="toggle-tema" onclick={(e) => alternarTema(e)} title={$t.appShell.cambiarTema} aria-label={$t.appShell.cambiarTema}>
 						{#if $preferencias.theme === 'light'}
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M3 12h2.25m-.386-6.364 1.591 1.591M12 7.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z" />
@@ -347,16 +371,31 @@
 						</span>
 					{/if}
 				</a>
-				<Button variant="ghost" onclick={salir}>{colapsado ? '⏻' : $t.appShell.cerrarSesion}</Button>
+				<Button variant="ghost" onclick={salir} ariaLabel={$t.appShell.cerrarSesion}>{colapsado ? '⏻' : $t.appShell.cerrarSesion}</Button>
+				<CodigoFuente compacto={colapsado} />
 			</div>
 		</nav>
 		<main>
+			<!-- Sync grande en curso (automático o "Sincronizar ahora"): se ve
+			     desde cualquier pantalla, no sólo desde Ajustes. -->
+			{#if $progresoSync}
+				<div class="aviso-sync">
+					<BarraProgreso
+						titulo={$progresoSync.fase === 'bajando' ? $t.settingsSync.progresoBajando : $t.settingsSync.progresoSubiendo}
+						hechos={$progresoSync.hechos}
+						total={$progresoSync.total}
+					/>
+				</div>
+			{/if}
 			{@render children()}
 		</main>
 	</div>
 	{#if bloqueado}
 		<LockOverlay email={$sesion.email ?? ''} onDesbloqueado={alDesbloquear} />
 	{/if}
+{/if}
+{#if $cuentaRevocada}
+	<CuentaRevocada servidor={$cuentaRevocada.servidor} motivo={$cuentaRevocada.motivo} />
 {/if}
 
 <style>
@@ -593,6 +632,13 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.aviso-sync {
+		margin-bottom: var(--space-4);
+		padding: 0 var(--space-4);
+		background: var(--bg-raised);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md);
 	}
 	main {
 		padding: var(--space-8);

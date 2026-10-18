@@ -147,11 +147,20 @@ impl From<DomainError> for ApiError {
             ),
             // Todo error no mapeado explícitamente cae acá — nunca se filtra
             // el mensaje real de sqlx::Error ni un panic al cliente.
-            DomainError::Interno(_) => ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "INTERNAL_ERROR",
-                "error interno",
-            ),
+            // Un choque de clave única que llegó por `?` (`#[from] RepoError`)
+            // es un conflicto, no una falla del servidor: antes salía como 500
+            // "error interno" (ej. el sync del escritorio, 2026-10-18).
+            DomainError::Interno(RepoError::Conflict) => {
+                ApiError::new(StatusCode::CONFLICT, "CONFLICT", "conflicto de estado")
+            }
+            DomainError::Interno(RepoError::Database(causa)) => {
+                // Antes la causa se descartaba sin dejar rastro: el cliente veía
+                // "error interno" y ni el log del servidor ni el del escritorio
+                // decían qué falló. El error de sqlx trae la consulta/restricción
+                // que falló, nunca valores de secretos (son bytes cifrados).
+                tracing::error!(error = %causa, "error interno de base de datos");
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "error interno")
+            }
         }
     }
 }

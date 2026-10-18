@@ -1,9 +1,10 @@
 // Autor: Athan Espinoza
 
-//! Confirma que el rate limiting por `user_id` autenticado es una capa real
-//! y no sólo el `GovernorLayer` por IP: mismo usuario, muchas solicitudes
-//! rápidas contra una ruta autenticada, se espera un 429 antes de agotar la
-//! ráfaga configurada (10/s, ráfaga 20).
+//! `rate_limit::limitar_solicitudes`: con sesión válida cuenta el cupo del
+//! usuario (20/s, ráfaga 300) y NO el de la IP; sin sesión, o con un token
+//! inventado, cuenta el de la IP (10/s, ráfaga 250).
+
+mod common;
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -117,19 +118,10 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
     assert_eq!(cuerpo["estado"], "pendiente_dispositivo");
     let device_challenge_id = cuerpo["device_challenge_id"].as_str().unwrap();
 
-    // Dispositivo nunca visto -> hay que "leer el email" (stub, ver notificaciones.rs).
-    let (body,): (String,) =
-        sqlx::query_as("select body from outbound_emails where recipient = $1 order by created_at desc limit 1")
-            .bind(email)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    let codigo = body
-        .lines()
-        .find_map(|l| l.strip_prefix("Código de verificación: "))
-        .unwrap()
-        .trim()
-        .to_string();
+    // Dispositivo nunca visto -> hay que "leer el email" (stub, ver
+    // notificaciones.rs). Se encola de forma asíncrona: el helper reintenta
+    // (antes se leía una sola vez y el test fallaba con `RowNotFound`).
+    let codigo = common::codigo_verificacion_dispositivo_encolado(&pool, email).await;
 
     let resp = cliente
         .post(format!("{base}/auth/verify-device"))
@@ -141,9 +133,22 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
     let cuerpo: Value = resp.json().await.unwrap();
     let session_id = cuerpo["session_id"].as_str().unwrap().to_string();
 
-    // --- Ráfaga de GET /resources con la misma sesión (mismo user_id) ---
+    // --- 1. Con sesión válida NO aplica el límite por IP ---
+    // Bug 2026-10-17: listar un vault de 139 claves (~141 pedidos) desde la
+    // misma IP que la app de escritorio daba 429.
+    for i in 0..280 {
+        let resp = cliente
+            .get(format!("{base}/resources"))
+            .bearer_auth(&session_id)
+            .send()
+            .await
+            .unwrap();
+        assert_ne!(resp.status(), 429, "pedido {i} con sesión válida cortado: el límite por IP no debería aplicarse");
+    }
+
+    // --- 2. El límite por usuario sigue existiendo (20/s, ráfaga 300) ---
     let mut vio_429 = false;
-    for _ in 0..40 {
+    for _ in 0..400 {
         let resp = cliente
             .get(format!("{base}/resources"))
             .bearer_auth(&session_id)
@@ -151,9 +156,29 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
             .await
             .unwrap();
         if resp.status() == 429 {
+            let cuerpo: Value = resp.json().await.expect("el 429 es el JSON de error de la API, no texto plano");
+            assert_eq!(cuerpo["error"]["code"], "RATE_LIMITED");
             vio_429 = true;
             break;
         }
     }
-    assert!(vio_429, "40 solicitudes rápidas del mismo usuario deberían disparar el límite por usuario (10/s, ráfaga 20)");
+    assert!(vio_429, "500 solicitudes rápidas del mismo usuario deberían disparar el límite por usuario");
+
+    // --- 3. Un token inventado no saltea el límite por IP ---
+    // Si bastara con mandar cualquier `Authorization`, el límite que frena
+    // fuerza bruta en el login dejaría de servir.
+    let mut vio_429_ip = false;
+    for _ in 0..300 {
+        let resp = cliente
+            .get(format!("{base}/resources"))
+            .bearer_auth(uuid::Uuid::now_v7().to_string())
+            .send()
+            .await
+            .unwrap();
+        if resp.status() == 429 {
+            vio_429_ip = true;
+            break;
+        }
+    }
+    assert!(vio_429_ip, "300 pedidos con tokens inventados desde la misma IP deberían disparar el límite por IP (ráfaga 250)");
 }

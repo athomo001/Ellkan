@@ -13,6 +13,9 @@ import { cargarCrypto } from '../wasm';
 import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/b64';
 import { uuidABytes } from '../../../../frontend/src/lib/crypto/uuid';
 import { SesionStorage } from '../storage/sesion-storage';
+import { pedirAlServidor } from '../transporte';
+import { conReintento429 } from '../reintento';
+import { AuthService } from './auth-service';
 import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './uri-match';
 
 interface ErrorApi {
@@ -28,14 +31,48 @@ async function sesionActiva(): Promise<{ serverUrl: string; sessionId: string; u
 	return { serverUrl, sessionId, userId, x25519Private: base64ABytes(x25519PrivateB64) };
 }
 
+/** Mensaje cuando la sesión dejó de valer y se cerró (revocación remota). */
+export const MENSAJE_SESION_INVALIDA = 'La sesión ya no es válida. Iniciá sesión de nuevo.';
+/** La sesión venció y el servidor pide un login a mano (MFA o dispositivo). */
+export const MENSAJE_SESION_VENCIDA = 'La sesión venció. Desbloqueá de nuevo para continuar.';
+
 async function peticion<T>(serverUrl: string, method: string, path: string, sessionId: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
-	const headers: Record<string, string> = { Authorization: `Bearer ${sessionId}`, ...extraHeaders };
-	if (body !== undefined) headers['Content-Type'] = 'application/json';
+	const enviar = (sesion: string) => {
+		const headers: Record<string, string> = { Authorization: `Bearer ${sesion}`, ...extraHeaders };
+		if (body !== undefined) headers['Content-Type'] = 'application/json';
+		return pedirAlServidor(`${serverUrl}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+	};
 	let resp: Response;
 	try {
-		resp = await fetch(`${serverUrl}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+		resp = await conReintento429(() => enviar(sessionId));
 	} catch {
 		throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
+	}
+	// Revocación remota: un 401 con una sesión que debería valer. Se intenta
+	// una vez una sesión nueva con las claves ya desbloqueadas; si el servidor
+	// no la da (cuenta bloqueada o borrada, o la app de escritorio se vació),
+	// se cierra sesión y se purga lo que guardó la extensión.
+	if (resp.status === 401) {
+		const resultado = await AuthService.reautenticar();
+		if (resultado === 'sin_respuesta') throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
+		if (resultado === 'interactivo') {
+			await AuthService.descartarSesion();
+			throw new Error(MENSAJE_SESION_VENCIDA);
+		}
+		const nueva = resultado === 'renovada' ? await SesionStorage.leer('session_id') : null;
+		if (!nueva) {
+			await AuthService.cerrarSesionPorInvalida();
+			throw new Error(MENSAJE_SESION_INVALIDA);
+		}
+		try {
+			resp = await conReintento429(() => enviar(nueva));
+		} catch {
+			throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
+		}
+		if (resp.status === 401) {
+			await AuthService.cerrarSesionPorInvalida();
+			throw new Error(MENSAJE_SESION_INVALIDA);
+		}
 	}
 	if (!resp.ok) {
 		let mensaje = `el servidor respondió ${resp.status}`;
@@ -74,6 +111,10 @@ interface RecursoCrudo {
 	metadata_key_id: string | null;
 	updated_at: string;
 	created_at: string;
+	/** 2026-10-18: DEK sellada del sobre propio, sólo en `GET /resources` del
+	 * servidor (ver `frontend/src/lib/crypto/recursos.ts`). Ausente en el
+	 * backend local del escritorio → se pide por recurso. */
+	own_sealed_dek_b64?: string;
 }
 
 interface MetadataKeyCruda {
@@ -156,7 +197,13 @@ async function cargarClavesMetadataCompartidas(
 	const mapa = new Map<string, Uint8Array>();
 	for (const clave of activas) {
 		if (!clave.own_sealed_private_key_b64) continue;
-		mapa.set(clave.id, wasm.abrir_sellado(x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
+		// Una clave que no abre deja sin nombre sólo a sus recursos, no a todo
+		// el vault (mismo arreglo que la web, 2026-10-18).
+		try {
+			mapa.set(clave.id, wasm.abrir_sellado(x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
+		} catch {
+			continue;
+		}
 	}
 	return mapa;
 }
@@ -186,8 +233,20 @@ export const VaultService = {
 				claveMetadata = clave;
 			} else {
 				// `user_key`: la DEK por-recurso es la misma clave que la metadata.
-				const secreto = await get<SecretoCrudo>(serverUrl, `/resources/${r.id}/secret`, sessionId);
-				claveMetadata = wasm.abrir_sellado(x25519Private, base64ABytes(secreto.sealed_dek_b64));
+				// Viene en la lista (servidor); si no, se pide el sobre propio.
+				// Antes era siempre un pedido por recurso, y `listar` corre en
+				// CADA página con un formulario (autofill): ~141 pedidos por
+				// página con 139 claves, que agotaban el límite del usuario y
+				// dejaban también a su web y su app con 429 (2026-10-18). Un
+				// recurso sin sobre propio o con un sobre que no abre se omite
+				// en vez de dejar vacía la lista entera.
+				try {
+					const sealedDekB64 =
+						r.own_sealed_dek_b64 ?? (await get<SecretoCrudo>(serverUrl, `/resources/${r.id}/secret`, sessionId)).sealed_dek_b64;
+					claveMetadata = wasm.abrir_sellado(x25519Private, base64ABytes(sealedDekB64));
+				} catch {
+					continue;
+				}
 			}
 
 			try {

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    update permissions set level = 'owner'\n                    where subject_type = 'resource' and subject_id = $1 and grantee_type = 'group' and grantee_id = $2\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ae054c455896300c92045a943b18cae430063f5918c988900216e425251b48e2"
+}

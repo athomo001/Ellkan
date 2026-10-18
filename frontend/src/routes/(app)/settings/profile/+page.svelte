@@ -117,7 +117,7 @@
 	.badge {
 		margin-left: var(--space-2);
 		font-size: var(--text-xs);
-		color: var(--accent-primary);
+		color: var(--accent-text);
 		background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-base));
 		border-radius: 999px;
 		padding: 0.1rem var(--space-2);

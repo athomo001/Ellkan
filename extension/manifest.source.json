@@ -1,7 +1,7 @@
 {
 	"manifest_version": 3,
 	"name": "Ellkan",
-	"version": "0.3.3",
+	"version": "0.3.4",
 	"description": "Zero-knowledge, self-hosted password manager.",
 	"icons": {
 		"16": "icons/icon-16.png",
@@ -35,12 +35,13 @@
 			"all_frames": true
 		}
 	],
-	"permissions": ["storage", "alarms", "idle"],
+	"permissions": ["storage", "alarms", "idle", "nativeMessaging"],
 	"host_permissions": ["<all_urls>"],
 	"content_security_policy": {
 		"extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'none'"
 	},
 	"web_accessible_resources": [],
+	"__chrome__key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5nDjLFppMQIsviiQt6oMkzOGCP3FZm29l0VDEVVYMvrVgkMFnEala8qoKt0ylqAmS0eLmOThaaYQe0KZZUa6LYlXW7jyysAqpPvWCrvIgfFAmGINnKzBlpyVljizj1e2Qpmtuv2l2MAmXdP0N/PQA59h5unc+RzMIEg8XxhsLLjp3PZyT/X0QTt41rQcLAKRQMd36UGQ0Cbs5xuBjt4ZaqaUPJ8dib6apIi3B3erN0c8CX/6Rh6rT3ORxKAN7a+jfsHmAWARo+sxzCip8RNlFqJQHTzzLlQ6DOJtxG8WJJisZZoe+oEDH+IjBzFwI0jQbmlGNPEFW/ctnqRQulUkHwIDAQAB",
 	"__firefox__browser_specific_settings": {
 		"gecko": {
 			"id": "extension@ellkan.local"
