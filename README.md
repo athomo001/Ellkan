@@ -180,6 +180,8 @@ docker compose up -d
 
 La app queda en `http://localhost:8080` (el primer build tarda varios minutos).
 
+> Si falla con `bind source path does not exist: .../secrets/postgres_password.txt` aunque el archivo existe, Docker Desktop no está viendo el disco: reinicialo (o `wsl --shutdown`) y volvé a levantar. Detalle en [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos).
+
 **5. Crear el primer admin:**
 
 ```powershell

@@ -26,6 +26,7 @@ fn extraer_session_id(parts: &Parts) -> Result<Uuid, ApiError> {
     cabecera.parse().map_err(|_| DomainError::InvalidCredentials.into())
 }
 
+#[derive(Clone)]
 pub struct AuthenticatedUser {
     pub session_id: Uuid,
     pub user_id: Uuid,
@@ -38,6 +39,13 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        // Ya validada por `rate_limit::limitar_solicitudes` en este mismo
+        // request: se reusa en vez de ir de nuevo a la base. Las extensiones
+        // sólo las escribe el servidor, un cliente no puede inyectar esto.
+        if let Some(usuario) = parts.extensions.get::<AuthenticatedUser>() {
+            return Ok(usuario.clone());
+        }
+
         let session_id = extraer_session_id(parts)?;
 
         let user_id = state

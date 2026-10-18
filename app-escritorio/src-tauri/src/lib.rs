@@ -17,6 +17,77 @@ pub mod tuberia;
 /// `Cargo.toml`. La exporta `build.rs`.
 const VERSION_APP: &str = env!("ELLKAN_VERSION");
 
+/// Handle de la app para avisos que nacen fuera de la ventana (cambios de la
+/// extensión); se fija en `setup`.
+static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// Cambios de la extensión que la interfaz todavía no recogió
+/// (`<datadir>/cambios-extension.json`, `{id: "subir" | "borrar"}`). Sólo ids,
+/// nunca datos. Sobrevive a la bóveda bloqueada y a cerrar la app: la interfaz
+/// lo vacía al empezar cada sync (`tomar_cambios_extension`).
+static CAMBIOS_EXTENSION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn archivo_cambios_extension() -> PathBuf {
+  datadir().join("cambios-extension.json")
+}
+
+fn leer_cambios_extension() -> serde_json::Map<String, serde_json::Value> {
+  std::fs::read(archivo_cambios_extension())
+    .ok()
+    .and_then(|b| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&b).ok())
+    .unwrap_or_default()
+}
+
+fn anotar_cambio_de_extension(id: &str, operacion: &str) {
+  let _guardia = CAMBIOS_EXTENSION.lock().unwrap_or_else(|e| e.into_inner());
+  let mut cambios = leer_cambios_extension();
+  cambios.insert(id.to_string(), serde_json::Value::String(operacion.to_string()));
+  if let Err(e) = std::fs::write(archivo_cambios_extension(), serde_json::Value::Object(cambios).to_string()) {
+    log::warn!("no se pudo anotar el cambio de la extensión {id}: {e}");
+  }
+}
+
+/// Devuelve y borra los cambios de la extensión pendientes de subir.
+#[tauri::command]
+fn tomar_cambios_extension() -> serde_json::Map<String, serde_json::Value> {
+  let _guardia = CAMBIOS_EXTENSION.lock().unwrap_or_else(|e| e.into_inner());
+  let cambios = leer_cambios_extension();
+  if !cambios.is_empty() {
+    let _ = std::fs::remove_file(archivo_cambios_extension());
+  }
+  cambios
+}
+
+/// Log a archivo: tamaño máximo de cada `Ellkan.log` y cuántos anteriores se
+/// guardan (5 MB × (1 + 3) ≈ 20 MB como tope en disco).
+const LOG_MAX_BYTES: u128 = 5_000_000;
+const LOG_ARCHIVOS_VIEJOS: usize = 3;
+/// Target de los mensajes que manda la interfaz (`registrar_desde_web`).
+const TARGET_WEB: &str = "ellkan_web";
+/// Largo máximo de un mensaje de la interfaz: un error con un objeto enorme
+/// no puede llenar el archivo de una vez.
+const LOG_MAX_MENSAJE_WEB: usize = 2_000;
+
+/// Errores y avisos de la interfaz (`console.error`/`console.warn`, errores
+/// sin capturar) al mismo `Ellkan.log` que el backend. Antes se perdían: la
+/// consola de WebView2 no está abierta en release. La interfaz nunca manda
+/// secretos acá (mismo criterio que sus `console.error`: ids y mensajes de
+/// error); igual se recorta el largo y se sacan caracteres de control para
+/// que nadie pueda falsear líneas del log.
+#[tauri::command]
+fn registrar_desde_web(nivel: String, mensaje: String) {
+  let limpio: String = mensaje
+    .chars()
+    .map(|c| if c.is_control() { ' ' } else { c })
+    .take(LOG_MAX_MENSAJE_WEB)
+    .collect();
+  match nivel.as_str() {
+    "error" => log::error!(target: TARGET_WEB, "{limpio}"),
+    "warn" => log::warn!(target: TARGET_WEB, "{limpio}"),
+    _ => log::info!(target: TARGET_WEB, "{limpio}"),
+  }
+}
+
 /// Resuelve el directorio de datos según el sistema operativo:
 /// - Windows: `%APPDATA%\Ellkan`
 /// - Linux: `$XDG_DATA_HOME/ellkan` o fallback a `$HOME/.local/share/ellkan`
@@ -1055,6 +1126,8 @@ pub fn run() {
     // esos clics y los manda al navegador default del SO.
     .plugin(tauri_plugin_opener::init())
     .invoke_handler(tauri::generate_handler![
+      registrar_desde_web,
+      tomar_cambios_extension,
       puerto_backend,
       puerto_configurado,
       configurar_puerto_fijo,
@@ -1117,21 +1190,37 @@ pub fn run() {
     })
     .setup(|app| {
       // Log a archivo (`Ellkan.log` en la carpeta de logs de la app), con
-      // rotación. En debug también va a la salida estándar, con más detalle;
-      // en release sólo avisos y errores (no hay consola) para que haya con
-      // qué diagnosticar sin llenar el disco ni registrar de más.
+      // rotación: hasta `LOG_MAX_BYTES` por archivo y los `LOG_ARCHIVOS_VIEJOS`
+      // anteriores; lo más viejo se borra solo, nunca pasa de ~20 MB.
+      //
+      // 2026-10-18: antes en release sólo guardaba avisos y errores, y el
+      // «error interno» del sync no dejó ni una línea para diagnosticar. Ahora
+      // el código de Ellkan (app + backend local + errores de la interfaz,
+      // `registrar_desde_web`) va en `info`; las dependencias (webview, sqlx,
+      // hyper…) siguen en `warn` para no llenarlo de ruido. Nunca secretos:
+      // el backend sólo registra método, ruta, status y latencia.
       let mut registro = tauri_plugin_log::Builder::default()
-        .max_file_size(2_000_000)
-        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3));
-      registro = if cfg!(debug_assertions) {
-        registro.level(log::LevelFilter::Info)
-      } else {
-        registro
-          .level(log::LevelFilter::Warn)
+        .max_file_size(LOG_MAX_BYTES)
+        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(LOG_ARCHIVOS_VIEJOS))
+        .level(log::LevelFilter::Warn)
+        .level_for("ellkan_desktop_lib", log::LevelFilter::Info)
+        .level_for("ellkan_desktop", log::LevelFilter::Info)
+        .level_for("ellkan_backend", log::LevelFilter::Info)
+        .level_for(TARGET_WEB, log::LevelFilter::Info);
+      if !cfg!(debug_assertions) {
+        // Release: sin consola, sólo el archivo.
+        registro = registro
           .clear_targets()
-          .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }))
-      };
+          .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: None }));
+      }
       app.handle().plugin(registro.build())?;
+      log::info!(
+        "Ellkan {VERSION_APP} iniciando — {} {}, {}, datos en {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        if portable::activo() { "modo portable" } else { "instalada" },
+        datadir().display()
+      );
 
       // F-51: Atajo global de teclado (Ctrl+Shift+Espacio) para invocar acceso rápido
       let atajo = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
@@ -1211,6 +1300,20 @@ pub fn run() {
           })
           .build(app)?;
       }
+
+      // Cuando la extensión cambia un recurso (por native messaging o por el
+      // puerto TCP), el backend local avisa acá y se le pasa a la interfaz
+      // para que lo suba al servidor vinculado (`cambios_extension`).
+      let _ = APP.set(app.handle().clone());
+      ellkan_backend::desktop::cambios_extension::al_cambiar(|id, operacion| {
+        use tauri::Emitter;
+        // Primero al archivo: si la bóveda está bloqueada nadie escucha el
+        // evento y el cambio se perdía (bug real 2026-10-18).
+        anotar_cambio_de_extension(id, operacion);
+        if let Some(app) = APP.get() {
+          let _ = app.emit("recurso-cambiado-por-extension", serde_json::json!({ "id": id, "operacion": operacion }));
+        }
+      });
 
       match tauri::async_runtime::block_on(preparar_backend_local()) {
         Ok((listener, puerto, router, fallo_fijo)) => {

@@ -4,6 +4,72 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.69] - 2026-10-18
+
+### «Too Many Requests» con 137 claves, borrados del escritorio que no llegaban al servidor, logs útiles
+
+Bug real del usuario: importó y borró 137 claves en la app de escritorio conectada; la web quedó con «No se pudo cargar el vault» / «Too Many Requests», los borrados no llegaron al servidor y «Sincronizar ahora» dio «error interno».
+
+**Límite de solicitudes (servidor):**
+- Causa: el límite por IP (2/s, ráfaga 60) se aplicaba también a usuarios con sesión, y detrás de Docker o de una NAT todos comparten IP: la app subiendo un respaldo dejaba sin servicio a la web del mismo usuario. Además el 429 venía en texto plano y el cliente hacía `JSON.parse` sobre eso.
+- `rate_limit::limitar_solicitudes` reemplaza al limitador global: con sesión válida cupo **por usuario** (20/s, ráfaga 300); sin sesión, o con un token que no valida, **por IP** (10/s, ráfaga 250). Un token inventado no saltea el límite por IP.
+- Los códigos de 6 dígitos de verificación de dispositivo (F-02) y de cuenta (F-24) se invalidan a los **5 intentos fallidos por desafío** (migración `0052`): es lo que permite relajar la IP sin abrir fuerza bruta.
+- Todo 429 responde el JSON de error de la API (`RATE_LIMITED`) con `retry-after`.
+- Pool de Postgres 30 por defecto (`ELLKAN_DB_MAX_CONNECTIONS`, antes 10 fijo).
+- `GET /resources` trae `own_sealed_dek_b64`: el vault se lista en un pedido (antes uno por clave).
+
+**Clientes (web y escritorio):**
+- `lib/api/reintento.ts`: los dos clientes HTTP reintentan los 429 con espera y leen respuestas que no son JSON sin reventar.
+- El push al servidor sale de a uno (`notificador.ts`) y las acciones masivas del vault van con concurrencia limitada (`porLotes`); lo que se aplicó sale de la lista aunque otro falle.
+- Un sobre que no abre ya no deja el vault entero vacío: se omite ese recurso.
+- `BarraProgreso.svelte`: al cargar el vault, al importar (con la clave que va y, si se corta, cuántas entraron) y en cualquier pantalla durante un sync grande (`motor.ts::progresoSync`).
+
+**Sync del escritorio:**
+- **Cambio de regla respecto de 0.1.68:** «borrado en la app sin subir, pero editado en el servidor → gana la edición» se cambió a **gana el borrado**. Que el recurso venga en el delta no prueba que alguien lo editó allá: era el eco de lo que subió la propia app, y el borrado pendiente se descartaba. Si recrear localmente choca con la fila borrada (409), se re-encola el borrado.
+- `error.rs`: un choque de clave única (`RepoError::Conflict`) responde 409 en vez de 500 «error interno», y una falla de base de datos deja la causa en el log (antes se descartaba).
+
+**Logs:**
+- Servidor: con `RUST_LOG` sin definir no escribía nada. Ahora `warn,ellkan_backend=info` por defecto, sin colores ANSI fuera de una terminal, nivel según el status (5xx error, 429 warn, 4xx info) y la IP de origen en el span. Sección «Ver qué está pasando» en `manual/instalacion.md`.
+- Escritorio: `Ellkan.log` en release pasa de sólo avisos a `info` para el código de Ellkan (dependencias siguen en `warn`). Rotación: 5 MB por archivo y 3 anteriores (~20 MB de tope). Cuenta la comunicación y los cambios de estado, nunca los datos:
+  - arranque (versión, SO, portable/instalada, carpeta de datos);
+  - backend local: cada pedido que modifica algo y cada error (`registrar_solicitud`, método + ruta + status + ms; las lecturas exitosas no);
+  - extensión por native messaging: primera conexión, reconexión tras 5 min callada, y cada pedido **sin la consulta** (el autofill manda ahí la URL del sitio);
+  - servidor: sesión remota iniciada o fallida, avisos en vivo conectados ↔ sin conexión (sólo el cambio), subida de cambios que empieza a fallar ↔ vuelve;
+  - resumen de cada sync (bajados, borrados, subidos, conflictos, omitidos) y cada push (`[push]`, `[cola]`) OK o fallido;
+  - acciones masivas del vault e importaciones con cuántas salieron bien y en cuál se cortó;
+  - sesión iniciada/cerrada y bóveda bloqueada/desbloqueada (`lib/tauri/vigilancia.ts`);
+  - `console.error`/`console.warn` y errores sin capturar de la interfaz (`registrar_desde_web`, largo máximo 2000, sin caracteres de control).
+
+**Build y docs:**
+- `build-windows.ps1` saca MSI + `.exe` + ZIP en una sola compilación (`-SinMsi` = modo rápido de antes; `-Msi` se acepta por compatibilidad).
+- `docs/pendientes.md` es ahora el único lugar con todo lo que falta (una tabla); reemplaza a los checkboxes de `spec/05` y al backlog de `spec/14`. Regla cambiada en `.agents/AGENTS.md`.
+- `spec/16-boton-donacion.md`: spec nueva, sin implementar.
+
+**Cambios de la extensión que no llegaban al servidor, segunda parte (2026-10-18):** el log de la app mostró que la extensión editó por el **puerto TCP** (`PUT /resources/cbae… → 200`, sin línea «extensión:»), porque el MSI no trae `ellkan_nm_host.exe`, y el aviso a la interfaz existía sólo por native messaging. La detección pasó al backend local (`backend-desktop/cambios_extension.rs`): un middleware reconoce a la extensión por su `Origin` y la tubería llama a la misma función, así cubre los dos caminos y también Linux (sólo TCP). Tests unitarios de la detección (crear por respuesta, editar/borrar/mover por ruta, ignora lecturas, errores e ids que no son UUID).
+
+**Reconciliación al abrir la app (2026-10-18):** un aviso perdido dejaba la app y el servidor distintos para siempre (había que re-editar a mano). Ahora, una vez por sesión y después del primer pull, `motor.ts::reconciliarUnaVez` compara la lista local con la del servidor (un pedido por lado) y pone en la cola lo que la app tiene más nuevo o lo que falta allá (sólo `user_key`, no adaptados). Si el servidor es más nuevo, no toca nada: eso lo resuelve el pull. Queda en el log como `[reconciliación] N locales contra M del servidor: K más nuevos acá`.
+
+**La web se actualiza sola, sin F5 (2026-10-18):** `frontend/src/lib/sync/avisosWeb.ts` escucha el mismo SSE que la app de escritorio (`GET /sync/eventos`) y, ante un «cambio», recarga el Vault (`cambiosDelServidor`, que el Vault ya escuchaba). Antes la web sólo se refrescaba al volver a la pestaña. Se enciende en `(app)/+layout.svelte` sólo fuera del escritorio y con la bóveda desbloqueada; reconecta con espera creciente y corta ante un 401.
+
+**Cambios de la extensión con la bóveda bloqueada (2026-10-18):** el log mostró una edición de la extensión a las 19:16:41, con la app recién abierta y la bóveda bloqueada hasta las 19:17:06: el evento salió sin nadie escuchando (la interfaz sólo escucha con la sesión abierta) y el cambio se perdió. Ahora la app lo anota primero en `<datadir>/cambios-extension.json` (sólo ids) y `motor.ts::sincronizarAhora` lo recoge al empezar cada sync (comando `tomar_cambios_extension`), así sobrevive a la bóveda bloqueada y a cerrar la app. El evento sólo dispara el sync.
+
+**«No se pudo abrir el secreto» en la web:** `verSecreto` y `compartirRecursoConDestinatario` usaban la DEK de cuando se cargó la lista (`recurso.dekPropia`); si la clave se editó después en otro dispositivo, la edición trae DEK nueva y la vieja no abre. Ahora desenvuelven siempre la del sobre recién pedido. En compartir era peor: le habría sellado al destinatario una DEK que no abre nada.
+
+**Probado en vivo (2026-10-18):** barra de progreso del sync en el escritorio (probada por el usuario); los 126 borrados de la app llegaron al servidor (en la base: 0 vivas, 126 borradas) sin ningún 429 en el log del servidor con la web abierta. Ese mismo log mostró 2 `POST /resources` con «duplicate key resources_pkey» → 500: la app re-subía un recurso ya borrado en el servidor. Arreglado: `PgResourceRepository::crear` mapea la clave duplicada a `Conflict` (409), igual que en SQLite.
+
+**Conflictos falsos y contraseña vieja tras editar (2026-10-18, reporte del usuario):**
+- Editar en la web creaba copias «(conflicto …)» en el escritorio, una por sync. Causa: el sync marcaba conflicto si `local.updated_at > cursorAnterior`, y una copia recién bajada nace con la hora local, siempre posterior al cursor. Ahora hay conflicto sólo si el recurso está en la cola de pendientes como `subir` (una edición hecha en la app que no llegó al servidor). Las copias de conflicto ya creadas son copias reales y se borran a mano.
+- Al guardar una edición, el panel seguía mostrando la contraseña vieja hasta recargar: ahora muestra la nueva. Y el caché del modo «sólo memoria» (`secretosEnMemoria`) se invalida al editar y cuando el sync trae otra versión o un borrado (`olvidarSecretoEnMemoria`).
+
+**Extensión del navegador (mismos arreglos, 2026-10-18):** tiene su propio cliente y no había recibido ninguno.
+- `VaultService.listar` corre en **cada página con un formulario** (autofill) y pedía `/resources/{id}/secret` por recurso: ~141 pedidos por página con 139 claves, que agotaban el cupo del usuario y dejaban también a su web y su app con 429. Ahora usa `own_sealed_dek_b64` (1 pedido; el backend local del escritorio sigue por recurso, sin límite).
+- Un recurso sin sobre propio, o un sobre / una metadata key que no abre, ya no deja vacía la lista entera: se omite.
+- Los 429 se reintentan con espera (`background/reintento.ts`) en los pedidos del vault, el login y la reautenticación.
+- **Cambios hechos desde la extensión conectada a la app no llegaban al servidor** (reporte del usuario: contraseña cambiada en la extensión, visible en la app, nunca en la web). La subida al servidor la hace la interfaz de la app (`notificador.ts`), y la extensión habla directo con el backend local por native messaging. Ahora `canal_extension.rs` emite `recurso-cambiado-por-extension` `{id, operacion}` tras cada POST/PUT/DELETE exitoso sobre `/resources` (id validado como UUID), y `automatico.ts` lo anota en la cola de pendientes, refresca la pantalla y dispara un sync que lo sube. Limitación: si la extensión usa el puerto TCP de respaldo (sin native messaging), el aviso no existe.
+- Revisado y sin cambios: el cuerpo no-JSON de un error ya se leía bien; el popup ya limpiaba la contraseña revelada al guardar; la extensión no sincroniza, así que no le aplican los conflictos falsos.
+
+**Verificado:** tests nuevos `carga_masiva.rs` (25 usuarios × 200 claves desde la misma IP, 0 × 429) y `verify_device_intentos.rs`; suite del backend 217 OK (los 6 que fallan necesitan OpenLDAP/Keycloak levantados); `pnpm check` y `cargo clippy -D warnings` limpios. **Sin probar en vivo:** el sync corregido del escritorio, las barras de progreso y el log nuevo (filas #2–#5 y #44 de `docs/pendientes.md`).
+
 ## [0.1.68] - 2026-10-15
 
 ### Modo conectado (F-47): los cambios hechos con el servidor caído se suben al volver

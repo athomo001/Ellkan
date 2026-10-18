@@ -163,6 +163,8 @@ where
             self.email_verification.buscar_pendiente_por_usuario(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
 
         if !secreto_coincide(&desafio.code_hash, &hash_de_codigo(codigo)) {
+            // Tope por desafío (migración 0052), mismo criterio que F-02.
+            self.email_verification.registrar_intento_fallido(desafio.id).await?;
             return Err(DomainError::InvalidCredentials);
         }
 
@@ -494,6 +496,9 @@ where
 
         // Comparación en tiempo constante — nunca en SQL.
         if !secreto_coincide(&desafio.code_hash, &hash_de_codigo(codigo)) {
+            // Tope por desafío (migración 0052): el límite por IP ya no es la
+            // única barrera contra adivinar el código.
+            self.desafios_dispositivo.registrar_intento_fallido(desafio.id).await?;
             return Err(DomainError::InvalidCredentials);
         }
         self.desafios_dispositivo.consumir(desafio.id).await?;

@@ -86,6 +86,12 @@ pub trait EmailVerificationRepository {
     async fn invalidar_pendientes_de_usuario(&self, user_id: Uuid) -> Result<(), RepoError>;
 
     async fn marcar_verificado(&self, user_id: Uuid) -> Result<(), RepoError>;
+
+    /// Mismo tope que `DeviceChallengeRepository::registrar_intento_fallido`
+    /// (migración 0052). No-op por defecto, por el mismo motivo (loopback).
+    async fn registrar_intento_fallido(&self, _id: Uuid) -> Result<(), RepoError> {
+        Ok(())
+    }
 }
 
 pub trait AuthChallengeRepository {
@@ -155,7 +161,19 @@ pub trait DeviceChallengeRepository {
     async fn buscar_pendiente(&self, id: Uuid) -> Result<Option<DeviceChallengeRow>, RepoError>;
 
     async fn consumir(&self, id: Uuid) -> Result<(), RepoError>;
+
+    /// Cuenta un código incorrecto; al llegar a `MAX_INTENTOS_DISPOSITIVO`
+    /// deja el desafío consumido (migración 0052). Por defecto no hace nada:
+    /// el backend del escritorio sólo escucha en loopback, sin atacante
+    /// remoto que pueda probar códigos. El servidor sí lo implementa.
+    async fn registrar_intento_fallido(&self, _id: Uuid) -> Result<(), RepoError> {
+        Ok(())
+    }
 }
+
+/// Códigos incorrectos permitidos por desafío de dispositivo antes de
+/// invalidarlo (6 dígitos: 5 intentos dejan 1 en 200.000 de acertar).
+pub const MAX_INTENTOS_DISPOSITIVO: i32 = 5;
 
 #[derive(Clone)]
 pub struct PgUserRepository {
@@ -480,6 +498,20 @@ impl EmailVerificationRepository for PgUserRepository {
         Ok(())
     }
 
+    async fn registrar_intento_fallido(&self, id: Uuid) -> Result<(), RepoError> {
+        sqlx::query(
+            r#"update email_verification_challenges
+               set failed_attempts = failed_attempts + 1,
+                   consumed_at = case when failed_attempts + 1 >= $2 then now() else consumed_at end
+               where id = $1 and consumed_at is null"#,
+        )
+        .bind(id)
+        .bind(MAX_INTENTOS_DISPOSITIVO)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn invalidar_pendientes_de_usuario(&self, user_id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(
             r#"update email_verification_challenges set consumed_at = now()
@@ -740,6 +772,20 @@ impl DeviceChallengeRepository for PgDeviceChallengeRepository {
         sqlx::query!(r#"update device_challenges set consumed_at = now() where id = $1"#, id)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    async fn registrar_intento_fallido(&self, id: Uuid) -> Result<(), RepoError> {
+        sqlx::query(
+            r#"update device_challenges
+               set failed_attempts = failed_attempts + 1,
+                   consumed_at = case when failed_attempts + 1 >= $2 then now() else consumed_at end
+               where id = $1 and consumed_at is null"#,
+        )
+        .bind(id)
+        .bind(MAX_INTENTOS_DISPOSITIVO)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

@@ -193,6 +193,8 @@ const es = {
 		titulo: 'Vault',
 		cargando: 'Cargando…',
 		conteo: (n: number) => `${n} ${n === 1 ? 'recurso' : 'recursos'} en tu vault.`,
+		cargandoClaves: 'Descifrando tus claves',
+		ultimaCargada: (nombre: string) => `Última: ${nombre}`,
 		sinRecursos: 'Todavía no tenés recursos.',
 		nuevoRecurso: 'Nuevo recurso',
 		nombre: 'Nombre',
@@ -420,6 +422,10 @@ const es = {
 		confirmarImportar: 'Confirmar importación',
 		importando: 'Importando…',
 		importadoOk: (n: number) => `Listo — ${n} ${n === 1 ? 'recurso importado' : 'recursos importados'}.`,
+		importandoTitulo: 'Importando',
+		importandoActual: (nombre: string) => `Ahora: ${nombre}`,
+		errorImportParcial: (creados: number, total: number, nombre: string, detalle: string) =>
+			`Se importaron ${creados} de ${total}. Falló en «${nombre}»: ${detalle}. Las ya importadas quedaron en tu vault; para seguir, importá un archivo con las que faltan.`,
 		errorImportar: 'No se pudo importar.',
 		errorFormatoDesconocido: 'No se pudo determinar el formato del archivo por su extensión.'
 	},
@@ -542,6 +548,8 @@ const es = {
 		cerrar: 'Cerrar Ellkan'
 	},
 	settingsSync: {
+		progresoBajando: 'Trayendo claves del servidor',
+		progresoSubiendo: 'Subiendo cambios al servidor',
 		navTitulo: 'Modo conectado',
 		tituloModoConectado: 'Conectar con un servidor Ellkan',
 		hintModoConectado:

@@ -9,8 +9,12 @@
 	import CerrarAppDialogo from '$lib/components/CerrarAppDialogo.svelte';
 	import { goto } from '$app/navigation';
 	import { enlacePendiente } from '$lib/tauri/sistema';
+	import { instalarRegistroEnArchivo } from '$lib/tauri/registro';
 
 	let { children } = $props();
+
+	// Escritorio: errores de la interfaz al `Ellkan.log` (no-op en la web).
+	instalarRegistroEnArchivo();
 
 	// El backend emite `cierre-solicitado` cuando el usuario cierra la ventana
 	// y la preferencia es "preguntar" — ver `$lib/tauri/ventana.ts`.

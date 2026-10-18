@@ -82,7 +82,9 @@ function ejecutar(programa, argumentos) {
 if (process.platform === 'win32') {
 	if (opciones.formatos) salirConError('--formatos es sólo para Linux');
 	const ps = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(raizEscritorio, 'windows', 'binarios', 'build-windows.ps1')];
-	if (opciones.instalador) ps.push('-Msi');
+	// Desde 2026-10-18 build-windows.ps1 sin flags arma TODO (.msi + .exe + ZIP);
+	// sin --instalador se mantiene lo de antes: sólo .exe + ZIP.
+	if (!opciones.instalador) ps.push('-SinMsi');
 	if (opciones.mantenerVersion) ps.push('-MantenerVersion');
 	if (opciones.version) ps.push('-Version', opciones.version);
 	if (opciones.sinFrontend) ps.push('-SkipFrontend');

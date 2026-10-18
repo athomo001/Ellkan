@@ -24,6 +24,10 @@
 	import { clavesDesbloqueadas } from '$lib/state/session';
 	import { obtenerVinculacion } from '$lib/sync/vinculacion';
 	import { iniciarSyncAutomatico } from '$lib/sync/automatico';
+	import { escucharAvisosEnWeb } from '$lib/sync/avisosWeb';
+	import { progresoSync } from '$lib/sync/motor';
+	import { vigilarEstados } from '$lib/tauri/vigilancia';
+	import BarraProgreso from '$lib/components/BarraProgreso.svelte';
 	import { avatarCambiado } from '$lib/sync/avatar';
 	import { cuentaRevocada } from '$lib/sync/revocacion';
 	import CuentaRevocada from '$lib/components/CuentaRevocada.svelte';
@@ -36,6 +40,13 @@
 		if (!enModoEscritorio() || !$clavesDesbloqueadas || !email || !obtenerVinculacion(email)) return;
 		return iniciarSyncAutomatico();
 	});
+
+	// Web: el Vault se recarga solo cuando otro dispositivo del usuario cambia
+	// algo (app de escritorio, extensión, otra pestaña), sin F5.
+	$effect(() => {
+		if (enModoEscritorio() || !$sesion.sessionId || !$clavesDesbloqueadas) return;
+		return escucharAvisosEnWeb();
+	});
 	import Button from '$lib/components/Button.svelte';
 	import LockOverlay from '$lib/components/LockOverlay.svelte';
 	import FolderTree from '$lib/components/FolderTree.svelte';
@@ -44,6 +55,9 @@
 	import CodigoFuente from '$lib/components/CodigoFuente.svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	// Escritorio: cambios de estado (sesión, bloqueo, servidor) al `Ellkan.log`.
+	vigilarEstados();
 
 	let verificando = $state(true);
 
@@ -362,6 +376,17 @@
 			</div>
 		</nav>
 		<main>
+			<!-- Sync grande en curso (automático o "Sincronizar ahora"): se ve
+			     desde cualquier pantalla, no sólo desde Ajustes. -->
+			{#if $progresoSync}
+				<div class="aviso-sync">
+					<BarraProgreso
+						titulo={$progresoSync.fase === 'bajando' ? $t.settingsSync.progresoBajando : $t.settingsSync.progresoSubiendo}
+						hechos={$progresoSync.hechos}
+						total={$progresoSync.total}
+					/>
+				</div>
+			{/if}
 			{@render children()}
 		</main>
 	</div>
@@ -607,6 +632,13 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.aviso-sync {
+		margin-bottom: var(--space-4);
+		padding: 0 var(--space-4);
+		background: var(--bg-raised);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md);
 	}
 	main {
 		padding: var(--space-8);

@@ -9,6 +9,7 @@ import { get } from 'svelte/store';
 import { goto } from '$app/navigation';
 import { sesion } from '$lib/state/session';
 import { limpiarStoresEn } from '$lib/state/declarative-store';
+import { fetchConReintento, parsearCuerpo } from './reintento';
 
 export class ApiError extends Error {
 	constructor(
@@ -51,12 +52,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 	headers.set('Content-Type', 'application/json');
 	if (s.sessionId) headers.set('Authorization', `Bearer ${s.sessionId}`);
 
-	const resp = await fetch(`${await baseUrl()}${path}`, { ...init, headers });
+	const resp = await fetchConReintento(`${await baseUrl()}${path}`, { ...init, headers });
 
 	if (resp.status === 204) return undefined as T;
 
-	const texto = await resp.text();
-	const cuerpo = texto ? JSON.parse(texto) : undefined;
+	const cuerpo = parsearCuerpo(await resp.text());
 
 	if (!resp.ok) {
 		const err = cuerpo?.error ?? { code: 'UNKNOWN', message: resp.statusText };

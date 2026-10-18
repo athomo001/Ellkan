@@ -13,6 +13,7 @@
 import { get } from 'svelte/store';
 import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 import { obtenerVinculacion, sesionRemotaVigente, olvidarSesionRemota } from './vinculacion';
+import { registrar } from '$lib/tauri/registro';
 
 const ESPERA_MINIMA_MS = 2_000;
 const ESPERA_MAXIMA_MS = 60_000;
@@ -23,12 +24,27 @@ export function escucharAvisosDelServidor(alCambiar: () => void): () => void {
 	let espera = ESPERA_MINIMA_MS;
 
 	async function bucle(): Promise<void> {
+		// Al `Ellkan.log` sólo los cambios de estado (conectado ↔ sin
+		// conexión), no cada reintento: el servidor corta la conexión
+		// periódicamente a propósito y eso no es una novedad.
+		let estadoAnterior: 'conectado' | 'sin_conexion' | null = null;
 		while (!control.signal.aborted) {
-			const conecto = await conectarUnaVez(alCambiar, control.signal).catch(() => false);
+			let fallo: unknown = null;
+			const conecto = await conectarUnaVez(alCambiar, control.signal, () => {
+				if (estadoAnterior !== 'conectado') registrar('info', '[servidor] avisos en vivo conectados');
+				estadoAnterior = 'conectado';
+			}).catch((err) => {
+				fallo = err;
+				return false;
+			});
 			if (control.signal.aborted) return;
 			// Una conexión que llegó a abrirse reinicia la espera; si ni siquiera
 			// abrió, se espera cada vez más para no golpear un servidor caído.
 			espera = conecto ? ESPERA_MINIMA_MS : Math.min(espera * 2, ESPERA_MAXIMA_MS);
+			if (!conecto && estadoAnterior !== 'sin_conexion') {
+				registrar('warn', `[servidor] sin conexión para avisos en vivo; reintento cada vez más espaciado (ahora ${espera / 1000} s)`, fallo ?? '');
+				estadoAnterior = 'sin_conexion';
+			}
 			await new Promise((r) => setTimeout(r, espera));
 		}
 	}
@@ -38,7 +54,7 @@ export function escucharAvisosDelServidor(alCambiar: () => void): () => void {
 }
 
 /** Una conexión hasta que se corta. `true` si llegó a abrirse. */
-async function conectarUnaVez(alCambiar: () => void, signal: AbortSignal): Promise<boolean> {
+async function conectarUnaVez(alCambiar: () => void, signal: AbortSignal, alAbrir: () => void): Promise<boolean> {
 	const email = get(sesion).email;
 	const claves = get(clavesDesbloqueadas);
 	const vinculacion = email ? obtenerVinculacion(email) : null;
@@ -56,6 +72,7 @@ async function conectarUnaVez(alCambiar: () => void, signal: AbortSignal): Promi
 	}
 	if (!resp.ok || !resp.body) return false;
 
+	alAbrir();
 	// Recién conectados: lo que haya cambiado mientras no había conexión.
 	alCambiar();
 

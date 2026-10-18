@@ -31,6 +31,7 @@ import { obtenerVinculacion, sesionRemotaVigente, olvidarSesionRemota, type Vinc
 import { clienteRemoto, RemoteApiError, type ClienteRemoto } from './remoteClient';
 import { esAdaptado } from './adaptacion';
 import { marcarPendiente, quitarPendiente, obtenerPendientes, type OperacionPendiente } from './pendientes';
+import { registrar } from '$lib/tauri/registro';
 
 export interface EstadoSync {
 	ultimoError: string | null;
@@ -79,9 +80,23 @@ async function conSesionRemota(
 	}
 }
 
+// Los push salen de a uno: importar o borrar en masa disparaba cientos en
+// paralelo, agotaba el límite por IP del servidor y la mayoría quedaba en 429
+// (bug 2026-10-17: de 137 importadas subieron 25, y el borrado no llegó).
+// Cada push se anota en la cola de pendientes apenas se encola, así que un
+// cierre de la app a mitad de camino no pierde nada.
+let colaDePush: Promise<void> = Promise.resolve();
+
 /** Push en vivo de un recurso. Se anota en la cola antes de intentar y se
  * quita al confirmarse, o si el servidor lo rechazó de forma definitiva. */
-async function ejecutar(resourceId: string, operacion: OperacionPendiente, accion: (cliente: ClienteRemoto) => Promise<void>): Promise<void> {
+function ejecutar(resourceId: string, operacion: OperacionPendiente, accion: (cliente: ClienteRemoto) => Promise<void>): Promise<void> {
+	const email = get(sesion).email;
+	if (email && obtenerVinculacion(email)) marcarPendiente(email, resourceId, operacion);
+	colaDePush = colaDePush.then(() => ejecutarAhora(resourceId, operacion, accion));
+	return colaDePush;
+}
+
+async function ejecutarAhora(resourceId: string, operacion: OperacionPendiente, accion: (cliente: ClienteRemoto) => Promise<void>): Promise<void> {
 	const email = get(sesion).email;
 	const claves = get(clavesDesbloqueadas);
 	if (!email || !claves) return;
@@ -93,9 +108,16 @@ async function ejecutar(resourceId: string, operacion: OperacionPendiente, accio
 		await conSesionRemota(vinculacion, claves, accion);
 		quitarPendiente(email, resourceId);
 		marcarOk();
+		registrar('info', `[push] ${operacion} ${resourceId} → servidor OK`);
 	} catch (err) {
-		if (!esReintentable(err)) quitarPendiente(email, resourceId);
+		const reintentable = esReintentable(err);
+		if (!reintentable) quitarPendiente(email, resourceId);
 		marcarError(mensajeDe(err));
+		registrar(
+			'warn',
+			`[push] ${operacion} ${resourceId} → falló (${reintentable ? 'queda en la cola' : 'descartado'}):`,
+			err
+		);
 	}
 }
 
@@ -185,9 +207,17 @@ async function cuerposDesdeLocal(
  * guardada aparte) y no se pisa. Si el servidor vuelve a fallar se corta acá:
  * el resto sigue en la cola para el próximo sync. Devuelve cuántos subió.
  */
-export async function subirPendientes(cliente: ClienteRemoto, email: string, userId: string): Promise<number> {
+export async function subirPendientes(
+	cliente: ClienteRemoto,
+	email: string,
+	userId: string,
+	/** Barra de progreso del sync (`motor.ts::progresoSync`). */
+	alAvanzar?: (hechos: number, total: number) => void
+): Promise<number> {
 	let subidos = 0;
-	for (const [resourceId, operacion] of Object.entries(obtenerPendientes(email))) {
+	const pendientes = Object.entries(obtenerPendientes(email));
+	for (const [i, [resourceId, operacion]] of pendientes.entries()) {
+		alAvanzar?.(i, pendientes.length);
 		try {
 			if (operacion === 'borrar') {
 				await borrarEnServidor(cliente, resourceId);
@@ -200,7 +230,9 @@ export async function subirPendientes(cliente: ClienteRemoto, email: string, use
 				}
 			}
 			quitarPendiente(email, resourceId);
+			registrar('info', `[cola] ${operacion} ${resourceId} → servidor OK`);
 		} catch (err) {
+			registrar('warn', `[cola] ${operacion} ${resourceId} → falló:`, err);
 			if (esReintentable(err)) {
 				marcarError(mensajeDe(err));
 				break;

@@ -91,6 +91,27 @@ fn header_estatico(nombre: &'static str, valor: &'static str) -> SetResponseHead
     SetResponseHeaderLayer::overriding(HeaderName::from_static(nombre), HeaderValue::from_static(valor))
 }
 
+/// Respuesta del limitador por IP. Antes era el texto plano por defecto de
+/// `tower_governor` ("Too Many Requests! Wait for 0s"): los clientes hacían
+/// `JSON.parse` sobre eso y mostraban un error genérico, y no quedaba nada en
+/// el log. Ahora es el mismo envelope JSON que cualquier otro error de la API,
+/// con los headers `retry-after`/`x-ratelimit-after` que trae el limitador, y
+/// el rechazo se registra con la ruta y la IP del span de `TraceLayer`.
+fn respuesta_limite_por_ip(err: tower_governor::GovernorError) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let (espera_s, headers) = match err {
+        tower_governor::GovernorError::TooManyRequests { wait_time, headers } => (wait_time, headers),
+        tower_governor::GovernorError::Other { headers, .. } => (0, headers),
+        tower_governor::GovernorError::UnableToExtractKey => (0, None),
+    };
+    tracing::warn!(limite = "ip", espera_s, "límite de solicitudes por IP agotado");
+    let mut respuesta = crate::error::ApiError::from(crate::error::DomainError::RateLimited).into_response();
+    if let Some(headers) = headers {
+        respuesta.headers_mut().extend(headers);
+    }
+    respuesta
+}
+
 /// PBL-08-005 (`04-seguridad-y-amenazas.md` línea 125): CSP sola no alcanza,
 /// un set de headers. Aplicado globalmente (incluida la API JSON) — inerte
 /// ahí, pero evita duplicar la capa entre rutas de API y estáticas.
@@ -329,7 +350,20 @@ pub async fn construir_estado(
     secrets_key: ellkan_crypto::secretos::ClaveSecreta32,
 ) -> anyhow::Result<AppState> {
     instalar_crypto_provider_tls();
-    let pool = sqlx::PgPool::connect(database_url).await?;
+    // Antes: el default de sqlx (10 conexiones), el techo real de concurrencia
+    // (`manual/instalacion.md`, requisitos de hardware). Con muchas personas
+    // importando a la vez (pedido 2026-10-17: 50 usuarios × 200 claves) los
+    // pedidos hacían cola esperando conexión. 30 por defecto deja margen bajo
+    // el `max_connections = 100` de Postgres; configurable por instancia.
+    let max_conexiones = std::env::var("ELLKAN_DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(30);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(max_conexiones)
+        .connect(database_url)
+        .await?;
     let migrator = sqlx::migrate!("./migrations");
     reparar_checksums_de_migraciones(&pool, &migrator).await;
     migrator.run(&pool).await?;
@@ -352,18 +386,18 @@ pub fn construir_router(estado: AppState) -> Router {
     // Ráfaga más generosa, mismo `per_second` (2/s) — un abuso sostenido
     // sigue tan limitado como antes, sólo cambia cuánto margen hay para un
     // puñado de recargas legítimas seguidas.
-    let governor_conf = GovernorConfigBuilder::default()
-        .per_second(2)
-        .burst_size(60)
-        .finish()
-        .expect("configuración de rate limiting válida");
-
-    let limiter = governor_conf.limiter().clone();
+    //
+    // 2026-10-17: ese límite por IP ya no se aplica a quien trae sesión
+    // válida — ver `rate_limit::limitar_solicitudes` (las cuotas viven en
+    // `AppState::nuevo`). Acá sólo se limpian las claves viejas de los dos.
+    let por_ip = estado.limitador_por_ip.clone();
+    let por_usuario = estado.limitador_por_usuario.clone();
     tokio::spawn(async move {
         let mut intervalo = tokio::time::interval(Duration::from_secs(60));
         loop {
             intervalo.tick().await;
-            limiter.retain_recent();
+            por_ip.retain_recent();
+            por_usuario.retain_recent();
         }
     });
 
@@ -534,11 +568,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/totp", get(resources::handlers::totp))
         .route("/{id}/move", put(resources::handlers::mover))
         .route("/{id}/type", put(resources::handlers::cambiar_tipo))
-        .route("/{id}/leave", post(resources::handlers::salir))
-        .route_layer(axum::middleware::from_fn_with_state(
-            estado.clone(),
-            rate_limit::limitar_por_usuario,
-        ));
+        .route("/{id}/leave", post(resources::handlers::salir));
+    // Límite por usuario: lo aplica `rate_limit::limitar_solicitudes` a toda
+    // la API (ver `.route_layer` al final de esta función).
 
     let tags_router = Router::new()
         .route("/", get(tags::handlers::listar).post(tags::handlers::crear))
@@ -641,12 +673,12 @@ pub fn construir_router(estado: AppState) -> Router {
             Router::new()
                 .route("/requests", post(account_recovery::handlers::crear_solicitud))
                 .route("/requests/{id}", get(account_recovery::handlers::estado_solicitud))
-                .layer(GovernorLayer::new(account_recovery_requests_governor_conf)),
+                .layer(GovernorLayer::new(account_recovery_requests_governor_conf).error_handler(respuesta_limite_por_ip)),
         )
         .merge(
             Router::new()
                 .route("/requests/{id}/complete", post(account_recovery::handlers::completar))
-                .layer(GovernorLayer::new(account_recovery_complete_governor_conf)),
+                .layer(GovernorLayer::new(account_recovery_complete_governor_conf).error_handler(respuesta_limite_por_ip)),
         );
 
     let admin_account_recovery_requests_router = Router::new()
@@ -697,11 +729,11 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", post(recovery_kit::handlers::solicitar_reset))
         .route("/{token}", get(recovery_kit::handlers::verificar_token))
         .route("/{token}/email-code", post(recovery_kit::handlers::enviar_codigo_email))
-        .layer(GovernorLayer::new(recovery_kit_reset_governor_conf))
+        .layer(GovernorLayer::new(recovery_kit_reset_governor_conf).error_handler(respuesta_limite_por_ip))
         .merge(
             Router::new()
                 .route("/{token}/complete", post(recovery_kit::handlers::completar_reset))
-                .layer(GovernorLayer::new(recovery_kit_complete_governor_conf)),
+                .layer(GovernorLayer::new(recovery_kit_complete_governor_conf).error_handler(respuesta_limite_por_ip)),
         );
 
     let me_emergency_access_router = Router::new()
@@ -782,11 +814,10 @@ pub fn construir_router(estado: AppState) -> Router {
     let external_shares_router = Router::new()
         .route("/", post(external_shares::handlers::crear).get(external_shares::handlers::listar))
         .route("/{id}", delete(external_shares::handlers::revocar))
-        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_por_usuario))
         .merge(
             Router::new()
                 .route("/{id}", get(external_shares::handlers::obtener))
-                .layer(GovernorLayer::new(external_share_governor_conf)),
+                .layer(GovernorLayer::new(external_share_governor_conf).error_handler(respuesta_limite_por_ip)),
         );
 
     let admin_users_router = Router::new()
@@ -862,7 +893,7 @@ pub fn construir_router(estado: AppState) -> Router {
         // en el reload siguiente (burst todavía sin recargar) una página de
         // error genérica — no era un bug intermitente, era agotamiento del
         // limitador contra tráfico de assets estáticos, no de abuso real.
-        .route_layer(GovernorLayer::new(governor_conf))
+        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_solicitudes))
         // Fuera de `route_layer(Governor)` a propósito, mismo criterio que el
         // comentario de arriba: cuando esto rescata a `fallback_frontend`
         // nunca pasa por el limitador de la API, es tráfico de assets
@@ -874,18 +905,38 @@ pub fn construir_router(estado: AppState) -> Router {
                     // Sólo método + ruta (sin query string) — nunca headers ni
                     // body. `actor_id` se completa después, si la ruta exige
                     // sesión, en `AuthenticatedUser::from_request_parts`.
+                    // `ip`: la que ve el limitador por IP — sin ella no había
+                    // forma de saber quién agotaba el cupo (2026-10-17).
+                    let ip = req
+                        .extensions()
+                        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                        .map(|c| c.0.ip().to_string());
                     tracing::info_span!(
                         "http_request",
                         method = %req.method(),
                         path = %req.uri().path(),
+                        ip = ip.as_deref().unwrap_or("-"),
                         status = Empty,
                         actor_id = Empty,
                     )
                 })
                 .on_response(
                     |res: &axum::http::Response<_>, latencia: std::time::Duration, span: &tracing::Span| {
-                        span.record("status", res.status().as_u16());
-                        tracing::debug!(latencia_ms = latencia.as_millis(), "solicitud procesada");
+                        let status = res.status();
+                        span.record("status", status.as_u16());
+                        let latencia_ms = latencia.as_millis();
+                        // Nivel según el resultado: con el filtro por defecto
+                        // (`observabilidad.rs`) se ve todo lo que sale mal sin
+                        // configurar nada; los exitosos quedan en `debug`.
+                        if status.is_server_error() {
+                            tracing::error!(latencia_ms, "solicitud falló en el servidor");
+                        } else if status == axum::http::StatusCode::TOO_MANY_REQUESTS {
+                            tracing::warn!(latencia_ms, "solicitud rechazada por límite de solicitudes");
+                        } else if status.is_client_error() {
+                            tracing::info!(latencia_ms, "solicitud rechazada");
+                        } else {
+                            tracing::debug!(latencia_ms, "solicitud procesada");
+                        }
                     },
                 ),
         )

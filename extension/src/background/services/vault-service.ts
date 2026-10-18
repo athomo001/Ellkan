@@ -14,6 +14,7 @@ import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/
 import { uuidABytes } from '../../../../frontend/src/lib/crypto/uuid';
 import { SesionStorage } from '../storage/sesion-storage';
 import { pedirAlServidor } from '../transporte';
+import { conReintento429 } from '../reintento';
 import { AuthService } from './auth-service';
 import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './uri-match';
 
@@ -43,7 +44,7 @@ async function peticion<T>(serverUrl: string, method: string, path: string, sess
 	};
 	let resp: Response;
 	try {
-		resp = await enviar(sessionId);
+		resp = await conReintento429(() => enviar(sessionId));
 	} catch {
 		throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
 	}
@@ -64,7 +65,7 @@ async function peticion<T>(serverUrl: string, method: string, path: string, sess
 			throw new Error(MENSAJE_SESION_INVALIDA);
 		}
 		try {
-			resp = await enviar(nueva);
+			resp = await conReintento429(() => enviar(nueva));
 		} catch {
 			throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
 		}
@@ -110,6 +111,10 @@ interface RecursoCrudo {
 	metadata_key_id: string | null;
 	updated_at: string;
 	created_at: string;
+	/** 2026-10-18: DEK sellada del sobre propio, sólo en `GET /resources` del
+	 * servidor (ver `frontend/src/lib/crypto/recursos.ts`). Ausente en el
+	 * backend local del escritorio → se pide por recurso. */
+	own_sealed_dek_b64?: string;
 }
 
 interface MetadataKeyCruda {
@@ -192,7 +197,13 @@ async function cargarClavesMetadataCompartidas(
 	const mapa = new Map<string, Uint8Array>();
 	for (const clave of activas) {
 		if (!clave.own_sealed_private_key_b64) continue;
-		mapa.set(clave.id, wasm.abrir_sellado(x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
+		// Una clave que no abre deja sin nombre sólo a sus recursos, no a todo
+		// el vault (mismo arreglo que la web, 2026-10-18).
+		try {
+			mapa.set(clave.id, wasm.abrir_sellado(x25519Private, base64ABytes(clave.own_sealed_private_key_b64)));
+		} catch {
+			continue;
+		}
 	}
 	return mapa;
 }
@@ -222,8 +233,20 @@ export const VaultService = {
 				claveMetadata = clave;
 			} else {
 				// `user_key`: la DEK por-recurso es la misma clave que la metadata.
-				const secreto = await get<SecretoCrudo>(serverUrl, `/resources/${r.id}/secret`, sessionId);
-				claveMetadata = wasm.abrir_sellado(x25519Private, base64ABytes(secreto.sealed_dek_b64));
+				// Viene en la lista (servidor); si no, se pide el sobre propio.
+				// Antes era siempre un pedido por recurso, y `listar` corre en
+				// CADA página con un formulario (autofill): ~141 pedidos por
+				// página con 139 claves, que agotaban el límite del usuario y
+				// dejaban también a su web y su app con 429 (2026-10-18). Un
+				// recurso sin sobre propio o con un sobre que no abre se omite
+				// en vez de dejar vacía la lista entera.
+				try {
+					const sealedDekB64 =
+						r.own_sealed_dek_b64 ?? (await get<SecretoCrudo>(serverUrl, `/resources/${r.id}/secret`, sessionId)).sealed_dek_b64;
+					claveMetadata = wasm.abrir_sellado(x25519Private, base64ABytes(sealedDekB64));
+				} catch {
+					continue;
+				}
 			}
 
 			try {

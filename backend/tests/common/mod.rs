@@ -135,6 +135,7 @@ pub struct Usuario {
     pub device_token: [u8; 32],
 }
 
+#[allow(dead_code)]
 pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
     let x25519 = KeypairAcuerdo::generar();
     let ed25519 = KeypairFirma::generar();
@@ -196,7 +197,7 @@ pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
 /// vieja (de registro) en vez de esperar a que aparezca la real, mismo bug
 /// que hubiera producido un código equivocado sin romper el `Ok(...)`.
 #[allow(dead_code)]
-async fn codigo_verificacion_dispositivo_encolado(pool: &sqlx::PgPool, email: &str) -> String {
+pub async fn codigo_verificacion_dispositivo_encolado(pool: &sqlx::PgPool, email: &str) -> String {
     let mut ultimo_error = None;
     for _ in 0..20 {
         match sqlx::query_as::<_, (String,)>(

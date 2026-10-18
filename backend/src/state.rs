@@ -110,6 +110,8 @@ pub struct AppState {
     /// `tower_governor::GovernorLayer` porque ese layer corre antes de que
     /// exista `AuthenticatedUser` (no tiene forma de extraer `user_id`).
     pub limitador_por_usuario: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    /// Solicitudes SIN sesión válida, por IP de origen.
+    pub limitador_por_ip: Arc<DefaultKeyedRateLimiter<std::net::IpAddr>>,
     // F-15
     pub password_policy: PgPasswordPolicyRepository,
     pub self_registration_policy: PgSelfRegistrationPolicyRepository,
@@ -169,8 +171,26 @@ fn construir_webauthn() -> webauthn_rs::prelude::Webauthn {
 
 impl AppState {
     pub fn nuevo(pool: sqlx::PgPool, server_public_key_ed25519: [u8; 32], secrets_key: ClaveSecreta32) -> Self {
-        let cuota = Quota::per_second(NonZeroU32::new(10).expect("10 no es cero"))
-            .allow_burst(NonZeroU32::new(20).expect("20 no es cero"));
+        // 2026-10-17: este límite pasó a cubrir TODA ruta con sesión (antes
+        // sólo `/resources` y `/external-shares`), y el límite por IP dejó de
+        // aplicarse a quien trae sesión válida — ver `rate_limit::
+        // limitar_solicitudes`. Ráfaga amplia porque listar el vault hace un
+        // pedido por recurso (N+1): con 139 claves eran ~141 pedidos y la
+        // ráfaga de 20 cortaba a mitad de la carga. Sigue frenando a una
+        // sesión robada que intente descargar todo en un loop.
+        let cuota = Quota::per_second(NonZeroU32::new(20).expect("20 no es cero"))
+            .allow_burst(NonZeroU32::new(300).expect("300 no es cero"));
+        // Sin sesión (login, registro, recuperación, enlaces públicos), por
+        // IP. Era 2/s con ráfaga 60; un login son ~4 pedidos sin sesión, así
+        // que 50 personas detrás de la NAT de una oficina entrando a la vez
+        // (~200 pedidos) recibían 429. Ahora 10/s con ráfaga 250. No abre
+        // fuerza bruta: el login es por firma Ed25519 (no hay contraseña que
+        // adivinar), el código de dispositivo tiene su propio tope de 5
+        // intentos por desafío (migración 0052), MFA tiene `limitador_mfa`
+        // por sesión, y recuperación / enlaces públicos sus propios límites
+        // más estrictos.
+        let cuota_ip = Quota::per_second(NonZeroU32::new(10).expect("10 no es cero"))
+            .allow_burst(NonZeroU32::new(250).expect("250 no es cero"));
         // F-14: "más estricto que el general" — 5 intentos por minuto por
         // sesión parcial, muy por debajo del espacio de búsqueda de un
         // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.
@@ -212,6 +232,7 @@ impl AppState {
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),
+            limitador_por_ip: Arc::new(governor::RateLimiter::keyed(cuota_ip)),
             password_policy: PgPasswordPolicyRepository { pool: pool.clone() },
             self_registration_policy: PgSelfRegistrationPolicyRepository { pool: pool.clone() },
             sharing_policy: PgSharingPolicyRepository { pool: pool.clone() },

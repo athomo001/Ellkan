@@ -15,6 +15,7 @@ import { abrirClavePrivadaEnWorker, sellarClavePrivadaEnWorker } from '../crypto
 import { api } from '$lib/api/client';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { olvidarPendientes } from './pendientes';
+import { registrar } from '$lib/tauri/registro';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 
 export interface VinculacionServidor {
@@ -291,7 +292,9 @@ export async function sesionRemotaVigente(v: VinculacionServidor, claves: Claves
 	let sessionId: string;
 	try {
 		sessionId = await autenticarContraRemoto(v.serverUrl, v.email, claves);
+		registrar('info', `[servidor] sesión iniciada en ${v.serverUrl}`);
 	} catch (err) {
+		registrar('warn', `[servidor] no se pudo iniciar sesión en ${v.serverUrl}:`, err);
 		// El servidor ya no acepta esta cuenta: puede que la hayan bloqueado o
 		// borrado. Se le pregunta con una consulta firmada (revocación remota);
 		// nunca se borra nada sólo por este error.

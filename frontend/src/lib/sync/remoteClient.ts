@@ -8,6 +8,8 @@
 // un servidor remoto caído nunca deben desloguear al usuario de su propia
 // bóveda local, sólo fallar el sync puntual.
 
+import { fetchConReintento, parsearCuerpo } from '$lib/api/reintento';
+
 export class RemoteApiError extends Error {
 	constructor(
 		public status: number,
@@ -23,11 +25,10 @@ async function pedido<T>(serverUrl: string, sessionId: string | null, path: stri
 	headers.set('Content-Type', 'application/json');
 	if (sessionId) headers.set('Authorization', `Bearer ${sessionId}`);
 
-	const resp = await fetch(`${serverUrl}${path}`, { ...init, headers });
+	const resp = await fetchConReintento(`${serverUrl}${path}`, { ...init, headers });
 	if (resp.status === 204) return undefined as T;
 
-	const texto = await resp.text();
-	const cuerpo = texto ? JSON.parse(texto) : undefined;
+	const cuerpo = parsearCuerpo(await resp.text());
 	if (!resp.ok) {
 		const err = cuerpo?.error ?? { code: 'UNKNOWN', message: resp.statusText };
 		throw new RemoteApiError(resp.status, err.code, err.message);

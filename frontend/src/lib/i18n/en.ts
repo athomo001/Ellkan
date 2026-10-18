@@ -192,6 +192,8 @@ const en: Diccionario = {
 		titulo: 'Vault',
 		cargando: 'Loading…',
 		conteo: (n: number) => `${n} ${n === 1 ? 'resource' : 'resources'} in your vault.`,
+		cargandoClaves: 'Decrypting your passwords',
+		ultimaCargada: (nombre: string) => `Last: ${nombre}`,
 		sinRecursos: "You don't have any resources yet.",
 		nuevoRecurso: 'New resource',
 		nombre: 'Name',
@@ -417,6 +419,10 @@ const en: Diccionario = {
 		confirmarImportar: 'Confirm import',
 		importando: 'Importing…',
 		importadoOk: (n: number) => `Done — ${n} ${n === 1 ? 'resource imported' : 'resources imported'}.`,
+		importandoTitulo: 'Importing',
+		importandoActual: (nombre: string) => `Now: ${nombre}`,
+		errorImportParcial: (creados: number, total: number, nombre: string, detalle: string) =>
+			`Imported ${creados} of ${total}. Failed at “${nombre}”: ${detalle}. The ones already imported are in your vault; to continue, import a file with the remaining ones.`,
 		errorImportar: 'Could not import.',
 		errorFormatoDesconocido: 'Could not determine the file format from its extension.'
 	},
@@ -539,6 +545,8 @@ const en: Diccionario = {
 		cerrar: 'Close Ellkan'
 	},
 	settingsSync: {
+		progresoBajando: 'Bringing passwords from the server',
+		progresoSubiendo: 'Uploading changes to the server',
 		navTitulo: 'Connected mode',
 		tituloModoConectado: 'Connect to an Ellkan server',
 		hintModoConectado:

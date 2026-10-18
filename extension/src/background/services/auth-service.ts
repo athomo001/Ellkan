@@ -12,6 +12,7 @@ import { bytesABase64, base64ABytes } from '../../../../frontend/src/lib/crypto/
 import { deviceTokenHashB64, borrarTokenDeDispositivo } from '../storage/device-storage';
 import { SesionStorage } from '../storage/sesion-storage';
 import { pedirAlServidor } from '../transporte';
+import { conReintento429 } from '../reintento';
 import { CuentaStorage } from '../storage/cuenta-storage';
 import { MetadataCache } from '../storage/metadata-cache';
 import { BrowserApi } from '../../browser-api';
@@ -36,7 +37,9 @@ async function pedido<T>(
 
 	let resp: Response;
 	try {
-		resp = await pedirAlServidor(`${serverUrl}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+		resp = await conReintento429(() =>
+			pedirAlServidor(`${serverUrl}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined })
+		);
 	} catch {
 		throw new Error(`no se pudo contactar al servidor (${serverUrl}) — ¿está corriendo?`);
 	}
@@ -300,7 +303,9 @@ export const AuthService = {
 		if (!serverUrl || !email || !ed25519PrivateB64) return 'interactivo';
 
 		const pedir = async (path: string, body: unknown): Promise<Response> =>
-			pedirAlServidor(`${serverUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+			conReintento429(() =>
+				pedirAlServidor(`${serverUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+			);
 		try {
 			const wasm = await cargarCrypto();
 			const respChallenge = await pedir('/auth/challenge', { email });

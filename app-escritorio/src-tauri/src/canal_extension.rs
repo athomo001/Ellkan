@@ -185,8 +185,29 @@ async fn escribir_mensaje(tuberia_cliente: &mut NamedPipeServer, valor: &Value) 
   tuberia_cliente.flush().await
 }
 
+/// Último contacto de la extensión (segundos Unix), para registrar en
+/// `Ellkan.log` cuándo se conecta y cuándo vuelve tras un rato callada, sin
+/// una línea por cada ping (pedido 2026-10-18: ver en el log si la
+/// comunicación con la extensión anda).
+static ULTIMO_CONTACTO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Más de esto sin noticias = la próxima vez se registra como reconexión.
+const SILENCIO_RECONEXION_S: u64 = 300;
+
+fn anotar_contacto() {
+  use std::sync::atomic::Ordering;
+  let ahora = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+  let antes = ULTIMO_CONTACTO.swap(ahora, Ordering::Relaxed);
+  if antes == 0 {
+    log::info!("extensión: conectada por native messaging");
+  } else if ahora.saturating_sub(antes) > SILENCIO_RECONEXION_S {
+    log::info!("extensión: volvió a conectarse ({} min sin contacto)", (ahora - antes) / 60);
+  }
+}
+
 /// Ejecuta el pedido contra el router del backend local, en este proceso.
 async fn responder(pedido: &Value, router: axum::Router) -> Value {
+  anotar_contacto();
   let id = pedido.get("id").cloned().unwrap_or(Value::Null);
   match pedido.get("tipo").and_then(Value::as_str) {
     Some("ping") => json!({ "id": id, "ok": true }),
@@ -199,6 +220,10 @@ async fn responder(pedido: &Value, router: axum::Router) -> Value {
     },
     _ => json!({ "id": id, "error": "tipo de pedido desconocido" }),
   }
+}
+
+fn sin_consulta(ruta: &str) -> &str {
+  ruta.split('?').next().unwrap_or(ruta)
 }
 
 async fn ejecutar_http(pedido: &Value, router: axum::Router) -> Result<Value, String> {
@@ -226,9 +251,21 @@ async fn ejecutar_http(pedido: &Value, router: axum::Router) -> Result<Value, St
     }
   }
   let solicitud = armado.body(Body::from(cuerpo)).map_err(|e| format!("pedido inválido: {e}"))?;
-  let respuesta = router.oneshot(solicitud).await.map_err(|e| format!("{e}"))?;
+  let inicio = std::time::Instant::now();
+  let respuesta = router.oneshot(solicitud).await.map_err(|e| {
+    log::warn!("extensión: {metodo} {} → falló: {e}", sin_consulta(ruta));
+    format!("{e}")
+  })?;
 
   let status = respuesta.status().as_u16();
+  // Sin la consulta (`?…`): el autofill manda ahí la URL del sitio que se
+  // está visitando, y eso no va al log.
+  let linea = format!("extensión: {metodo} {} → {status} ({} ms)", sin_consulta(ruta), inicio.elapsed().as_millis());
+  match status {
+    500.. => log::error!("{linea}"),
+    400..=499 if status != 404 => log::warn!("{linea}"),
+    _ => log::info!("{linea}"),
+  }
   let mut headers = serde_json::Map::new();
   for (nombre, valor) in respuesta.headers() {
     if let Ok(v) = valor.to_str() {
@@ -236,5 +273,6 @@ async fn ejecutar_http(pedido: &Value, router: axum::Router) -> Result<Value, St
     }
   }
   let bytes = axum::body::to_bytes(respuesta.into_body(), MAX_MENSAJE).await.map_err(|e| format!("{e}"))?;
+  ellkan_backend::desktop::cambios_extension::avisar(metodo, sin_consulta(ruta), status, &bytes);
   Ok(json!({ "status": status, "headers": headers, "cuerpo_b64": ellkan_backend::b64::encode(&bytes) }))
 }

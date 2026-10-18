@@ -537,6 +537,9 @@ fn recurso_a_response(recurso: crate::resources::models::Resource, resource_type
         // Modo escritorio: dueño único, siempre puede borrar lo suyo — sin
         // el camino de "admin de grupo" de la versión servidor.
         puede_borrar: true,
+        // Loopback sin límite de solicitudes: el cliente sigue pidiendo el
+        // sobre por recurso (incluye el fallback a `metadata_deks`).
+        own_sealed_dek_b64: None,
     }
 }
 
@@ -1577,6 +1580,32 @@ async fn sync_post(
     })))
 }
 
+/// Una línea en `Ellkan.log` por cada pedido que cambia algo (POST/PUT/
+/// DELETE) y por cada error; las lecturas exitosas no se registran (son
+/// cientos por minuto y no dicen nada). Pedido 2026-10-18: el sync borró 126
+/// claves sin dejar una sola línea. Sólo método, ruta (con ids, que no son
+/// secretos), status y duración: nunca headers ni cuerpo. El mensaje va
+/// armado en el texto (no en campos de `tracing`) porque llega al archivo por
+/// el puente `tracing` → `log`, que no conserva los campos de un span.
+async fn registrar_solicitud(req: axum::extract::Request, next: Next) -> Response {
+    let metodo = req.method().clone();
+    let ruta = req.uri().path().to_string();
+    let inicio = std::time::Instant::now();
+    let respuesta = next.run(req).await;
+    let status = respuesta.status();
+    let ms = inicio.elapsed().as_millis();
+    let modifica = !matches!(metodo, axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS);
+    if status.is_server_error() {
+        tracing::error!("{metodo} {ruta} → {} ({ms} ms)", status.as_u16());
+    } else if status.is_client_error() && modifica {
+        tracing::warn!("{metodo} {ruta} → {} ({ms} ms)", status.as_u16());
+    } else if modifica || (status.is_client_error() && status != StatusCode::NOT_FOUND) {
+        // Lecturas con 404 (ej. «sin avatar») son normales: no ensucian el log.
+        tracing::info!("{metodo} {ruta} → {} ({ms} ms)", status.as_u16());
+    }
+    respuesta
+}
+
 pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
     Router::new()
         .route("/auth/register", post(register))
@@ -1633,6 +1662,10 @@ pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
         .route("/sync", get(sync_get).post(sync_post))
         .route("/desktop/borrado-remoto", post(borrado_remoto))
         .layer(middleware::from_fn_with_state(estado.clone(), guardia_revocada))
+        // Cambios que la extensión hace por el puerto TCP → aviso a la app
+        // para subirlos al servidor (ver `cambios_extension`).
+        .layer(middleware::from_fn(crate::desktop::cambios_extension::middleware_tcp))
+        .layer(middleware::from_fn(registrar_solicitud))
         // CORS sólo para los orígenes de `origen::origen_permitido`: la app
         // embebida, las extensiones y (en debug) el servidor de Vite. Antes era
         // `Any`, que dejaba a cualquier página web abierta en el navegador leer

@@ -12,6 +12,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 
 pub mod borrado_remoto;
+pub mod cambios_extension;
 pub mod conectar;
 pub mod descargas;
 pub mod enlaces;
