@@ -7,6 +7,15 @@
 #   ./build-linux.sh --bundles appimage      sólo los formatos indicados (separados por coma)
 #   ./build-linux.sh --sin-frontend          reusa frontend/build ya compilado
 #   ./build-linux.sh --sin-extension         no vuelve a preparar la extensión de navegador
+#   ./build-linux.sh --modo wsl|linux        forzar el modo (por defecto se detecta solo)
+#
+# Modos:
+#   linux  Linux nativo (o el repo ya está en el disco de Linux): copia con rsync.
+#   wsl    WSL con el repo en un disco de Windows (/mnt/c, /mnt/e…): primero lo copia
+#          robocopy.exe desde Windows a una carpeta temporal, y de ahí rsync a Linux.
+#          Hace falta porque algunos archivos tienen permisos de Windows que WSL no
+#          puede leer ("Permission denied" en rsync, aunque en Windows se abran bien);
+#          la copia hecha por Windows los deja con permisos normales, sin tocar los originales.
 #
 # Lo que hace solo:
 #   1. Instala lo que falte (librerías de Tauri con sudo, Rust y pnpm en tu usuario).
@@ -20,12 +29,14 @@ set -euo pipefail
 BUNDLES="deb,rpm,appimage"
 SIN_FRONTEND=false
 SIN_EXTENSION=false
+MODO=auto
 while [ $# -gt 0 ]; do
   case "$1" in
+    --modo) MODO="${2:?falta el modo: wsl o linux}"; shift 2 ;;
     --bundles) BUNDLES="${2:?falta la lista de formatos, ej. --bundles appimage}"; shift 2 ;;
     --sin-frontend) SIN_FRONTEND=true; shift ;;
     --sin-extension) SIN_EXTENSION=true; shift ;;
-    -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,25p' "$0"; exit 0 ;;
     *) echo "Opción desconocida: $1 (ver --help)" >&2; exit 1 ;;
   esac
 done
@@ -40,7 +51,14 @@ fi
 
 DIR_RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 TRABAJO="${ELLKAN_BUILD_DIR:-$HOME/.cache/ellkan-build}"
-export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+# WSL agrega al PATH las carpetas de Windows (/mnt/c/...): sin esto el script
+# tomaba el pnpm/node/cargo de Windows («current dir is an absolute path with
+# drive letter», 2026-10-18). Las dos herramientas de Windows que usa el modo
+# wsl se ubican antes de limpiar.
+ROBOCOPY="$(command -v robocopy.exe || true)"
+CMD_WIN="$(command -v cmd.exe || true)"
+PATH_LINUX="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd: -)"
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH_LINUX"
 
 # --- 1. Requisitos ------------------------------------------------------------
 
@@ -48,13 +66,16 @@ paso "Revisando requisitos"
 INSTALO_HERRAMIENTAS=false
 
 PAQUETES_APT=(build-essential curl wget file pkg-config libssl-dev libxdo-dev libwebkit2gtk-4.1-dev
-  libayatana-appindicator3-dev librsvg2-dev libfuse2 rsync)
+  libayatana-appindicator3-dev librsvg2-dev libfuse2 rsync xdg-utils)
 PAQUETES_DNF=(gcc gcc-c++ make curl wget file pkgconf-pkg-config openssl-devel libxdo-devel webkit2gtk4.1-devel
-  libappindicator-gtk3-devel librsvg2-devel fuse-libs rsync)
+  libappindicator-gtk3-devel librsvg2-devel fuse-libs rsync xdg-utils)
 
 falta_sistema=false
 pkg-config --exists webkit2gtk-4.1 2>/dev/null || falta_sistema=true
 command -v rsync >/dev/null || falta_sistema=true
+# Tauri mete xdg-open dentro del AppImage (abrir enlaces); una Ubuntu mínima
+# (WSL) no lo trae: «xdg-open binary not found», 2026-10-18.
+command -v xdg-open >/dev/null || falta_sistema=true
 command -v curl >/dev/null || falta_sistema=true
 [[ ",$BUNDLES," == *",rpm,"* ]] && ! command -v rpmbuild >/dev/null && falta_sistema=true
 
@@ -107,15 +128,51 @@ fi
 
 # --- 2. Copia de trabajo en disco Linux ----------------------------------------
 
+if [ "$MODO" = auto ]; then
+  # WSL y el repo en un disco de Windows montado (/mnt/<letra>/…).
+  if grep -qi microsoft /proc/version 2>/dev/null && [[ "$DIR_RAIZ" == /mnt/[a-z]/* ]]; then MODO=wsl; else MODO=linux; fi
+fi
+case "$MODO" in wsl | linux) ;; *) echo "Modo desconocido: $MODO (wsl o linux)" >&2; exit 1 ;; esac
+echo "Modo: $MODO"
+
+# Lo que no hace falta para compilar. `secrets/` y `.env` además nunca deben
+# salir del repo; `investigacion/` son clones de referencia pesados.
+EXCLUIR_RSYNC=(--exclude node_modules/ --exclude /target/ --exclude .svelte-kit/ --exclude /frontend/build/
+  --exclude /app-escritorio/src-tauri/extension-bundle/ --exclude '*.msi' --exclude '*.exe' --exclude '*.zip'
+  --exclude '*.AppImage' --exclude '*.deb' --exclude '*.rpm' --exclude .git/
+  --exclude /investigacion/ --exclude /secrets/ --exclude .env)
+
+ORIGEN="$DIR_RAIZ"
+if [ "$MODO" = wsl ]; then
+  [ -n "$ROBOCOPY" ] && [ -n "$CMD_WIN" ] && command -v wslpath >/dev/null || {
+    echo "Modo wsl: no se encuentra robocopy.exe (¿interop de Windows desactivado en /etc/wsl.conf?)." >&2
+    echo "Alternativa: clonar el repo dentro de Linux (~/) y usar --modo linux." >&2
+    exit 1
+  }
+  temp_win="$("$CMD_WIN" /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')"
+  escala_win="$temp_win\\ellkan-wsl-build"
+  paso "Copiando desde Windows con robocopy a $escala_win"
+  # /MIR deja la copia igual al original. Sin /COPY:S: los archivos nuevos
+  # heredan los permisos de la carpeta temporal, que WSL sí puede leer.
+  set +e
+  "$ROBOCOPY" "$(wslpath -w "$DIR_RAIZ")" "$escala_win" /MIR /R:1 /W:1 /NFL /NDL /NJH /NJS /NP \
+    /XD node_modules target .svelte-kit .git investigacion secrets extension-bundle \
+    /XF '*.msi' '*.exe' '*.zip' '*.AppImage' '*.deb' '*.rpm' .env >/dev/null
+  codigo=$?
+  set -e
+  # robocopy: 0-7 = bien (copió, no había nada que copiar, extras borrados…); 8+ = error.
+  if [ "$codigo" -ge 8 ]; then
+    echo "robocopy falló (código $codigo). Probá abrir otra terminal y repetir; si sigue, usá --modo linux con el repo clonado dentro de Linux." >&2
+    exit 1
+  fi
+  ORIGEN="$(wslpath -u "$escala_win")"
+fi
+
 paso "Copiando el proyecto a $TRABAJO"
 mkdir -p "$TRABAJO"
 # --delete mantiene la copia igual al original; lo excluido (dependencias y
 # compilados de Linux) se conserva entre una compilación y la siguiente.
-rsync -a --delete \
-  --exclude node_modules/ --exclude /target/ --exclude .svelte-kit/ --exclude /frontend/build/ \
-  --exclude /app-escritorio/src-tauri/extension-bundle/ --exclude '*.msi' --exclude '*.exe' --exclude '*.zip' \
-  --exclude '*.AppImage' --exclude '*.deb' --exclude '*.rpm' --exclude .git/ \
-  "$DIR_RAIZ/" "$TRABAJO/"
+rsync -a --delete "${EXCLUIR_RSYNC[@]}" "$ORIGEN/" "$TRABAJO/"
 cd "$TRABAJO"
 
 export SQLX_OFFLINE="true"
