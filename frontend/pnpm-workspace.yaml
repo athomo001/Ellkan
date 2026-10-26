@@ -18,7 +18,19 @@
 # `nanoid` (transitiva de `vite`/`postcss`, sólo build-time — no se envía al
 # cliente): loop potencialmente infinito con `size <= 0` en `<3.3.18`. Patch
 # bump seguro.
+#
+# 2026-10-26 — `devalue` (transitiva de `svelte`/`@sveltejs/kit`): 8
+# advisories `<=5.9.2` (serialización de memoria compartida, expansiones
+# cuadráticas, bypass de `__proto__`). Se queda en `5.x`: `kit` 2 pide
+# `^5`. `source-map-js` (transitiva de `vite`, sólo build): DoS `<1.2.2`.
 overrides:
   '@xmldom/xmldom': '0.8.15'
   'nanoid': '^3.3.18'
   'cookie': '^0.7.2'
+  'devalue': '^5.9.4'
+  'source-map-js': '^1.2.2'
+
+# Cadena de suministro (ola Shai-Hulud, 2026): no instalar versiones con
+# menos de 3 días publicadas — los paquetes secuestrados se detectan y
+# retiran casi siempre antes de eso. En minutos.
+minimumReleaseAge: 4320

@@ -738,7 +738,7 @@ fn cerrar_aplicacion(app: tauri::AppHandle) {
 /// Oculta la ventana y deja la app corriendo en la bandeja del sistema.
 #[tauri::command]
 fn ocultar_a_bandeja(ventana: tauri::WebviewWindow) {
-  let _ = ventana.hide();
+  esconder_ventana(&ventana);
   avisar_en_bandeja(ventana.app_handle());
 }
 
@@ -1022,6 +1022,58 @@ fn ajustar_webview_linux(app: &tauri::AppHandle) {
 #[cfg(not(target_os = "linux"))]
 fn ajustar_webview_linux(_app: &tauri::AppHandle) {}
 
+/// Esconde la ventana (queda la bandeja) y le pide a WebView2 que suelte memoria.
+fn esconder_ventana(ventana: &tauri::WebviewWindow) {
+  let _ = ventana.hide();
+  memoria_baja(ventana, true);
+}
+
+/// Trae la ventana al frente, también si estaba minimizada, con la memoria normal.
+fn mostrar_ventana(ventana: &tauri::WebviewWindow) {
+  memoria_baja(ventana, false);
+  let _ = ventana.show();
+  let _ = ventana.unminimize();
+  let _ = ventana.set_focus();
+}
+
+/// Mientras nadie ve la ventana (en la bandeja o minimizada), WebView2 puede
+/// soltar cachés y memoria de la página. No la suspende: el bloqueo por
+/// inactividad y los eventos desde Rust siguen funcionando.
+#[cfg(windows)]
+fn memoria_baja(ventana: &tauri::WebviewWindow, baja: bool) {
+  use std::sync::atomic::{AtomicBool, Ordering};
+  // Sólo la ventana principal pasa por acá; evita repetir la llamada en cada `Resized`.
+  static ACTUAL: AtomicBool = AtomicBool::new(false);
+  if ACTUAL.swap(baja, Ordering::Relaxed) == baja {
+    return;
+  }
+  let resultado = ventana.with_webview(move |webview| {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+      COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+    };
+    use windows::core::Interface;
+    let nivel = if baja { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+    // SAFETY: COM sobre el controlador vivo de esta ventana, en el hilo de la
+    // interfaz (donde `with_webview` corre el callback).
+    let r = unsafe {
+      webview
+        .controller()
+        .CoreWebView2()
+        .and_then(|w| w.cast::<ICoreWebView2_19>())
+        .and_then(|w| w.SetMemoryUsageTargetLevel(nivel))
+    };
+    if let Err(e) = r {
+      log::warn!("no se pudo ajustar la memoria de WebView2: {e}");
+    }
+  });
+  if let Err(e) = resultado {
+    log::warn!("no se pudo ajustar la memoria de WebView2: {e}");
+  }
+}
+
+#[cfg(not(windows))]
+fn memoria_baja(_ventana: &tauri::WebviewWindow, _baja: bool) {}
+
 /// Simula el aviso de "la pantalla se bloqueó" de Windows, para probar de
 /// punta a punta que la bóveda se bloquea sin bloquear la sesión del usuario.
 #[cfg(windows)]
@@ -1101,6 +1153,29 @@ pub fn run() {
     unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
   }
 
+  // Windows: WebView2 arranca como un navegador completo (proceso de GPU,
+  // telemetría, actualizador de componentes, informes de fallos). Ellkan es
+  // una sola página local de formularios: sin GPU (dibuja por CPU dentro del
+  // proceso principal, un proceso menos) y sin tráfico de fondo hacia
+  // Microsoft. La variable de entorno vale para todas las ventanas (la
+  // principal y el aviso): WebView2 rechaza crear una segunda ventana con
+  // argumentos distintos a la primera. Se repiten los `--disable-features`
+  // que Tauri pone por defecto, porque esta variable los reemplaza.
+  // `ELLKAN_WEBVIEW_GPU=1` deja la GPU activa por si en algún equipo se ve peor.
+  #[cfg(windows)]
+  if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
+    let mut args = String::from(
+      "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess,BackForwardCache \
+       --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-domain-reliability \
+       --disable-breakpad --disable-sync --no-pings",
+    );
+    if std::env::var_os("ELLKAN_WEBVIEW_GPU").is_none() {
+      args.push_str(" --disable-gpu --in-process-gpu");
+    }
+    // SAFETY: igual que arriba, todavía no hay otros hilos.
+    unsafe { std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args) };
+  }
+
   tauri::Builder::default()
     .manage(EnlacePendiente::default())
     // F-45/F-54 (instancia única) — DEBE ser el primer plugin registrado,
@@ -1112,9 +1187,7 @@ pub fn run() {
     // 2026-09-17 (ver comentario en `Cargo.toml`).
     .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
       if let Some(ventana) = app.get_webview_window("main") {
-        let _ = ventana.show();
-        let _ = ventana.unminimize();
-        let _ = ventana.set_focus();
+        mostrar_ventana(&ventana);
       }
       // Un enlace `ellkan://…` abierto desde afuera llega como argumento de
       // esta segunda instancia.
@@ -1162,6 +1235,15 @@ pub fn run() {
     // instancia única) volvía a ver la ventana vieja. Ahora, por defecto, se
     // le pregunta.
     .on_window_event(|window, event| {
+      // Minimizada desde la barra de título o la barra de tareas: misma
+      // memoria baja que en la bandeja; al restaurarla, vuelve a la normal.
+      if let tauri::WindowEvent::Resized(_) = event
+        && window.label() == "main"
+        && window.is_visible().unwrap_or(false)
+        && let Some(ventana) = window.app_handle().get_webview_window("main")
+      {
+        memoria_baja(&ventana, window.is_minimized().unwrap_or(false));
+      }
       if let tauri::WindowEvent::CloseRequested { api, .. } = event {
         // Sólo la ventana principal: el aviso de la bandeja es otra ventana.
         if window.label() != "main" {
@@ -1178,7 +1260,9 @@ pub fn run() {
           ellkan_backend::desktop::AlCerrar::Salir => {}
           ellkan_backend::desktop::AlCerrar::Bandeja => {
             api.prevent_close();
-            let _ = window.hide();
+            if let Some(ventana) = window.app_handle().get_webview_window("main") {
+              esconder_ventana(&ventana);
+            }
             avisar_en_bandeja(window.app_handle());
           }
           ellkan_backend::desktop::AlCerrar::Preguntar => {
@@ -1232,11 +1316,9 @@ pub fn run() {
               && let Some(ventana) = app.get_webview_window("main")
             {
               if ventana.is_visible().unwrap_or(false) && ventana.is_focused().unwrap_or(false) {
-                let _ = ventana.hide();
+                esconder_ventana(&ventana);
               } else {
-                let _ = ventana.show();
-                let _ = ventana.unminimize();
-                let _ = ventana.set_focus();
+                mostrar_ventana(&ventana);
                 let _ = ventana.emit("atajo-global-activado", ());
               }
             }
@@ -1261,16 +1343,13 @@ pub fn run() {
             match event.id.as_ref() {
               "abrir" => {
                 if let Some(ventana) = app.get_webview_window("main") {
-                  let _ = ventana.show();
-                  let _ = ventana.unminimize();
-                  let _ = ventana.set_focus();
+                  mostrar_ventana(&ventana);
                 }
               }
               "bloquear" => {
                 if let Some(ventana) = app.get_webview_window("main") {
                   let _ = ventana.emit("bloquear-boveda", ());
-                  let _ = ventana.show();
-                  let _ = ventana.set_focus();
+                  mostrar_ventana(&ventana);
                 }
               }
               "salir" => {
@@ -1289,11 +1368,9 @@ pub fn run() {
               let app = tray.app_handle();
               if let Some(ventana) = app.get_webview_window("main") {
                 if ventana.is_visible().unwrap_or(false) {
-                  let _ = ventana.hide();
+                  esconder_ventana(&ventana);
                 } else {
-                  let _ = ventana.show();
-                  let _ = ventana.unminimize();
-                  let _ = ventana.set_focus();
+                  mostrar_ventana(&ventana);
                 }
               }
             }
@@ -1357,7 +1434,7 @@ pub fn run() {
         && args.iter().any(|a| a == sistema::ARG_MINIMIZADO)
         && let Some(ventana) = app.get_webview_window("main")
       {
-        let _ = ventana.hide();
+        esconder_ventana(&ventana);
       }
 
       vigilar_bloqueo_de_pantalla(app.handle());

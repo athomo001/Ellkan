@@ -1,0 +1,10 @@
+# Autor: Athan Espinoza
+
+# `source-map-js` (transitiva de `vite`, sólo build): DoS `<1.2.2`.
+overrides:
+  'source-map-js': '^1.2.2'
+
+# Cadena de suministro (ola Shai-Hulud, 2026): no instalar versiones con
+# menos de 3 días publicadas — los paquetes secuestrados se detectan y
+# retiran casi siempre antes de eso. En minutos.
+minimumReleaseAge: 4320
