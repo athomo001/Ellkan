@@ -96,7 +96,23 @@ fn header_estatico(nombre: &'static str, valor: &'static str) -> SetResponseHead
 /// `JSON.parse` sobre eso y mostraban un error genérico, y no quedaba nada en
 /// el log. Ahora es el mismo envelope JSON que cualquier otro error de la API,
 /// con los headers `retry-after`/`x-ratelimit-after` que trae el limitador, y
-/// el rechazo se registra con la ruta y la IP del span de `TraceLayer`.
+/// el rechazo se registra con la ruta y la IP del span de `TraceLayer` (la IP
+/// la agrega `ip_solo_en_abuso`).
+/// Pendiente #21 (minimización): la IP del cliente no va en los logs de cada
+/// solicitud, sólo en los rechazos por límite de solicitudes (429), donde
+/// hace falta para saber quién abusa. Se anota en el span `http_request`, así
+/// la lleva el WARN «solicitud rechazada por límite de solicitudes».
+async fn ip_solo_en_abuso(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let ip = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0.ip());
+    let respuesta = next.run(req).await;
+    if respuesta.status() == axum::http::StatusCode::TOO_MANY_REQUESTS
+        && let Some(ip) = ip
+    {
+        tracing::Span::current().record("ip", tracing::field::display(ip));
+    }
+    respuesta
+}
+
 fn respuesta_limite_por_ip(err: tower_governor::GovernorError) -> axum::response::Response {
     use axum::response::IntoResponse;
     let (espera_s, headers) = match err {
@@ -388,6 +404,26 @@ pub async fn construir_estado(database_url: &str, secrets_key: ellkan_crypto::se
     Ok(estado)
 }
 
+/// Pendiente #109 (QA-11): en una instancia nueva (sin usuarios) el token de
+/// instalación es obligatorio. Si el operador no configuró
+/// `ELLKAN_SETUP_TOKEN[_FILE]`, se genera uno al azar en cada arranque
+/// mientras no exista ningún usuario y se escribe en el log como WARN (se ve
+/// con el filtro por defecto). La pantalla de registro de la web pide el
+/// token y dice con qué comando leerlo. Con usuarios ya creados no cambia
+/// nada. Se llama desde `main` (los tests arman su propio estado).
+pub async fn asegurar_token_de_instalacion(estado: &mut AppState) -> anyhow::Result<()> {
+    use auth::repository::UserRepository;
+    if estado.setup_token.is_some() || estado.usuarios.existe_alguno().await? {
+        return Ok(());
+    }
+    let token: String = ellkan_crypto::aleatoriedad::bytes_aleatorios::<24>().iter().map(|b| format!("{b:02x}")).collect();
+    tracing::warn!(
+        "token de instalación: {token} — la web lo pide para crear la primera cuenta (que nace admin); deja de servir en cuanto esa cuenta existe"
+    );
+    estado.setup_token = Some(std::sync::Arc::new(secrecy::SecretBox::new(Box::new(token))));
+    Ok(())
+}
+
 /// Arma el router completo — separado de `main()` para que los tests de
 /// integración puedan levantar el mismo árbol de rutas sin duplicar nada.
 pub fn construir_router(estado: AppState) -> Router {
@@ -490,6 +526,7 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let auth_router = Router::new()
         .route("/register", post(auth::handlers::register))
+        .route("/setup-status", get(auth::handlers::setup_status))
         .route("/server-key", get(auth::handlers::server_key))
         .route("/challenge", post(auth::handlers::challenge))
         .route("/key-material", post(auth::handlers::key_material))
@@ -896,23 +933,22 @@ pub fn construir_router(estado: AppState) -> Router {
         // nunca pasa por el limitador de la API, es tráfico de assets
         // estáticos igual que un 404 normal contra el bundle.
         .layer(axum::middleware::from_fn(rescate_spa_en_recarga))
+        // Dentro del `TraceLayer` (se agrega antes), así el span actual es el
+        // de la solicitud.
+        .layer(axum::middleware::from_fn(ip_solo_en_abuso))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &axum::http::Request<_>| {
                     // Sólo método + ruta (sin query string) — nunca headers ni
                     // body. `actor_id` se completa después, si la ruta exige
                     // sesión, en `AuthenticatedUser::from_request_parts`.
-                    // `ip`: la que ve el limitador por IP — sin ella no había
-                    // forma de saber quién agotaba el cupo (2026-10-17).
-                    let ip = req
-                        .extensions()
-                        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-                        .map(|c| c.0.ip().to_string());
+                    // `ip` queda vacía: sólo la completa `ip_solo_en_abuso`
+                    // cuando la respuesta es 429 (pendiente #21).
                     tracing::info_span!(
                         "http_request",
                         method = %req.method(),
                         path = %req.uri().path(),
-                        ip = ip.as_deref().unwrap_or("-"),
+                        ip = Empty,
                         status = Empty,
                         actor_id = Empty,
                     )

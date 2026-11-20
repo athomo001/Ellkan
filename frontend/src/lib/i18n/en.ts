@@ -128,6 +128,13 @@ const en: Diccionario = {
 		iniciaSesion: 'Sign in',
 		errorNoCoinciden: 'Passphrases do not match.',
 		errorGenerico: 'Could not complete registration.',
+		// Pending #109: first sign-up on a new instance.
+		tokenInstalacion: 'Setup token',
+		tokenInstalacionAviso:
+			'This is the first account on this server and it will be the administrator. To confirm you are the one who installed it, paste the setup token the server wrote to its log on startup. See it with:',
+		tokenInstalacionComando: 'docker logs ellkan 2>&1 | grep "token de instalación"',
+		tokenInstalacionNota: 'It stops working as soon as this account exists.',
+		errorTokenInstalacion: 'The setup token is not correct. Copy it again from the server log.',
 		verificacion: {
 			titulo: 'Verify your email',
 			hint: 'We sent a 6-digit code by email. Enter it to be able to sign in.',
@@ -976,7 +983,7 @@ const en: Diccionario = {
 			politicaTitulo: 'Sharing visibility',
 			politicaRestringir: 'Restrict by group (without this, anyone sees and can share with anyone)',
 			politicaHint:
-				"With the restriction on, each user only sees and can share with people in their own group; a group admin also sees other group admins. Groups marked \"exempt\" below skip this rule without turning it off for everyone else.",
+				"With the restriction on, when searching whom to share with each user only finds people in their own group; a group admin also sees other group admins. It is a search rule, not a block: the API still accepts sharing with any user whose identifier is known by other means. Groups marked \"exempt\" below skip this rule without turning it off for everyone else.",
 			shareExempt: 'Exempt — members see and share with anyone',
 			shareExemptCol: 'Exempt',
 			shareExemptSinEfecto: 'No effect while "Restrict by group" is off — everyone already sees everyone.',

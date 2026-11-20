@@ -4,6 +4,19 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [Sin publicar]
+
+### Seguridad y privacidad
+
+- **Token de instalación obligatorio en instancias nuevas (QA-11, pendiente #109):** si no se configura `ELLKAN_SETUP_TOKEN`, el servidor genera uno al azar mientras no haya usuarios y lo escribe en su log. La pantalla de registro de la web lo pide en el primer registro (el que nace admin) y muestra el comando para verlo (`docker logs ellkan 2>&1 | grep "token de instalación"`). Endpoint nuevo `GET /auth/setup-status`.
+- **IP sólo en los avisos de abuso (pendiente #21):** los logs de cada solicitud ya no llevan la IP del cliente; sólo la llevan los rechazos por límite de solicitudes (429).
+- **Favicons opcionales en la extensión (pendiente #126):** el popup ya no pide los íconos a Google por defecto; muestra la inicial del sitio. Se activa en «Mi cuenta → Íconos de los sitios».
+- **Visibilidad por grupo (QA-18, pendiente #106):** se mantiene como regla de búsqueda (decisión del usuario); el texto de ayuda del panel de grupos ahora lo dice sin prometer un bloqueo.
+
+### CI
+
+- **Tests de LDAP y SSO en el CI (pendiente #127):** `.github/scripts/levantar-fixtures.sh` levanta OpenLDAP y Keycloak con los datos de `backend/tests/fixtures/` antes de `cargo test`.
+
 ## [0.1.70] - 2026-11-20
 
 ### Remediación de la auditoría QA/AppSec (Crítico, Alto y parte de Medio)

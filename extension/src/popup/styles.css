@@ -496,6 +496,20 @@ button[type='submit']:disabled {
 	object-fit: cover;
 }
 
+/* Pendiente #126: inicial del sitio cuando los favicons externos están
+   apagados (el valor por defecto). */
+.item-vault-icono-inicial {
+	font-weight: 600;
+	color: var(--ellkan-texto);
+}
+
+.casilla-ajuste {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+}
+
 .item-vault-info {
 	flex: 1;
 	min-width: 0;

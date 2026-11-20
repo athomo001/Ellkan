@@ -8,7 +8,13 @@
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { registrar, verificarEmail, reenviarVerificacionEmail } from '$lib/crypto/identity';
+	import {
+		registrar,
+		verificarEmail,
+		reenviarVerificacionEmail,
+		requiereTokenDeInstalacion,
+		tokenDeInstalacionInicial
+	} from '$lib/crypto/identity';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -31,6 +37,18 @@
 				.then((existe) => {
 					if (existe) goto('/login');
 				})
+				.catch(() => {});
+		}
+	});
+
+	// Pendiente #109: en una instancia nueva (web, no escritorio) el primer
+	// registro nace admin y pide el token de instalación del log del servidor.
+	let pideTokenInstalacion = $state(false);
+	let tokenInstalacion = $state(tokenDeInstalacionInicial());
+	$effect(() => {
+		if (!escritorio) {
+			requiereTokenDeInstalacion()
+				.then((requiere) => (pideTokenInstalacion = requiere))
 				.catch(() => {});
 		}
 	});
@@ -77,14 +95,18 @@
 
 		cargando = true;
 		try {
-			const resultado = await registrar(email, displayName, passphrase);
+			const resultado = await registrar(email, displayName, passphrase, pideTokenInstalacion ? tokenInstalacion : undefined);
 			if (resultado.pendingVerification) {
 				pendienteVerificacion = true;
 			} else {
 				goto('/login');
 			}
 		} catch (err) {
-			error = err instanceof ApiError ? err.message : get(t).registro.errorGenerico;
+			if (pideTokenInstalacion && err instanceof ApiError && err.status === 403) {
+				error = get(t).registro.errorTokenInstalacion;
+			} else {
+				error = err instanceof ApiError ? err.message : get(t).registro.errorGenerico;
+			}
 		} finally {
 			cargando = false;
 		}
@@ -164,6 +186,14 @@
 			<ConectarServidorInicial />
 		{:else}
 		<form onsubmit={enviar}>
+			{#if pideTokenInstalacion}
+				<div class="aviso-instalacion" role="note">
+					<p>{$t.registro.tokenInstalacionAviso}</p>
+					<code>{$t.registro.tokenInstalacionComando}</code>
+					<p class="nota">{$t.registro.tokenInstalacionNota}</p>
+				</div>
+				<TextField label={$t.registro.tokenInstalacion} bind:value={tokenInstalacion} autocomplete="off" required />
+			{/if}
 			<TextField label={$t.registro.nombre} bind:value={displayName} autocomplete="name" required />
 			<TextField label={$t.registro.email} type="email" bind:value={email} autocomplete="email" required />
 			<TextField
@@ -256,6 +286,34 @@
 		font: inherit;
 		color: var(--accent-text);
 		cursor: pointer;
+	}
+	.aviso-instalacion {
+		background: var(--bg-overlay);
+		border: 1px solid var(--accent-primary);
+		border-radius: var(--radius-sm);
+		padding: var(--space-3);
+		margin-bottom: var(--space-4);
+		font-size: var(--text-sm);
+		color: var(--text-primary);
+	}
+	.aviso-instalacion p {
+		margin: 0 0 var(--space-2) 0;
+	}
+	.aviso-instalacion code {
+		display: block;
+		overflow-x: auto;
+		white-space: nowrap;
+		padding: var(--space-2);
+		margin-bottom: var(--space-2);
+		background: var(--bg-base);
+		border-radius: var(--radius-sm);
+		font-size: var(--text-xs);
+		user-select: all;
+	}
+	.aviso-instalacion .nota {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--text-xs);
 	}
 	.fortaleza {
 		font-size: var(--text-xs);

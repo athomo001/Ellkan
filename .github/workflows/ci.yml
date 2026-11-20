@@ -57,8 +57,15 @@ jobs:
       - name: Clippy (feature desktop)
         run: cargo clippy -p ellkan-backend --features desktop --all-targets -- -D warnings
       # Los tests de integración levantan Postgres 18 con testcontainers
-      # (Docker ya viene en el runner).
+      # (Docker ya viene en el runner). `directory_sync` y `sso_oidc`
+      # necesitan además OpenLDAP y Keycloak (pendiente #127): los levanta
+      # el script con los datos de `backend/tests/fixtures/`.
+      - name: Servicios de prueba (OpenLDAP + Keycloak)
+        run: bash .github/scripts/levantar-fixtures.sh
       - name: Tests
+        env:
+          # El LDAP de prueba usa un certificado autofirmado.
+          ELLKAN_DIRECTORY_SYNC_INSECURE_TLS: "1"
         run: cargo test --no-fail-fast --workspace $CARGO_EXCLUDE
       - name: Tests (feature desktop)
         run: cargo test --no-fail-fast -p ellkan-backend --features desktop

@@ -160,7 +160,7 @@ docker compose up -d
 
 > Para compilar el servidor desde el código en vez de descargarlo: `docker compose up -d --build`. Para pasar a una versión nueva más adelante, ver [Actualizar / reconstruir tras un cambio](#actualizar--reconstruir-tras-un-cambio).
 
-La app queda en `http://localhost:${ELLKAN_PORT:-8080}`. El primer admin se crea con la CLI: descargá `ellkan-cli_X.Y.Z_linux_x64` de [Releases](https://github.com/athomo001/Ellkan/releases/latest) y dejala en esta carpeta como `ellkan-cli` (o compilala con `cargo build --release -p ellkan-cli` y copiá `target/release/ellkan-cli`):
+La app queda en `http://localhost:${ELLKAN_PORT:-8080}`. El primer admin se puede crear **desde la web**, en «Crear cuenta»: como es la primera cuenta, pide el token de instalación, que el servidor escribe en su log (`docker logs ellkan 2>&1 | grep "token de instalación"`; detalle en el [manual](manual/instalacion.md#primer-administrador-token-de-instalación)). O con la CLI: descargá `ellkan-cli_X.Y.Z_linux_x64` de [Releases](https://github.com/athomo001/Ellkan/releases/latest) y dejala en esta carpeta como `ellkan-cli` (o compilala con `cargo build --release -p ellkan-cli` y copiá `target/release/ellkan-cli`):
 
 ```bash
 chmod +x ellkan-cli

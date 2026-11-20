@@ -41,7 +41,24 @@ function tokenDeInstalacionDeLaUrl(): string | undefined {
 	return valor || undefined;
 }
 
-export async function registrar(email: string, displayName: string, passphrase: string): Promise<ResultadoRegistro> {
+/** Pendiente #109: si la instancia está vacía, el primer registro (que nace
+ * admin) tiene que presentar el token de instalación. */
+export async function requiereTokenDeInstalacion(): Promise<boolean> {
+	const resp = await api.get<{ setup_token_required: boolean }>('/auth/setup-status');
+	return resp.setup_token_required;
+}
+
+/** Token de instalación del fragmento de la URL, para precargar el campo. */
+export function tokenDeInstalacionInicial(): string {
+	return tokenDeInstalacionDeLaUrl() ?? '';
+}
+
+export async function registrar(
+	email: string,
+	displayName: string,
+	passphrase: string,
+	tokenInstalacion?: string
+): Promise<ResultadoRegistro> {
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
 	const salt = wasm.generar_salt_kdf();
@@ -61,7 +78,7 @@ export async function registrar(email: string, displayName: string, passphrase: 
 		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
 		private_key_nonce_b64: bytesABase64(blob.nonce),
 		kdf_salt_b64: bytesABase64(salt),
-		setup_token: tokenDeInstalacionDeLaUrl()
+		setup_token: tokenInstalacion?.trim() || tokenDeInstalacionDeLaUrl()
 	});
 	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
 }

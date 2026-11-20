@@ -129,6 +129,13 @@ const es = {
 		iniciaSesion: 'Iniciá sesión',
 		errorNoCoinciden: 'Las contraseñas no coinciden.',
 		errorGenerico: 'No se pudo completar el registro.',
+		// Pendiente #109: primer registro de una instancia nueva.
+		tokenInstalacion: 'Token de instalación',
+		tokenInstalacionAviso:
+			'Es la primera cuenta de este servidor y va a quedar como administradora. Para confirmar que sos quien lo instaló, pegá el token de instalación que el servidor escribió en su log al arrancar. Lo ves con:',
+		tokenInstalacionComando: 'docker logs ellkan 2>&1 | grep "token de instalación"',
+		tokenInstalacionNota: 'Deja de servir en cuanto esta cuenta existe.',
+		errorTokenInstalacion: 'El token de instalación no es correcto. Copialo de nuevo del log del servidor.',
 		verificacion: {
 			titulo: 'Verificá tu email',
 			hint: 'Te enviamos un código de 6 dígitos por email. Ingresalo para poder iniciar sesión.',
@@ -989,7 +996,7 @@ const es = {
 			politicaTitulo: 'Visibilidad para compartir',
 			politicaRestringir: 'Restringir por grupo (sin esto, cualquiera ve y comparte con cualquiera)',
 			politicaHint:
-				'Con la restricción activa, cada usuario sólo ve y puede compartir con gente de su propio grupo; un admin de grupo ve además a otros admins de grupo. Los grupos marcados "exento" abajo se saltan esta regla sin desactivarla para el resto.',
+				'Con la restricción activa, al buscar a quién compartir cada usuario sólo encuentra a gente de su propio grupo; un admin de grupo ve además a otros admins de grupo. Es una regla de búsqueda, no un bloqueo: la API sigue aceptando compartir con cualquier usuario cuyo identificador se conozca por otro medio. Los grupos marcados "exento" abajo se saltan esta regla sin desactivarla para el resto.',
 			shareExempt: 'Exento — sus miembros ven y comparten con cualquiera',
 			shareExemptCol: 'Exento',
 			shareExemptSinEfecto: 'Sin efecto mientras "Restringir por grupo" esté apagado — ya ve todo el mundo a todo el mundo.',

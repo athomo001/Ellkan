@@ -44,6 +44,14 @@ pub struct ServerKeyResponse {
     pub public_key_ed25519_b64: String,
 }
 
+/// Pendiente #109: `GET /auth/setup-status`.
+#[derive(Debug, Serialize)]
+pub struct SetupStatusResponse {
+    /// `true` si la instancia no tiene usuarios y el primer registro (que
+    /// nace admin) tiene que presentar el token de instalación.
+    pub setup_token_required: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ChallengeRequest {
     pub email: String,

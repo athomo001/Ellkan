@@ -165,6 +165,16 @@ pub async fn server_key(State(state): State<AppState>) -> Json<ServerKeyResponse
     Json(ServerKeyResponse { public_key_ed25519_b64: b64::encode(state.server_public_key_ed25519.as_slice()) })
 }
 
+/// Pendiente #109 (QA-11): la pantalla de registro pregunta si tiene que
+/// pedir el token de instalación. Es público a propósito: que la instancia
+/// está vacía ya se deduce intentando registrarse, y el token no se revela.
+pub async fn setup_status(State(state): State<AppState>) -> Result<Json<super::dto::SetupStatusResponse>, ApiError> {
+    let instancia_vacia = !state.usuarios.existe_alguno().await.map_err(DomainError::from)?;
+    Ok(Json(super::dto::SetupStatusResponse {
+        setup_token_required: instancia_vacia && state.setup_token.is_some(),
+    }))
+}
+
 pub async fn challenge(State(state): State<AppState>, Json(req): Json<ChallengeRequest>) -> Result<Json<ChallengeResponse>, ApiError> {
     let nonce = servicio(&state).challenge(&req.email).await?;
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))

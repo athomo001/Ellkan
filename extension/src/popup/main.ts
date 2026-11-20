@@ -261,6 +261,25 @@ const ICONO_POR_TIPO: Record<string, string> = {
 let itemsVault: ItemVault[] = [];
 let pestanaActiva: 'todos' | 'reciente' = 'todos';
 
+// Pendiente #126: pedir los favicons a Google le revela los dominios de la
+// bóveda. Es opcional y viene apagado; preferencia local de este navegador
+// en `storage.local` (no es un secreto ni viaja al servidor).
+const CLAVE_FAVICONS = 'faviconsExternos';
+let faviconsExternos = false;
+const casillaFavicons = document.getElementById('casilla-favicons') as HTMLInputElement;
+
+void BrowserApi.storageLocalGet<Record<string, unknown>>(CLAVE_FAVICONS).then((guardado) => {
+	faviconsExternos = guardado[CLAVE_FAVICONS] === true;
+	casillaFavicons.checked = faviconsExternos;
+	if (itemsVault.length > 0) renderizarLista(campoBuscar.value);
+});
+
+casillaFavicons.addEventListener('change', () => {
+	faviconsExternos = casillaFavicons.checked;
+	void BrowserApi.storageLocalSet({ [CLAVE_FAVICONS]: faviconsExternos });
+	renderizarLista(campoBuscar.value);
+});
+
 const MS_14_DIAS = 14 * 24 * 60 * 60 * 1000;
 
 function crearFilaItem(item: ItemVault): HTMLElement {
@@ -279,14 +298,17 @@ function crearFilaItem(item: ItemVault): HTMLElement {
 	icono.setAttribute('aria-hidden', 'true');
 	const glifo = ICONO_POR_TIPO[item.resourceTypeSlug] ?? '🔒';
 	const host = hostnameParaFavicon(item.resourceTypeSlug, item.uri);
-	if (host) {
-		// Favicon real del sitio (spec 06 §5bis) — mismo criterio visual que
-		// Proton Pass. Trade-off documentado, no oculto: esto manda el
-		// hostname (nunca la credencial) a un servicio externo de favicons
-		// cuando se renderiza la lista — aceptado a propósito por el pedido
-		// explícito de paridad visual; si `onerror` dispara (sin red, sin
-		// favicon, servicio caído), cae al glifo genérico sin dejar un
-		// ícono roto.
+	if (host && !faviconsExternos) {
+		// Pendiente #126: sin la opción, nada sale del navegador; se muestra
+		// la inicial del sitio.
+		icono.textContent = host.replace(/^www\./, '').charAt(0).toUpperCase() || glifo;
+		icono.classList.add('item-vault-icono-inicial');
+	} else if (host) {
+		// Favicon real del sitio (spec 06 §5bis), sólo con la opción
+		// «Íconos de los sitios» activada en Mi cuenta: manda el hostname
+		// (nunca la credencial) al servicio de favicons de Google. Si
+		// `onerror` dispara (sin red, sin favicon, servicio caído), cae al
+		// glifo genérico sin dejar un ícono roto.
 		const img = document.createElement('img');
 		img.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`;
 		img.alt = '';

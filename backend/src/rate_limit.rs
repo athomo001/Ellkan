@@ -48,7 +48,7 @@ pub async fn limitar_solicitudes(State(state): State<AppState>, req: Request, ne
             if let Some(ConnectInfo(addr)) = parts.extensions.get::<ConnectInfo<std::net::SocketAddr>>()
                 && state.limitador_por_ip.check_key(&addr.ip()).is_err()
             {
-                tracing::warn!(limite = "ip", "límite de solicitudes por IP agotado");
+                tracing::warn!(limite = "ip", ip = %addr.ip(), "límite de solicitudes por IP agotado");
                 return Err(DomainError::RateLimited.into());
             }
         }

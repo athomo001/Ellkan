@@ -1,0 +1,17 @@
+# Autor: Athan Espinoza
+#
+# Pendiente #127: datos del OpenLDAP de prueba de `backend/tests/directory_sync.rs`
+# (base `dc=ellkan-test,dc=example`, admin `cn=admin,...` / `admin_password`).
+# El CI lo carga con `ldapadd` después de levantar el contenedor.
+
+dn: ou=people,dc=ellkan-test,dc=example
+objectClass: organizationalUnit
+ou: people
+
+dn: uid=carol,ou=people,dc=ellkan-test,dc=example
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol Prueba
+sn: Prueba
+mail: carol@ellkan-test.example
+userPassword: carol-password

@@ -9,7 +9,8 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::desde_entorno()?;
     let proveedor_otel = ellkan_backend::observabilidad::inicializar_tracing(cfg.otel_endpoint.as_deref());
 
-    let estado = ellkan_backend::construir_estado(&cfg.database_url, cfg.secrets_key).await?;
+    let mut estado = ellkan_backend::construir_estado(&cfg.database_url, cfg.secrets_key).await?;
+    ellkan_backend::asegurar_token_de_instalacion(&mut estado).await?;
     let app = ellkan_backend::construir_router(estado);
 
     let addr: SocketAddr = cfg.bind_addr.parse()?;

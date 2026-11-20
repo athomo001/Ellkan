@@ -51,9 +51,17 @@ Las dos variables tienen que estar juntas — con sólo una, el binario falla al
 
 No hay una tercera opción real: el canal tiene que cerrarse en algún punto entre el navegador/extensión y el servidor. La Opción A es la más liviana porque no agrega contenedor ni proceso nuevo.
 
-## Primer administrador: token de instalación (recomendado)
+## Primer administrador: token de instalación
 
-En una instancia vacía, el primer usuario que se registra nace **admin**. Si la instancia queda expuesta antes de que vos te registres, cualquiera que llegue primero se queda con ese rol. Para cerrar esa ventana, configurá un token de instalación (mínimo 24 caracteres) en el `environment:` del servicio `ellkan`:
+En una instancia vacía, el primer usuario que se registra nace **admin**. Para que nadie que llegue antes que vos se quede con ese rol, ese primer registro **siempre pide un token de instalación**.
+
+**Sin configurar nada:** mientras la base no tenga usuarios, el servidor genera un token al azar en cada arranque y lo escribe en su log. La pantalla de registro de la web lo pide y muestra el comando para verlo:
+
+```bash
+docker logs ellkan 2>&1 | grep "token de instalación"
+```
+
+**Con un token propio** (mínimo 24 caracteres), configuralo en el `environment:` del servicio `ellkan` y no se genera ninguno:
 
 ```yaml
 environment:
@@ -64,7 +72,7 @@ environment:
 openssl rand -base64 32   # genera un valor adecuado
 ```
 
-Con el token configurado, el primer registro sólo se acepta si la URL de registro lo trae en el fragmento: `https://tu-ellkan/register#setup=<token>` (el fragmento no viaja al servidor como parte de la URL ni queda en logs de proxy). Sin el token, o con uno incorrecto, el servidor responde 403. Los registros posteriores no lo usan. Si la variable no está configurada, el comportamiento es el histórico y el binario lo advierte en el log al registrarse el primer usuario.
+En los dos casos se puede pegar en el campo de la pantalla de registro o pasar en el fragmento de la URL: `https://tu-ellkan/register#setup=<token>` (el fragmento no viaja al servidor como parte de la URL ni queda en logs de proxy). Sin el token, o con uno incorrecto, el servidor responde 403. En cuanto existe la primera cuenta el token deja de servir y no se vuelve a generar. Crear el primer admin con la CLI (`ellkan-cli admin create-user`, con acceso directo a la base) no lo necesita.
 
 ## Compartir externo (F-26): el link no sirve de nada si nadie de afuera puede alcanzarlo
 
