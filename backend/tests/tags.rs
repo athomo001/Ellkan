@@ -6,12 +6,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_recurso_de_prueba(entorno: &common::Entorno, sesion: Uuid, owner: &common::Usuario) -> Uuid {
@@ -91,13 +91,7 @@ async fn tag_personal_de_alice_nunca_aparece_para_bob() {
         .await
         .unwrap();
 
-    let resp = entorno
-        .cliente
-        .get(format!("{}/tags", entorno.base))
-        .bearer_auth(sesion_bob)
-        .send()
-        .await
-        .unwrap();
+    let resp = entorno.cliente.get(format!("{}/tags", entorno.base)).bearer_auth(sesion_bob).send().await.unwrap();
     let tags_de_bob: Value = resp.json().await.unwrap();
     assert!(
         tags_de_bob.as_array().unwrap().iter().all(|t| t["name"] != json!("secreto-de-alice")),

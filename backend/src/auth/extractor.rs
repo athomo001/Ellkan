@@ -36,10 +36,7 @@ pub struct AuthenticatedUser {
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         // Ya validada por `rate_limit::limitar_solicitudes` en este mismo
         // request: se reusa en vez de ir de nuevo a la base. Las extensiones
         // sólo las escribe el servidor, un cliente no puede inyectar esto.
@@ -93,10 +90,7 @@ impl SesionValida {
 impl FromRequestParts<AppState> for SesionValida {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let session_id = extraer_session_id(parts)?;
 
         let (user_id, proposito) = state
@@ -125,17 +119,10 @@ pub struct AdminUser {
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let autenticado = AuthenticatedUser::from_request_parts(parts, state).await?;
 
-        let es_admin = state
-            .roles
-            .usuario_tiene_permiso(autenticado.user_id, "*")
-            .await
-            .map_err(DomainError::from)?;
+        let es_admin = state.roles.usuario_tiene_permiso(autenticado.user_id, "*").await.map_err(DomainError::from)?;
 
         if !es_admin {
             return Err(DomainError::PermissionDenied.into());
@@ -158,10 +145,7 @@ pub struct AuditorUser {
 impl FromRequestParts<AppState> for AuditorUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let autenticado = AuthenticatedUser::from_request_parts(parts, state).await?;
 
         let autorizado = state

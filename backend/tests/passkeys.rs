@@ -10,9 +10,9 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use serde_json::{json, Value};
+use base64::engine::general_purpose::STANDARD as B64;
+use serde_json::{Value, json};
 use webauthn_authenticator_rs::prelude::{Url, WebauthnAuthenticator};
 use webauthn_authenticator_rs::softpasskey::SoftPasskey;
 use webauthn_rs::prelude::{CreationChallengeResponse, PublicKeyCredential, RequestChallengeResponse};
@@ -80,8 +80,9 @@ async fn loguear_con_passkey(entorno: &common::Entorno, email: &str, authenticad
     assert_eq!(resp.status(), 200, "login/options debería devolver 200 para un usuario con passkeys");
     let rcr: RequestChallengeResponse = resp.json().await.unwrap();
 
-    let credencial: PublicKeyCredential =
-        authenticador.do_authentication(origin(), rcr).expect("ceremonia de autenticación debería completar");
+    let credencial: PublicKeyCredential = authenticador
+        .do_authentication(origin(), rcr)
+        .expect("ceremonia de autenticación debería completar");
 
     let resp = entorno
         .cliente
@@ -278,13 +279,25 @@ async fn listar_y_revocar_passkeys_respeta_al_dueño() {
         .unwrap();
 
     // El usuario B no ve la passkey de A.
-    let resp = entorno.cliente.get(format!("{}/me/passkeys", entorno.base)).bearer_auth(sesion_b).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/me/passkeys", entorno.base))
+        .bearer_auth(sesion_b)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let listado_b: Vec<Value> = resp.json().await.unwrap();
     assert!(listado_b.is_empty());
 
     // El usuario A sí ve la propia, con `tiene_prf: false`.
-    let resp = entorno.cliente.get(format!("{}/me/passkeys", entorno.base)).bearer_auth(sesion_a).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/me/passkeys", entorno.base))
+        .bearer_auth(sesion_a)
+        .send()
+        .await
+        .unwrap();
     let listado_a: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(listado_a.len(), 1);
     assert_eq!(listado_a[0]["label"], "passkey-de-a");
@@ -311,7 +324,13 @@ async fn listar_y_revocar_passkeys_respeta_al_dueño() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    let resp = entorno.cliente.get(format!("{}/me/passkeys", entorno.base)).bearer_auth(sesion_a).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/me/passkeys", entorno.base))
+        .bearer_auth(sesion_a)
+        .send()
+        .await
+        .unwrap();
     let listado_a: Vec<Value> = resp.json().await.unwrap();
     assert!(listado_a.is_empty());
 }

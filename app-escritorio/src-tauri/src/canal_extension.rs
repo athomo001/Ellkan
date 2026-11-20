@@ -36,15 +36,15 @@ use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 
 use axum::body::Body;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tower::ServiceExt;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{LocalFree, HANDLE, HLOCAL};
+use windows::Win32::Foundation::{HANDLE, HLOCAL, LocalFree};
 use windows::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+use windows::core::PCWSTR;
 
 use crate::tuberia;
 
@@ -85,7 +85,11 @@ pub fn registrar_host(datadir: &std::path::Path) -> Result<(), String> {
     m.as_object_mut().expect("objeto").extend(permitidos.as_object().expect("objeto").clone());
     serde_json::to_vec_pretty(&m).expect("serializar el manifiesto no falla")
   };
-  std::fs::write(&chromium, comun(json!({ "allowed_origins": [format!("chrome-extension://{ID_EXTENSION_CHROMIUM}/")] }))).map_err(|e| e.to_string())?;
+  std::fs::write(
+    &chromium,
+    comun(json!({ "allowed_origins": [format!("chrome-extension://{ID_EXTENSION_CHROMIUM}/")] })),
+  )
+  .map_err(|e| e.to_string())?;
   std::fs::write(&firefox, comun(json!({ "allowed_extensions": [ID_EXTENSION_FIREFOX] }))).map_err(|e| e.to_string())?;
   crate::sistema::registrar_host_nativo(&chromium, &firefox)
 }

@@ -39,10 +39,7 @@ pub trait AuditLogRepository {
 
     /// Orden cronológico ascendente (a diferencia de `listar`) — lo que un
     /// colector externo espera al ingerir incrementalmente.
-    fn listar_para_exportar(
-        &self,
-        filtro: &FiltroAuditLog,
-    ) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepoError>> + Send;
+    fn listar_para_exportar(&self, filtro: &FiltroAuditLog) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepoError>> + Send;
 }
 
 #[derive(Clone)]
@@ -92,12 +89,7 @@ impl AuditLogRepository for PgAuditLogRepository {
         Ok(())
     }
 
-    async fn listar(
-        &self,
-        filtro: &FiltroAuditLog,
-        cursor: Option<Uuid>,
-        limite: i64,
-    ) -> Result<Vec<AuditLogEntry>, RepoError> {
+    async fn listar(&self, filtro: &FiltroAuditLog, cursor: Option<Uuid>, limite: i64) -> Result<Vec<AuditLogEntry>, RepoError> {
         let event_type = filtro.event_type.map(|e| e.as_db_str());
         let filas = sqlx::query_as!(
             FilaAuditLog,

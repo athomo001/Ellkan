@@ -30,12 +30,10 @@ use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::groups::repository::GroupMemberRepository;
 use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::ClavePrivadaRepository;
-use crate::me::service::{verificar_posesion, CambiarPassphraseService, PruebaDePosesion};
+use crate::me::service::{CambiarPassphraseService, PruebaDePosesion, verificar_posesion};
 
 use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
-use super::repository::{
-    AccountRecoveryPolicyRepository, EscrowRepository, OrgRecoveryKeyRepository, RecoveryRequestRepository,
-};
+use super::repository::{AccountRecoveryPolicyRepository, EscrowRepository, OrgRecoveryKeyRepository, RecoveryRequestRepository};
 
 pub struct AccountRecoveryService<'a, P, K, E, R, U, C, RR, GM, CH> {
     pub policy: &'a P,
@@ -170,13 +168,11 @@ where
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "required": nueva.required,
-                    "grace_period_days": nueva.grace_period_days,
-                    "default_approval_threshold": nueva.default_approval_threshold,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryPolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "required": nueva.required,
+                "grace_period_days": nueva.grace_period_days,
+                "default_approval_threshold": nueva.default_approval_threshold,
+            })),
         ));
 
         Ok(nueva)
@@ -191,8 +187,7 @@ where
             .obtener_o_crear(|| {
                 let par = KeypairAcuerdo::generar();
                 let privada_bytes = par.privada().to_bytes();
-                let envoltura =
-                    aead::cifrar(self.secrets_key, &privada_bytes, b"org_recovery_key").expect("cifrar no falla");
+                let envoltura = aead::cifrar(self.secrets_key, &privada_bytes, b"org_recovery_key").expect("cifrar no falla");
                 (par.publica().as_bytes().to_vec(), envoltura.ciphertext, envoltura.nonce.to_vec())
             })
             .await?;
@@ -209,18 +204,13 @@ where
     /// privada contra la pública organizacional (`sealed_private_key_for_org`,
     /// bytes opacos para el servidor en este punto). Re-enrolar reemplaza el
     /// escrow anterior.
-    pub async fn enrolar(
-        &self,
-        user_id: Uuid,
-        sealed_private_key_for_org: Vec<u8>,
-    ) -> Result<Escrow, DomainError> {
+    pub async fn enrolar(&self, user_id: Uuid, sealed_private_key_for_org: Vec<u8>) -> Result<Escrow, DomainError> {
         let clave = self
             .org_key
             .obtener_o_crear(|| {
                 let par = KeypairAcuerdo::generar();
                 let privada_bytes = par.privada().to_bytes();
-                let envoltura =
-                    aead::cifrar(self.secrets_key, &privada_bytes, b"org_recovery_key").expect("cifrar no falla");
+                let envoltura = aead::cifrar(self.secrets_key, &privada_bytes, b"org_recovery_key").expect("cifrar no falla");
                 (par.publica().as_bytes().to_vec(), envoltura.ciphertext, envoltura.nonce.to_vec())
             })
             .await?;
@@ -232,8 +222,7 @@ where
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryEnrolled, Some(user_id))
-                .con_sujeto("user", user_id),
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryEnrolled, Some(user_id)).con_sujeto("user", user_id),
         ));
 
         Ok(escrow)
@@ -248,11 +237,7 @@ where
     /// (un id) exista o no la cuenta o su escrow — en ese caso el id no
     /// corresponde a nada y ningún código lo va a confirmar (sección 2.2 de
     /// la guía de codificación segura).
-    pub async fn crear_solicitud(
-        &self,
-        email: &str,
-        requester_public_key_x25519: Vec<u8>,
-    ) -> Result<Uuid, DomainError> {
+    pub async fn crear_solicitud(&self, email: &str, requester_public_key_x25519: Vec<u8>) -> Result<Uuid, DomainError> {
         parsear_public_key_x25519(&requester_public_key_x25519)?;
 
         let Some(user) = self.usuarios.buscar_por_email(email).await? else {
@@ -315,8 +300,7 @@ where
         }
 
         let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
-        let (email_cuenta, _nombre) =
-            self.usuarios.email_y_nombre(escrow.user_id).await?.ok_or(DomainError::NotFound)?;
+        let (email_cuenta, _nombre) = self.usuarios.email_y_nombre(escrow.user_id).await?.ok_or(DomainError::NotFound)?;
 
         // 2026-08-11: notificación acotada a los admins del/los grupo(s) del
         // solicitante — fallback a admins de organización sólo si no
@@ -373,14 +357,12 @@ where
     pub async fn aprobar(&self, admin_id: Uuid, request_id: Uuid) -> Result<RecoveryRequest, DomainError> {
         let mut tx = self.pool.begin().await.map_err(|e| DomainError::Interno(e.into()))?;
 
-        let Some((solicitud, umbral)) = self.requests.bloquear_pendiente_con_umbral(request_id, &mut tx).await?
-        else {
+        let Some((solicitud, umbral)) = self.requests.bloquear_pendiente_con_umbral(request_id, &mut tx).await? else {
             return Err(DomainError::NotFound);
         };
 
         let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
-        let (es_admin_org, authority_group_id) =
-            self.autorizar_gestion(admin_id, escrow.user_id, solicitud.created_at).await?;
+        let (es_admin_org, authority_group_id) = self.autorizar_gestion(admin_id, escrow.user_id, solicitud.created_at).await?;
 
         let ya_aprobo = solicitud
             .approvals
@@ -404,18 +386,19 @@ where
         // umbral efectivo nunca baja de `UMBRAL_MINIMO_SIN_ADMIN_ORG`. Las
         // aprobaciones sin `authority` (anteriores a este cambio) cuentan
         // como de grupo.
-        let hay_admin_org = nuevas_aprobaciones.as_array().is_some_and(|a| {
-            a.iter().any(|e| e.get("authority").and_then(|v| v.as_str()) == Some("org_admin"))
-        });
-        let umbral_efectivo = if hay_admin_org { umbral } else { umbral.max(UMBRAL_MINIMO_SIN_ADMIN_ORG) };
+        let hay_admin_org = nuevas_aprobaciones
+            .as_array()
+            .is_some_and(|a| a.iter().any(|e| e.get("authority").and_then(|v| v.as_str()) == Some("org_admin")));
+        let umbral_efectivo = if hay_admin_org {
+            umbral
+        } else {
+            umbral.max(UMBRAL_MINIMO_SIN_ADMIN_ORG)
+        };
         self.requests.guardar_aprobaciones(request_id, nuevas_aprobaciones, &mut tx).await?;
 
         let umbral_alcanzado = cantidad >= umbral_efectivo;
         if umbral_alcanzado {
-            let clave = self
-                .org_key
-                .obtener_o_crear(|| unreachable!("la clave org ya existe si hay un escrow"))
-                .await?;
+            let clave = self.org_key.obtener_o_crear(|| unreachable!("la clave org ya existe si hay un escrow")).await?;
 
             let nonce: [u8; 24] = clave
                 .private_key_nonce
@@ -463,8 +446,7 @@ where
     pub async fn rechazar(&self, admin_id: Uuid, request_id: Uuid) -> Result<RecoveryRequest, DomainError> {
         let solicitud = self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)?;
         let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
-        let (es_admin_org, authority_group_id) =
-            self.autorizar_gestion(admin_id, escrow.user_id, solicitud.created_at).await?;
+        let (es_admin_org, authority_group_id) = self.autorizar_gestion(admin_id, escrow.user_id, solicitud.created_at).await?;
 
         if !self.requests.marcar_rechazada(request_id).await? {
             return Err(DomainError::Conflict);
@@ -530,8 +512,11 @@ where
     /// comparten alguno de sus grupos administrados.
     pub async fn listar_pendientes(&self, actor_id: Uuid) -> Result<Vec<SolicitudPendiente>, DomainError> {
         let es_admin_org = self.roles.usuario_tiene_permiso(actor_id, "*").await?;
-        let grupos_administrados =
-            if es_admin_org { Vec::new() } else { self.grupos.grupos_administrados_por(actor_id).await? };
+        let grupos_administrados = if es_admin_org {
+            Vec::new()
+        } else {
+            self.grupos.grupos_administrados_por(actor_id).await?
+        };
         Ok(self.requests.listar_pendientes_visibles(es_admin_org, &grupos_administrados).await?)
     }
 }

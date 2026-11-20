@@ -27,14 +27,7 @@ where
     /// caller vía `AdminUser` cuando corresponde; acá se re-verifica porque
     /// el Service es la fuente de verdad de la regla de negocio, no confía
     /// en que el Controller siempre la aplique bien).
-    pub async fn crear(
-        &self,
-        actor_id: Uuid,
-        es_admin: bool,
-        id: Uuid,
-        name: &str,
-        is_shared: bool,
-    ) -> Result<Tag, DomainError> {
+    pub async fn crear(&self, actor_id: Uuid, es_admin: bool, id: Uuid, name: &str, is_shared: bool) -> Result<Tag, DomainError> {
         if name.trim().is_empty() {
             return Err(DomainError::ValidacionInvalida("name no puede estar vacío".into()));
         }
@@ -101,7 +94,11 @@ where
     /// agrega ninguna garantía nueva, sólo trabajo extra.
     pub async fn eliminar(&self, actor_id: Uuid, es_admin: bool, tag_id: Uuid) -> Result<(), DomainError> {
         let tag = self.tags.buscar(tag_id).await?.ok_or(DomainError::NotFound)?;
-        let autorizado = if tag.is_shared { es_admin } else { tag.created_by == Some(actor_id) };
+        let autorizado = if tag.is_shared {
+            es_admin
+        } else {
+            tag.created_by == Some(actor_id)
+        };
         if !autorizado {
             return Err(DomainError::PermissionDenied);
         }

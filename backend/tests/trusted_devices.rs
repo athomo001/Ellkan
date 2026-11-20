@@ -6,9 +6,9 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use serde_json::{json, Value};
+use base64::engine::general_purpose::STANDARD as B64;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// Bytes de prueba simulando un blob ya sellado client-side — el servidor

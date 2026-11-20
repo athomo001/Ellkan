@@ -74,13 +74,7 @@ where
 
     /// `POST /groups` — sin `parent_group_id` exige admin de organización;
     /// con `parent_group_id` sólo exige ser manager de ese padre (o admin).
-    pub async fn crear(
-        &self,
-        actor_id: Uuid,
-        id: Uuid,
-        name: &str,
-        parent_group_id: Option<Uuid>,
-    ) -> Result<Group, DomainError> {
+    pub async fn crear(&self, actor_id: Uuid, id: Uuid, name: &str, parent_group_id: Option<Uuid>) -> Result<Group, DomainError> {
         if name.trim().is_empty() {
             return Err(DomainError::ValidacionInvalida("name no puede estar vacío".into()));
         }
@@ -103,9 +97,7 @@ where
 
         let max = self.organizacion.max_group_depth().await?;
         if profundidad_nueva > max {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "excede la profundidad máxima de grupos ({max})"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("excede la profundidad máxima de grupos ({max})")));
         }
 
         self.grupos.crear(id, name, parent_group_id).await.map_err(|e| match e {
@@ -145,12 +137,7 @@ where
     }
 
     /// `PUT /groups/{id}/move` — rechaza ciclos y profundidad excedida.
-    pub async fn mover(
-        &self,
-        actor_id: Uuid,
-        group_id: Uuid,
-        new_parent_group_id: Option<Uuid>,
-    ) -> Result<(), DomainError> {
+    pub async fn mover(&self, actor_id: Uuid, group_id: Uuid, new_parent_group_id: Option<Uuid>) -> Result<(), DomainError> {
         let grupo = self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
 
         if !self.autorizado_para_administrar(actor_id, group_id).await? {
@@ -187,9 +174,7 @@ where
 
         let max = self.organizacion.max_group_depth().await?;
         if profundidad_nueva > max {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "excede la profundidad máxima de grupos ({max})"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("excede la profundidad máxima de grupos ({max})")));
         }
 
         self.grupos.mover(group_id, new_parent_group_id).await?;
@@ -217,8 +202,7 @@ where
 
         if !recursos_compartidos.is_empty() {
             let esperados: std::collections::HashSet<Uuid> = recursos_compartidos.into_iter().collect();
-            let recibidos: std::collections::HashSet<Uuid> =
-                envelopes.iter().map(|e| e.resource_id).collect();
+            let recibidos: std::collections::HashSet<Uuid> = envelopes.iter().map(|e| e.resource_id).collect();
             if esperados != recibidos {
                 return Err(DomainError::ValidacionInvalida(
                     "los envelopes deben cubrir exactamente los recursos ya compartidos con el grupo".into(),
@@ -275,13 +259,7 @@ where
 
     /// `PUT /groups/{id}/members/{userId}` — promueve/degrada `is_admin`,
     /// nunca toca acceso a recursos.
-    pub async fn set_manager(
-        &self,
-        actor_id: Uuid,
-        group_id: Uuid,
-        user_id: Uuid,
-        is_admin: bool,
-    ) -> Result<(), DomainError> {
+    pub async fn set_manager(&self, actor_id: Uuid, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), DomainError> {
         self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
         if !self.autorizado_para_administrar(actor_id, group_id).await? {
             return Err(DomainError::PermissionDenied);
@@ -315,10 +293,7 @@ where
 
         let subjects_owner = self.permisos.subjects_owner_de("group", group_id).await?;
         for (subject_type, subject_id) in subjects_owner {
-            let hay_otro = self
-                .permisos
-                .existe_otro_owner(&subject_type, subject_id, "group", group_id)
-                .await?;
+            let hay_otro = self.permisos.existe_otro_owner(&subject_type, subject_id, "group", group_id).await?;
             if !hay_otro {
                 return Err(DomainError::GrupoEsUnicoOwner);
             }

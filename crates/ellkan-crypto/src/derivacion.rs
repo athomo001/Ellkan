@@ -42,12 +42,8 @@ pub enum ErrorDerivacion {
 
 /// Deriva la clave maestra desde la passphrase (el paso caro). Nunca se usa
 /// para cifrar directamente — siempre pasa por `derivar_subclave`.
-pub fn derivar_clave_maestra(
-    passphrase: &PassphraseSecreta,
-    salt: &[u8; 16],
-) -> Result<ClaveSecreta32, ErrorDerivacion> {
-    let params = Params::new(ARGON2_M_COST_KIB, ARGON2_T_COST, ARGON2_P_COST, Some(32))
-        .map_err(ErrorDerivacion::ParametrosInvalidos)?;
+pub fn derivar_clave_maestra(passphrase: &PassphraseSecreta, salt: &[u8; 16]) -> Result<ClaveSecreta32, ErrorDerivacion> {
+    let params = Params::new(ARGON2_M_COST_KIB, ARGON2_T_COST, ARGON2_P_COST, Some(32)).map_err(ErrorDerivacion::ParametrosInvalidos)?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut salida = [0u8; 32];
     argon2
@@ -64,8 +60,7 @@ pub fn derivar_clave_maestra(
 pub fn derivar_subclave(clave_maestra: &ClaveSecreta32, info: &[u8]) -> ClaveSecreta32 {
     let hk = Hkdf::<Sha256>::new(None, clave_maestra.expose_secret());
     let mut subclave = [0u8; 32];
-    hk.expand(info, &mut subclave)
-        .expect("32 bytes está dentro del límite de HKDF-SHA256");
+    hk.expand(info, &mut subclave).expect("32 bytes está dentro del límite de HKDF-SHA256");
     let resultado = SecretBox::new(Box::new(subclave));
     subclave.zeroize();
     resultado
@@ -79,8 +74,7 @@ pub fn derivar_subclave(clave_maestra: &ClaveSecreta32, info: &[u8]) -> ClaveSec
 pub fn derivar_clave_desde_secreto(secreto: &[u8], info: &[u8]) -> ClaveSecreta32 {
     let hk = Hkdf::<Sha256>::new(None, secreto);
     let mut subclave = [0u8; 32];
-    hk.expand(info, &mut subclave)
-        .expect("32 bytes está dentro del límite de HKDF-SHA256");
+    hk.expand(info, &mut subclave).expect("32 bytes está dentro del límite de HKDF-SHA256");
     let resultado = SecretBox::new(Box::new(subclave));
     subclave.zeroize();
     resultado
@@ -94,8 +88,7 @@ pub fn derivar_clave_desde_secreto(secreto: &[u8], info: &[u8]) -> ClaveSecreta3
 pub fn combinar_secretos(a: &[u8], b: &[u8], info: &[u8]) -> ClaveSecreta32 {
     let hk = Hkdf::<Sha256>::new(Some(a), b);
     let mut combinada = [0u8; 32];
-    hk.expand(info, &mut combinada)
-        .expect("32 bytes está dentro del límite de HKDF-SHA256");
+    hk.expand(info, &mut combinada).expect("32 bytes está dentro del límite de HKDF-SHA256");
     let resultado = SecretBox::new(Box::new(combinada));
     combinada.zeroize();
     resultado

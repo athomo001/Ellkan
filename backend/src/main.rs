@@ -29,11 +29,7 @@ async fn main() -> anyhow::Result<()> {
         _ => {
             let listener = tokio::net::TcpListener::bind(&cfg.bind_addr).await?;
             tracing::info!("ellkan-backend escuchando en {} (HTTP plano)", cfg.bind_addr);
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await?;
+            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
         }
     }
 

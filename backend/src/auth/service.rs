@@ -20,8 +20,8 @@ use ellkan_crypto::comparacion::secreto_coincide;
 
 use super::models::{DeviceChallengeRow, NuevoUsuario, PropositoSesion, ResultadoRegistro, ResultadoVerify, User};
 use super::repository::{
-    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository,
-    SessionRepository, UserRepository,
+    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository, SessionRepository,
+    UserRepository,
 };
 
 const TTL_CHALLENGE_SEGUNDOS: i64 = 120;
@@ -129,9 +129,7 @@ where
         setup_token_esperado: Option<&secrecy::SecretBox<String>>,
     ) -> Result<ResultadoRegistro, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
-            return Err(DomainError::ValidacionInvalida(
-                "las claves públicas deben ser de 32 bytes".to_string(),
-            ));
+            return Err(DomainError::ValidacionInvalida("las claves públicas deben ser de 32 bytes".to_string()));
         }
 
         let bootstrap = !self.usuarios.existe_alguno().await?;
@@ -155,9 +153,7 @@ where
             }
             crate::self_registration::service::verificar_dominio_permitido(&politica, nuevo.email)?;
             if !self.smtp_config.obtener().await?.esta_configurado() {
-                return Err(DomainError::ValidacionInvalida(
-                    "auto-registro no disponible: SMTP no configurado".into(),
-                ));
+                return Err(DomainError::ValidacionInvalida("auto-registro no disponible: SMTP no configurado".into()));
             }
         }
 
@@ -174,8 +170,7 @@ where
         let codigo = generar_codigo_device();
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_EMAIL_VERIFICATION_SEGUNDOS);
         self.email_verification.crear(user.id, &hash_de_codigo(&codigo), expires_at).await?;
-        let _ =
-            self.eventos.send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email, codigo });
+        let _ = self.eventos.send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email, codigo });
 
         Ok(ResultadoRegistro::PendienteVerificacion { user_id: user.id })
     }
@@ -194,9 +189,7 @@ where
     /// recomendación de la UI.
     pub async fn crear_por_admin(&self, nuevo: NuevoUsuario<'_>) -> Result<crate::auth::models::User, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
-            return Err(DomainError::ValidacionInvalida(
-                "las claves públicas deben ser de 32 bytes".to_string(),
-            ));
+            return Err(DomainError::ValidacionInvalida("las claves públicas deben ser de 32 bytes".to_string()));
         }
         let user = self.usuarios.crear(nuevo, true).await.map_err(|e| match e {
             crate::error::RepoError::Conflict => DomainError::Conflict,
@@ -218,8 +211,11 @@ where
         if fallidos >= MAX_INTENTOS_VERIFICACION_24H {
             return Err(DomainError::InvalidCredentials);
         }
-        let desafio =
-            self.email_verification.buscar_pendiente_por_usuario(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
+        let desafio = self
+            .email_verification
+            .buscar_pendiente_por_usuario(user.id)
+            .await?
+            .ok_or(DomainError::InvalidCredentials)?;
 
         if !secreto_coincide(&desafio.code_hash, &hash_de_codigo(codigo)) {
             // Tope por desafío (migración 0052), mismo criterio que F-02.
@@ -257,11 +253,9 @@ where
         let codigo = generar_codigo_device();
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_EMAIL_VERIFICATION_SEGUNDOS);
         self.email_verification.crear(user.id, &hash_de_codigo(&codigo), expires_at).await?;
-        let _ = self.eventos.send(DomainEvent::RegistroPendienteVerificacion {
-            user_id: user.id,
-            email: email.to_string(),
-            codigo,
-        });
+        let _ = self
+            .eventos
+            .send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email: email.to_string(), codigo });
 
         Ok(())
     }
@@ -273,9 +267,7 @@ where
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_CHALLENGE_SEGUNDOS);
 
         if let Some(user) = self.usuarios.buscar_por_email(email).await? {
-            self.challenges
-                .guardar_challenge(user.id, &nonce, expires_at)
-                .await?;
+            self.challenges.guardar_challenge(user.id, &nonce, expires_at).await?;
         }
 
         Ok(nonce.to_vec())
@@ -325,8 +317,7 @@ where
         match &resultado {
             Ok(ResultadoVerify::SesionCompleta(sesion)) => {
                 let _ = self.eventos.send(DomainEvent::Auditoria(
-                    EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(sesion.user_id))
-                        .con_sujeto("user", sesion.user_id),
+                    EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(sesion.user_id)).con_sujeto("user", sesion.user_id),
                 ));
             }
             // El caso "dispositivo no reconocido" ya se audita en el punto
@@ -339,10 +330,9 @@ where
             | Ok(ResultadoVerify::RequiereConfigurarMfa { .. })
             | Ok(ResultadoVerify::RequiereCambiarPassphrase { .. }) => {}
             Err(_) => {
-                let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
-                    AuditEventType::AuthLoginFailed,
-                    actor_conocido,
-                )));
+                let _ = self
+                    .eventos
+                    .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthLoginFailed, actor_conocido)));
             }
         }
 
@@ -365,27 +355,15 @@ where
             return Err(DomainError::InvalidCredentials);
         }
 
-        let keys = self
-            .usuarios
-            .buscar_keys(user.id)
-            .await?
-            .ok_or(DomainError::InvalidCredentials)?;
+        let keys = self.usuarios.buscar_keys(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
 
-        let clave_publica_bytes: [u8; 32] = keys
-            .public_key_ed25519
-            .try_into()
-            .map_err(|_| DomainError::InvalidCredentials)?;
-        let firma_bytes: [u8; 64] = signature
-            .try_into()
-            .map_err(|_| DomainError::InvalidCredentials)?;
+        let clave_publica_bytes: [u8; 32] = keys.public_key_ed25519.try_into().map_err(|_| DomainError::InvalidCredentials)?;
+        let firma_bytes: [u8; 64] = signature.try_into().map_err(|_| DomainError::InvalidCredentials)?;
 
-        let verificadora =
-            VerifyingKey::from_bytes(&clave_publica_bytes).map_err(|_| DomainError::InvalidCredentials)?;
+        let verificadora = VerifyingKey::from_bytes(&clave_publica_bytes).map_err(|_| DomainError::InvalidCredentials)?;
         let firma = Signature::from_bytes(&firma_bytes);
 
-        verificadora
-            .verify(nonce, &firma)
-            .map_err(|_| DomainError::InvalidCredentials)?;
+        verificadora.verify(nonce, &firma).map_err(|_| DomainError::InvalidCredentials)?;
 
         // F-02: dispositivo no reconocido -> sesión parcial + código por email,
         // salvo que ya haya MFA/SSO activo — ninguno de los dos existe todavía
@@ -409,8 +387,7 @@ where
                 );
                 self.dispositivos.marcar_conocido(user.id, device_token_hash).await?;
                 let _ = self.eventos.send(DomainEvent::Auditoria(
-                    EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id))
-                        .con_sujeto("user", user.id),
+                    EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id)).con_sujeto("user", user.id),
                 ));
                 return self.resolver_tras_f02(user, device_token_hash, force_mfa).await;
             }
@@ -424,14 +401,11 @@ where
 
             // Nunca síncrono dentro del request — el consumidor real corre en
             // su propia tarea, suscripto al broadcast.
-            let _ = self.eventos.send(DomainEvent::DispositivoNoReconocido {
-                user_id: user.id,
-                email: email.to_string(),
-                codigo,
-            });
+            let _ = self
+                .eventos
+                .send(DomainEvent::DispositivoNoReconocido { user_id: user.id, email: email.to_string(), codigo });
             let _ = self.eventos.send(DomainEvent::Auditoria(
-                EventoAuditoria::nuevo(AuditEventType::AuthDeviceUnrecognized, Some(user.id))
-                    .con_sujeto("user", user.id),
+                EventoAuditoria::nuevo(AuditEventType::AuthDeviceUnrecognized, Some(user.id)).con_sujeto("user", user.id),
             ));
 
             return Ok(ResultadoVerify::PendienteDispositivo { device_challenge_id });
@@ -480,23 +454,22 @@ where
         // exige un código real de nuevo. Sin `require_mfa` activo, `decidir`
         // sigue devolviendo `NoRequerido` igual: no hay nada que forzar.
         let decision = crate::mfa::service::decidir(&politica, tiene_confirmado, user.created_at);
-        let ya_confirmado_en_este_dispositivo = !force_mfa
-            && decision == DecisionMfa::DebeVerificar
-            && self.dispositivos.mfa_confirmado(user.id, device_token_hash).await?;
+        let ya_confirmado_en_este_dispositivo =
+            !force_mfa && decision == DecisionMfa::DebeVerificar && self.dispositivos.mfa_confirmado(user.id, device_token_hash).await?;
 
-        match if ya_confirmado_en_este_dispositivo { DecisionMfa::NoRequerido } else { decision } {
+        match if ya_confirmado_en_este_dispositivo {
+            DecisionMfa::NoRequerido
+        } else {
+            decision
+        } {
             DecisionMfa::NoRequerido => {
                 let sesion = self.sesiones.crear(user.id, user.security_stamp).await?;
                 Ok(ResultadoVerify::SesionCompleta(sesion))
             }
             DecisionMfa::DebeVerificar => {
-                let parcial = self
-                    .sesiones
-                    .crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaPendiente)
-                    .await?;
+                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaPendiente).await?;
                 let hash = crate::mfa::service::hash_de_sesion(parcial.id);
-                let expires_at = OffsetDateTime::now_utc()
-                    + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
+                let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
 
                 // Método `email` (2026-08-11): a diferencia de `totp` (el
                 // código vive en la app del usuario, nada que mandar acá),
@@ -504,11 +477,7 @@ where
                 // hay ningún otro momento en el que este código pueda
                 // originarse.
                 if politica.allowed_methods.first().map(String::as_str) == Some("email") {
-                    let (email, _nombre) = self
-                        .usuarios
-                        .email_y_nombre(user.id)
-                        .await?
-                        .ok_or(DomainError::InvalidCredentials)?;
+                    let (email, _nombre) = self.usuarios.email_y_nombre(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
                     let codigo = generar_codigo_device();
                     self.mfa_challenges.crear(user.id, &hash, Some(&hash_de_codigo(&codigo)), expires_at).await?;
                     let _ = self.eventos.send(DomainEvent::MfaCodigoPorCorreo { user_id: user.id, email, codigo });
@@ -519,10 +488,7 @@ where
                 Ok(ResultadoVerify::PendienteMfa { session_id: parcial.id })
             }
             DecisionMfa::DebeConfigurar => {
-                let parcial = self
-                    .sesiones
-                    .crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaConfigurar)
-                    .await?;
+                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaConfigurar).await?;
                 Ok(ResultadoVerify::RequiereConfigurarMfa { session_id: parcial.id })
             }
         }
@@ -532,11 +498,7 @@ where
     /// el dispositivo y emite la sesión completa que `verify` no pudo emitir.
     /// F-13: mismo criterio que `verify` — se audita exactamente una vez por
     /// intento, con el `actor_user_id` que ya se conoce en cada punto.
-    pub async fn verify_device(
-        &self,
-        device_challenge_id: Uuid,
-        codigo: &str,
-    ) -> Result<ResultadoVerify, DomainError> {
+    pub async fn verify_device(&self, device_challenge_id: Uuid, codigo: &str) -> Result<ResultadoVerify, DomainError> {
         let desafio = self.desafios_dispositivo.buscar_pendiente(device_challenge_id).await?;
         let actor_conocido = desafio.as_ref().map(|d| d.user_id);
 
@@ -549,8 +511,7 @@ where
             Ok(_) => {
                 if let Some(user_id) = actor_conocido {
                     let _ = self.eventos.send(DomainEvent::Auditoria(
-                        EventoAuditoria::nuevo(AuditEventType::AuthDeviceVerified, Some(user_id))
-                            .con_sujeto("user", user_id),
+                        EventoAuditoria::nuevo(AuditEventType::AuthDeviceVerified, Some(user_id)).con_sujeto("user", user_id),
                     ));
                 }
             }
@@ -565,11 +526,7 @@ where
         resultado
     }
 
-    async fn verify_device_con_desafio(
-        &self,
-        desafio: Option<DeviceChallengeRow>,
-        codigo: &str,
-    ) -> Result<ResultadoVerify, DomainError> {
+    async fn verify_device_con_desafio(&self, desafio: Option<DeviceChallengeRow>, codigo: &str) -> Result<ResultadoVerify, DomainError> {
         let desafio = desafio.ok_or(DomainError::InvalidCredentials)?;
 
         // Comparación en tiempo constante — nunca en SQL.
@@ -582,11 +539,7 @@ where
         self.desafios_dispositivo.consumir(desafio.id).await?;
         self.dispositivos.marcar_conocido(desafio.user_id, &desafio.device_token_hash).await?;
 
-        let user = self
-            .usuarios
-            .buscar_por_id(desafio.user_id)
-            .await?
-            .ok_or(DomainError::InvalidCredentials)?;
+        let user = self.usuarios.buscar_por_id(desafio.user_id).await?.ok_or(DomainError::InvalidCredentials)?;
         // Dispositivo recién verificado por F-02 — `force_mfa` no aplica acá,
         // sólo tiene sentido en un re-login sobre un dispositivo ya conocido.
         self.resolver_tras_f02(user, &desafio.device_token_hash, false).await

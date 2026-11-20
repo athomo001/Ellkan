@@ -32,7 +32,11 @@ pub fn marcar(datadir: &Path, servidor: &str) -> std::io::Result<()> {
 fn borrar_con_reintentos(ruta: &Path) -> std::io::Result<()> {
     let mut ultimo = None;
     for _ in 0..6 {
-        let r = if ruta.is_dir() { std::fs::remove_dir_all(ruta) } else { std::fs::remove_file(ruta) };
+        let r = if ruta.is_dir() {
+            std::fs::remove_dir_all(ruta)
+        } else {
+            std::fs::remove_file(ruta)
+        };
         match r {
             Ok(()) => return Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),

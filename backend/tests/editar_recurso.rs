@@ -6,12 +6,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 fn aad_de(resource_id: Uuid, created_by: Uuid) -> Vec<u8> {
@@ -96,7 +96,11 @@ async fn editar_con_if_match_correcto_actualiza_metadata_y_resella_para_el_desti
     let status = resp.status();
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(status, 200, "{cuerpo:?}");
-    assert_ne!(cuerpo["updated_at"].as_str().unwrap(), recurso.updated_at, "updated_at debe avanzar tras la edición");
+    assert_ne!(
+        cuerpo["updated_at"].as_str().unwrap(),
+        recurso.updated_at,
+        "updated_at debe avanzar tras la edición"
+    );
 
     // El GET posterior devuelve la metadata/secreto nuevos.
     let get = entorno
@@ -260,7 +264,11 @@ async fn compartir_durante_una_edicion_en_vuelo_hace_que_el_put_viejo_choque_en_
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 409, "un PUT con If-Match anterior a una compartición debe chocar, no pisarla en silencio");
+    assert_eq!(
+        resp.status(),
+        409,
+        "un PUT con If-Match anterior a una compartición debe chocar, no pisarla en silencio"
+    );
 
     // Bob sigue teniendo su acceso intacto — nada se pisó.
     let resp = entorno
@@ -339,7 +347,10 @@ async fn cambiar_tipo_entre_tipos_compatibles_actualiza_sin_tocar_metadata() {
         .unwrap();
     let cuerpo_get: Value = get.json().await.unwrap();
     assert_eq!(cuerpo_get["resource_type_slug"], "ssh");
-    assert_eq!(cuerpo_get["metadata_ciphertext_b64"], metadata_antes, "la metadata no debe tocarse al cambiar sólo el tipo");
+    assert_eq!(
+        cuerpo_get["metadata_ciphertext_b64"], metadata_antes,
+        "la metadata no debe tocarse al cambiar sólo el tipo"
+    );
 }
 
 #[tokio::test]
@@ -369,7 +380,10 @@ async fn cambiar_tipo_a_uno_con_json_schema_distinto_se_rechaza() {
         .await
         .unwrap();
     let cuerpo_get: Value = get.json().await.unwrap();
-    assert_eq!(cuerpo_get["resource_type_slug"], "login-password", "el tipo original no debe cambiar tras el rechazo");
+    assert_eq!(
+        cuerpo_get["resource_type_slug"], "login-password",
+        "el tipo original no debe cambiar tras el rechazo"
+    );
 }
 
 #[tokio::test]

@@ -83,8 +83,7 @@ pub(crate) fn descifrar_secreto(clave: &ClaveSecreta32, credential: &TotpCredent
         .try_into()
         .expect("secret_nonce siempre tiene 24 bytes, escrito sólo por iniciar_setup_totp");
     let envoltura = Envoltura { nonce, ciphertext: credential.secret_ciphertext.clone() };
-    aead::descifrar(clave, &envoltura, credential.user_id.as_bytes())
-        .map_err(|_| DomainError::InvalidCredentials)
+    aead::descifrar(clave, &envoltura, credential.user_id.as_bytes()).map_err(|_| DomainError::InvalidCredentials)
 }
 
 pub struct MfaService<'a, P, T, C, S, D> {
@@ -129,9 +128,7 @@ where
             ));
         }
         if allowed_methods.len() > 1 {
-            return Err(DomainError::ValidacionInvalida(
-                "allowed_methods admite un único método activo a la vez".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("allowed_methods admite un único método activo a la vez".into()));
         }
         if grace_period_days < 0 {
             return Err(DomainError::ValidacionInvalida("grace_period_days no puede ser negativo".into()));
@@ -173,12 +170,9 @@ where
         // XChaCha20-Poly1305 cifrando (no descifrando) no tiene ningún caso
         // de error real — el `Result` de `cifrar` existe por simetría con
         // `descifrar`, que sí puede fallar por tag inválido.
-        let envoltura = aead::cifrar(self.secrets_key, &secreto, user_id.as_bytes())
-            .expect("cifrar con XChaCha20-Poly1305 no falla");
+        let envoltura = aead::cifrar(self.secrets_key, &secreto, user_id.as_bytes()).expect("cifrar con XChaCha20-Poly1305 no falla");
 
-        self.totp
-            .crear_pendiente(user_id, &envoltura.ciphertext, &envoltura.nonce)
-            .await?;
+        self.totp.crear_pendiente(user_id, &envoltura.ciphertext, &envoltura.nonce).await?;
 
         Ok(secreto)
     }
@@ -253,10 +247,9 @@ where
         let resultado = self.verificar_login_interno(user_id, session_id_actual, codigo, device_token_hash).await;
 
         if resultado.is_err() {
-            let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
-                AuditEventType::AuthMfaFailed,
-                Some(user_id),
-            )));
+            let _ = self
+                .eventos
+                .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthMfaFailed, Some(user_id))));
         }
 
         resultado
@@ -316,8 +309,7 @@ where
         }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(user_id))
-                .con_sujeto("user", user_id),
+            EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(user_id)).con_sujeto("user", user_id),
         ));
 
         Ok(())

@@ -105,9 +105,7 @@ where
 
     pub async fn actualizar(&self, user_id: Uuid, avatar: Avatar) -> Result<(), DomainError> {
         if !CONTENT_TYPES_AVATAR.contains(&avatar.content_type.as_str()) {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "content_type debe ser uno de {CONTENT_TYPES_AVATAR:?}"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("content_type debe ser uno de {CONTENT_TYPES_AVATAR:?}")));
         }
         if avatar.bytes.is_empty() || avatar.bytes.len() > AVATAR_MAX_BYTES {
             return Err(DomainError::ValidacionInvalida(format!(

@@ -7,15 +7,15 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use ellkan_crypto::claves::KeypairAcuerdo;
-use ellkan_crypto::clave_privada;
-use ellkan_crypto::sellado;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
+use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::secretos::PassphraseSecreta;
+use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -29,13 +29,16 @@ fn generar_codigo_actual(secreto: &[u8]) -> u32 {
 /// recovery kit depende de si el usuario tiene un TOTP confirmado, sin
 /// importar la política MFA de la organización.
 async fn configurar_totp(entorno: &common::Entorno, sesion: Uuid) -> Vec<u8> {
-    let resp =
-        entorno.cliente.post(format!("{}/me/mfa/totp/setup", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/setup", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
-    let secreto =
-        base32::decode(base32::Alphabet::Rfc4648 { padding: false }, cuerpo["secret_base32"].as_str().unwrap())
-            .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, cuerpo["secret_base32"].as_str().unwrap()).unwrap();
 
     let resp = entorno
         .cliente
@@ -128,7 +131,10 @@ async fn login_dispositivo_conocido(entorno: &common::Entorno, usuario: &common:
         .unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
-    assert_eq!(cuerpo["estado"], "completo", "dispositivo ya conocido, sin política MFA activa, debe completar directo");
+    assert_eq!(
+        cuerpo["estado"], "completo",
+        "dispositivo ya conocido, sin política MFA activa, debe completar directo"
+    );
     cuerpo["session_id"].as_str().unwrap().parse().unwrap()
 }
 
@@ -155,8 +161,13 @@ async fn generar_kit_y_estado_lo_refleja() {
     let user = common::registrar(&entorno, "estado-kit@test.ellkan").await;
     let sesion = common::login(&entorno, &user).await;
 
-    let resp =
-        entorno.cliente.get(format!("{}/me/recovery-kit", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/me/recovery-kit", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(cuerpo["configured"], false);
@@ -165,12 +176,77 @@ async fn generar_kit_y_estado_lo_refleja() {
     let material = material_de_identidad(&user);
     generar_kit(&entorno, sesion, &material).await;
 
-    let resp =
-        entorno.cliente.get(format!("{}/me/recovery-kit", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/me/recovery-kit", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(cuerpo["configured"], true);
     assert_eq!(cuerpo["must_rotate"], false);
     assert!(cuerpo["created_at"].is_string());
+}
+
+/// Pendiente #23: el material expone `must_rotate` y la app vinculada puede
+/// marcar el kit propio para rotar (el sync lo usa cuando el kit se usó del
+/// otro lado). Sin kit, 404; regenerar limpia la marca.
+#[tokio::test]
+async fn el_kit_se_puede_marcar_para_rotar_y_el_material_lo_refleja() {
+    let entorno = common::levantar().await;
+    let user = common::registrar(&entorno, "rotar-kit@test.ellkan").await;
+    let sesion = common::login(&entorno, &user).await;
+    let url = |ruta: &str| format!("{}/me/recovery-kit{ruta}", entorno.base);
+
+    let resp = entorno.cliente.post(url("/must-rotate")).bearer_auth(sesion).send().await.unwrap();
+    assert_eq!(resp.status(), 404, "sin kit no hay nada que marcar");
+
+    let material = material_de_identidad(&user);
+    generar_kit(&entorno, sesion, &material).await;
+    let cuerpo: Value = entorno
+        .cliente
+        .get(url("/material"))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(cuerpo["must_rotate"], false);
+
+    let resp = entorno.cliente.post(url("/must-rotate")).bearer_auth(sesion).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = entorno
+        .cliente
+        .get(url("/material"))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(cuerpo["must_rotate"], true);
+    let cuerpo: Value = entorno.cliente.get(url("")).bearer_auth(sesion).send().await.unwrap().json().await.unwrap();
+    assert_eq!(cuerpo["must_rotate"], true, "el estado que mira la UI también queda marcado");
+
+    generar_kit(&entorno, sesion, &material).await;
+    let cuerpo: Value = entorno
+        .cliente
+        .get(url("/material"))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(cuerpo["must_rotate"], false, "regenerar limpia la marca");
+
+    let resp = entorno.cliente.post(url("/must-rotate")).send().await.unwrap();
+    assert_eq!(resp.status(), 401, "exige sesión");
 }
 
 #[tokio::test]
@@ -218,12 +294,7 @@ async fn flujo_completo_de_reset_con_totp_y_kit_queda_marcado_para_rotar() {
 
     let token = token_de_reset_encolado(&entorno.pool, &victima.email).await;
 
-    let resp = entorno
-        .cliente
-        .get(format!("{}/recovery-kit/reset/{token}", entorno.base))
-        .send()
-        .await
-        .unwrap();
+    let resp = entorno.cliente.get(format!("{}/recovery-kit/reset/{token}", entorno.base)).send().await.unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(cuerpo["mfa_method"], "totp", "usuario con TOTP confirmado siempre verifica con TOTP");
@@ -237,8 +308,7 @@ async fn flujo_completo_de_reset_con_totp_y_kit_queda_marcado_para_rotar() {
 
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("passphrase-post-recovery-kit".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob =
-        clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
+    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
     let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
 
     let body_completar = json!({
@@ -352,8 +422,7 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
 
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("otra-passphrase-post-kit-email".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob =
-        clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
+    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
 
     // QA-06: con acceso sólo al buzón (código por email correcto) pero sin
     // el kit, no hay forma de firmar con la identidad — 403 y el token
@@ -443,13 +512,12 @@ async fn token_de_reset_se_quema_tras_cinco_codigos_incorrectos() {
         assert_eq!(resp.status(), 401, "intento {intento}");
     }
 
-    let (consumido, intentos): (bool, i32) = sqlx::query_as(
-        "select consumed_at is not null, failed_attempts from recovery_reset_tokens where user_id = $1",
-    )
-    .bind(victima.user_id)
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let (consumido, intentos): (bool, i32) =
+        sqlx::query_as("select consumed_at is not null, failed_attempts from recovery_reset_tokens where user_id = $1")
+            .bind(victima.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
     assert_eq!(intentos, 5);
     assert!(consumido, "al quinto intento fallido el token queda quemado");
 

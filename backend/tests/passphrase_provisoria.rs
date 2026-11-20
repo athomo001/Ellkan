@@ -7,14 +7,14 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -132,7 +132,15 @@ async fn codigo_de_dispositivo_encolado(pool: &sqlx::PgPool, email: &str) -> Str
 }
 
 async fn puede_operar(entorno: &common::Entorno, sesion: Uuid) -> bool {
-    entorno.cliente.get(format!("{}/resources", entorno.base)).bearer_auth(sesion).send().await.unwrap().status() == 200
+    entorno
+        .cliente
+        .get(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        == 200
 }
 
 #[tokio::test]
@@ -153,7 +161,10 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
 
     let (estado, sesion_parcial) = login_y_estado(&entorno, &usuario).await;
     assert_eq!(estado, "requiere_cambiar_passphrase");
-    assert!(!puede_operar(&entorno, sesion_parcial).await, "una sesión parcial por passphrase provisoria no debe poder operar");
+    assert!(
+        !puede_operar(&entorno, sesion_parcial).await,
+        "una sesión parcial por passphrase provisoria no debe poder operar"
+    );
 
     // Cambiar la passphrase con la sesión parcial (su propósito es justamente
     // éste) — mismo material, sólo se re-envuelve con la nueva.
@@ -162,8 +173,7 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
     privadas[32..].copy_from_slice(&usuario.ed25519.firmante().to_bytes());
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("passphrase-definitiva-elegida-por-mi".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob =
-        clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, usuario.email.as_bytes()).unwrap();
+    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, usuario.email.as_bytes()).unwrap();
     let (challenge, firma) = common::prueba_de_posesion(&entorno, &usuario.email, &privadas[32..], &nuevo_blob).await;
 
     let resp = entorno

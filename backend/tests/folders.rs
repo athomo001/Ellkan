@@ -8,7 +8,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_carpeta(entorno: &common::Entorno, sesion: Uuid, parent: Option<Uuid>) -> Uuid {
@@ -289,7 +289,13 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
     assert_eq!(resp.status(), 200);
 
     // Bob ahora ve la carpeta en su propio árbol.
-    let resp = entorno.cliente.get(format!("{}/folders", entorno.base)).bearer_auth(sesion_bob).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/folders", entorno.base))
+        .bearer_auth(sesion_bob)
+        .send()
+        .await
+        .unwrap();
     let arbol_bob: Value = resp.json().await.unwrap();
     assert!(arbol_bob.as_array().unwrap().iter().any(|n| n["folder_id"] == json!(folder_id)));
 

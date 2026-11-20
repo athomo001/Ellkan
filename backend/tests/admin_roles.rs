@@ -7,7 +7,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[tokio::test]
 async fn usuario_sin_rol_admin_recibe_403_en_endpoints_de_roles() {

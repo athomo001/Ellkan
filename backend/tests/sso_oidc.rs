@@ -9,7 +9,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// `ELLKAN_SSO_REDIRECT_URL` es una variable de entorno global del proceso
 /// — cualquier test que la toque tiene que serializarse contra los demás
@@ -86,12 +86,7 @@ async fn no_admin_no_puede_leer_ni_cambiar_sso_config() {
 #[tokio::test]
 async fn redirect_sin_configurar_falla_explicito() {
     let entorno = common::levantar().await;
-    let resp = entorno
-        .cliente
-        .get(format!("{}/auth/sso/oidc/redirect", entorno.base))
-        .send()
-        .await
-        .unwrap();
+    let resp = entorno.cliente.get(format!("{}/auth/sso/oidc/redirect", entorno.base)).send().await.unwrap();
     assert_eq!(resp.status(), 401, "sin sso_config, el redirect debe fallar explícito, no armar una URL inválida");
 }
 
@@ -123,7 +118,11 @@ async fn login_sso_exitoso_vincula_por_email_verificado_y_completa_sesion() {
     // true` al preparar el realm de prueba).
     common::registrar(&entorno, "alice@ellkan-test.example").await;
 
-    let kc = reqwest::Client::builder().cookie_store(true).redirect(reqwest::redirect::Policy::none()).build().unwrap();
+    let kc = reqwest::Client::builder()
+        .cookie_store(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
 
     // `entorno.cliente` sigue redirects automáticamente (default de
     // reqwest) — acá se necesita justo lo contrario, para poder inspeccionar
@@ -136,7 +135,10 @@ async fn login_sso_exitoso_vincula_por_email_verificado_y_completa_sesion() {
     let auth_url = auth_url.unwrap();
 
     let redirect_con_code = login_en_keycloak(&kc, &auth_url, "alice", "alice-password").await;
-    assert!(redirect_con_code.starts_with(&redirect_url), "debe volver al callback registrado: {redirect_con_code}");
+    assert!(
+        redirect_con_code.starts_with(&redirect_url),
+        "debe volver al callback registrado: {redirect_con_code}"
+    );
 
     let url = url::Url::parse(&redirect_con_code).unwrap();
     let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
@@ -195,7 +197,11 @@ async fn login_con_email_no_verificado_no_vincula_cuenta_existente() {
     // sembrado con `email_verified: false`).
     common::registrar(&entorno, "bob@ellkan-test.example").await;
 
-    let kc = reqwest::Client::builder().cookie_store(true).redirect(reqwest::redirect::Policy::none()).build().unwrap();
+    let kc = reqwest::Client::builder()
+        .cookie_store(true)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
 
     let resp = kc.get(format!("{}/auth/sso/oidc/redirect", entorno.base)).send().await.unwrap();
     let auth_url = resp.headers().get("location").unwrap().to_str().unwrap().to_string();

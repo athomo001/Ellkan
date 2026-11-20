@@ -62,12 +62,7 @@ pub trait FolderItemRepository {
 
     /// Reposiciona (sólo el padre) una carpeta ya existente en el árbol de
     /// `user_id` — nunca toca el nombre ni la vista de otro usuario.
-    async fn reposicionar_carpeta(
-        &self,
-        user_id: Uuid,
-        child_folder_id: Uuid,
-        parent_folder_id: Option<Uuid>,
-    ) -> Result<(), RepoError>;
+    async fn reposicionar_carpeta(&self, user_id: Uuid, child_folder_id: Uuid, parent_folder_id: Option<Uuid>) -> Result<(), RepoError>;
 
     /// `true` si `user_id` ya tiene a `child_folder_id` en su árbol (en
     /// cualquier posición) — una carpeta que un usuario nunca vio no es
@@ -81,12 +76,7 @@ pub trait FolderItemRepository {
     /// recurso no lleva nombre propio acá (su metadata ya vive cifrada en
     /// `resources`), sólo la posición. Upsert sobre `unique(user_id,
     /// resource_id)`.
-    async fn posicionar_recurso(
-        &self,
-        user_id: Uuid,
-        resource_id: Uuid,
-        parent_folder_id: Option<Uuid>,
-    ) -> Result<(), RepoError>;
+    async fn posicionar_recurso(&self, user_id: Uuid, resource_id: Uuid, parent_folder_id: Option<Uuid>) -> Result<(), RepoError>;
 
     /// Mapa recurso→carpeta del árbol de `user_id` — usado para filtrar
     /// `GET /resources?folder_id=`. Un recurso ausente del mapa está en la
@@ -199,12 +189,9 @@ impl FolderRepository for PgFolderRepository {
     }
 
     async fn ids_eliminadas_desde(&self, desde: OffsetDateTime) -> Result<Vec<Uuid>, RepoError> {
-        let filas = sqlx::query!(
-            r#"select id as "id!" from folders where deleted_at is not null and deleted_at > $1"#,
-            desde,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let filas = sqlx::query!(r#"select id as "id!" from folders where deleted_at is not null and deleted_at > $1"#, desde,)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(filas.into_iter().map(|f| f.id).collect())
     }
 }
@@ -244,12 +231,7 @@ impl FolderItemRepository for PgFolderItemRepository {
         Ok(())
     }
 
-    async fn reposicionar_carpeta(
-        &self,
-        user_id: Uuid,
-        child_folder_id: Uuid,
-        parent_folder_id: Option<Uuid>,
-    ) -> Result<(), RepoError> {
+    async fn reposicionar_carpeta(&self, user_id: Uuid, child_folder_id: Uuid, parent_folder_id: Option<Uuid>) -> Result<(), RepoError> {
         sqlx::query!(
             r#"update folder_items set folder_id = $1, updated_at = now() where user_id = $2 and child_folder_id = $3"#,
             parent_folder_id,
@@ -298,12 +280,7 @@ impl FolderItemRepository for PgFolderItemRepository {
             .collect())
     }
 
-    async fn posicionar_recurso(
-        &self,
-        user_id: Uuid,
-        resource_id: Uuid,
-        parent_folder_id: Option<Uuid>,
-    ) -> Result<(), RepoError> {
+    async fn posicionar_recurso(&self, user_id: Uuid, resource_id: Uuid, parent_folder_id: Option<Uuid>) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
             insert into folder_items (folder_id, resource_id, user_id)
@@ -365,17 +342,16 @@ impl FolderItemRepository for PgFolderItemRepository {
     }
 
     async fn tiene_hijos(&self, folder_id: Uuid) -> Result<bool, RepoError> {
-        let fila = sqlx::query!(
-            r#"select 1 as "existe!" from folder_items where folder_id = $1 limit 1"#,
-            folder_id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select 1 as "existe!" from folder_items where folder_id = $1 limit 1"#, folder_id,)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.is_some())
     }
 
     async fn quitar_de_todos_los_arboles(&self, folder_id: Uuid) -> Result<(), RepoError> {
-        sqlx::query!(r#"delete from folder_items where child_folder_id = $1"#, folder_id).execute(&self.pool).await?;
+        sqlx::query!(r#"delete from folder_items where child_folder_id = $1"#, folder_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

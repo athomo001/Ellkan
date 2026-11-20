@@ -134,12 +134,7 @@ impl FolderItemRepository for SqliteFolderItemRepository {
         Ok(())
     }
 
-    async fn reposicionar_carpeta(
-        &self,
-        user_id: Uuid,
-        child_folder_id: Uuid,
-        parent_folder_id: Option<Uuid>,
-    ) -> Result<(), RepoError> {
+    async fn reposicionar_carpeta(&self, user_id: Uuid, child_folder_id: Uuid, parent_folder_id: Option<Uuid>) -> Result<(), RepoError> {
         sqlx::query("update folder_items set folder_id = ?1, updated_at = ?4 where user_id = ?2 and child_folder_id = ?3")
             .bind(parent_folder_id.map(|u| u.to_string()))
             .bind(user_id.to_string())
@@ -185,12 +180,7 @@ impl FolderItemRepository for SqliteFolderItemRepository {
             .collect()
     }
 
-    async fn posicionar_recurso(
-        &self,
-        user_id: Uuid,
-        resource_id: Uuid,
-        parent_folder_id: Option<Uuid>,
-    ) -> Result<(), RepoError> {
+    async fn posicionar_recurso(&self, user_id: Uuid, resource_id: Uuid, parent_folder_id: Option<Uuid>) -> Result<(), RepoError> {
         sqlx::query(
             "insert into folder_items (id, folder_id, resource_id, user_id, updated_at) values (?1,?2,?3,?4,?5) \
              on conflict (user_id, resource_id) do update set folder_id = excluded.folder_id, updated_at = excluded.updated_at",
@@ -240,7 +230,10 @@ impl FolderItemRepository for SqliteFolderItemRepository {
     }
 
     async fn quitar_de_todos_los_arboles(&self, folder_id: Uuid) -> Result<(), RepoError> {
-        sqlx::query("delete from folder_items where child_folder_id = ?1").bind(folder_id.to_string()).execute(&self.pool).await?;
+        sqlx::query("delete from folder_items where child_folder_id = ?1")
+            .bind(folder_id.to_string())
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

@@ -10,7 +10,7 @@
 
 use secrecy::{ExposeSecret, SecretBox};
 
-use crate::aead::{cifrar, descifrar, Envoltura, ErrorAead};
+use crate::aead::{Envoltura, ErrorAead, cifrar, descifrar};
 use crate::derivacion::{contexto, derivar_clave_desde_secreto};
 use crate::secretos::PassphraseSecreta;
 
@@ -24,11 +24,7 @@ pub enum ErrorDesenvolturaPrf {
 
 /// Envuelve la passphrase con una clave derivada (HKDF, sin Argon2id) del
 /// output de PRF de esta passkey.
-pub fn envolver_passphrase(
-    prf_output: &[u8],
-    passphrase: &PassphraseSecreta,
-    aad: &[u8],
-) -> Result<Envoltura, ErrorAead> {
+pub fn envolver_passphrase(prf_output: &[u8], passphrase: &PassphraseSecreta, aad: &[u8]) -> Result<Envoltura, ErrorAead> {
     let clave = derivar_clave_desde_secreto(prf_output, contexto::DESBLOQUEO_PRF);
     cifrar(&clave, passphrase.expose_secret().as_bytes(), aad)
 }
@@ -36,11 +32,7 @@ pub fn envolver_passphrase(
 /// Abre el envoltorio y reconstruye la passphrase a partir del output de PRF
 /// obtenido en la ceremonia de login (`navigator.credentials.get` con la
 /// extensión `prf` solicitada).
-pub fn desenvolver_passphrase(
-    prf_output: &[u8],
-    envoltura: &Envoltura,
-    aad: &[u8],
-) -> Result<PassphraseSecreta, ErrorDesenvolturaPrf> {
+pub fn desenvolver_passphrase(prf_output: &[u8], envoltura: &Envoltura, aad: &[u8]) -> Result<PassphraseSecreta, ErrorDesenvolturaPrf> {
     let clave = derivar_clave_desde_secreto(prf_output, contexto::DESBLOQUEO_PRF);
     let bytes = descifrar(&clave, envoltura, aad)?;
     let texto = String::from_utf8(bytes).map_err(|_| ErrorDesenvolturaPrf::Utf8Invalido)?;

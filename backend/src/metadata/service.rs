@@ -47,9 +47,7 @@ where
         destinatarios: Vec<(Uuid, Vec<u8>)>,
     ) -> Result<MetadataKey, DomainError> {
         if public_key_x25519.len() != 32 {
-            return Err(DomainError::ValidacionInvalida(
-                "public_key_x25519 debe ser de 32 bytes".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("public_key_x25519 debe ser de 32 bytes".into()));
         }
         // H-29 (auditoría 2026-08-12): check-y-alta atómicos (lock de fila)
         // — antes, dos altas concurrentes podían ambas ver "menos de 2
@@ -62,8 +60,7 @@ where
         }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::MetadataKeyCreated, Some(actor_id))
-                .con_sujeto("metadata_key", clave.id),
+            EventoAuditoria::nuevo(AuditEventType::MetadataKeyCreated, Some(actor_id)).con_sujeto("metadata_key", clave.id),
         ));
 
         Ok(clave)
@@ -107,16 +104,8 @@ where
         Ok(())
     }
 
-    pub async fn envelope_propio(
-        &self,
-        metadata_key_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Option<Vec<u8>>, DomainError> {
-        Ok(self
-            .envelopes
-            .buscar(metadata_key_id, user_id)
-            .await?
-            .map(|e| e.sealed_private_key))
+    pub async fn envelope_propio(&self, metadata_key_id: Uuid, user_id: Uuid) -> Result<Option<Vec<u8>>, DomainError> {
+        Ok(self.envelopes.buscar(metadata_key_id, user_id).await?.map(|e| e.sealed_private_key))
     }
 
     /// `POST /admin/metadata-keys/rotate` — F-33. Exige exactamente 1 clave
@@ -131,9 +120,7 @@ where
         destinatarios: Vec<(Uuid, Vec<u8>)>,
     ) -> Result<MetadataKey, DomainError> {
         if public_key_x25519.len() != 32 {
-            return Err(DomainError::ValidacionInvalida(
-                "public_key_x25519 debe ser de 32 bytes".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("public_key_x25519 debe ser de 32 bytes".into()));
         }
 
         // Pre-chequeo sólo para el mensaje de error correcto en el caso
@@ -145,9 +132,7 @@ where
         match self.claves.activas().await?.as_slice() {
             [_unica] => {}
             [] => {
-                return Err(DomainError::ValidacionInvalida(
-                    "no hay ninguna metadata key compartida activa para rotar".into(),
-                ));
+                return Err(DomainError::ValidacionInvalida("no hay ninguna metadata key compartida activa para rotar".into()));
             }
             _ => return Err(DomainError::Conflict),
         };
@@ -168,10 +153,9 @@ where
 
         // Publicado después de confirmar en la base — un consumidor lento o
         // caído nunca invalida la rotación ya iniciada.
-        let _ = self.eventos.send(DomainEvent::MetadataKeyRotationStarted {
-            saliente_id: saliente.id,
-            entrante_id: entrante.id,
-        });
+        let _ = self
+            .eventos
+            .send(DomainEvent::MetadataKeyRotationStarted { saliente_id: saliente.id, entrante_id: entrante.id });
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::MetadataKeyRotationStarted, Some(actor_id))
                 .con_sujeto("metadata_key", entrante.id)

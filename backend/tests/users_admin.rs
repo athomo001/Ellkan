@@ -7,10 +7,10 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::claves::KeypairAcuerdo;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[tokio::test]
 async fn no_admin_no_puede_operar_sobre_otros_usuarios() {
@@ -429,7 +429,11 @@ async fn purgar_con_transferencia_a_un_destinatario_ya_purgado_falla_explicito()
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 409, "transferir a un destinatario sin permiso real debe rechazarse, no reportar éxito");
+    assert_eq!(
+        resp.status(),
+        409,
+        "transferir a un destinatario sin permiso real debe rechazarse, no reportar éxito"
+    );
 
     // Todo o nada: el owner original sigue existiendo, la purga no se aplicó a medias.
     let existe: (bool,) = sqlx::query_as("select exists(select 1 from users where id = $1)")
@@ -619,7 +623,11 @@ async fn purgar_pasa_la_propiedad_a_los_admins_del_grupo() {
     let pool = &e.entorno.pool;
     assert!(!usuario_existe(pool, e.owner.user_id).await);
     assert_eq!(nivel_de(pool, e.resource_id, "user", e.jefe.user_id).await.as_deref(), Some("owner"));
-    assert_eq!(nivel_de(pool, e.resource_id, "group", e.group_id).await.as_deref(), Some("read"), "el resto del grupo sigue leyendo");
+    assert_eq!(
+        nivel_de(pool, e.resource_id, "group", e.group_id).await.as_deref(),
+        Some("read"),
+        "el resto del grupo sigue leyendo"
+    );
     assert_eq!(nivel_de(pool, e.resource_id, "user", e.analista.user_id).await, None);
 
     // El jefe puede administrar el recurso: compartirlo exige ser Owner.
@@ -827,6 +835,12 @@ async fn quitar_del_grupo_a_quien_ademas_es_owner_directo_no_le_borra_el_envelop
             .bind(user_id)
             .fetch_one(pool)
     };
-    assert!(tiene_envelope(e.jefe.user_id).await.unwrap().0, "el jefe sigue siendo Owner directo: conserva su envelope");
-    assert!(!tiene_envelope(e.analista.user_id).await.unwrap().0, "el analista sólo lo veía por el grupo: se le revoca");
+    assert!(
+        tiene_envelope(e.jefe.user_id).await.unwrap().0,
+        "el jefe sigue siendo Owner directo: conserva su envelope"
+    );
+    assert!(
+        !tiene_envelope(e.analista.user_id).await.unwrap().0,
+        "el analista sólo lo veía por el grupo: se le revoca"
+    );
 }

@@ -76,11 +76,7 @@ const LOG_MAX_MENSAJE_WEB: usize = 2_000;
 /// que nadie pueda falsear líneas del log.
 #[tauri::command]
 fn registrar_desde_web(nivel: String, mensaje: String) {
-  let limpio: String = mensaje
-    .chars()
-    .map(|c| if c.is_control() { ' ' } else { c })
-    .take(LOG_MAX_MENSAJE_WEB)
-    .collect();
+  let limpio: String = mensaje.chars().map(|c| if c.is_control() { ' ' } else { c }).take(LOG_MAX_MENSAJE_WEB).collect();
   match nivel.as_str() {
     "error" => log::error!(target: TARGET_WEB, "{limpio}"),
     "warn" => log::warn!(target: TARGET_WEB, "{limpio}"),
@@ -264,8 +260,8 @@ async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto
 /// evento de "backend listo" que inventar. Devuelve el listener YA
 /// bindeado (se mueve tal cual al `spawn` de `axum::serve`, sin re-bindear)
 /// y el puerto, para poblar el estado gestionado de Tauri.
-async fn preparar_backend_local(
-) -> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<ellkan_backend::desktop::FalloPuertoFijo>)> {
+async fn preparar_backend_local()
+-> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<ellkan_backend::desktop::FalloPuertoFijo>)> {
   let dir = datadir();
   std::fs::create_dir_all(&dir)?;
 
@@ -378,7 +374,9 @@ fn buscar_en_sistema(nombre_exe: &str) -> Option<PathBuf> {
 #[cfg(target_os = "windows")]
 fn ruta_askpass_helper() -> anyhow::Result<PathBuf> {
   let exe_actual = std::env::current_exe()?;
-  let dir = exe_actual.parent().ok_or_else(|| anyhow::anyhow!("no se pudo resolver el directorio del ejecutable"))?;
+  let dir = exe_actual
+    .parent()
+    .ok_or_else(|| anyhow::anyhow!("no se pudo resolver el directorio del ejecutable"))?;
   let candidato = dir.join("ellkan_askpass.exe");
   if !candidato.is_file() {
     anyhow::bail!("no se encontró ellkan_askpass.exe junto a {}", exe_actual.display());
@@ -498,11 +496,15 @@ fn conectar_recurso(
   titulo: Option<String>,
   en_pestanas: Option<bool>,
 ) -> Result<(), String> {
-  use ellkan_backend::desktop::conectar::{planificar, Inyeccion, Ventana};
+  use ellkan_backend::desktop::conectar::{Inyeccion, Ventana, planificar};
 
   let secreto = Zeroizing::new(secreto);
   let plan = planificar(&tipo, usuario.as_deref(), &host, puerto)?;
-  let programa = plan.programas.iter().find_map(|nombre| buscar_en_path(nombre)).ok_or_else(|| plan.falta.to_string())?;
+  let programa = plan
+    .programas
+    .iter()
+    .find_map(|nombre| buscar_en_path(nombre))
+    .ok_or_else(|| plan.falta.to_string())?;
 
   let mut comando = match plan.ventana {
     Ventana::Terminal => {
@@ -588,8 +590,8 @@ fn conectar_recurso(
 /// Nunca almacena la contraseña ni la clave privada en claro (criterio de seguridad H-01).
 #[tauri::command]
 fn guardar_envoltura_llavero(vault_id: String, envoltura_b64: String) -> Result<(), String> {
-  let entry = keyring::Entry::new("Ellkan", &format!("vault_{vault_id}"))
-    .map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
+  let entry =
+    keyring::Entry::new("Ellkan", &format!("vault_{vault_id}")).map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
   entry
     .set_password(&envoltura_b64)
     .map_err(|e| format!("Error guardando en el llavero del SO: {e}"))?;
@@ -599,8 +601,8 @@ fn guardar_envoltura_llavero(vault_id: String, envoltura_b64: String) -> Result<
 /// F-50: Recupera la clave de envoltura cifrada desde el almacén de credenciales del SO.
 #[tauri::command]
 fn recuperar_envoltura_llavero(vault_id: String) -> Result<Option<String>, String> {
-  let entry = keyring::Entry::new("Ellkan", &format!("vault_{vault_id}"))
-    .map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
+  let entry =
+    keyring::Entry::new("Ellkan", &format!("vault_{vault_id}")).map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
   match entry.get_password() {
     Ok(pwd) => Ok(Some(pwd)),
     Err(keyring::Error::NoEntry) => Ok(None),
@@ -611,8 +613,8 @@ fn recuperar_envoltura_llavero(vault_id: String) -> Result<Option<String>, Strin
 /// F-50: Elimina la clave de envoltura del almacén de credenciales del SO al desactivar biometría o cerrar sesión.
 #[tauri::command]
 fn eliminar_envoltura_llavero(vault_id: String) -> Result<(), String> {
-  let entry = keyring::Entry::new("Ellkan", &format!("vault_{vault_id}"))
-    .map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
+  let entry =
+    keyring::Entry::new("Ellkan", &format!("vault_{vault_id}")).map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
   match entry.delete_credential() {
     Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
     Err(e) => Err(format!("Error eliminando del llavero del SO: {e}")),
@@ -685,10 +687,16 @@ fn navegador_extension(id: &str, objetivo: &str, elegidos: &[String]) -> Navegad
 #[tauri::command]
 fn extension_estado() -> Result<EstadoExtension, String> {
   let config = ellkan_backend::desktop::cargar_config(&datadir()).map_err(|e| format!("no se pudo leer la configuración: {e:#}"))?;
-  let navegadores =
-    ext::NAVEGADORES.iter().map(|(id, objetivo)| navegador_extension(id, objetivo, &config.extension_navegadores)).collect();
+  let navegadores = ext::NAVEGADORES
+    .iter()
+    .map(|(id, objetivo)| navegador_extension(id, objetivo, &config.extension_navegadores))
+    .collect();
   let chromium = archivos_de("chromium");
-  Ok(EstadoExtension { incluida: !chromium.is_empty(), version_incluida: ext::version_incluida(&chromium), navegadores })
+  Ok(EstadoExtension {
+    incluida: !chromium.is_empty(),
+    version_incluida: ext::version_incluida(&chromium),
+    navegadores,
+  })
 }
 
 /// Extrae (o actualiza) la extensión para `navegador` y lo recuerda: desde
@@ -873,7 +881,9 @@ fn extension_dejar_de_actualizar(navegador: String) -> Result<(), String> {
 /// puede cambiar entre arranques si el puerto elegido estaba ocupado.
 /// Nunca falla el arranque: sólo deja un aviso en el log.
 fn refrescar_extensiones_elegidas(puerto: u16) {
-  let Ok(config) = ellkan_backend::desktop::cargar_config(&datadir()) else { return };
+  let Ok(config) = ellkan_backend::desktop::cargar_config(&datadir()) else {
+    return;
+  };
   let mut ya_hechos: Vec<&str> = Vec::new();
   for navegador in &config.extension_navegadores {
     let Some(objetivo) = ext::objetivo_de(navegador) else { continue };
@@ -989,7 +999,9 @@ fn vigilar_bloqueo_de_pantalla(app: &tauri::AppHandle) {
   let Ok(hwnd) = ventana.hwnd() else { return };
   let app = app.clone();
   let resultado = sistema::vigilar_bloqueo(hwnd, move || {
-    let activo = ellkan_backend::desktop::cargar_config(&datadir()).map(|c| c.bloquear_con_pantalla_efectivo()).unwrap_or(true);
+    let activo = ellkan_backend::desktop::cargar_config(&datadir())
+      .map(|c| c.bloquear_con_pantalla_efectivo())
+      .unwrap_or(true);
     if activo && let Some(ventana) = app.get_webview_window("main") {
       let _ = ventana.emit("bloquear-boveda", ());
     }
@@ -1052,7 +1064,11 @@ fn memoria_baja(ventana: &tauri::WebviewWindow, baja: bool) {
       COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
     };
     use windows::core::Interface;
-    let nivel = if baja { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+    let nivel = if baja {
+      COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+    } else {
+      COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+    };
     // SAFETY: COM sobre el controlador vivo de esta ventana, en el hilo de la
     // interfaz (donde `with_webview` corre el callback).
     let r = unsafe {
@@ -1120,9 +1136,9 @@ fn vaciar_portapapeles() -> Result<(), String> {
   Err("no soportado en esta plataforma".to_string())
 }
 
+use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Emitter;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1339,32 +1355,25 @@ pub fn run() {
           .tooltip("Ellkan Password Manager")
           .menu(&menu_tray)
           .show_menu_on_left_click(false)
-          .on_menu_event(|app, event| {
-            match event.id.as_ref() {
-              "abrir" => {
-                if let Some(ventana) = app.get_webview_window("main") {
-                  mostrar_ventana(&ventana);
-                }
+          .on_menu_event(|app, event| match event.id.as_ref() {
+            "abrir" => {
+              if let Some(ventana) = app.get_webview_window("main") {
+                mostrar_ventana(&ventana);
               }
-              "bloquear" => {
-                if let Some(ventana) = app.get_webview_window("main") {
-                  let _ = ventana.emit("bloquear-boveda", ());
-                  mostrar_ventana(&ventana);
-                }
-              }
-              "salir" => {
-                app.exit(0);
-              }
-              _ => {}
             }
+            "bloquear" => {
+              if let Some(ventana) = app.get_webview_window("main") {
+                let _ = ventana.emit("bloquear-boveda", ());
+                mostrar_ventana(&ventana);
+              }
+            }
+            "salir" => {
+              app.exit(0);
+            }
+            _ => {}
           })
           .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-              button: MouseButton::Left,
-              button_state: MouseButtonState::Up,
-              ..
-            } = event
-            {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
               let app = tray.app_handle();
               if let Some(ventana) = app.get_webview_window("main") {
                 if ventana.is_visible().unwrap_or(false) {

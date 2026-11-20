@@ -93,7 +93,10 @@ pub async fn datacheck(pool: &PgPool) -> anyhow::Result<Vec<FilaHuerfana>> {
         .map(|fila| FilaHuerfana {
             tabla: "permissions",
             id: fila.id,
-            detalle: format!("grantee_type={} grantee_id={} no existe en la tabla correspondiente", fila.grantee_type, fila.grantee_id),
+            detalle: format!(
+                "grantee_type={} grantee_id={} no existe en la tabla correspondiente",
+                fila.grantee_type, fila.grantee_id
+            ),
         })
         .collect())
 }
@@ -156,14 +159,10 @@ pub async fn promote_to_admin(pool: &PgPool, email: &str) -> anyhow::Result<Uuid
         .await?
         .ok_or_else(|| anyhow::anyhow!("no existe el rol 'admin' — instancia sin seed de roles (¿corrieron las migraciones?)"))?;
 
-    let actualizado = sqlx::query!(
-        "update users set role_id = $1 where email = $2 and deleted_at is null returning id",
-        rol.id,
-        email,
-    )
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("no existe un usuario activo (no eliminado) con email '{email}'"))?;
+    let actualizado = sqlx::query!("update users set role_id = $1 where email = $2 and deleted_at is null returning id", rol.id, email,)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("no existe un usuario activo (no eliminado) con email '{email}'"))?;
 
     auditar(pool, "cli.user_promoted", Some("user"), Some(actualizado.id), serde_json::json!({ "email": email })).await?;
     Ok(actualizado.id)
@@ -306,7 +305,8 @@ fn separar_password(database_url: &str) -> anyhow::Result<(String, Option<String
         Some(p) => Some(decodificar_porcentaje(p)?),
         None => None,
     };
-    url.set_password(None).map_err(|_| anyhow::anyhow!("DATABASE_URL no admite quitarle la contraseña"))?;
+    url.set_password(None)
+        .map_err(|_| anyhow::anyhow!("DATABASE_URL no admite quitarle la contraseña"))?;
 
     let pares: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
     if pares.iter().any(|(k, _)| k == "password") {
@@ -363,8 +363,7 @@ fn backup_create_interno(database_url: &str, output_path: &Path, recipient_str: 
     let encryptor = age::Encryptor::with_recipients(std::iter::once(&recipient as &dyn age::Recipient))
         .map_err(|e| anyhow::anyhow!("no se pudo preparar el cifrado: {e}"))?;
 
-    let salida = std::fs::File::create(output_path)
-        .map_err(|e| anyhow::anyhow!("no se pudo crear '{}': {e}", output_path.display()))?;
+    let salida = std::fs::File::create(output_path).map_err(|e| anyhow::anyhow!("no se pudo crear '{}': {e}", output_path.display()))?;
     let mut writer = encryptor.wrap_output(salida)?;
 
     let mut hijo = comando_postgres("pg_dump", database_url)?
@@ -393,8 +392,7 @@ pub fn backup_restore(database_url: &str, input_path: &Path, identity_str: &str)
     let entrada = std::io::BufReader::new(
         std::fs::File::open(input_path).map_err(|e| anyhow::anyhow!("no se pudo abrir '{}': {e}", input_path.display()))?,
     );
-    let decryptor =
-        age::Decryptor::new_buffered(entrada).map_err(|e| anyhow::anyhow!("no se pudo leer el artefacto cifrado: {e}"))?;
+    let decryptor = age::Decryptor::new_buffered(entrada).map_err(|e| anyhow::anyhow!("no se pudo leer el artefacto cifrado: {e}"))?;
     let mut reader = decryptor
         .decrypt(std::iter::once(&identity as &dyn age::Identity))
         .map_err(|_| anyhow::anyhow!("no se pudo descifrar — clave privada incorrecta o archivo corrupto"))?;

@@ -7,8 +7,8 @@
 
 use zeroize::Zeroizing;
 
-use crate::aead::{cifrar, descifrar, Envoltura, ErrorAead};
-use crate::derivacion::{contexto, derivar_clave_maestra, derivar_subclave, ErrorDerivacion};
+use crate::aead::{Envoltura, ErrorAead, cifrar, descifrar};
+use crate::derivacion::{ErrorDerivacion, contexto, derivar_clave_maestra, derivar_subclave};
 use crate::secretos::PassphraseSecreta;
 
 #[derive(Debug, thiserror::Error)]
@@ -79,13 +79,7 @@ pub fn mensaje_reemplazo_clave_privada(challenge: &[u8], blob: &[u8], nonce: &[u
 }
 
 /// QA-06: firma del mensaje de `mensaje_reemplazo_clave_privada`.
-pub fn firmar_reemplazo_clave_privada(
-    ed25519_privada: &[u8; 32],
-    challenge: &[u8],
-    blob: &[u8],
-    nonce: &[u8],
-    salt: &[u8],
-) -> [u8; 64] {
+pub fn firmar_reemplazo_clave_privada(ed25519_privada: &[u8; 32], challenge: &[u8], blob: &[u8], nonce: &[u8], salt: &[u8]) -> [u8; 64] {
     use ed25519_dalek::{Signer, SigningKey};
     SigningKey::from_bytes(ed25519_privada)
         .sign(&mensaje_reemplazo_clave_privada(challenge, blob, nonce, salt))
@@ -165,13 +159,7 @@ mod tests {
     fn passphrase_incorrecta_no_descifra() {
         let clave_privada = [42u8; 32];
         let aad = b"user_id:1";
-        let blob = cifrar_clave_privada(
-            &passphrase("passphrase-correcta"),
-            [1u8; 16],
-            &clave_privada,
-            aad,
-        )
-        .unwrap();
+        let blob = cifrar_clave_privada(&passphrase("passphrase-correcta"), [1u8; 16], &clave_privada, aad).unwrap();
         assert!(descifrar_clave_privada(&passphrase("passphrase-incorrecta"), &blob, aad).is_err());
     }
 }

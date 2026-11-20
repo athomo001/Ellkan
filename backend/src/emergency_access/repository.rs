@@ -88,7 +88,16 @@ fn fila_a_ea(
     status: String,
     created_at: time::OffsetDateTime,
 ) -> EmergencyAccess {
-    EmergencyAccess { id, granter_id, grantee_id, access_level, sealed_material, wait_time_days, status, created_at }
+    EmergencyAccess {
+        id,
+        granter_id,
+        grantee_id,
+        access_level,
+        sealed_material,
+        wait_time_days,
+        status,
+        created_at,
+    }
 }
 
 impl EmergencyAccessRepository for PgEmergencyAccessRepository {

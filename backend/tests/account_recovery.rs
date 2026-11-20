@@ -6,16 +6,15 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use ellkan_crypto::claves::KeypairAcuerdo;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::clave_privada;
-use ellkan_crypto::sellado;
+use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::secretos::PassphraseSecreta;
+use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
-
 
 /// Asunto del email con el código que confirma una solicitud (QA-10).
 const ASUNTO_CONFIRMACION: &str = "Ellkan: confirmá la recuperación de tu cuenta";
@@ -34,14 +33,13 @@ async fn emails_de_confirmacion(pool: &sqlx::PgPool, email: &str) -> i64 {
 async fn codigo_nuevo(pool: &sqlx::PgPool, email: &str, previos: i64) -> String {
     for _ in 0..50 {
         if emails_de_confirmacion(pool, email).await > previos {
-            let fila: (String,) = sqlx::query_as(
-                "select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1",
-            )
-            .bind(email)
-            .bind(ASUNTO_CONFIRMACION)
-            .fetch_one(pool)
-            .await
-            .unwrap();
+            let fila: (String,) =
+                sqlx::query_as("select body from outbound_emails where recipient = $1 and subject = $2 order by created_at desc limit 1")
+                    .bind(email)
+                    .bind(ASUNTO_CONFIRMACION)
+                    .fetch_one(pool)
+                    .await
+                    .unwrap();
             return fila.0.lines().find_map(|l| l.strip_prefix("Código de confirmación: ")).unwrap().trim().to_string();
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -117,7 +115,10 @@ async fn usuario_sin_escrow_no_puede_recuperar() {
         let resp = confirmar(&entorno, id, "00000000").await;
         assert_eq!(resp.status(), 401);
     }
-    let filas: (i64,) = sqlx::query_as("select count(*) from account_recovery_requests").fetch_one(&entorno.pool).await.unwrap();
+    let filas: (i64,) = sqlx::query_as("select count(*) from account_recovery_requests")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert_eq!(filas.0, 0, "sin escrow no se crea ninguna solicitud");
 }
 
@@ -290,8 +291,7 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
     // mismo flujo que `/me/change-passphrase` (tests/perfil.rs).
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("otra-passphrase-nueva-bien-larga".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob =
-        clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
+    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
     let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
 
     // QA-10: sin el token del solicitante (o con uno incorrecto) no se completa.
@@ -334,18 +334,22 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
 
     // La sesión vieja de la víctima quedó invalidada (rotación de
     // `security_stamp` dentro de `CambiarPassphraseService::actualizar`).
-    let resp =
-        entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion_victima).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/me", entorno.base))
+        .bearer_auth(sesion_victima)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 401, "completar la recuperación invalida cualquier sesión vieja de la víctima");
 
     // El blob nuevo quedó persistido de verdad.
-    let fila: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
-        "select encrypted_private_key_blob, private_key_nonce, kdf_salt from user_keys where user_id = $1",
-    )
-    .bind(victima.user_id)
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let fila: (Vec<u8>, Vec<u8>, Vec<u8>) =
+        sqlx::query_as("select encrypted_private_key_blob, private_key_nonce, kdf_salt from user_keys where user_id = $1")
+            .bind(victima.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
     assert_eq!(fila.0, nuevo_blob.envoltura.ciphertext);
 }
 
@@ -391,7 +395,10 @@ async fn admin_descubre_solicitudes_pendientes_por_el_listado() {
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
     let solicitudes = cuerpo.as_array().unwrap();
-    let encontrada = solicitudes.iter().find(|s| s["id"] == request_id).expect("la solicitud debe aparecer en el listado");
+    let encontrada = solicitudes
+        .iter()
+        .find(|s| s["id"] == request_id)
+        .expect("la solicitud debe aparecer en el listado");
     assert_eq!(encontrada["target_email"], victima.email);
     assert_eq!(encontrada["status"], "pending");
     assert_eq!(encontrada["approvals_count"], 0);
@@ -641,12 +648,11 @@ async fn crear_solicitud_notifica_solo_a_admins_del_grupo_del_solicitante() {
     // QA-10: pedir sin confirmar no avisa a nadie.
     let efimera = KeypairAcuerdo::generar();
     let (request_id, codigo) = pedir_con_codigo(&entorno, &victima.email, &efimera).await;
-    let avisos: (i64,) = sqlx::query_as(
-        "select count(*) from outbound_emails where subject = 'Ellkan: solicitud de recuperación de cuenta pendiente'",
-    )
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let avisos: (i64,) =
+        sqlx::query_as("select count(*) from outbound_emails where subject = 'Ellkan: solicitud de recuperación de cuenta pendiente'")
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
     assert_eq!(avisos.0, 0, "una solicitud sin confirmar no debe llegar a los admins");
 
     assert_eq!(confirmar(&entorno, &request_id, &codigo).await.status(), 200);
@@ -665,7 +671,11 @@ async fn crear_solicitud_notifica_solo_a_admins_del_grupo_del_solicitante() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    assert_eq!(destinatarios, vec![admin_grupo.email.clone()], "sólo el admin del grupo de la víctima debe ser notificado");
+    assert_eq!(
+        destinatarios,
+        vec![admin_grupo.email.clone()],
+        "sólo el admin del grupo de la víctima debe ser notificado"
+    );
 }
 
 async fn crear_grupo_con_manager(entorno: &common::Entorno, sesion_org_admin: Uuid, manager: Uuid) -> Uuid {
@@ -714,13 +724,11 @@ async fn aprobar(entorno: &common::Entorno, sesion: Uuid, request_id: &str) -> r
 }
 
 async fn material_liberado(pool: &sqlx::PgPool, request_id: &str) -> bool {
-    let fila: (bool,) = sqlx::query_as(
-        "select sealed_private_key_for_requester is not null from account_recovery_requests where id = $1",
-    )
-    .bind(Uuid::parse_str(request_id).unwrap())
-    .fetch_one(pool)
-    .await
-    .unwrap();
+    let fila: (bool,) = sqlx::query_as("select sealed_private_key_for_requester is not null from account_recovery_requests where id = $1")
+        .bind(Uuid::parse_str(request_id).unwrap())
+        .fetch_one(pool)
+        .await
+        .unwrap();
     fila.0
 }
 

@@ -6,7 +6,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 async fn crear_token_scim(entorno: &common::Entorno, sesion_admin: uuid::Uuid) -> String {
     let resp = entorno
@@ -134,8 +134,11 @@ async fn desactivar_via_scim_invalida_sesion_abierta_de_inmediato() {
     // criptográfico — para simular "sesión ya abierta" se inserta una
     // sesión directo por SQL con el `security_stamp` vigente del usuario
     // (mismo invariante que produciría un login real).
-    let stamp: (uuid::Uuid,) =
-        sqlx::query_as("select security_stamp from users where id = $1").bind(user_id).fetch_one(&entorno.pool).await.unwrap();
+    let stamp: (uuid::Uuid,) = sqlx::query_as("select security_stamp from users where id = $1")
+        .bind(user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     let session_id: (uuid::Uuid,) = sqlx::query_as(
         "insert into sessions (user_id, security_stamp, mfa_verified_at, expires_at) values ($1, $2, now(), now() + interval '1 hour') returning id",
     )
@@ -198,14 +201,23 @@ async fn revocar_token_scim_lo_invalida_de_inmediato() {
     assert_eq!(resp.status(), 200, "el token recién creado debería funcionar");
 
     // Listado: aparece, sin revocar, sin exponer el token ni su hash.
-    let resp = entorno.cliente.get(format!("{}/admin/scim-tokens", entorno.base)).bearer_auth(sesion_admin).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/scim-tokens", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
     let listado: Value = resp.json().await.unwrap();
     let filas = listado.as_array().unwrap();
     assert_eq!(filas.len(), 1);
     assert!(filas[0]["revoked_at"].is_null());
     let token_id = filas[0]["id"].as_str().unwrap().to_string();
-    assert!(filas[0].get("token").is_none() && filas[0].get("token_hash").is_none(), "el listado nunca debe exponer el token ni su hash");
+    assert!(
+        filas[0].get("token").is_none() && filas[0].get("token_hash").is_none(),
+        "el listado nunca debe exponer el token ni su hash"
+    );
 
     // Un no-admin no puede revocar.
     let otro = common::registrar(&entorno, "otro@test.ellkan").await;
@@ -249,7 +261,16 @@ async fn revocar_token_scim_lo_invalida_de_inmediato() {
         .unwrap();
     assert_eq!(resp.status(), 204);
 
-    let resp = entorno.cliente.get(format!("{}/admin/scim-tokens", entorno.base)).bearer_auth(sesion_admin).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/scim-tokens", entorno.base))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap();
     let listado: Value = resp.json().await.unwrap();
-    assert!(!listado.as_array().unwrap()[0]["revoked_at"].is_null(), "el listado debe reflejar que quedó revocado");
+    assert!(
+        !listado.as_array().unwrap()[0]["revoked_at"].is_null(),
+        "el listado debe reflejar que quedó revocado"
+    );
 }

@@ -8,23 +8,26 @@
 //! memoria, porque lo que hay que probar vive en el handler.
 #![cfg(feature = "desktop")]
 
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_backend::auth::repository::SessionRepository;
 use ellkan_backend::desktop::router::construir_router_desktop;
 use ellkan_backend::desktop::state::AppStateDesktop;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
-use sqlx::sqlite::SqlitePoolOptions;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -39,10 +42,17 @@ async fn llamar(estado: AppStateDesktop, metodo: &str, uri: &str, bearer: Option
     if let Some(sesion) = bearer {
         req = req.header("authorization", format!("Bearer {sesion}"));
     }
-    let resp = construir_router_desktop(estado).oneshot(req.body(Body::from(cuerpo.to_string())).unwrap()).await.unwrap();
+    let resp = construir_router_desktop(estado)
+        .oneshot(req.body(Body::from(cuerpo.to_string())).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-    let cuerpo: Value = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
+    let cuerpo: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     (status, cuerpo)
 }
 
@@ -75,7 +85,11 @@ async fn usuario_con_sesion(pool: &SqlitePool, email: &str) -> (Uuid, Uuid) {
 }
 
 async fn email_actual(pool: &SqlitePool, user_id: Uuid) -> String {
-    sqlx::query_scalar("select email from users where id = ?1").bind(user_id.to_string()).fetch_one(pool).await.unwrap()
+    sqlx::query_scalar("select email from users where id = ?1")
+        .bind(user_id.to_string())
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 async fn blob_actual(pool: &SqlitePool, user_id: Uuid) -> Vec<u8> {
@@ -107,7 +121,11 @@ async fn cambiar_email_actualiza_correo_y_blob_juntos_y_devuelve_el_correo_recor
     assert_eq!(status, StatusCode::OK);
     assert_eq!(cuerpo["email"], "nuevo@empresa.com", "debe devolver el correo ya recortado");
     assert_eq!(email_actual(&pool, user_id).await, "nuevo@empresa.com");
-    assert_eq!(blob_actual(&pool, user_id).await, vec![7u8; 48], "el blob re-sellado debe aplicarse junto con el correo — sin él la cuenta no se podría desbloquear");
+    assert_eq!(
+        blob_actual(&pool, user_id).await,
+        vec![7u8; 48],
+        "el blob re-sellado debe aplicarse junto con el correo — sin él la cuenta no se podría desbloquear"
+    );
 }
 
 #[tokio::test]
@@ -119,7 +137,11 @@ async fn cambiar_email_rechaza_una_forma_invalida_sin_tocar_nada() {
         let (status, _) = llamar(estado(&pool), "PUT", "/me/email", Some(sesion), cuerpo_cambio(invalido)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{invalido:?} debe rechazarse");
     }
-    assert_eq!(email_actual(&pool, user_id).await, "viejo@local.ellkan", "ningún intento inválido debe haber aplicado nada");
+    assert_eq!(
+        email_actual(&pool, user_id).await,
+        "viejo@local.ellkan",
+        "ningún intento inválido debe haber aplicado nada"
+    );
     assert_eq!(blob_actual(&pool, user_id).await, vec![3u8; 48], "ni el blob");
 }
 
@@ -134,7 +156,11 @@ async fn cambiar_email_rechaza_un_blob_invalido_sin_cambiar_el_correo() {
     let (status, _) = llamar(estado(&pool), "PUT", "/me/email", Some(sesion), cuerpo).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(email_actual(&pool, user_id).await, "viejo@local.ellkan", "un blob inválido no debe dejar el correo cambiado con la clave vieja");
+    assert_eq!(
+        email_actual(&pool, user_id).await,
+        "viejo@local.ellkan",
+        "un blob inválido no debe dejar el correo cambiado con la clave vieja"
+    );
 }
 
 #[tokio::test]

@@ -26,12 +26,7 @@ impl<'a, A> AuditLogService<'a, A>
 where
     A: AuditLogRepository,
 {
-    pub async fn listar(
-        &self,
-        filtro: FiltroAuditLog,
-        cursor: Option<Uuid>,
-        limite: Option<i64>,
-    ) -> Result<PaginaAuditLog, DomainError> {
+    pub async fn listar(&self, filtro: FiltroAuditLog, cursor: Option<Uuid>, limite: Option<i64>) -> Result<PaginaAuditLog, DomainError> {
         let limite = limite.unwrap_or(LIMITE_PAGINA_DEFAULT).clamp(1, LIMITE_PAGINA_MAXIMO);
 
         // Se pide una fila de más: si vuelve, hay una página siguiente de

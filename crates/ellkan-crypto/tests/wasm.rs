@@ -11,8 +11,8 @@ use secrecy::{ExposeSecret, SecretBox};
 use wasm_bindgen_test::*;
 
 use ellkan_crypto::aead::{cifrar, descifrar};
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada::{cifrar_clave_privada, descifrar_clave_privada};
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::sellado::{abrir_dek, sellar_dek};
 
 // Sin `wasm_bindgen_test_configure!`, este archivo corre en Node

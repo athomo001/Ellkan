@@ -18,8 +18,8 @@
 
 use std::sync::Arc;
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -33,7 +33,7 @@ use zeroize::Zeroize;
 use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::b64;
 use crate::error::{ApiError, RepoError};
-use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
+use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 use crate::state::AppState;
 use crate::sync::avisos::{AvisoSync, CanalAvisos};
 
@@ -73,7 +73,9 @@ struct CuerpoAviso<'a> {
 }
 
 fn ahora_rfc3339() -> String {
-    OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).expect("formato de fecha válido")
+    OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .expect("formato de fecha válido")
 }
 
 /// QA-37: AAD de la privada Ed25519 del servidor cifrada con `secrets_key`.
@@ -81,8 +83,8 @@ pub(crate) const AAD_SERVER_KEY: &[u8] = b"server_key";
 
 /// QA-37: `nonce (24) || ciphertext` — formato de `server_keys.private_key_ed25519`.
 pub(crate) fn cifrar_clave_del_servidor(clave: &ClaveSecreta32, privada: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let envoltura = aead::cifrar(clave, privada, AAD_SERVER_KEY)
-        .map_err(|_| anyhow::anyhow!("no se pudo cifrar la clave privada del servidor"))?;
+    let envoltura =
+        aead::cifrar(clave, privada, AAD_SERVER_KEY).map_err(|_| anyhow::anyhow!("no se pudo cifrar la clave privada del servidor"))?;
     let mut almacenada = envoltura.nonce.to_vec();
     almacenada.extend_from_slice(&envoltura.ciphertext);
     Ok(almacenada)
@@ -95,8 +97,9 @@ fn error_de_clave(motivo: &'static str) -> RepoError {
 /// Sólo acepta el formato cifrado: `cargar_o_generar_server_key` migra al
 /// arrancar cualquier fila en claro de una versión anterior.
 async fn clave_del_servidor(pool: &PgPool, clave: &ClaveSecreta32) -> Result<SigningKey, RepoError> {
-    let almacenada: Vec<u8> =
-        sqlx::query_scalar("select private_key_ed25519 from server_keys where id = 1").fetch_one(pool).await?;
+    let almacenada: Vec<u8> = sqlx::query_scalar("select private_key_ed25519 from server_keys where id = 1")
+        .fetch_one(pool)
+        .await?;
     if almacenada.len() <= 24 {
         return Err(error_de_clave("clave privada del servidor sin cifrar o truncada"));
     }
@@ -123,7 +126,13 @@ pub async fn firmar_aviso(
     email: Option<&str>,
     motivo: Motivo,
 ) -> Result<AvisoFirmado, RepoError> {
-    let cuerpo = CuerpoAviso { tipo: "cuenta_revocada", user_id, email, motivo: motivo.as_str(), emitido_en: ahora_rfc3339() };
+    let cuerpo = CuerpoAviso {
+        tipo: "cuenta_revocada",
+        user_id,
+        email,
+        motivo: motivo.as_str(),
+        emitido_en: ahora_rfc3339(),
+    };
     let aviso = serde_json::to_string(&cuerpo).expect("serializar el aviso no falla");
     let firma = clave_del_servidor(pool, clave).await?.sign(aviso.as_bytes());
     Ok(AvisoFirmado { aviso, firma_b64: b64::encode(&firma.to_bytes()) })
@@ -137,11 +146,11 @@ pub fn spawn_consumidor(eventos: &EmisorDeEventos, pool: PgPool, clave: Arc<Clav
     tokio::spawn(async move {
         while let Some(evento) = recibir_tolerando_lag(&mut receptor, "revocacion").await {
             let DomainEvent::Auditoria(entrada) = evento else { continue };
-            let Some(user_id) = entrada.subject_id.filter(|_| entrada.subject_type == Some("user")) else { continue };
+            let Some(user_id) = entrada.subject_id.filter(|_| entrada.subject_type == Some("user")) else {
+                continue;
+            };
             let resultado = match entrada.event_type {
-                AuditEventType::UserDeactivated | AuditEventType::ScimUserDeactivated => {
-                    avisar_bloqueada(&pool, &clave, user_id).await
-                }
+                AuditEventType::UserDeactivated | AuditEventType::ScimUserDeactivated => avisar_bloqueada(&pool, &clave, user_id).await,
                 AuditEventType::UserPurged => avisar_purgada(&pool, &clave, user_id).await,
                 _ => continue,
             };
@@ -161,7 +170,10 @@ pub fn spawn_consumidor(eventos: &EmisorDeEventos, pool: PgPool, clave: Arc<Clav
 
 /// `None` si la cuenta ya no está bloqueada (la reactivaron enseguida).
 async fn avisar_bloqueada(pool: &PgPool, clave: &ClaveSecreta32, user_id: Uuid) -> Result<Option<AvisoFirmado>, RepoError> {
-    let fila = sqlx::query("select email, active from users where id = $1").bind(user_id).fetch_optional(pool).await?;
+    let fila = sqlx::query("select email, active from users where id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
     let Some(fila) = fila else { return Ok(None) };
     if fila.get::<bool, _>("active") {
         return Ok(None);
@@ -231,7 +243,9 @@ pub async fn estado_cuenta(
     State(state): State<AppState>,
     Json(req): Json<EstadoCuentaRequest>,
 ) -> Result<Json<EstadoCuentaResponse>, ApiError> {
-    let Some(publica) = verificar_pregunta(&req) else { return Ok(Json(DESCONOCIDA)) };
+    let Some(publica) = verificar_pregunta(&req) else {
+        return Ok(Json(DESCONOCIDA));
+    };
     let pool = &state.pool;
     let repo = |e: sqlx::Error| ApiError::from(crate::error::DomainError::from(RepoError::Database(e)));
 

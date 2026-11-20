@@ -6,14 +6,14 @@
 //! son más de tres archivos de test los que necesitan "levantar servidor +
 //! registrar + loguear" para llegar al escenario real que cada uno cubre.
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
@@ -64,9 +64,7 @@ async fn levantar_interna(seedear_bootstrap_admin: bool, setup_token: Option<&st
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
 
     let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
-    let mut estado = ellkan_backend::construir_estado(&database_url, secrets_key)
-        .await
-        .expect("migrar y conectar");
+    let mut estado = ellkan_backend::construir_estado(&database_url, secrets_key).await.expect("migrar y conectar");
     estado.setup_token = setup_token.map(|t| std::sync::Arc::new(SecretBox::new(Box::new(t.to_string()))));
     let pool = estado.pool.clone();
 
@@ -165,13 +163,8 @@ pub async fn prueba_de_posesion(
     let cuerpo: Value = resp.json().await.unwrap();
     let challenge = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
     let privada: [u8; 32] = ed25519_privada.try_into().unwrap();
-    let firma = clave_privada::firmar_reemplazo_clave_privada(
-        &privada,
-        &challenge,
-        &blob.envoltura.ciphertext,
-        &blob.envoltura.nonce,
-        &blob.salt,
-    );
+    let firma =
+        clave_privada::firmar_reemplazo_clave_privada(&privada, &challenge, &blob.envoltura.ciphertext, &blob.envoltura.nonce, &blob.salt);
     (B64.encode(&challenge), B64.encode(firma))
 }
 

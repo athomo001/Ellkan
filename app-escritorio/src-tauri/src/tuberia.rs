@@ -22,24 +22,24 @@
 //!   lanzador nunca llega (la terminal no abrió), el secreto se descarta.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, LocalFree, ERROR_PIPE_CONNECTED, HANDLE, HLOCAL, INVALID_HANDLE_VALUE};
+use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, HANDLE, HLOCAL, INVALID_HANDLE_VALUE, LocalFree};
 use windows::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
-use windows::Win32::Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG};
+use windows::Win32::Security::Cryptography::{BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom};
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::Storage::FileSystem::{
-  CreateFileW, FlushFileBuffers, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_GENERIC_READ, FILE_SHARE_NONE, OPEN_EXISTING,
-  PIPE_ACCESS_OUTBOUND, FILE_FLAGS_AND_ATTRIBUTES,
+  CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAGS_AND_ATTRIBUTES, FILE_GENERIC_READ, FILE_SHARE_NONE, FlushFileBuffers,
+  OPEN_EXISTING, PIPE_ACCESS_OUTBOUND, WriteFile,
 };
 use windows::Win32::System::Pipes::{
   ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
   PIPE_WAIT,
 };
-use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+use windows::core::{PCWSTR, PWSTR};
 use zeroize::Zeroizing;
 
 /// Cuánto espera la tubería a que el lanzador se conecte.
@@ -194,7 +194,15 @@ pub fn servir_secreto_una_vez(secreto: Zeroizing<String>, lanzador: &Path) -> Re
         let ruta = a_utf16(&ruta);
         // SAFETY: nombre terminado en 0; el handle se cierra enseguida.
         if let Ok(h) = unsafe {
-          CreateFileW(PCWSTR(ruta.as_ptr()), FILE_GENERIC_READ.0, FILE_SHARE_NONE, None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None)
+          CreateFileW(
+            PCWSTR(ruta.as_ptr()),
+            FILE_GENERIC_READ.0,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            None,
+          )
         } {
           let _ = unsafe { CloseHandle(h) };
         }

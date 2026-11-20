@@ -28,36 +28,36 @@
 //! también a `AppState`).
 
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::http::header::{self, HeaderMap};
 use axum::http::request::Parts;
-use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use tower_http::cors::{Any, AllowOrigin, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use uuid::Uuid;
 
 use crate::auth::dto::{
-    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, RegisterRequest, RegisterResponse,
-    ServerKeyResponse, VerifyDeviceRequest, VerifyRequest, VerifyResponse,
+    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, RegisterRequest, RegisterResponse, ServerKeyResponse,
+    VerifyDeviceRequest, VerifyRequest, VerifyResponse,
 };
 use crate::auth::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
 use crate::auth::repository::{SessionRepository, UserRepository};
 use crate::auth::service::AuthService;
 use crate::b64;
 use crate::error::{ApiError, DomainError, RepoError};
-use crate::me::dto::ActualizarAvatarRequest;
-use crate::me::models::Avatar;
-use crate::me::service::AvatarService;
 use crate::folders::dto::{CrearCarpetaRequest, MoverCarpetaRequest, NodoArbolResponse};
 use crate::folders::repository::{FolderItemRepository, FolderRepository};
 use crate::folders::service::FolderService;
+use crate::me::dto::ActualizarAvatarRequest;
+use crate::me::models::Avatar;
+use crate::me::service::AvatarService;
 use crate::resources::dto::{
-    ActualizarRecursoRequest, CambiarTipoRecursoRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery,
-    MoverRecursoRequest, RecursoResponse, SecretoResponse,
+    ActualizarRecursoRequest, CambiarTipoRecursoRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery, MoverRecursoRequest,
+    RecursoResponse, SecretoResponse,
 };
 use crate::resources::models::EnvelopeInput;
 use crate::resources::repository::ResourceTypeRepository;
@@ -92,7 +92,12 @@ impl axum::extract::FromRequestParts<AppStateDesktop> for AuthenticatedUserDeskt
             .and_then(|v| v.parse().ok())
             .ok_or(DomainError::InvalidCredentials)?;
 
-        let user_id = state.sesiones.validar(session_id).await.map_err(DomainError::from)?.ok_or(DomainError::InvalidCredentials)?;
+        let user_id = state
+            .sesiones
+            .validar(session_id)
+            .await
+            .map_err(DomainError::from)?
+            .ok_or(DomainError::InvalidCredentials)?;
         Ok(AuthenticatedUserDesktop { user_id, session_id })
     }
 }
@@ -135,21 +140,36 @@ fn servicio(
 /// ninguna lógica de decisión, sólo el nombre del estado para JSON.
 fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
     match resultado {
-        ResultadoVerify::SesionCompleta(sesion) => {
-            VerifyResponse { estado: "completo", session_id: Some(sesion.id), user_id: Some(sesion.user_id), device_challenge_id: None }
-        }
-        ResultadoVerify::PendienteDispositivo { device_challenge_id } => {
-            VerifyResponse { estado: "pendiente_dispositivo", session_id: None, user_id: None, device_challenge_id: Some(device_challenge_id) }
-        }
-        ResultadoVerify::PendienteMfa { session_id } => {
-            VerifyResponse { estado: "pendiente_mfa", session_id: Some(session_id), user_id: None, device_challenge_id: None }
-        }
-        ResultadoVerify::RequiereConfigurarMfa { session_id } => {
-            VerifyResponse { estado: "requiere_configurar_mfa", session_id: Some(session_id), user_id: None, device_challenge_id: None }
-        }
-        ResultadoVerify::RequiereCambiarPassphrase { session_id } => {
-            VerifyResponse { estado: "requiere_cambiar_passphrase", session_id: Some(session_id), user_id: None, device_challenge_id: None }
-        }
+        ResultadoVerify::SesionCompleta(sesion) => VerifyResponse {
+            estado: "completo",
+            session_id: Some(sesion.id),
+            user_id: Some(sesion.user_id),
+            device_challenge_id: None,
+        },
+        ResultadoVerify::PendienteDispositivo { device_challenge_id } => VerifyResponse {
+            estado: "pendiente_dispositivo",
+            session_id: None,
+            user_id: None,
+            device_challenge_id: Some(device_challenge_id),
+        },
+        ResultadoVerify::PendienteMfa { session_id } => VerifyResponse {
+            estado: "pendiente_mfa",
+            session_id: Some(session_id),
+            user_id: None,
+            device_challenge_id: None,
+        },
+        ResultadoVerify::RequiereConfigurarMfa { session_id } => VerifyResponse {
+            estado: "requiere_configurar_mfa",
+            session_id: Some(session_id),
+            user_id: None,
+            device_challenge_id: None,
+        },
+        ResultadoVerify::RequiereCambiarPassphrase { session_id } => VerifyResponse {
+            estado: "requiere_cambiar_passphrase",
+            session_id: Some(session_id),
+            user_id: None,
+            device_challenge_id: None,
+        },
     }
 }
 
@@ -165,10 +185,7 @@ fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
 /// se guarde — si algún día alguno de los dos stubs se conecta de verdad,
 /// esta protección accidental desaparece sola. Chequeo explícito acá,
 /// antes de tocar nada más.
-async fn register(
-    State(state): State<AppStateDesktop>,
-    Json(req): Json<RegisterRequest>,
-) -> Result<Json<RegisterResponse>, ApiError> {
+async fn register(State(state): State<AppStateDesktop>, Json(req): Json<RegisterRequest>) -> Result<Json<RegisterResponse>, ApiError> {
     if state.usuarios.existe_alguno().await.map_err(DomainError::from)? {
         return Err(DomainError::ValidacionInvalida(
             "esta bóveda de escritorio ya tiene un usuario — el modo escritorio es de un solo usuario, no se pueden crear más".into(),
@@ -176,16 +193,15 @@ async fn register(
         .into());
     }
 
-    let publica_x25519 = b64::decode(&req.public_key_x25519_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
-    let publica_ed25519 = b64::decode(&req.public_key_ed25519_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
+    let publica_x25519 =
+        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
+    let publica_ed25519 =
+        b64::decode(&req.public_key_ed25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
     let blob = b64::decode(&req.encrypted_private_key_blob_b64)
         .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce = b64::decode(&req.private_key_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let nonce =
+        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
+    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -231,9 +247,8 @@ async fn register_desde_servidor(
         .into());
     }
     let r = &req.datos;
-    let decodificar = |valor: &str, campo: &str| {
-        b64::decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} inválido")))
-    };
+    let decodificar =
+        |valor: &str, campo: &str| b64::decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} inválido")));
     let publica_x25519 = decodificar(&r.public_key_x25519_b64, "public_key_x25519_b64")?;
     let publica_ed25519 = decodificar(&r.public_key_ed25519_b64, "public_key_ed25519_b64")?;
     if publica_x25519.len() != 32 || publica_ed25519.len() != 32 {
@@ -272,9 +287,8 @@ async fn adoptar_identidad(
     Json(req): Json<RegistroDesdeServidorRequest>,
 ) -> Result<Json<RegisterResponse>, ApiError> {
     let r = &req.datos;
-    let decodificar = |valor: &str, campo: &str| {
-        b64::decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} inválido")))
-    };
+    let decodificar =
+        |valor: &str, campo: &str| b64::decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} inválido")));
     let publica_x25519 = decodificar(&r.public_key_x25519_b64, "public_key_x25519_b64")?;
     let publica_ed25519 = decodificar(&r.public_key_ed25519_b64, "public_key_ed25519_b64")?;
     if publica_x25519.len() != 32 || publica_ed25519.len() != 32 {
@@ -397,18 +411,27 @@ struct RespaldosResponse {
 
 fn respaldos_response(datadir: &std::path::Path) -> Result<RespaldosResponse, ApiError> {
     let respaldos = super::respaldos::listar(datadir).map_err(interno)?;
-    Ok(RespaldosResponse { carpeta: super::respaldos::carpeta_de_respaldos(datadir).to_string_lossy().into_owned(), respaldos })
+    Ok(RespaldosResponse {
+        carpeta: super::respaldos::carpeta_de_respaldos(datadir).to_string_lossy().into_owned(),
+        respaldos,
+    })
 }
 
 /// Copias de seguridad de la bóveda (F-53): las que hizo la app antes de
 /// migrar y las que pidió el usuario.
-async fn listar_respaldos(State(state): State<AppStateDesktop>, _auth: AuthenticatedUserDesktop) -> Result<Json<RespaldosResponse>, ApiError> {
+async fn listar_respaldos(
+    State(state): State<AppStateDesktop>,
+    _auth: AuthenticatedUserDesktop,
+) -> Result<Json<RespaldosResponse>, ApiError> {
     Ok(Json(respaldos_response(&state.datadir)?))
 }
 
 /// "Crear copia ahora": copia consistente de la bóveda, cifrada igual que
 /// ella, en la carpeta de copias.
-async fn crear_respaldo(State(state): State<AppStateDesktop>, _auth: AuthenticatedUserDesktop) -> Result<Json<RespaldosResponse>, ApiError> {
+async fn crear_respaldo(
+    State(state): State<AppStateDesktop>,
+    _auth: AuthenticatedUserDesktop,
+) -> Result<Json<RespaldosResponse>, ApiError> {
     super::respaldos::respaldar(&state.pool, &state.datadir, super::respaldos::PREFIJO_MANUAL, "")
         .await
         .map_err(interno)?;
@@ -423,10 +446,7 @@ async fn logout_local(State(state): State<AppStateDesktop>, auth: AuthenticatedU
     Ok(())
 }
 
-async fn challenge(
-    State(state): State<AppStateDesktop>,
-    Json(req): Json<ChallengeRequest>,
-) -> Result<Json<ChallengeResponse>, ApiError> {
+async fn challenge(State(state): State<AppStateDesktop>, Json(req): Json<ChallengeRequest>) -> Result<Json<ChallengeResponse>, ApiError> {
     let nonce = servicio(&state).challenge(&req.email).await?;
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
 }
@@ -443,16 +463,11 @@ async fn key_material(
     }))
 }
 
-async fn verify(
-    State(state): State<AppStateDesktop>,
-    Json(req): Json<VerifyRequest>,
-) -> Result<Json<VerifyResponse>, ApiError> {
-    let nonce =
-        b64::decode(&req.nonce_b64).map_err(|_| DomainError::ValidacionInvalida("nonce_b64 inválido".into()))?;
-    let firma = b64::decode(&req.signature_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?;
-    let device_token_hash = b64::decode(&req.device_token_hash_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
+async fn verify(State(state): State<AppStateDesktop>, Json(req): Json<VerifyRequest>) -> Result<Json<VerifyResponse>, ApiError> {
+    let nonce = b64::decode(&req.nonce_b64).map_err(|_| DomainError::ValidacionInvalida("nonce_b64 inválido".into()))?;
+    let firma = b64::decode(&req.signature_b64).map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?;
+    let device_token_hash =
+        b64::decode(&req.device_token_hash_b64).map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
 
     let resultado = servicio(&state).verify(&req.email, &nonce, &firma, &device_token_hash, req.force_mfa).await?;
     Ok(Json(resultado_a_response(resultado)))
@@ -514,8 +529,11 @@ fn servicio_carpetas(
 #[allow(clippy::type_complexity)]
 fn servicio_tags(
     state: &AppStateDesktop,
-) -> TagService<'_, crate::desktop::repositories::tags::SqliteTagRepository, crate::desktop::repositories::resources::SqlitePermissionRepository>
-{
+) -> TagService<
+    '_,
+    crate::desktop::repositories::tags::SqliteTagRepository,
+    crate::desktop::repositories::resources::SqlitePermissionRepository,
+> {
     TagService { tags: &state.tags, permisos: &state.permisos }
 }
 
@@ -562,14 +580,13 @@ async fn crear_recurso(
 
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
-    let sealed_dek = b64::decode(&req.sealed_dek_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-    let secret_ciphertext = b64::decode(&req.secret_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-    let secret_nonce = b64::decode(&req.secret_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+    let secret_ciphertext =
+        b64::decode(&req.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
+    let secret_nonce =
+        b64::decode(&req.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
 
     let recurso = servicio_recursos(&state)
         .crear(
@@ -625,14 +642,22 @@ async fn listar_recursos(
         None => respuesta,
         Some(folder_id) => {
             let carpetas_validas: HashSet<Uuid> = if q.incluir_subcarpetas {
-                let mut set: HashSet<Uuid> =
-                    state.carpetas.descendientes_de(auth.user_id, folder_id).await.map_err(DomainError::from)?.into_iter().collect();
+                let mut set: HashSet<Uuid> = state
+                    .carpetas
+                    .descendientes_de(auth.user_id, folder_id)
+                    .await
+                    .map_err(DomainError::from)?
+                    .into_iter()
+                    .collect();
                 set.insert(folder_id);
                 set
             } else {
                 std::iter::once(folder_id).collect()
             };
-            respuesta.into_iter().filter(|r| r.folder_id.is_some_and(|f| carpetas_validas.contains(&f))).collect()
+            respuesta
+                .into_iter()
+                .filter(|r| r.folder_id.is_some_and(|f| carpetas_validas.contains(&f)))
+                .collect()
         }
     };
 
@@ -657,12 +682,13 @@ async fn crear_carpeta(
     auth: AuthenticatedUserDesktop,
     Json(req): Json<CrearCarpetaRequest>,
 ) -> Result<Json<NodoArbolResponse>, ApiError> {
-    let name_ciphertext = b64::decode(&req.name_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-    let name_nonce =
-        b64::decode(&req.name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+    let name_ciphertext =
+        b64::decode(&req.name_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
+    let name_nonce = b64::decode(&req.name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
 
-    let carpeta = servicio_carpetas(&state).crear(auth.user_id, req.id, &name_ciphertext, &name_nonce, req.parent_folder_id).await?;
+    let carpeta = servicio_carpetas(&state)
+        .crear(auth.user_id, req.id, &name_ciphertext, &name_nonce, req.parent_folder_id)
+        .await?;
 
     Ok(Json(NodoArbolResponse {
         folder_id: carpeta.id,
@@ -675,7 +701,10 @@ async fn crear_carpeta(
 
 /// `GET /folders` — sin `group_id` real (siempre `None`, spec/13 §5: sin
 /// grupos en este modo, ninguna carpeta puede estar compartida con uno).
-async fn listar_carpetas(State(state): State<AppStateDesktop>, auth: AuthenticatedUserDesktop) -> Result<Json<Vec<NodoArbolResponse>>, ApiError> {
+async fn listar_carpetas(
+    State(state): State<AppStateDesktop>,
+    auth: AuthenticatedUserDesktop,
+) -> Result<Json<Vec<NodoArbolResponse>>, ApiError> {
     let arbol = servicio_carpetas(&state).listar_arbol(auth.user_id).await?;
     Ok(Json(
         arbol
@@ -835,8 +864,8 @@ async fn editar_recurso(
 
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
 
     let mut envelopes = Vec::with_capacity(req.envelopes.len());
     for e in req.envelopes {
@@ -853,7 +882,14 @@ async fn editar_recurso(
     let recurso = servicio_recursos(&state)
         .editar(resource_id, auth.user_id, expected_updated_at, &metadata_ciphertext, &metadata_nonce, envelopes)
         .await?;
-    let slug = state.tipos_recurso.mapa_id_a_slug().await.map_err(DomainError::from)?.get(&recurso.resource_type_id).cloned().unwrap_or_default();
+    let slug = state
+        .tipos_recurso
+        .mapa_id_a_slug()
+        .await
+        .map_err(DomainError::from)?
+        .get(&recurso.resource_type_id)
+        .cloned()
+        .unwrap_or_default();
     Ok(Json(recurso_a_response(recurso, slug)))
 }
 
@@ -902,8 +938,18 @@ async fn metadata_keys_vacio() -> Json<Vec<serde_json::Value>> {
 /// `auth::repository::UserRepository` ya expone, sin abrir un módulo nuevo
 /// sólo para esto. `role` fijo en `"user"` (vestigial, sin RBAC en este modo).
 async fn me_perfil(State(state): State<AppStateDesktop>, auth: AuthenticatedUserDesktop) -> Result<Json<serde_json::Value>, ApiError> {
-    let (email, display_name) = state.usuarios.email_y_nombre(auth.user_id).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
-    let usuario = state.usuarios.buscar_por_id(auth.user_id).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
+    let (email, display_name) = state
+        .usuarios
+        .email_y_nombre(auth.user_id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
+    let usuario = state
+        .usuarios
+        .buscar_por_id(auth.user_id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
     let creado = fmt_dt_json(usuario.created_at);
     Ok(Json(serde_json::json!({
         "id": auth.user_id,
@@ -1002,7 +1048,9 @@ async fn avatar_actualizar(
     Json(req): Json<ActualizarAvatarRequest>,
 ) -> Result<(), ApiError> {
     let bytes = b64::decode(&req.avatar_b64).map_err(|_| DomainError::ValidacionInvalida("avatar_b64 inválido".into()))?;
-    servicio_avatar(&state).actualizar(auth.user_id, Avatar { bytes, content_type: req.content_type }).await?;
+    servicio_avatar(&state)
+        .actualizar(auth.user_id, Avatar { bytes, content_type: req.content_type })
+        .await?;
     Ok(())
 }
 
@@ -1049,7 +1097,7 @@ async fn password_policy_default() -> Json<serde_json::Value> {
 // Fase 3.3 (F-48 & F-47): Modos de persistencia y sincronización diferencial
 // ---------------------------------------------------------------------------
 
-use crate::desktop::{cargar_config, guardar_config, ModoPersistencia};
+use crate::desktop::{ModoPersistencia, cargar_config, guardar_config};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct PersistenciaResponse {
@@ -1128,10 +1176,9 @@ async fn crear_recurso_metadata_only(
 
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
-    let sealed_dek = b64::decode(&req.sealed_dek_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
 
     let recurso = state
         .recursos
@@ -1139,7 +1186,11 @@ async fn crear_recurso_metadata_only(
         .await
         .map_err(DomainError::from)?;
 
-    state.metadata_deks.guardar(recurso.id, auth.user_id, &sealed_dek).await.map_err(DomainError::from)?;
+    state
+        .metadata_deks
+        .guardar(recurso.id, auth.user_id, &sealed_dek)
+        .await
+        .map_err(DomainError::from)?;
 
     Ok(Json(recurso_a_response(recurso, req.resource_type_slug)))
 }
@@ -1158,7 +1209,12 @@ async fn actualizar_recurso_metadata_only(
     headers: HeaderMap,
     Json(req): Json<ActualizarMetadataOnlyRequest>,
 ) -> Result<Json<RecursoResponse>, ApiError> {
-    if !state.permisos.tiene_permiso("resource", resource_id, auth.user_id, NivelPermiso::Update.as_db_str()).await.map_err(DomainError::from)? {
+    if !state
+        .permisos
+        .tiene_permiso("resource", resource_id, auth.user_id, NivelPermiso::Update.as_db_str())
+        .await
+        .map_err(DomainError::from)?
+    {
         return Err(DomainError::PermissionDenied.into());
     }
 
@@ -1171,10 +1227,9 @@ async fn actualizar_recurso_metadata_only(
 
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
-    let sealed_dek = b64::decode(&req.sealed_dek_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
 
     let recurso = state
         .recursos
@@ -1183,9 +1238,20 @@ async fn actualizar_recurso_metadata_only(
         .map_err(DomainError::from)?
         .ok_or(DomainError::Conflict)?;
 
-    state.metadata_deks.guardar(recurso.id, auth.user_id, &sealed_dek).await.map_err(DomainError::from)?;
+    state
+        .metadata_deks
+        .guardar(recurso.id, auth.user_id, &sealed_dek)
+        .await
+        .map_err(DomainError::from)?;
 
-    let slug = state.tipos_recurso.mapa_id_a_slug().await.map_err(DomainError::from)?.get(&recurso.resource_type_id).cloned().unwrap_or_default();
+    let slug = state
+        .tipos_recurso
+        .mapa_id_a_slug()
+        .await
+        .map_err(DomainError::from)?
+        .get(&recurso.resource_type_id)
+        .cloned()
+        .unwrap_or_default();
     Ok(Json(recurso_a_response(recurso, slug)))
 }
 
@@ -1203,7 +1269,12 @@ async fn obtener_metadata_dek(
     auth: AuthenticatedUserDesktop,
     Path(resource_id): Path<Uuid>,
 ) -> Result<Json<MetadataDekResponse>, ApiError> {
-    let sealed_dek = state.metadata_deks.buscar(resource_id, auth.user_id).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
+    let sealed_dek = state
+        .metadata_deks
+        .buscar(resource_id, auth.user_id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
     Ok(Json(MetadataDekResponse { sealed_dek_b64: b64::encode(&sealed_dek) }))
 }
 
@@ -1311,12 +1382,31 @@ async fn recovery_kit_material_propio(
     State(state): State<AppStateDesktop>,
     auth: AuthenticatedUserDesktop,
 ) -> Result<Json<crate::recovery_kit::dto::MaterialKitResponse>, ApiError> {
-    let kit = state.recovery_kits.buscar_por_usuario(auth.user_id).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
+    let kit = state
+        .recovery_kits
+        .buscar_por_usuario(auth.user_id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
     Ok(Json(crate::recovery_kit::dto::MaterialKitResponse {
         kit_public_key_x25519_b64: b64::encode(&kit.kit_public_key_x25519),
         sealed_identity_material_b64: b64::encode(&kit.sealed_identity_material),
         created_at: kit.created_at,
+        must_rotate: kit.must_rotate,
     }))
+}
+
+/// `POST /me/recovery-kit/must-rotate` — mismo contrato que el servidor
+/// (pendiente #23): el sync marca acá el kit que se usó del otro lado.
+async fn recovery_kit_marcar_para_rotar(State(state): State<AppStateDesktop>, auth: AuthenticatedUserDesktop) -> Result<(), ApiError> {
+    state
+        .recovery_kits
+        .buscar_por_usuario(auth.user_id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
+    state.recovery_kits.marcar_para_rotar(auth.user_id).await.map_err(DomainError::from)?;
+    Ok(())
 }
 
 /// `PUT /me/recovery-kit` — sirve para la generación inicial y para
@@ -1359,9 +1449,21 @@ async fn recovery_kit_local_material(
     State(state): State<AppStateDesktop>,
     Json(req): Json<MaterialKitLocalRequest>,
 ) -> Result<Json<MaterialKitLocalResponse>, ApiError> {
-    let user = state.usuarios.buscar_por_email(req.email.trim()).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
-    let kit = state.recovery_kits.buscar_por_usuario(user.id).await.map_err(DomainError::from)?.ok_or(DomainError::NotFound)?;
-    Ok(Json(MaterialKitLocalResponse { sealed_identity_material_b64: b64::encode(&kit.sealed_identity_material) }))
+    let user = state
+        .usuarios
+        .buscar_por_email(req.email.trim())
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
+    let kit = state
+        .recovery_kits
+        .buscar_por_usuario(user.id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::NotFound)?;
+    Ok(Json(MaterialKitLocalResponse {
+        sealed_identity_material_b64: b64::encode(&kit.sealed_identity_material),
+    }))
 }
 
 #[derive(serde::Deserialize)]
@@ -1384,10 +1486,20 @@ async fn recovery_kit_local_completar(
     State(state): State<AppStateDesktop>,
     Json(req): Json<RecuperarLocalRequest>,
 ) -> Result<(), ApiError> {
-    let user = state.usuarios.buscar_por_email(req.email.trim()).await.map_err(DomainError::from)?.ok_or(DomainError::InvalidCredentials)?;
+    let user = state
+        .usuarios
+        .buscar_por_email(req.email.trim())
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::InvalidCredentials)?;
 
     // Sin kit no hay recuperación posible por este camino.
-    state.recovery_kits.buscar_por_usuario(user.id).await.map_err(DomainError::from)?.ok_or(DomainError::InvalidCredentials)?;
+    state
+        .recovery_kits
+        .buscar_por_usuario(user.id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::InvalidCredentials)?;
 
     let nonce = b64::decode(&req.nonce_b64).map_err(|_| DomainError::InvalidCredentials)?;
     let firma_bytes = b64::decode(&req.signature_b64).map_err(|_| DomainError::InvalidCredentials)?;
@@ -1397,7 +1509,12 @@ async fn recovery_kit_local_completar(
         return Err(DomainError::InvalidCredentials.into());
     }
 
-    let keys = state.usuarios.buscar_keys(user.id).await.map_err(DomainError::from)?.ok_or(DomainError::InvalidCredentials)?;
+    let keys = state
+        .usuarios
+        .buscar_keys(user.id)
+        .await
+        .map_err(DomainError::from)?
+        .ok_or(DomainError::InvalidCredentials)?;
     let publica: [u8; 32] = keys.public_key_ed25519.try_into().map_err(|_| DomainError::InvalidCredentials)?;
     let firma: [u8; 64] = firma_bytes.try_into().map_err(|_| DomainError::InvalidCredentials)?;
     VerifyingKey::from_bytes(&publica)
@@ -1486,14 +1603,13 @@ async fn sync_get(
             recursos_activos.push(recurso_a_response(res, slug));
         }
 
-        let filas_del: Vec<String> = sqlx::query_scalar(
-            "select id from resources where created_by = ?1 and deleted_at is not null and deleted_at > ?2",
-        )
-        .bind(usuario.user_id.to_string())
-        .bind(s)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(db_err)?;
+        let filas_del: Vec<String> =
+            sqlx::query_scalar("select id from resources where created_by = ?1 and deleted_at is not null and deleted_at > ?2")
+                .bind(usuario.user_id.to_string())
+                .bind(s)
+                .fetch_all(&state.pool)
+                .await
+                .map_err(db_err)?;
 
         deleted_resources = filas_del;
     } else {
@@ -1534,13 +1650,11 @@ async fn sync_get(
     }
 
     if let Some(ref s) = query.since {
-        let filas_del_f: Vec<String> = sqlx::query_scalar(
-            "select id from folders where deleted_at is not null and deleted_at > ?1",
-        )
-        .bind(s)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(db_err)?;
+        let filas_del_f: Vec<String> = sqlx::query_scalar("select id from folders where deleted_at is not null and deleted_at > ?1")
+            .bind(s)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(db_err)?;
         deleted_folders = filas_del_f;
     }
 
@@ -1549,14 +1663,13 @@ async fn sync_get(
 
     let mut deleted_tags = Vec::new();
     if let Some(ref s) = query.since {
-        let filas_del_t: Vec<String> = sqlx::query_scalar(
-            "select id from tags where created_by = ?1 and deleted_at is not null and deleted_at > ?2",
-        )
-        .bind(usuario.user_id.to_string())
-        .bind(s)
-        .fetch_all(&state.pool)
-        .await
-        .map_err(db_err)?;
+        let filas_del_t: Vec<String> =
+            sqlx::query_scalar("select id from tags where created_by = ?1 and deleted_at is not null and deleted_at > ?2")
+                .bind(usuario.user_id.to_string())
+                .bind(s)
+                .fetch_all(&state.pool)
+                .await
+                .map_err(db_err)?;
         deleted_tags = filas_del_t;
     }
 
@@ -1571,10 +1684,7 @@ async fn sync_get(
     }))
 }
 
-async fn sync_post(
-    State(_state): State<AppStateDesktop>,
-    _usuario: AuthenticatedUserDesktop,
-) -> Result<Json<serde_json::Value>, ApiError> {
+async fn sync_post(State(_state): State<AppStateDesktop>, _usuario: AuthenticatedUserDesktop) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(serde_json::json!({
         "status": "synchronized",
         "conflicts": 0,
@@ -1651,6 +1761,7 @@ pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
         )
         .route("/me/recovery-kit", get(recovery_kit_estado).put(recovery_kit_generar))
         .route("/me/recovery-kit/material", get(recovery_kit_material_propio))
+        .route("/me/recovery-kit/must-rotate", post(recovery_kit_marcar_para_rotar))
         .route("/auth/logout", post(logout_local))
         .route("/auth/recovery-kit/local/material", post(recovery_kit_local_material))
         .route("/auth/recovery-kit/local/complete", post(recovery_kit_local_completar))

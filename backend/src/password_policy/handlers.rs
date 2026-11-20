@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
 use crate::error::ApiError;
@@ -35,10 +35,7 @@ fn a_response(p: PasswordPolicy) -> PasswordPolicyResponse {
 /// cliente la necesita para generar una contraseña conforme y para validar
 /// la propia passphrase client-side. Sólo la escritura (`actualizar_politica`
 /// abajo) sigue exigiendo `AdminUser`.
-pub async fn politica(
-    State(state): State<AppState>,
-    _usuario: AuthenticatedUser,
-) -> Result<Json<PasswordPolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _usuario: AuthenticatedUser) -> Result<Json<PasswordPolicyResponse>, ApiError> {
     let p = servicio(&state).obtener().await?;
     Ok(Json(a_response(p)))
 }

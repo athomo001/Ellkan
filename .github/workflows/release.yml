@@ -1,0 +1,282 @@
+# Autor: Athan Espinoza
+#
+# Releases (pendientes #128/#129): al pushear un tag `vX.Y.Z` (o
+# `vX.Y.Z-beta.N`, que sale como pre-release) GitHub compila y publica:
+#   - Windows: MSI + ZIP portable (`build-windows.ps1`, el mismo script local)
+#   - Linux:   AppImage + .deb (`build-linux.sh`)
+#   - CLI de administración (`ellkan-cli`) para Windows y Linux
+#   - Extensión: .zip para Chrome/Edge/Brave/Opera y .xpi para Firefox
+#   - Servidor: imagen Docker en GHCR (ghcr.io/athomo001/ellkan), con
+#     etiquetas X.Y.Z, X.Y y latest (latest sólo si no es pre-release)
+# Una sola versión para todo, la del tag: el MSI y los navegadores sólo
+# aceptan X.Y.Z numérico, así que el sufijo -beta.N sólo marca la Release.
+#
+# Firefox: si existen los secretos AMO_JWT_ISSUER/AMO_JWT_SECRET, el .xpi se
+# firma en addons.mozilla.org (canal unlisted) y se publica firmado; si no,
+# se publica sin firmar (sólo instalable en modo desarrollador).
+#
+# Acciones fijadas por SHA (como en ci.yml). Sólo el job final escribe en el
+# repo (crear la Release).
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Prueba manual: compila todo y deja los artefactos en la corrida, sin
+  # crear ninguna Release.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión X.Y.Z a compilar (no publica)'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  version:
+    name: Versión
+    runs-on: ubuntu-24.04
+    outputs:
+      numero: ${{ steps.v.outputs.numero }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        # Valores del evento por variables de entorno, nunca interpolados en
+        # el script (inyección de comandos vía nombre de tag).
+        env:
+          NOMBRE_REF: ${{ github.ref_name }}
+          ENTRADA: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then crudo="$ENTRADA"; else crudo="${NOMBRE_REF#v}"; fi
+          numero="${crudo%%-*}"
+          if ! [[ "$numero" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versión inválida: '$crudo' (se espera vX.Y.Z o vX.Y.Z-beta.N)"
+            exit 1
+          fi
+          if [ "$crudo" != "$numero" ]; then pre=true; else pre=false; fi
+          echo "numero=$numero" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows (MSI + portable)
+    needs: version
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Fijar la versión
+        run: node .github/scripts/fijar-version.mjs $env:VERSION
+      # El script prepara la extensión embebida, compila los auxiliares,
+      # empaqueta el MSI, verifica que traiga los tres ejecutables y arma el
+      # ZIP portable.
+      - name: Compilar y empaquetar
+        run: ./app-escritorio/windows/binarios/build-windows.ps1 -MantenerVersion
+      # La CLI de administración (crear el primer admin, backups…), para no
+      # tener que instalar Rust sólo para eso.
+      - name: CLI
+        run: cargo build --release -p ellkan-cli
+      - name: Juntar artefactos
+        run: |
+          $dir = "app-escritorio/windows/binarios"
+          New-Item -ItemType Directory -Force salida | Out-Null
+          Copy-Item "$dir/Ellkan_$($env:VERSION)_x64_es-ES.msi" salida/ -ErrorAction Stop
+          Copy-Item "$dir/ellkan-desktop-portable.zip" "salida/Ellkan_$($env:VERSION)_x64_portable.zip" -ErrorAction Stop
+          Copy-Item "target/release/ellkan-cli.exe" "salida/ellkan-cli_$($env:VERSION)_windows_x64.exe" -ErrorAction Stop
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: salida/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux (AppImage + .deb)
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Fijar la versión
+        run: node .github/scripts/fijar-version.mjs "$VERSION"
+      - name: CLI
+        run: cargo build --release -p ellkan-cli
+      # Instala las librerías de Tauri que falten (el runner tiene sudo sin
+      # contraseña), genera los bindings WASM y deja los paquetes en
+      # app-escritorio/linuxOS/binarios/.
+      - name: Compilar y empaquetar
+        run: bash app-escritorio/linuxOS/binarios/build-linux.sh --modo linux --bundles appimage,deb
+      - name: Juntar artefactos
+        run: |
+          mkdir -p salida
+          cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.AppImage" salida/
+          cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.deb" salida/
+          cp -v target/release/ellkan-cli "salida/ellkan-cli_${VERSION}_linux_x64"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux
+          path: salida/*
+          if-no-files-found: error
+
+  extension:
+    name: Extensión (Chromium + Firefox)
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Empaquetar
+        run: node extension/cli.mjs -b chrome,edge,brave,opera,firefox --version "$VERSION" --no-crx --out salida
+      - name: Nombres con versión
+        run: |
+          cd salida
+          for f in ellkan-*.zip ellkan-*.xpi; do mv -v "$f" "${f%.*}-${VERSION}.${f##*.}"; done
+      - name: Firmar el .xpi en addons.mozilla.org
+        if: env.AMO_JWT_ISSUER != '' && env.AMO_JWT_SECRET != ''
+        run: |
+          pnpm -C extension build:firefox
+          npx --yes web-ext@10.8.0 sign --source-dir extension/dist --channel unlisted \
+            --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET" --artifacts-dir firmado
+          firmado=$(ls firmado/*.xpi)
+          mv -v "$firmado" "salida/ellkan-firefox-${VERSION}.xpi"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension
+          path: salida/*
+          if-no-files-found: error
+
+  docker:
+    name: Imagen Docker (GHCR)
+    needs: version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # Etiquetas a partir del tag: X.Y.Z y X.Y; `latest` lo agrega solo
+      # cuando la versión no es pre-release. Las etiquetas OCI
+      # (`org.opencontainers.image.source`) enlazan el paquete con el repo.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/ellkan
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.version.outputs.numero }},enable=${{ github.event_name == 'workflow_dispatch' }}
+      # En la prueba manual (workflow_dispatch) sólo compila: no publica.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Procedencia de build (SLSA) y SBOM adjuntos a la imagen.
+          provenance: mode=max
+          sbom: true
+
+  publicar:
+    name: Publicar la Release
+    needs: [version, windows, linux, extension, docker]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      DUENO: ${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artefactos
+          merge-multiple: true
+      - name: Sumas SHA-256
+        run: cd artefactos && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Crear la Release
+        run: |
+          extra=()
+          if [ "$PRERELEASE" = "true" ]; then extra+=(--prerelease); fi
+          notas="Servidor (Docker): \`docker pull ghcr.io/${DUENO}/ellkan:${TAG#v}\`"
+          gh release create "$TAG" artefactos/* --verify-tag --title "Ellkan $TAG" --notes "$notas" --generate-notes "${extra[@]}"

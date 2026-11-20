@@ -5,17 +5,15 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead::Envoltura;
 use ellkan_crypto::clave_privada::{self, EncryptedPrivateKeyBlob};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-const PNG_1PX: &[u8] = &[
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-];
+const PNG_1PX: &[u8] = &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52];
 
 #[tokio::test]
 async fn get_me_devuelve_el_perfil_real() {
@@ -39,8 +37,7 @@ async fn avatar_se_sube_se_lee_y_se_borra() {
     let sesion = common::login(&entorno, &user).await;
 
     // Sin avatar todavía -> 404, no un 200 con body vacío.
-    let resp =
-        entorno.cliente.get(format!("{}/me/avatar", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno.cliente.get(format!("{}/me/avatar", entorno.base)).bearer_auth(sesion).send().await.unwrap();
     assert_eq!(resp.status(), 404);
 
     let resp = entorno
@@ -53,8 +50,7 @@ async fn avatar_se_sube_se_lee_y_se_borra() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    let resp =
-        entorno.cliente.get(format!("{}/me/avatar", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno.cliente.get(format!("{}/me/avatar", entorno.base)).bearer_auth(sesion).send().await.unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.headers().get("content-type").unwrap(), "image/png");
     assert_eq!(resp.bytes().await.unwrap().as_ref(), PNG_1PX);
@@ -67,8 +63,7 @@ async fn avatar_se_sube_se_lee_y_se_borra() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let resp =
-        entorno.cliente.get(format!("{}/me/avatar", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno.cliente.get(format!("{}/me/avatar", entorno.base)).bearer_auth(sesion).send().await.unwrap();
     assert_eq!(resp.status(), 404, "borrar el avatar debe volver a dar 404, no un 200 con contenido viejo");
 }
 
@@ -112,8 +107,7 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     let sesion_vieja = common::login(&entorno, &user).await;
 
     // La sesión funciona antes de cambiar la passphrase.
-    let resp =
-        entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion_vieja).send().await.unwrap();
+    let resp = entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion_vieja).send().await.unwrap();
     assert_eq!(resp.status(), 200);
 
     // Mismo flujo que haría el cliente real: abrir el blob viejo con la
@@ -123,8 +117,7 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     privadas[32..].copy_from_slice(&user.ed25519.firmante().to_bytes());
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("una-passphrase-nueva-bien-larga".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob =
-        clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, user.email.as_bytes()).unwrap();
+    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, user.email.as_bytes()).unwrap();
     let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privadas[32..], &nuevo_blob).await;
 
     let resp = entorno
@@ -145,18 +138,16 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
 
     // La sesión vieja (la misma que hizo el cambio) queda invalidada de
     // inmediato — mismo criterio que desactivar un usuario.
-    let resp =
-        entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion_vieja).send().await.unwrap();
+    let resp = entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion_vieja).send().await.unwrap();
     assert_eq!(resp.status(), 401, "la sesión que cambió la passphrase también queda invalidada");
 
     // El blob nuevo quedó persistido de verdad en `user_keys`.
-    let fila: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
-        "select encrypted_private_key_blob, private_key_nonce, kdf_salt from user_keys where user_id = $1",
-    )
-    .bind(user.user_id)
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let fila: (Vec<u8>, Vec<u8>, Vec<u8>) =
+        sqlx::query_as("select encrypted_private_key_blob, private_key_nonce, kdf_salt from user_keys where user_id = $1")
+            .bind(user.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
     assert_eq!(fila.0, nuevo_blob.envoltura.ciphertext);
 
     // La passphrase vieja ya no abre el blob nuevo.
@@ -170,8 +161,7 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     );
 
     // La passphrase nueva sí lo abre y recupera exactamente el mismo material.
-    let abierto =
-        clave_privada::descifrar_clave_privada(&nueva_passphrase, &blob_para_abrir, user.email.as_bytes()).unwrap();
+    let abierto = clave_privada::descifrar_clave_privada(&nueva_passphrase, &blob_para_abrir, user.email.as_bytes()).unwrap();
     assert_eq!(abierto.as_slice(), privadas.as_slice());
 }
 
@@ -230,7 +220,12 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
         })
     };
     let enviar = |body: Value| {
-        entorno.cliente.post(format!("{}/me/change-passphrase", entorno.base)).bearer_auth(sesion).json(&body).send()
+        entorno
+            .cliente
+            .post(format!("{}/me/change-passphrase", entorno.base))
+            .bearer_auth(sesion)
+            .json(&body)
+            .send()
     };
 
     // Firma con una clave que no es la de la cuenta: 403, y el challenge
@@ -247,7 +242,11 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
         &basura.envoltura.nonce,
         &basura.salt,
     ));
-    assert_eq!(enviar(cuerpo(&challenge, &firma_reusada)).await.unwrap().status(), 403, "un challenge ya usado no sirve dos veces");
+    assert_eq!(
+        enviar(cuerpo(&challenge, &firma_reusada)).await.unwrap().status(),
+        403,
+        "un challenge ya usado no sirve dos veces"
+    );
 
     // Firma legítima de OTRO blob, presentada con el blob basura.
     let otro = clave_privada::cifrar_clave_privada(&user.passphrase, [3u8; 16], &[1u8; 64], user.email.as_bytes()).unwrap();

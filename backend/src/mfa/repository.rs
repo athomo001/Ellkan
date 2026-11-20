@@ -23,12 +23,7 @@ pub trait TotpCredentialRepository {
     /// generados y nunca confirmados.
     async fn limpiar_pendientes(&self, user_id: Uuid) -> Result<(), RepoError>;
 
-    async fn crear_pendiente(
-        &self,
-        user_id: Uuid,
-        secret_ciphertext: &[u8],
-        secret_nonce: &[u8],
-    ) -> Result<TotpCredential, RepoError>;
+    async fn crear_pendiente(&self, user_id: Uuid, secret_ciphertext: &[u8], secret_nonce: &[u8]) -> Result<TotpCredential, RepoError>;
 
     /// El credential sin confirmar más reciente del usuario — el que
     /// `confirmar_setup` intenta cerrar.
@@ -127,12 +122,7 @@ impl TotpCredentialRepository for PgTotpCredentialRepository {
         Ok(())
     }
 
-    async fn crear_pendiente(
-        &self,
-        user_id: Uuid,
-        secret_ciphertext: &[u8],
-        secret_nonce: &[u8],
-    ) -> Result<TotpCredential, RepoError> {
+    async fn crear_pendiente(&self, user_id: Uuid, secret_ciphertext: &[u8], secret_nonce: &[u8]) -> Result<TotpCredential, RepoError> {
         let fila = sqlx::query!(
             r#"insert into user_totp_credentials (user_id, secret_ciphertext, secret_nonce)
                values ($1, $2, $3)
@@ -262,7 +252,12 @@ impl MfaChallengeRepository for PgMfaChallengeRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| MfaChallengeRow { id: f.id, user_id: f.user_id, session_hash: f.session_hash, code_hash: f.code_hash })
+            .map(|f| MfaChallengeRow {
+                id: f.id,
+                user_id: f.user_id,
+                session_hash: f.session_hash,
+                code_hash: f.code_hash,
+            })
             .collect())
     }
 

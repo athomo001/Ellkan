@@ -32,9 +32,8 @@ env:
 
 jobs:
   # Job propio para que un problema de formato no tape los resultados de
-  # clippy/tests. Al crear este workflow el árbol tenía 218 archivos sin
-  # `cargo fmt` aplicado: este job queda en rojo hasta el commit de formato
-  # dedicado (a propósito, sin `continue-on-error`).
+  # clippy/tests. Configuración en `rustfmt.toml` (raíz) y
+  # `app-escritorio/src-tauri/rustfmt.toml` (sangría de 2).
   fmt:
     name: Rust (formato)
     runs-on: ubuntu-24.04
@@ -60,9 +59,9 @@ jobs:
       # Los tests de integración levantan Postgres 18 con testcontainers
       # (Docker ya viene en el runner).
       - name: Tests
-        run: cargo test --workspace $CARGO_EXCLUDE
+        run: cargo test --no-fail-fast --workspace $CARGO_EXCLUDE
       - name: Tests (feature desktop)
-        run: cargo test -p ellkan-backend --features desktop
+        run: cargo test --no-fail-fast -p ellkan-backend --features desktop
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-audit

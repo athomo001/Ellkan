@@ -9,12 +9,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 const USUARIOS: usize = 25;
@@ -66,13 +66,7 @@ async fn muchos_usuarios_importando_a_la_vez_desde_la_misma_ip_no_reciben_429() 
         tareas.spawn(async move {
             let mut rechazos = Vec::new();
             for cuerpo in cuerpos {
-                let resp = cliente
-                    .post(format!("{base}/resources"))
-                    .bearer_auth(sesion)
-                    .json(&cuerpo)
-                    .send()
-                    .await
-                    .unwrap();
+                let resp = cliente.post(format!("{base}/resources")).bearer_auth(sesion).json(&cuerpo).send().await.unwrap();
                 if resp.status() != 200 {
                     rechazos.push(resp.status().as_u16());
                 }

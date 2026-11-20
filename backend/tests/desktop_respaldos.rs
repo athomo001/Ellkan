@@ -7,19 +7,19 @@
 
 use std::path::PathBuf;
 
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use ellkan_backend::auth::repository::SessionRepository;
+use ellkan_backend::desktop::bootstrap_sqlite;
 use ellkan_backend::desktop::respaldos::{
-    carpeta_de_respaldos, listar, respaldar, version_previa_si_hay_pendientes, PREFIJO_AUTOMATICO, PREFIJO_MANUAL, RETENCION,
+    PREFIJO_AUTOMATICO, PREFIJO_MANUAL, RETENCION, carpeta_de_respaldos, listar, respaldar, version_previa_si_hay_pendientes,
 };
 use ellkan_backend::desktop::router::construir_router_desktop;
 use ellkan_backend::desktop::state::AppStateDesktop;
-use ellkan_backend::desktop::bootstrap_sqlite;
 use secrecy::SecretBox;
 use serde_json::Value;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -46,7 +46,11 @@ async fn abrir(dir: &std::path::Path, archivo: &str) -> SqlitePool {
 async fn una_base_nueva_no_necesita_copia() {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.unwrap();
     let migrador = sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite");
-    assert_eq!(version_previa_si_hay_pendientes(&pool, &migrador).await.unwrap(), None, "no hay nada que proteger en una base vacía");
+    assert_eq!(
+        version_previa_si_hay_pendientes(&pool, &migrador).await.unwrap(),
+        None,
+        "no hay nada que proteger en una base vacía"
+    );
 }
 
 #[tokio::test]
@@ -62,7 +66,11 @@ async fn con_una_migracion_pendiente_se_detecta_desde_que_version_se_parte() {
     let migrador = sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite");
     let ultima: i64 = sqlx::query_scalar("select max(version) from _sqlx_migrations").fetch_one(&pool).await.unwrap();
     // Como una base que quedó una versión atrás: la última migración no está aplicada.
-    sqlx::query("delete from _sqlx_migrations where version = ?1").bind(ultima).execute(&pool).await.unwrap();
+    sqlx::query("delete from _sqlx_migrations where version = ?1")
+        .bind(ultima)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let anterior: i64 = sqlx::query_scalar("select max(version) from _sqlx_migrations").fetch_one(&pool).await.unwrap();
     assert_eq!(version_previa_si_hay_pendientes(&pool, &migrador).await.unwrap(), Some(anterior));
@@ -102,7 +110,11 @@ async fn se_conservan_solo_las_ultimas_copias_de_cada_tipo() {
     respaldar(&pool, &dir, PREFIJO_AUTOMATICO, "v0001-").await.unwrap();
 
     let existentes = listar(&dir).unwrap();
-    assert_eq!(existentes.iter().filter(|r| !r.automatico).count(), RETENCION, "sólo las {RETENCION} manuales más nuevas");
+    assert_eq!(
+        existentes.iter().filter(|r| !r.automatico).count(),
+        RETENCION,
+        "sólo las {RETENCION} manuales más nuevas"
+    );
     assert_eq!(existentes.iter().filter(|r| r.automatico).count(), 1, "podar un tipo no toca al otro");
     assert!(!manuales[0].exists(), "la más vieja se borró");
     assert!(manuales.last().unwrap().exists(), "la más nueva sigue");
@@ -124,8 +136,14 @@ async fn arrancar_con_migraciones_pendientes_guarda_una_copia_y_migra() {
     sqlx::query("drop table metadata_deks").execute(&pool).await.unwrap();
     sqlx::query("drop table avatar_local").execute(&pool).await.unwrap();
     sqlx::query("alter table sessions drop column proposito").execute(&pool).await.unwrap();
-    sqlx::query("alter table recovery_reset_tokens drop column failed_attempts").execute(&pool).await.unwrap();
-    sqlx::query("delete from resource_types where slug in ('rdp', 'postgresql', 'mysql', 'mongodb', 'api-token')").execute(&pool).await.unwrap();
+    sqlx::query("alter table recovery_reset_tokens drop column failed_attempts")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("delete from resource_types where slug in ('rdp', 'postgresql', 'mysql', 'mongodb', 'api-token')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("delete from _sqlx_migrations where version >= 7").execute(&pool).await.unwrap();
     assert!(ultima >= 7, "el test parte de una base con las migraciones 7 y siguientes aplicadas");
     pool.close().await;
@@ -135,15 +153,25 @@ async fn arrancar_con_migraciones_pendientes_guarda_una_copia_y_migra() {
     let copias = listar(&dir).unwrap();
     assert_eq!(copias.len(), 1, "antes de migrar se guardó una copia");
     assert!(copias[0].automatico);
-    assert!(copias[0].nombre.contains("v0006"), "la copia dice desde qué versión se partió: {}", copias[0].nombre);
+    assert!(
+        copias[0].nombre.contains("v0006"),
+        "la copia dice desde qué versión se partió: {}",
+        copias[0].nombre
+    );
 
     // Y la migración se aplicó: la tabla nueva existe otra vez.
-    let existe: i64 = sqlx::query_scalar("select count(*) from sqlite_master where name = 'metadata_deks'").fetch_one(&pool).await.unwrap();
+    let existe: i64 = sqlx::query_scalar("select count(*) from sqlite_master where name = 'metadata_deks'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(existe, 1);
 
     // La copia es la base ANTES de migrar: no tiene la tabla.
     let copia = abrir(&carpeta_de_respaldos(&dir), &copias[0].nombre).await;
-    let en_copia: i64 = sqlx::query_scalar("select count(*) from sqlite_master where name = 'metadata_deks'").fetch_one(&copia).await.unwrap();
+    let en_copia: i64 = sqlx::query_scalar("select count(*) from sqlite_master where name = 'metadata_deks'")
+        .fetch_one(&copia)
+        .await
+        .unwrap();
     assert_eq!(en_copia, 0, "la copia conserva el estado previo a la migración");
 
     // Tercer arranque: ya está al día, no hay copia nueva.

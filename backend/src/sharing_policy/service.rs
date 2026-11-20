@@ -28,9 +28,8 @@ where
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::SharingPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({ "restrict_visibility_by_group": nueva.restrict_visibility_by_group }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::SharingPolicyUpdated, Some(actor_id))
+                .con_metadata(serde_json::json!({ "restrict_visibility_by_group": nueva.restrict_visibility_by_group })),
         ));
 
         Ok(nueva)

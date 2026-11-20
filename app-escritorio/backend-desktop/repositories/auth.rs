@@ -26,8 +26,8 @@ use crate::auth::models::{
     UsuarioBusqueda,
 };
 use crate::auth::repository::{
-    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository,
-    SessionRepository, UserRepository,
+    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository, SessionRepository,
+    UserRepository,
 };
 
 fn fila_a_user(row: &sqlx::sqlite::SqliteRow) -> Result<User, RepoError> {
@@ -192,13 +192,11 @@ impl SqliteUserRepository {
         ya_verificado: bool,
         id: Uuid,
     ) -> Result<User, RepoError> {
-
         // Mismo criterio de bootstrap que la versión Postgres: el primer
         // usuario de toda la instancia nace ya verificado sin importar
         // `ya_verificado` — en modo escritorio esto en la práctica siempre
         // es el único usuario que va a existir (spec/13 §16).
-        let existe_alguno: bool =
-            sqlx::query_scalar("select exists(select 1 from users)").fetch_one(&mut **tx).await?;
+        let existe_alguno: bool = sqlx::query_scalar("select exists(select 1 from users)").fetch_one(&mut **tx).await?;
         let nace_verificado = !existe_alguno || ya_verificado;
 
         let security_stamp = Uuid::now_v7();
@@ -494,12 +492,7 @@ impl SessionRepository for SqliteSessionRepository {
         self.crear_con(user_id, security_stamp, PropositoSesion::Completa).await
     }
 
-    async fn crear_parcial(
-        &self,
-        user_id: Uuid,
-        security_stamp: Uuid,
-        proposito: PropositoSesion,
-    ) -> Result<Session, RepoError> {
+    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid, proposito: PropositoSesion) -> Result<Session, RepoError> {
         // Una sesión parcial "completa" sería una sesión completa sin MFA.
         if proposito == PropositoSesion::Completa {
             return Err(RepoError::Conflict);

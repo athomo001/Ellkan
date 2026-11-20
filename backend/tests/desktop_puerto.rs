@@ -23,7 +23,10 @@ async fn primer_arranque_elige_un_puerto_del_rango_privado_y_lo_persiste() {
     let datadir = datadir_de_prueba();
 
     let (_listener, puerto, fallo) = ellkan_backend::desktop::bindear_puerto(&datadir).await.unwrap();
-    assert!(ellkan_backend::desktop::RANGO_PUERTO_AUTO.contains(&puerto), "el puerto autoelegido debe estar en el rango automático");
+    assert!(
+        ellkan_backend::desktop::RANGO_PUERTO_AUTO.contains(&puerto),
+        "el puerto autoelegido debe estar en el rango automático"
+    );
     assert!(puerto < 49152, "nunca en el rango dinámico de Windows");
     assert_eq!(fallo, None, "sin puerto fijo previo no hay nada que avisar");
 
@@ -42,7 +45,10 @@ async fn un_arranque_posterior_reusa_el_puerto_ya_persistido() {
     drop(primer_listener); // libera el puerto antes del segundo intento
 
     let (_segundo_listener, puerto_2, fallo) = ellkan_backend::desktop::bindear_puerto(&datadir).await.unwrap();
-    assert_eq!(puerto_1, puerto_2, "un arranque posterior debe reusar el puerto fijo ya elegido, no autoelegir otro");
+    assert_eq!(
+        puerto_1, puerto_2,
+        "un arranque posterior debe reusar el puerto fijo ya elegido, no autoelegir otro"
+    );
     assert_eq!(fallo, None);
 
     std::fs::remove_dir_all(&datadir).ok();
@@ -60,7 +66,10 @@ async fn si_el_puerto_persistido_esta_ocupado_cae_a_uno_libre_sin_fallar() {
     let (_otro_listener, puerto_alternativo, fallo) = ellkan_backend::desktop::bindear_puerto(&datadir).await.unwrap();
 
     assert_ne!(puerto_alternativo, puerto_fijo, "con el puerto fijo ocupado, debe caer a uno distinto");
-    assert!(ellkan_backend::desktop::RANGO_PUERTO_AUTO.contains(&puerto_alternativo), "el fallback también sale del rango automático");
+    assert!(
+        ellkan_backend::desktop::RANGO_PUERTO_AUTO.contains(&puerto_alternativo),
+        "el fallback también sale del rango automático"
+    );
     let fallo = fallo.expect("tiene que avisar que el fijo no estaba disponible");
     assert_eq!(fallo.puerto, puerto_fijo);
     assert!(!fallo.reservado, "un puerto tomado por otro proceso está ocupado, no reservado");

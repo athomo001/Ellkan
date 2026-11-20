@@ -115,13 +115,11 @@ impl TagRepository for SqliteTagRepository {
     }
 
     async fn ids_eliminados_desde(&self, viewer_id: Uuid, desde: OffsetDateTime) -> Result<Vec<Uuid>, RepoError> {
-        let filas = sqlx::query(
-            "select id from tags where deleted_at is not null and updated_at > ?2 and (is_shared or created_by = ?1)",
-        )
-        .bind(viewer_id.to_string())
-        .bind(fmt_dt(desde))
-        .fetch_all(&self.pool)
-        .await?;
+        let filas = sqlx::query("select id from tags where deleted_at is not null and updated_at > ?2 and (is_shared or created_by = ?1)")
+            .bind(viewer_id.to_string())
+            .bind(fmt_dt(desde))
+            .fetch_all(&self.pool)
+            .await?;
         filas.iter().map(|f| parse_uuid(f.try_get::<String, _>("id")?.as_str())).collect()
     }
 }

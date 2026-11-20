@@ -34,8 +34,8 @@ pub fn inicializar_tracing(otel_endpoint: Option<&str>) -> Option<SdkTracerProvi
     // muestra lo que sale mal (4xx/5xx, límites, arranque) y `RUST_LOG`
     // sigue mandando si el operador lo define (ej. `ellkan_backend=debug`
     // para ver también cada request exitoso).
-    let filtro = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(FILTRO_POR_DEFECTO));
+    let filtro =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(FILTRO_POR_DEFECTO));
     // Colores ANSI sólo en una terminal real: en `docker logs` salían como
     // `[2m...[0m` y no se podían leer ni filtrar con grep.
     let capa_stdout = tracing_subscriber::fmt::layer().with_ansi(std::io::stdout().is_terminal());
@@ -55,11 +55,7 @@ pub fn inicializar_tracing(otel_endpoint: Option<&str>) -> Option<SdkTracerProvi
     let tracer = proveedor.tracer("ellkan-backend");
     let capa_otel = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    tracing_subscriber::registry()
-        .with(filtro)
-        .with(capa_stdout)
-        .with(capa_otel)
-        .init();
+    tracing_subscriber::registry().with(filtro).with(capa_stdout).with(capa_otel).init();
 
     Some(proveedor)
 }

@@ -11,8 +11,7 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
 use super::repository::{
-    EmergencyAccessRepository, EmergencyAccessRequestRepository, PgEmergencyAccessRepository,
-    PgEmergencyAccessRequestRepository,
+    EmergencyAccessRepository, EmergencyAccessRequestRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
 };
 
 /// Tipos concretos (no genéricos) a propósito: el trait usa `async fn` sin

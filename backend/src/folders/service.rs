@@ -50,8 +50,7 @@ where
     /// único conjunto de gente que puede anidar/compartir carpetas. Un
     /// usuario regular no llega a ninguna de las dos.
     async fn es_privilegiado(&self, user_id: Uuid) -> Result<bool, DomainError> {
-        Ok(self.grupos.es_admin_de_algun_grupo(user_id).await?
-            || self.roles.usuario_tiene_permiso(user_id, "*").await?)
+        Ok(self.grupos.es_admin_de_algun_grupo(user_id).await? || self.roles.usuario_tiene_permiso(user_id, "*").await?)
     }
 
     pub async fn crear(
@@ -81,8 +80,12 @@ where
         }
 
         let carpeta = self.carpetas.crear(id).await?;
-        self.items.insertar_carpeta(user_id, carpeta.id, parent_folder_id, name_ciphertext, name_nonce).await?;
-        self.permisos.otorgar("folder", carpeta.id, "user", user_id, NivelPermiso::Owner.as_db_str()).await?;
+        self.items
+            .insertar_carpeta(user_id, carpeta.id, parent_folder_id, name_ciphertext, name_nonce)
+            .await?;
+        self.permisos
+            .otorgar("folder", carpeta.id, "user", user_id, NivelPermiso::Owner.as_db_str())
+            .await?;
         Ok(carpeta)
     }
 
@@ -94,12 +97,7 @@ where
     /// vista de otro usuario, aunque tenga la misma carpeta en la suya
     /// (F-09, criterio de aceptación literal). Sin chequeo de permisos: es
     /// 100% la vista propia de quien llama, no afecta a nadie más.
-    pub async fn mover(
-        &self,
-        user_id: Uuid,
-        folder_id: Uuid,
-        new_parent_folder_id: Option<Uuid>,
-    ) -> Result<(), DomainError> {
+    pub async fn mover(&self, user_id: Uuid, folder_id: Uuid, new_parent_folder_id: Option<Uuid>) -> Result<(), DomainError> {
         if Some(folder_id) == new_parent_folder_id {
             return Err(DomainError::ValidacionInvalida("una carpeta no puede ser su propio padre".into()));
         }
@@ -119,9 +117,7 @@ where
             // — `A.parent=B` y después `B.parent=A` no tenía nada que lo
             // impidiera. Mismo chequeo que ya tiene `GroupService::mover`.
             if self.carpetas.ancestros_inclusive(user_id, padre).await?.contains(&folder_id) {
-                return Err(DomainError::ValidacionInvalida(
-                    "ese movimiento crearía un ciclo en el árbol de carpetas".into(),
-                ));
+                return Err(DomainError::ValidacionInvalida("ese movimiento crearía un ciclo en el árbol de carpetas".into()));
             }
 
             if !self.es_privilegiado(user_id).await? {
@@ -159,12 +155,7 @@ where
     /// miembros actuales del grupo, con nivel `update` (ceder) o `read`
     /// (mantener, sólo visibilidad) — mismo motivo zero-knowledge de
     /// siempre, el servidor no puede resellar una DEK que no puede leer.
-    pub async fn mover_recurso(
-        &self,
-        user_id: Uuid,
-        resource_id: Uuid,
-        folder_id: Option<Uuid>,
-    ) -> Result<(), DomainError> {
+    pub async fn mover_recurso(&self, user_id: Uuid, resource_id: Uuid, folder_id: Option<Uuid>) -> Result<(), DomainError> {
         // Hallazgo de seguridad (auditoría 2026-08-12, H-02): esta función
         // sólo validaba autorización sobre la carpeta DESTINO, nunca sobre
         // el recurso movido — un admin de grupo sin ningún permiso sobre
@@ -172,7 +163,11 @@ where
         // con su grupo y de ahí borrarlo vía `ResourceService::eliminar`
         // (que confía en `carpetas_de_recurso` sin volver a chequear
         // ownership). Mover dentro del árbol personal alcanza con `read`.
-        if !self.permisos.tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str()).await? {
+        if !self
+            .permisos
+            .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str())
+            .await?
+        {
             return Err(DomainError::PermissionDenied);
         }
 
@@ -198,7 +193,10 @@ where
             // lo ve y, en una carpeta de grupo, quién puede borrarlo. Esa
             // decisión es del dueño: exige `owner` sobre el recurso.
             if compartida_con_otros
-                && !self.permisos.tiene_permiso("resource", resource_id, user_id, NivelPermiso::Owner.as_db_str()).await?
+                && !self
+                    .permisos
+                    .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Owner.as_db_str())
+                    .await?
             {
                 return Err(DomainError::PermissionDenied);
             }

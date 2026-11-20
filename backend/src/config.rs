@@ -8,8 +8,8 @@
 use std::env;
 use std::fs;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::secretos::ClaveSecreta32;
 use secrecy::SecretBox;
 
@@ -86,11 +86,8 @@ fn resolver_secreto(nombre: &'static str) -> Result<String, ErrorConfig> {
 impl Config {
     pub fn desde_entorno() -> Result<Self, ErrorConfig> {
         let secrets_key_b64 = resolver_secreto("ELLKAN_SECRETS_KEY")?;
-        let bytes = B64
-            .decode(secrets_key_b64.trim())
-            .map_err(|_| ErrorConfig::ClaveInvalida("ELLKAN_SECRETS_KEY"))?;
-        let bytes: [u8; 32] =
-            bytes.try_into().map_err(|_| ErrorConfig::ClaveInvalida("ELLKAN_SECRETS_KEY"))?;
+        let bytes = B64.decode(secrets_key_b64.trim()).map_err(|_| ErrorConfig::ClaveInvalida("ELLKAN_SECRETS_KEY"))?;
+        let bytes: [u8; 32] = bytes.try_into().map_err(|_| ErrorConfig::ClaveInvalida("ELLKAN_SECRETS_KEY"))?;
 
         let tls_cert_path = env::var("ELLKAN_TLS_CERT_FILE").ok();
         let tls_key_path = env::var("ELLKAN_TLS_KEY_FILE").ok();

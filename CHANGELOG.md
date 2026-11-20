@@ -24,6 +24,16 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - `GET /resources` calcula `puede_borrar` en lote (antes 3–5 queries por recurso; cierra el pendiente #28).
 - CI nuevo (`.github/workflows/ci.yml`, acciones fijadas por SHA); Dockerfile con imágenes por digest y `wasm-pack` con versión fija; el compose ya no apaga la detección de migraciones alteradas.
 
+**Documentación:** `PRIVACY.md` público (qué guarda una instancia, servicios de terceros, qué queda en el dispositivo; requisito de las tiendas de extensiones; cierra el pendiente #24). Formato del workspace con `rustfmt.toml`.
+
+**Dependencias:** SvelteKit 2 → 3.2.1 (GHSA-3r8g-jcqq-3p5j, DoS en remote functions `form`; no explotable acá porque el frontend es estático, igual se corrige), `adapter-static` 4, override de `cookie` a `^2.0.1`, `@tauri-apps/cli` 2.12.5 (corrige un bug de 2.11.4 que dejaba fuera del MSI todo binario de `src/bin` salvo el primero: por eso faltaba `ellkan_nm_host.exe`). El script de Windows compila los auxiliares antes de empaquetar y corta si el MSI sale sin alguno. Verificado: el MSI vuelve a traer `ellkan_nm_host.exe` (cierra el pendiente #1).
+
+**Kit de recuperación:** usar el kit en un lado (app o servidor vinculado) ahora obliga a rotarlo en los dos: `GET /me/recovery-kit/material` devuelve `must_rotate` y `POST /me/recovery-kit/must-rotate` marca el kit propio; `sincronizarKit` propaga la marca (cierra el pendiente #23).
+
+**Releases:** `.github/workflows/release.yml` — un tag `vX.Y.Z` (o `-beta.N`, como pre-release) compila en GitHub el MSI, el ZIP portable, AppImage, .deb y la extensión para Chrome/Edge/Brave/Opera/Firefox, con sumas SHA-256, y publica la imagen Docker del servidor en GHCR (con SBOM y procedencia). Una sola versión para escritorio y extensión, la del tag (`.github/scripts/fijar-version.mjs`; decide el pendiente #129). También la CLI (`ellkan-cli`) para Windows y Linux.
+
+**Documentación de descargas:** `README.md`/`README.en.md` tienen una sección «Descargas» con lo que trae cada Release y la imagen `ghcr.io/athomo001/ellkan`; la instalación rápida ya no compila (`docker-compose.yml` usa la imagen publicada, con la versión en `ELLKAN_VERSION` de `.env`, y compila sólo con `--build` o si no la encuentra) y la CLI se descarga. «Actualizar» separa imagen publicada (`docker compose pull`) de compilar desde el código. `extension/README.md` explica cómo instalar la versión publicada; `manual/instalacion.md`, cómo elegir entre imagen publicada y compilada.
+
 **Compatibilidad:** `/me/change-passphrase`, `/recovery-kit/reset/{token}/complete` y `/account-recovery/requests/{id}/complete` exigen `challenge_nonce_b64` + `signature_b64`; los clientes viejos reciben 422.
 
 ## [0.1.69] - 2026-10-18

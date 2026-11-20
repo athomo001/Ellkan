@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use uuid::Uuid;
 
 use crate::error::RepoError;
@@ -32,11 +32,9 @@ pub struct PgExportPolicyRepository {
 
 impl ExportPolicyRepository for PgExportPolicyRepository {
     async fn obtener(&self) -> Result<ExportPolicy, RepoError> {
-        let fila = sqlx::query!(
-            r#"select export_enabled, allowed_formats, import_enabled from export_policy where organization_id = 1"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select export_enabled, allowed_formats, import_enabled from export_policy where organization_id = 1"#,)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(ExportPolicy {
             export_enabled: fila.export_enabled,
             allowed_formats: fila.allowed_formats,
@@ -85,11 +83,10 @@ impl ExportRepository for PgExportRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        let membresias = sqlx::query!(
-            r#"select gm.user_id, g.name from group_members gm join groups g on g.id = gm.group_id order by g.name"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let membresias =
+            sqlx::query!(r#"select gm.user_id, g.name from group_members gm join groups g on g.id = gm.group_id order by g.name"#,)
+                .fetch_all(&self.pool)
+                .await?;
         let mut grupos_por_usuario: HashMap<Uuid, Vec<String>> = HashMap::new();
         for fila in membresias {
             grupos_por_usuario.entry(fila.user_id).or_default().push(fila.name);
@@ -115,11 +112,9 @@ impl ExportRepository for PgExportRepository {
     }
 
     async fn listar_grupos(&self) -> Result<Vec<FilaExportGrupo>, RepoError> {
-        let filas = sqlx::query!(
-            r#"select id, name, parent_group_id, deleted_at from groups order by name"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let filas = sqlx::query!(r#"select id, name, parent_group_id, deleted_at from groups order by name"#,)
+            .fetch_all(&self.pool)
+            .await?;
 
         let miembros = sqlx::query!(r#"select group_id, user_id, is_admin from group_members"#)
             .fetch_all(&self.pool)

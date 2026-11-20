@@ -6,6 +6,22 @@
 
 Ver [README.md](../README.md#instalación-rápida) para el paso a paso completo. Un solo comando (`docker compose up -d`) levanta `ellkan` (backend + frontend servidos del mismo binario) y `ellkan-db` (Postgres 18). Las migraciones corren automáticamente al arrancar — no hay paso manual de `migrate`.
 
+#### Imagen publicada o compilada
+
+Cada versión publica la imagen del servidor en `ghcr.io/athomo001/ellkan` con tres etiquetas: `X.Y.Z` (fija), `X.Y` (recibe los parches de esa serie) y `latest` (la última; las betas nunca la mueven). `docker-compose.yml` usa `ghcr.io/athomo001/ellkan:${ELLKAN_VERSION:-latest}`:
+
+| Quiero… | Cómo |
+| --- | --- |
+| Usar la última versión publicada | `ELLKAN_VERSION=latest` en `.env` (el default) y `docker compose up -d` |
+| Fijar una versión (recomendado en producción) | `ELLKAN_VERSION=0.2.0` en `.env`; para actualizar, cambiarla y `docker compose pull ellkan && docker compose up -d ellkan` |
+| Recibir sólo parches de una serie | `ELLKAN_VERSION=0.2` |
+| Compilar desde el código (cambios propios) | `docker compose up -d --build` |
+| Ver qué versión está corriendo | `docker inspect ellkan --format '{{index .Config.Labels "org.opencontainers.image.version"}}'` |
+
+Con `image` y `build` juntos en el compose, `docker compose up` intenta primero descargar la imagen y sólo compila si no la encuentra. Una imagen compilada localmente queda con el mismo nombre que la publicada: el siguiente `docker compose pull` la reemplaza por la oficial.
+
+Antes de pasar a una versión nueva, hacé un [backup](#backup-y-restauración): las migraciones corren solas al arrancar y son sólo hacia adelante (volver a una versión anterior no deshace el esquema).
+
 Por defecto el backend sirve HTTP plano en `${ELLKAN_PORT:-8080}` — Ellkan nunca termina TLS él mismo salvo que se lo configures explícitamente (ver abajo). Sin nada delante, ese tráfico va sin cifrar en la red — aceptable sólo en `localhost`/una red ya confiable; para cualquier otro caso, elegí una de las dos opciones siguientes.
 
 ### TLS: dos formas de cerrar el canal, sin depender de un reverse proxy aparte
@@ -108,6 +124,8 @@ En la web y en la app de escritorio, el error real de una pantalla que no carga 
 | Reconstruiste la imagen pero no ves ningún cambio en la app | Casi siempre es el **navegador** sirviendo el bundle JS/CSS viejo desde su propia caché HTTP, no Docker | Ver los comandos paso a paso en [Reconstruir sin caché](#reconstruir-sin-caché-cuando-un-cambio-no-aparece) más abajo |
 
 ### Reconstruir sin caché (cuando un cambio no aparece)
+
+Los pasos 2 y 3 son para cuando compilás desde el código. Con la imagen publicada, el equivalente del paso 2 es `docker compose pull ellkan && docker compose up -d ellkan` (y el 3 no aplica).
 
 Para copiar y pegar, en orden — parar apenas uno de estos resuelva el problema, no hace falta llegar al 3:
 

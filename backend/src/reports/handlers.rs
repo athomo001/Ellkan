@@ -1,20 +1,18 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, Query, State};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 
 use crate::auth::extractor::AdminUser;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
-use super::dto::{
-    ListarReporteQuery, MfaCoverageItem, PasswordExpiradoItem, RecursoSinRotarItem, ReportResponse,
-    UsuarioInactivoItem,
-};
+use super::dto::{ListarReporteQuery, MfaCoverageItem, PasswordExpiradoItem, RecursoSinRotarItem, ReportResponse, UsuarioInactivoItem};
 use super::models::ReportId;
 use super::service::ReportsService;
 
-type Servicio<'a> = ReportsService<'a, super::repository::PgReportsRepository, crate::password_policy::repository::PgPasswordPolicyRepository>;
+type Servicio<'a> =
+    ReportsService<'a, super::repository::PgReportsRepository, crate::password_policy::repository::PgPasswordPolicyRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     ReportsService { reportes: &state.reportes, password_policy: &state.password_policy }

@@ -23,13 +23,16 @@ use ellkan_backend::folders::repository::FolderItemRepository;
 use ellkan_backend::folders::service::FolderService;
 use ellkan_backend::resources::repository::ResourceRepository;
 use ellkan_backend::tags::service::TagService;
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -56,8 +59,23 @@ impl ReposDeCarpetas {
         }
     }
 
-    fn servicio(&self) -> FolderService<'_, SqliteFolderRepository, SqliteFolderItemRepository, SqlitePermissionRepository, SqliteGroupMemberRepository, SqliteRoleRepository> {
-        FolderService { carpetas: &self.carpetas, items: &self.items, permisos: &self.permisos, grupos: &self.grupos, roles: &self.roles }
+    fn servicio(
+        &self,
+    ) -> FolderService<
+        '_,
+        SqliteFolderRepository,
+        SqliteFolderItemRepository,
+        SqlitePermissionRepository,
+        SqliteGroupMemberRepository,
+        SqliteRoleRepository,
+    > {
+        FolderService {
+            carpetas: &self.carpetas,
+            items: &self.items,
+            permisos: &self.permisos,
+            grupos: &self.grupos,
+            roles: &self.roles,
+        }
     }
 }
 
@@ -97,7 +115,10 @@ async fn excede_la_profundidad_maxima_de_carpetas() {
     let nivel3 = servicio.crear(user_id, Uuid::now_v7(), b"n3", b"n", Some(nivel2.id)).await.unwrap();
 
     let resultado = servicio.crear(user_id, Uuid::now_v7(), b"n4", b"n", Some(nivel3.id)).await;
-    assert!(matches!(resultado, Err(DomainError::ValidacionInvalida(_))), "un 4to nivel debe rechazarse (máximo 3)");
+    assert!(
+        matches!(resultado, Err(DomainError::ValidacionInvalida(_))),
+        "un 4to nivel debe rechazarse (máximo 3)"
+    );
 }
 
 #[tokio::test]
@@ -112,7 +133,10 @@ async fn mover_una_carpeta_detecta_ciclos() {
 
     // Mover `raiz` dentro de su propia descendiente (`sub`) crearía un ciclo.
     let resultado = servicio.mover(user_id, raiz.id, Some(sub.id)).await;
-    assert!(matches!(resultado, Err(DomainError::ValidacionInvalida(_))), "mover una carpeta dentro de su descendiente debe rechazarse");
+    assert!(
+        matches!(resultado, Err(DomainError::ValidacionInvalida(_))),
+        "mover una carpeta dentro de su descendiente debe rechazarse"
+    );
 
     // Reposicionar a la raíz (sacarla de cualquier padre) sigue funcionando.
     servicio.mover(user_id, sub.id, None).await.expect("reposicionar a la raíz debe funcionar");
@@ -131,18 +155,26 @@ async fn mover_un_recurso_a_una_carpeta_exige_ser_el_dueno() {
 
     let dueno = Uuid::now_v7();
     let otro = Uuid::now_v7();
-    let recurso =
-        recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata", b"nonce", dueno, None).await.expect("crear recurso de prueba");
+    let recurso = recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata", b"nonce", dueno, None)
+        .await
+        .expect("crear recurso de prueba");
     let carpeta = servicio.crear(dueno, Uuid::now_v7(), b"carpeta", b"n", None).await.unwrap();
 
     // El dueño puede posicionar su propio recurso.
-    servicio.mover_recurso(dueno, recurso.id, Some(carpeta.id)).await.expect("el dueño debe poder mover su recurso");
+    servicio
+        .mover_recurso(dueno, recurso.id, Some(carpeta.id))
+        .await
+        .expect("el dueño debe poder mover su recurso");
     let posiciones = items.posiciones_de_recursos(dueno).await.unwrap();
     assert_eq!(posiciones.get(&recurso.id), Some(&carpeta.id));
 
     // Otro usuario (sin `created_by` sobre ese recurso) no puede.
     let resultado = servicio.mover_recurso(otro, recurso.id, Some(carpeta.id)).await;
-    assert!(matches!(resultado, Err(DomainError::PermissionDenied)), "un usuario sin permiso sobre el recurso no debe poder moverlo");
+    assert!(
+        matches!(resultado, Err(DomainError::PermissionDenied)),
+        "un usuario sin permiso sobre el recurso no debe poder moverlo"
+    );
 }
 
 #[tokio::test]
@@ -160,7 +192,10 @@ async fn tags_crear_aplicar_listar_y_quitar() {
     assert_eq!(tag.name, "trabajo");
     assert!(!tag.is_shared);
 
-    servicio.aplicar(user_id, recurso.id, tag.id).await.expect("aplicar el propio tag al propio recurso debe funcionar");
+    servicio
+        .aplicar(user_id, recurso.id, tag.id)
+        .await
+        .expect("aplicar el propio tag al propio recurso debe funcionar");
 
     let disponibles = servicio.listar_disponibles(user_id).await.unwrap();
     assert_eq!(disponibles.len(), 1);
@@ -186,5 +221,8 @@ async fn un_tag_personal_ajeno_no_se_puede_aplicar() {
     let recurso_de_otro = recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", otro, None).await.unwrap();
 
     let resultado = servicio.aplicar(otro, recurso_de_otro.id, tag.id).await;
-    assert!(matches!(resultado, Err(DomainError::PermissionDenied)), "un tag personal ajeno no debe poder aplicarse");
+    assert!(
+        matches!(resultado, Err(DomainError::PermissionDenied)),
+        "un tag personal ajeno no debe poder aplicarse"
+    );
 }

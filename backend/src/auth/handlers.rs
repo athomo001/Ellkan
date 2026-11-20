@@ -1,9 +1,9 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 use uuid::Uuid;
 
 use crate::b64;
@@ -12,9 +12,8 @@ use crate::me::service::AvatarService;
 use crate::state::AppState;
 
 use super::dto::{
-    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PublicKeyResponse,
-    RegisterRequest, RegisterResponse, ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest,
-    VerifyEmailRequest, VerifyRequest, VerifyResponse,
+    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PublicKeyResponse, RegisterRequest, RegisterResponse,
+    ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest, VerifyEmailRequest, VerifyRequest, VerifyResponse,
 };
 use super::extractor::{AdminUser, AuthenticatedUser};
 use super::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
@@ -91,20 +90,16 @@ fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
     }
 }
 
-pub async fn register(
-    State(state): State<AppState>,
-    Json(req): Json<RegisterRequest>,
-) -> Result<Json<RegisterResponse>, ApiError> {
+pub async fn register(State(state): State<AppState>, Json(req): Json<RegisterRequest>) -> Result<Json<RegisterResponse>, ApiError> {
     let publica_x25519 =
         b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
-    let publica_ed25519 = b64::decode(&req.public_key_ed25519_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
+    let publica_ed25519 =
+        b64::decode(&req.public_key_ed25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
     let blob = b64::decode(&req.encrypted_private_key_blob_b64)
         .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce = b64::decode(&req.private_key_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let nonce =
+        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
+    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -116,9 +111,7 @@ pub async fn register(
         kdf_salt: &salt,
     };
 
-    let resultado = servicio(&state)
-        .registrar(nuevo, req.setup_token.as_deref(), state.setup_token.as_deref())
-        .await?;
+    let resultado = servicio(&state).registrar(nuevo, req.setup_token.as_deref(), state.setup_token.as_deref()).await?;
     let (user_id, pending_verification) = match resultado {
         ResultadoRegistro::Completo(usuario) => (usuario.id, false),
         ResultadoRegistro::PendienteVerificacion { user_id } => (user_id, true),
@@ -136,14 +129,13 @@ pub async fn crear_admin(
 ) -> Result<Json<RegisterResponse>, ApiError> {
     let publica_x25519 =
         b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
-    let publica_ed25519 = b64::decode(&req.public_key_ed25519_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
+    let publica_ed25519 =
+        b64::decode(&req.public_key_ed25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
     let blob = b64::decode(&req.encrypted_private_key_blob_b64)
         .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce = b64::decode(&req.private_key_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let nonce =
+        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
+    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -164,24 +156,16 @@ pub async fn verify_email(State(state): State<AppState>, Json(req): Json<VerifyE
     Ok(())
 }
 
-pub async fn resend_verification(
-    State(state): State<AppState>,
-    Json(req): Json<ResendVerificationRequest>,
-) -> Result<(), ApiError> {
+pub async fn resend_verification(State(state): State<AppState>, Json(req): Json<ResendVerificationRequest>) -> Result<(), ApiError> {
     servicio(&state).reenviar_verificacion(&req.email).await?;
     Ok(())
 }
 
 pub async fn server_key(State(state): State<AppState>) -> Json<ServerKeyResponse> {
-    Json(ServerKeyResponse {
-        public_key_ed25519_b64: b64::encode(state.server_public_key_ed25519.as_slice()),
-    })
+    Json(ServerKeyResponse { public_key_ed25519_b64: b64::encode(state.server_public_key_ed25519.as_slice()) })
 }
 
-pub async fn challenge(
-    State(state): State<AppState>,
-    Json(req): Json<ChallengeRequest>,
-) -> Result<Json<ChallengeResponse>, ApiError> {
+pub async fn challenge(State(state): State<AppState>, Json(req): Json<ChallengeRequest>) -> Result<Json<ChallengeResponse>, ApiError> {
     let nonce = servicio(&state).challenge(&req.email).await?;
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
 }
@@ -198,35 +182,22 @@ pub async fn key_material(
     }))
 }
 
-pub async fn verify(
-    State(state): State<AppState>,
-    Json(req): Json<VerifyRequest>,
-) -> Result<Json<VerifyResponse>, ApiError> {
-    let nonce = b64::decode(&req.nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("nonce_b64 inválido".into()))?;
-    let firma = b64::decode(&req.signature_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?;
-    let device_token_hash = b64::decode(&req.device_token_hash_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
+pub async fn verify(State(state): State<AppState>, Json(req): Json<VerifyRequest>) -> Result<Json<VerifyResponse>, ApiError> {
+    let nonce = b64::decode(&req.nonce_b64).map_err(|_| DomainError::ValidacionInvalida("nonce_b64 inválido".into()))?;
+    let firma = b64::decode(&req.signature_b64).map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?;
+    let device_token_hash =
+        b64::decode(&req.device_token_hash_b64).map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
 
-    let resultado = servicio(&state)
-        .verify(&req.email, &nonce, &firma, &device_token_hash, req.force_mfa)
-        .await?;
+    let resultado = servicio(&state).verify(&req.email, &nonce, &firma, &device_token_hash, req.force_mfa).await?;
     Ok(Json(resultado_a_response(resultado)))
 }
 
-pub async fn verify_device(
-    State(state): State<AppState>,
-    Json(req): Json<VerifyDeviceRequest>,
-) -> Result<Json<VerifyResponse>, ApiError> {
+pub async fn verify_device(State(state): State<AppState>, Json(req): Json<VerifyDeviceRequest>) -> Result<Json<VerifyResponse>, ApiError> {
     let resultado = servicio(&state).verify_device(req.device_challenge_id, &req.code).await?;
     Ok(Json(resultado_a_response(resultado)))
 }
 
-pub async fn logout(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<(), ApiError> {
+pub async fn logout(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<(), ApiError> {
     servicio(&state).logout(auth.session_id, auth.user_id).await?;
     Ok(())
 }
@@ -264,11 +235,7 @@ pub async fn public_key(
 /// /users/{email}/public-key` (cualquier miembro autenticado puede ver el
 /// directorio básico de la organización, el avatar no es más sensible que
 /// el email o el nombre ya expuestos ahí).
-pub async fn avatar(
-    State(state): State<AppState>,
-    _auth: AuthenticatedUser,
-    Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn avatar(State(state): State<AppState>, _auth: AuthenticatedUser, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
     let avatar = AvatarService { avatar: &state.preferencias_usuario }.obtener(id).await?;
     match avatar {
         Some(a) => Ok(([(header::CONTENT_TYPE, a.content_type)], a.bytes).into_response()),

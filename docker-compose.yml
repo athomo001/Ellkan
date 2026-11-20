@@ -5,6 +5,11 @@
 # git) antes de levantar esto. Ver `secrets/README.md`.
 services:
   ellkan:
+    # Imagen publicada en cada release (GHCR). Con `image` y `build` juntos,
+    # `docker compose up` primero intenta descargarla y sólo compila desde el
+    # código si no la encuentra; `docker compose up -d --build` fuerza compilar.
+    # `ELLKAN_VERSION` (en .env) elige la versión; por defecto, la última.
+    image: "ghcr.io/athomo001/ellkan:${ELLKAN_VERSION:-latest}"
     build:
       context: .
       dockerfile: backend/Dockerfile

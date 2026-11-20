@@ -20,7 +20,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_grupo(entorno: &common::Entorno, sesion_admin: Uuid, name: &str) -> Uuid {
@@ -147,14 +147,23 @@ async fn visibilidad_de_usuarios_acotada_por_grupo() {
     let resultados = buscar(&entorno, sesion_carol, "gc-dave").await;
     assert!(contiene_email(&resultados, "gc-dave@test.ellkan"), "carol debería ver a dave, mismo grupo");
     let resultados = buscar(&entorno, sesion_carol, "gc-alice").await;
-    assert!(!contiene_email(&resultados, "gc-alice@test.ellkan"), "carol no debería ver a alice, grupos distintos");
+    assert!(
+        !contiene_email(&resultados, "gc-alice@test.ellkan"),
+        "carol no debería ver a alice, grupos distintos"
+    );
 
     // Dave es admin de grupo: ve a Eve (admin de OTRO grupo) aunque no comparten grupo.
     let resultados = buscar(&entorno, sesion_dave, "gc-eve").await;
-    assert!(contiene_email(&resultados, "gc-eve@test.ellkan"), "un admin de grupo debería ver a admins de otros grupos");
+    assert!(
+        contiene_email(&resultados, "gc-eve@test.ellkan"),
+        "un admin de grupo debería ver a admins de otros grupos"
+    );
     // Pero Dave no ve a Alice (regular, sin grupo, no admin de nada).
     let resultados = buscar(&entorno, sesion_dave, "gc-alice").await;
-    assert!(!contiene_email(&resultados, "gc-alice@test.ellkan"), "un admin de grupo no ve a un regular de otro/ningún grupo");
+    assert!(
+        !contiene_email(&resultados, "gc-alice@test.ellkan"),
+        "un admin de grupo no ve a un regular de otro/ningún grupo"
+    );
 
     // El admin de organización ve a cualquiera.
     let resultados = buscar(&entorno, sesion_admin, "gc-alice").await;
@@ -189,7 +198,10 @@ async fn compartir_recurso_funciona_aunque_la_busqueda_este_restringida_por_grup
     // Confirmado (mismo criterio que `visibilidad_de_usuarios_acotada_por_grupo`):
     // sin grupo, alice no ve a bob en la búsqueda.
     let resultados = buscar(&entorno, sesion_alice, "gc-vis-bob").await;
-    assert!(!contiene_email(&resultados, "gc-vis-bob@test.ellkan"), "sin grupo, alice no debería ver a bob en la búsqueda");
+    assert!(
+        !contiene_email(&resultados, "gc-vis-bob@test.ellkan"),
+        "sin grupo, alice no debería ver a bob en la búsqueda"
+    );
 
     // Pero compartir directo (conociendo el user_id por otro medio) sigue
     // funcionando — comportamiento intencional, no un bug.
@@ -261,7 +273,10 @@ async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
 
     // Ahora alice (miembro de un grupo exento) ve a carol, que ni siquiera tiene grupo.
     let resultados = buscar(&entorno, sesion_alice, "gcx-carol").await;
-    assert!(contiene_email(&resultados, "gcx-carol@test.ellkan"), "miembro de grupo exento debería ver a cualquiera");
+    assert!(
+        contiene_email(&resultados, "gcx-carol@test.ellkan"),
+        "miembro de grupo exento debería ver a cualquiera"
+    );
 
     // Apagar la exención puntual — alice vuelve a no ver a carol.
     let resp = entorno
@@ -277,7 +292,10 @@ async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
     let dave = common::registrar(&entorno, "gcx-dave@test.ellkan").await; // sin grupo, sin exención
     let sesion_dave = common::login(&entorno, &dave).await;
     let resultados = buscar(&entorno, sesion_dave, "gcx-carol").await;
-    assert!(!contiene_email(&resultados, "gcx-carol@test.ellkan"), "sin exención ni política apagada, dave no debería ver a carol");
+    assert!(
+        !contiene_email(&resultados, "gcx-carol@test.ellkan"),
+        "sin exención ni política apagada, dave no debería ver a carol"
+    );
 
     // Apagar la política entera: hasta alguien completamente sin grupo ve a todos.
     let resp = entorno
@@ -291,7 +309,10 @@ async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
     assert_eq!(resp.status(), 200);
 
     let resultados = buscar(&entorno, sesion_dave, "gcx-carol").await;
-    assert!(contiene_email(&resultados, "gcx-carol@test.ellkan"), "con la política apagada, cualquiera ve a cualquiera");
+    assert!(
+        contiene_email(&resultados, "gcx-carol@test.ellkan"),
+        "con la política apagada, cualquiera ve a cualquiera"
+    );
 }
 
 #[tokio::test]
@@ -346,7 +367,11 @@ async fn mover_carpeta_a_su_propio_descendiente_es_un_ciclo_rechazado() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 400, "mover una carpeta dentro de su propio descendiente debería rechazarse como ciclo");
+    assert_eq!(
+        resp.status(),
+        400,
+        "mover una carpeta dentro de su propio descendiente debería rechazarse como ciclo"
+    );
 }
 
 #[tokio::test]
@@ -404,7 +429,11 @@ async fn cualquier_miembro_agrega_recursos_a_carpeta_de_grupo_pero_no_un_ajeno()
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 403, "agregar a la carpeta nunca comparte el recurso en sí, sigue siendo un paso aparte");
+    assert_eq!(
+        resp.status(),
+        403,
+        "agregar a la carpeta nunca comparte el recurso en sí, sigue siendo un paso aparte"
+    );
 }
 
 /// Regresión de seguridad (auditoría 2026-08-12, H-02): `mover_recurso` sólo
@@ -456,7 +485,11 @@ async fn mover_recurso_ajeno_a_carpeta_de_grupo_propio_es_rechazado() {
     // Mallory intenta "enmarcar" el recurso de Victima en su propia carpeta —
     // sin ningún permiso (ni siquiera `read`) sobre ese recurso.
     let resp = mover_recurso(&entorno, sesion_mallory, recurso_victima, Some(folder_mallory)).await;
-    assert_eq!(resp.status(), 403, "mover un recurso ajeno a una carpeta propia debería rechazarse, sin importar quién administre la carpeta destino");
+    assert_eq!(
+        resp.status(),
+        403,
+        "mover un recurso ajeno a una carpeta propia debería rechazarse, sin importar quién administre la carpeta destino"
+    );
 
     // El recurso de Victima no quedó posicionado en la carpeta de Mallory.
     let resp = entorno
@@ -552,7 +585,10 @@ async fn borrar_recurso_en_carpeta_de_grupo_exige_admin_de_ese_grupo_o_de_organi
         .await
         .unwrap();
     let listado: Value = resp.json().await.unwrap();
-    assert!(listado.as_array().unwrap().iter().all(|r| r["id"] != json!(recurso)), "el recurso borrado no debería seguir listado");
+    assert!(
+        listado.as_array().unwrap().iter().all(|r| r["id"] != json!(recurso)),
+        "el recurso borrado no debería seguir listado"
+    );
 }
 
 #[tokio::test]
@@ -617,7 +653,10 @@ async fn incluir_subcarpetas_trae_tambien_los_recursos_de_las_subcarpetas() {
     let listado: Value = serde_json::from_str(&texto).unwrap();
     let ids: Vec<String> = listado.as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
     assert!(ids.contains(&recurso_a.to_string()));
-    assert!(ids.contains(&recurso_b.to_string()), "con incluir_subcarpetas, debería traer también lo de la subcarpeta");
+    assert!(
+        ids.contains(&recurso_b.to_string()),
+        "con incluir_subcarpetas, debería traer también lo de la subcarpeta"
+    );
 }
 
 /// Regresión H-28 (auditoría 2026-08-12): los dos únicos managers de un
@@ -765,7 +804,11 @@ async fn usuario_con_read_y_admin_de_grupo_no_puede_borrar_recurso_ajeno() {
     let resp = mover_recurso(&entorno, sesion_mallory, recurso, Some(carpeta_personal)).await;
     assert_eq!(resp.status(), 200, "reordenar el propio árbol con `read` sigue permitido");
     compartir_con_grupo(carpeta_personal).await;
-    assert_eq!(borrar().await, 403, "una posición hecha por alguien que no es owner no habilita el borrado por grupo");
+    assert_eq!(
+        borrar().await,
+        403,
+        "una posición hecha por alguien que no es owner no habilita el borrado por grupo"
+    );
 
     // El recurso sigue intacto para la víctima.
     let resp = entorno
@@ -849,7 +892,13 @@ async fn puede_borrar_del_listado_coincide_con_delete() {
         .await
         .unwrap();
     let puede = |id: Uuid| {
-        listado.as_array().unwrap().iter().find(|r| r["id"] == json!(id)).map(|r| r["puede_borrar"].clone()).unwrap()
+        listado
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == json!(id))
+            .map(|r| r["puede_borrar"].clone())
+            .unwrap()
     };
     assert_eq!(puede(r_libre), json!(true), "owner fuera de carpeta de grupo");
     assert_eq!(puede(r_grupo), json!(false), "owner individual dentro de carpeta de grupo");
@@ -879,7 +928,13 @@ async fn detalle_de_grupo_no_expone_miembros_a_ajenos() {
 
     let entorno = &entorno;
     let detalle = |sesion: Uuid| async move {
-        let resp = entorno.cliente.get(format!("{}/groups/{grupo}", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+        let resp = entorno
+            .cliente
+            .get(format!("{}/groups/{grupo}", entorno.base))
+            .bearer_auth(sesion)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(resp.status(), 200);
         resp.json::<Value>().await.unwrap()
     };

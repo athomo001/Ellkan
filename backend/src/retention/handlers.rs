@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 
 use crate::auth::extractor::AdminUser;
 use crate::error::ApiError;
@@ -14,13 +14,14 @@ use super::service::RetentionService;
 type Servicio<'a> = RetentionService<'a, PgRetentionPolicyRepository, PgPurgeRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
-    RetentionService { policy: &state.retention_policy, purga: &state.purge, eventos: state.eventos.clone() }
+    RetentionService {
+        policy: &state.retention_policy,
+        purga: &state.purge,
+        eventos: state.eventos.clone(),
+    }
 }
 
-pub async fn politica(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<RetentionPolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<RetentionPolicyResponse>, ApiError> {
     let p = servicio(&state).politica().await?;
     Ok(Json(RetentionPolicyResponse {
         data_retention_days: p.data_retention_days,

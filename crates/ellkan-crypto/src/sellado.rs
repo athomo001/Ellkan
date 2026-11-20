@@ -31,8 +31,7 @@ fn a_caja_privada(privada: &StaticSecret) -> CajaPrivada {
 pub fn sellar_dek(publica_destinatario: &X25519PublicKey, dek: &ClaveSecreta32) -> Vec<u8> {
     let caja = a_caja_publica(publica_destinatario);
     let mut rng = csprng_v6();
-    caja.seal(&mut rng, dek.expose_secret())
-        .expect("sellar una DEK de 32 bytes no debería fallar")
+    caja.seal(&mut rng, dek.expose_secret()).expect("sellar una DEK de 32 bytes no debería fallar")
 }
 
 /// Abre una DEK sellada con la clave privada del destinatario.
@@ -57,8 +56,8 @@ pub fn abrir_bytes(privada_destinatario: &StaticSecret, sellado: &[u8]) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claves::KeypairAcuerdo;
     use crate::aleatoriedad::bytes_aleatorios;
+    use crate::claves::KeypairAcuerdo;
 
     #[test]
     fn destinatario_correcto_abre_la_dek_sellada() {

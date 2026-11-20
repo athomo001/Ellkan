@@ -7,9 +7,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{
-    ExternalSharePolicy, FilaExternalShare, FilaExternalShareResumen, NuevoExternalShare, ResultadoAcceso,
-};
+use super::models::{ExternalSharePolicy, FilaExternalShare, FilaExternalShareResumen, NuevoExternalShare, ResultadoAcceso};
 
 pub trait ExternalShareRepository {
     async fn crear(&self, nuevo: &NuevoExternalShare) -> Result<FilaExternalShare, RepoError>;
@@ -154,12 +152,9 @@ impl ExternalShareRepository for PgExternalShareRepository {
             return Ok(ResultadoAcceso::Quemado);
         }
         if fila.expires_at <= OffsetDateTime::now_utc() {
-            sqlx::query!(
-                r#"update external_shares set burned_at = now(), ciphertext = null where id = $1"#,
-                id,
-            )
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query!(r#"update external_shares set burned_at = now(), ciphertext = null where id = $1"#, id,)
+                .execute(&mut *tx)
+                .await?;
             tx.commit().await?;
             return Ok(ResultadoAcceso::Expirado);
         }
@@ -184,13 +179,9 @@ impl ExternalShareRepository for PgExternalShareRepository {
             .execute(&mut *tx)
             .await?;
         } else {
-            sqlx::query!(
-                r#"update external_shares set view_count = $2 where id = $1"#,
-                id,
-                nuevas_vistas,
-            )
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query!(r#"update external_shares set view_count = $2 where id = $1"#, id, nuevas_vistas,)
+                .execute(&mut *tx)
+                .await?;
         }
         tx.commit().await?;
 

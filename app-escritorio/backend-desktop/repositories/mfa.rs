@@ -65,12 +65,7 @@ impl TotpCredentialRepository for SqliteTotpCredentialRepository {
         Ok(())
     }
 
-    async fn crear_pendiente(
-        &self,
-        user_id: Uuid,
-        secret_ciphertext: &[u8],
-        secret_nonce: &[u8],
-    ) -> Result<TotpCredential, RepoError> {
+    async fn crear_pendiente(&self, user_id: Uuid, secret_ciphertext: &[u8], secret_nonce: &[u8]) -> Result<TotpCredential, RepoError> {
         let id = Uuid::now_v7();
         sqlx::query(
             r#"insert into user_totp_credentials (id, user_id, secret_ciphertext, secret_nonce)

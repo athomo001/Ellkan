@@ -27,38 +27,19 @@ async fn host_smtp_invalido_se_rechaza_y_el_servidor_sigue_vivo() {
     common::promover_admin(&entorno.pool, admin.user_id).await;
     let sesion = common::login(&entorno, &admin).await;
 
-    assert_eq!(
-        guardar(&entorno, sesion, "mail host", true).await,
-        400,
-        "host con espacios"
-    );
-    assert_eq!(
-        guardar(&entorno, sesion, "mail host", false).await,
-        400,
-        "host con espacios, sin TLS"
-    );
+    assert_eq!(guardar(&entorno, sesion, "mail host", true).await, 400, "host con espacios");
+    assert_eq!(guardar(&entorno, sesion, "mail host", false).await, 400, "host con espacios, sin TLS");
 
     // La config previa (la del entorno de prueba) sigue intacta.
-    let fila: (Option<String>,) =
-        sqlx::query_as("select host from smtp_config where organization_id = 1")
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
-    assert_eq!(fila.0.as_deref(), Some("smtp.invalid"));
-
-    assert_eq!(
-        guardar(&entorno, sesion, "smtp.ejemplo.test", true).await,
-        200,
-        "host válido"
-    );
-
-    // El proceso sigue respondiendo.
-    let resp = entorno
-        .cliente
-        .get(format!("{}/me", entorno.base))
-        .bearer_auth(sesion)
-        .send()
+    let fila: (Option<String>,) = sqlx::query_as("select host from smtp_config where organization_id = 1")
+        .fetch_one(&entorno.pool)
         .await
         .unwrap();
+    assert_eq!(fila.0.as_deref(), Some("smtp.invalid"));
+
+    assert_eq!(guardar(&entorno, sesion, "smtp.ejemplo.test", true).await, 200, "host válido");
+
+    // El proceso sigue respondiendo.
+    let resp = entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion).send().await.unwrap();
     assert_eq!(resp.status(), 200);
 }

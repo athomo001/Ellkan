@@ -20,7 +20,7 @@
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 /// Un archivo del bundle: ruta relativa con `/` (ej. `popup/index.html`).
 pub struct ArchivoExtension<'a> {
@@ -32,8 +32,13 @@ pub struct ArchivoExtension<'a> {
 /// Chrome, Edge, Brave y Opera (base Chromium) comparten un único build y una
 /// única carpeta — cada uno la carga por su cuenta. Firefox usa su propio
 /// manifest.
-pub const NAVEGADORES: &[(&str, &str)] =
-    &[("chrome", "chromium"), ("edge", "chromium"), ("brave", "chromium"), ("opera", "chromium"), ("firefox", "firefox")];
+pub const NAVEGADORES: &[(&str, &str)] = &[
+    ("chrome", "chromium"),
+    ("edge", "chromium"),
+    ("brave", "chromium"),
+    ("opera", "chromium"),
+    ("firefox", "firefox"),
+];
 
 /// Build de la extensión que corresponde a `navegador`, `None` si no es uno
 /// de los soportados — nunca se arma una ruta a partir de un id sin validar.
@@ -159,13 +164,19 @@ pub fn buscar_ejecutable_en(navegador: &str, carpeta_de_pruebas: Option<&Path>) 
     if let Some(carpeta) = carpeta_de_pruebas {
         // Sólo ids soportados: nunca se arma una ruta con lo que llegue de afuera.
         objetivo_de(navegador)?;
-        let nombre = if cfg!(windows) { format!("{navegador}.exe") } else { navegador.to_string() };
+        let nombre = if cfg!(windows) {
+            format!("{navegador}.exe")
+        } else {
+            navegador.to_string()
+        };
         return Some(carpeta.join(nombre)).filter(|ruta| ruta.is_file());
     }
 
     #[cfg(windows)]
     {
-        candidatos_ejecutable(navegador, &|variable| std::env::var(variable).ok()).into_iter().find(|ruta| ruta.is_file())
+        candidatos_ejecutable(navegador, &|variable| std::env::var(variable).ok())
+            .into_iter()
+            .find(|ruta| ruta.is_file())
     }
     #[cfg(not(windows))]
     {
@@ -209,7 +220,11 @@ fn ruta_segura(ruta: &str) -> anyhow::Result<PathBuf> {
 
 /// Campo `version` de un `manifest.json`, `None` si no parsea o no lo trae.
 pub fn version_de_manifest(bytes: &[u8]) -> Option<String> {
-    serde_json::from_slice::<serde_json::Value>(bytes).ok()?.get("version")?.as_str().map(str::to_string)
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()?
+        .get("version")?
+        .as_str()
+        .map(str::to_string)
 }
 
 /// Versión de la extensión que trae ESTA build de la app.

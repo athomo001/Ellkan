@@ -9,14 +9,17 @@
 
 use ellkan_backend::desktop::repositories::recovery_kit::{SqliteRecoveryKitRepository, SqliteResetTokenRepository};
 use ellkan_backend::recovery_kit::repository::{RecoveryKitRepository, ResetTokenRepository};
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -25,7 +28,9 @@ async fn bootstrap_sqlite_crea_el_archivo_y_corre_migraciones() {
     let datadir = std::env::temp_dir().join(format!("ellkan-test-{}", Uuid::now_v7()));
     std::fs::create_dir_all(&datadir).unwrap();
 
-    let pool = ellkan_backend::desktop::bootstrap_sqlite(&datadir).await.expect("bootstrap_sqlite no debería fallar");
+    let pool = ellkan_backend::desktop::bootstrap_sqlite(&datadir)
+        .await
+        .expect("bootstrap_sqlite no debería fallar");
     assert!(datadir.join("ellkan.db").exists(), "bootstrap_sqlite debe crear el archivo de la bóveda");
 
     // Migraciones ya corridas: la tabla existe y acepta un insert real.
@@ -76,8 +81,11 @@ async fn ciclo_completo_de_reset_token_con_doble_consumo() {
 
     let id = repo.crear(user_id, &token_hash, vence).await.unwrap();
 
-    let encontrado =
-        repo.buscar_vigente_por_hash(&token_hash).await.unwrap().expect("el token recién creado debe estar vigente");
+    let encontrado = repo
+        .buscar_vigente_por_hash(&token_hash)
+        .await
+        .unwrap()
+        .expect("el token recién creado debe estar vigente");
     assert_eq!(encontrado.id, id);
     assert_eq!(encontrado.user_id, user_id);
     assert!(encontrado.consumed_at.is_none());

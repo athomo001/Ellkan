@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use tracing::info;
 
-use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
+use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 
 use super::repository::MetadataKeyRepository;
 

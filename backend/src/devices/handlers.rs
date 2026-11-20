@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
@@ -11,8 +11,8 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    AprobarRequest, ApprovalRequestResponse, DeviceApprovalPolicyResponse, MarcarConfiableRequest,
-    SolicitarAprobacionRequest, TrustedDeviceResponse,
+    ApprovalRequestResponse, AprobarRequest, DeviceApprovalPolicyResponse, MarcarConfiableRequest, SolicitarAprobacionRequest,
+    TrustedDeviceResponse,
 };
 use super::models::{ApprovalRequest, DeviceApprovalPolicy, TrustedDevice};
 use super::service::DeviceService;
@@ -68,22 +68,16 @@ pub async fn marcar_confiable(
     auth: AuthenticatedUser,
     Json(req): Json<MarcarConfiableRequest>,
 ) -> Result<Json<TrustedDeviceResponse>, ApiError> {
-    let public_key = b64::decode(&req.device_public_key_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("device_public_key_b64 inválido".into()))?;
+    let public_key =
+        b64::decode(&req.device_public_key_b64).map_err(|_| DomainError::ValidacionInvalida("device_public_key_b64 inválido".into()))?;
     let sealed = b64::decode(&req.sealed_user_private_key_b64)
         .map_err(|_| DomainError::ValidacionInvalida("sealed_user_private_key_b64 inválido".into()))?;
 
-    let dispositivo = servicio(&state)
-        .marcar_confiable(auth.user_id, &public_key, &sealed, req.label.as_deref())
-        .await?;
+    let dispositivo = servicio(&state).marcar_confiable(auth.user_id, &public_key, &sealed, req.label.as_deref()).await?;
     Ok(Json(a_response(dispositivo)))
 }
 
-pub async fn revocar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-    Path(device_id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn revocar(State(state): State<AppState>, auth: AuthenticatedUser, Path(device_id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).revocar(auth.user_id, device_id).await?;
     Ok(())
 }
@@ -100,8 +94,8 @@ pub async fn solicitar_aprobacion(
     State(state): State<AppState>,
     Json(req): Json<SolicitarAprobacionRequest>,
 ) -> Result<Json<ApprovalRequestResponse>, ApiError> {
-    let public_key = b64::decode(&req.device_public_key_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("device_public_key_b64 inválido".into()))?;
+    let public_key =
+        b64::decode(&req.device_public_key_b64).map_err(|_| DomainError::ValidacionInvalida("device_public_key_b64 inválido".into()))?;
 
     let usuario = state
         .usuarios
@@ -114,10 +108,7 @@ pub async fn solicitar_aprobacion(
     Ok(Json(solicitud_a_response(solicitud, false)))
 }
 
-pub async fn estado_aprobacion(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<ApprovalRequestResponse>, ApiError> {
+pub async fn estado_aprobacion(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Json<ApprovalRequestResponse>, ApiError> {
     let solicitud = servicio(&state).estado_aprobacion(id).await?;
     let aprobada = solicitud.status == "approved";
     Ok(Json(solicitud_a_response(solicitud, aprobada)))
@@ -135,10 +126,7 @@ pub async fn aprobar(
     Ok(())
 }
 
-pub async fn politica(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<DeviceApprovalPolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<DeviceApprovalPolicyResponse>, ApiError> {
     let p = servicio(&state).politica().await?;
     Ok(Json(DeviceApprovalPolicyResponse {
         allow_peer_device_approval: p.allow_peer_device_approval,

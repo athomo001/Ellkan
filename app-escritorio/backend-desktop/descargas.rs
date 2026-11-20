@@ -13,7 +13,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 /// Carpeta Descargas del usuario (la real de Windows/Linux, aunque esté
 /// redirigida), creándola si no existe.
@@ -26,8 +26,8 @@ pub fn carpeta_descargas() -> anyhow::Result<PathBuf> {
 }
 
 const RESERVADOS_WINDOWS: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-    "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4",
+    "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
 /// Reduce `nombre` a un nombre de archivo seguro para cualquier sistema:
@@ -37,10 +37,7 @@ const RESERVADOS_WINDOWS: &[&str] = &[
 pub fn nombre_seguro(nombre: &str) -> Option<String> {
     // Sólo la última parte: `..\..\x.txt` o `/etc/x` quedan en `x.txt`.
     let ultimo = nombre.rsplit(['/', '\\']).next().unwrap_or("");
-    let limpio: String = ultimo
-        .chars()
-        .map(|c| if c.is_control() || "<>:\"|?*".contains(c) { '_' } else { c })
-        .collect();
+    let limpio: String = ultimo.chars().map(|c| if c.is_control() || "<>:\"|?*".contains(c) { '_' } else { c }).collect();
     // Windows no admite puntos ni espacios al final del nombre.
     let limpio = limpio.trim().trim_end_matches('.').trim_end().to_string();
     if limpio.is_empty() || limpio.chars().all(|c| c == '.' || c == '_') {
@@ -51,7 +48,11 @@ pub fn nombre_seguro(nombre: &str) -> Option<String> {
         Some((b, e)) if !b.is_empty() => (b.to_string(), format!(".{e}")),
         _ => (limpio.clone(), String::new()),
     };
-    let base = if RESERVADOS_WINDOWS.contains(&base.to_uppercase().as_str()) { format!("_{base}") } else { base };
+    let base = if RESERVADOS_WINDOWS.contains(&base.to_uppercase().as_str()) {
+        format!("_{base}")
+    } else {
+        base
+    };
 
     let mut resultado = format!("{base}{extension}");
     if resultado.chars().count() > 150 {
@@ -75,7 +76,11 @@ pub fn guardar_sin_pisar(carpeta: &Path, nombre: &str, contenido: &[u8]) -> anyh
     };
 
     for intento in 0..1000 {
-        let candidato = if intento == 0 { nombre.clone() } else { format!("{base} ({intento}){extension}") };
+        let candidato = if intento == 0 {
+            nombre.clone()
+        } else {
+            format!("{base} ({intento}){extension}")
+        };
         let ruta = carpeta.join(&candidato);
         match std::fs::OpenOptions::new().write(true).create_new(true).open(&ruta) {
             Ok(mut archivo) => {

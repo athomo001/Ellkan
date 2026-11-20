@@ -25,7 +25,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::auth::extractor::AuthenticatedUser;
-use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
+use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 use crate::resources::repository::{PgResourceRepository, ResourceRepository};
 use crate::state::AppState;
 
@@ -36,7 +36,10 @@ pub enum AvisoSync {
     Cambio(Uuid),
     /// La cuenta fue bloqueada o purgada (docs/revocacion-remota.md): se le
     /// manda a la app el aviso FIRMADO por el servidor y se cierra el stream.
-    Revocada { user_id: Uuid, aviso: Arc<crate::revocacion::AvisoFirmado> },
+    Revocada {
+        user_id: Uuid,
+        aviso: Arc<crate::revocacion::AvisoFirmado>,
+    },
 }
 
 /// Canal interno de avisos para las apps de escritorio conectadas.

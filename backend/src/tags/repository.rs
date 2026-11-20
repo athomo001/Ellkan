@@ -67,16 +67,18 @@ impl TagRepository for PgTagRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(Tag { id: fila.id, name: fila.name, is_shared: fila.is_shared, created_by: fila.created_by })
+        Ok(Tag {
+            id: fila.id,
+            name: fila.name,
+            is_shared: fila.is_shared,
+            created_by: fila.created_by,
+        })
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Tag>, RepoError> {
-        let fila = sqlx::query!(
-            r#"select id, name, is_shared, created_by from tags where id = $1 and deleted_at is null"#,
-            id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select id, name, is_shared, created_by from tags where id = $1 and deleted_at is null"#, id,)
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(fila.map(|f| Tag { id: f.id, name: f.name, is_shared: f.is_shared, created_by: f.created_by }))
     }
@@ -111,13 +113,9 @@ impl TagRepository for PgTagRepository {
     }
 
     async fn quitar(&self, resource_id: Uuid, tag_id: Uuid) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"delete from resource_tags where resource_id = $1 and tag_id = $2"#,
-            resource_id,
-            tag_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"delete from resource_tags where resource_id = $1 and tag_id = $2"#, resource_id, tag_id,)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -139,10 +137,9 @@ impl TagRepository for PgTagRepository {
     }
 
     async fn eliminar(&self, id: Uuid) -> Result<bool, RepoError> {
-        let resultado =
-            sqlx::query!(r#"update tags set deleted_at = now(), updated_at = now() where id = $1 and deleted_at is null"#, id)
-                .execute(&self.pool)
-                .await?;
+        let resultado = sqlx::query!(r#"update tags set deleted_at = now(), updated_at = now() where id = $1 and deleted_at is null"#, id)
+            .execute(&self.pool)
+            .await?;
         Ok(resultado.rows_affected() > 0)
     }
 

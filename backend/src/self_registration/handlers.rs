@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 
 use crate::auth::extractor::AdminUser;
 use crate::error::ApiError;
@@ -25,10 +25,7 @@ fn a_response(p: SelfRegistrationPolicy) -> SelfRegistrationPolicyResponse {
 /// No hay GET público — un cliente anónimo no necesita saber la política
 /// antes de intentar registrarse, mismo criterio que
 /// `account-recovery-policy`/`sso-config`.
-pub async fn politica(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<SelfRegistrationPolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<SelfRegistrationPolicyResponse>, ApiError> {
     let p = servicio(&state).obtener().await?;
     Ok(Json(a_response(p)))
 }

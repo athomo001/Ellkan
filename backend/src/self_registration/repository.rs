@@ -18,11 +18,9 @@ pub struct PgSelfRegistrationPolicyRepository {
 
 impl SelfRegistrationPolicyRepository for PgSelfRegistrationPolicyRepository {
     async fn obtener(&self) -> Result<SelfRegistrationPolicy, RepoError> {
-        let fila = sqlx::query!(
-            r#"select enabled, allowed_domains from self_registration_policy where organization_id = 1"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select enabled, allowed_domains from self_registration_policy where organization_id = 1"#,)
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(SelfRegistrationPolicy { enabled: fila.enabled, allowed_domains: fila.allowed_domains })
     }

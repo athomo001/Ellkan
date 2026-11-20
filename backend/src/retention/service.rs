@@ -43,12 +43,10 @@ where
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::RetentionPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "data_retention_days": nueva.data_retention_days,
-                    "audit_log_retention_days": nueva.audit_log_retention_days,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::RetentionPolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "data_retention_days": nueva.data_retention_days,
+                "audit_log_retention_days": nueva.audit_log_retention_days,
+            })),
         ));
 
         Ok(nueva)
@@ -56,8 +54,7 @@ where
 
     pub async fn correr_purga(&self) -> Result<ResultadoPurga, DomainError> {
         let politica = self.policy.obtener().await?;
-        let resultado =
-            self.purga.purgar(politica.data_retention_days, politica.audit_log_retention_days).await?;
+        let resultado = self.purga.purgar(politica.data_retention_days, politica.audit_log_retention_days).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::RetentionPurgeRan, None).con_metadata(serde_json::json!({

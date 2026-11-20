@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
@@ -9,17 +9,10 @@ use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
-use super::dto::{
-    AgregarDestinatarioRequest, CrearMetadataKeyRequest, DestinatarioEnvelope, MetadataKeyResponse,
-    RotationStatusResponse,
-};
+use super::dto::{AgregarDestinatarioRequest, CrearMetadataKeyRequest, DestinatarioEnvelope, MetadataKeyResponse, RotationStatusResponse};
 use super::service::MetadataKeyService;
 
-type Servicio<'a> = MetadataKeyService<
-    'a,
-    super::repository::PgMetadataKeyRepository,
-    super::repository::PgMetadataKeyEnvelopeRepository,
->;
+type Servicio<'a> = MetadataKeyService<'a, super::repository::PgMetadataKeyRepository, super::repository::PgMetadataKeyEnvelopeRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     MetadataKeyService {
@@ -29,10 +22,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
     }
 }
 
-pub async fn listar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<Json<Vec<MetadataKeyResponse>>, ApiError> {
+pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<Vec<MetadataKeyResponse>>, ApiError> {
     let servicio = servicio(&state);
     let activas = servicio.activas().await?;
 
@@ -50,9 +40,7 @@ pub async fn listar(
     Ok(Json(respuesta))
 }
 
-fn decodificar_destinatarios(
-    destinatarios: Vec<DestinatarioEnvelope>,
-) -> Result<Vec<(uuid::Uuid, Vec<u8>)>, ApiError> {
+fn decodificar_destinatarios(destinatarios: Vec<DestinatarioEnvelope>) -> Result<Vec<(uuid::Uuid, Vec<u8>)>, ApiError> {
     let mut resultado = Vec::with_capacity(destinatarios.len());
     for d in destinatarios {
         let sellado = b64::decode(&d.sealed_private_key_b64)
@@ -67,8 +55,8 @@ pub async fn crear(
     admin: AdminUser,
     Json(req): Json<CrearMetadataKeyRequest>,
 ) -> Result<Json<MetadataKeyResponse>, ApiError> {
-    let public_key = b64::decode(&req.public_key_x25519_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
+    let public_key =
+        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
     let destinatarios = decodificar_destinatarios(req.destinatarios)?;
 
     let clave = servicio(&state)
@@ -94,12 +82,10 @@ pub async fn agregar_destinatario(
     Path(metadata_key_id): Path<Uuid>,
     Json(req): Json<AgregarDestinatarioRequest>,
 ) -> Result<(), ApiError> {
-    let sealed = b64::decode(&req.sealed_private_key_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("sealed_private_key_b64 inválido".into()))?;
+    let sealed =
+        b64::decode(&req.sealed_private_key_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_private_key_b64 inválido".into()))?;
 
-    servicio(&state)
-        .agregar_destinatario(admin.user_id, metadata_key_id, req.user_id, &sealed)
-        .await?;
+    servicio(&state).agregar_destinatario(admin.user_id, metadata_key_id, req.user_id, &sealed).await?;
 
     Ok(())
 }
@@ -109,8 +95,8 @@ pub async fn rotar(
     admin: AdminUser,
     Json(req): Json<CrearMetadataKeyRequest>,
 ) -> Result<Json<MetadataKeyResponse>, ApiError> {
-    let public_key = b64::decode(&req.public_key_x25519_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
+    let public_key =
+        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
     let destinatarios = decodificar_destinatarios(req.destinatarios)?;
 
     let entrante = servicio(&state)
@@ -126,10 +112,7 @@ pub async fn rotar(
     }))
 }
 
-pub async fn rotation_status(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<RotationStatusResponse>, ApiError> {
+pub async fn rotation_status(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<RotationStatusResponse>, ApiError> {
     let estado = servicio(&state).estado_rotacion().await?;
     Ok(Json(RotationStatusResponse {
         activa: estado.activa,

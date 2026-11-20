@@ -8,14 +8,14 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Como `common::registrar`, pero sin asumir 200 ni auto-verificar
 /// después — necesario acá porque varios tests esperan que el registro
@@ -206,12 +206,11 @@ async fn flujo_completo_de_verificacion_de_email() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    let verificado: bool =
-        sqlx::query_scalar("select email_verified_at is not null from users where email = $1")
-            .bind("pendiente@test.ellkan")
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
+    let verificado: bool = sqlx::query_scalar("select email_verified_at is not null from users where email = $1")
+        .bind("pendiente@test.ellkan")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(verificado, "el email debería quedar marcado como verificado");
 
     // Y el login real ya funciona (deja de caer en el 401 genérico).

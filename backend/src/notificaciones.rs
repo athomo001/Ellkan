@@ -24,7 +24,7 @@ use uuid::Uuid;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
 use crate::error::RepoError;
-use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
+use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 use crate::smtp_config::repository::SmtpConfigRepository;
 
 /// Fila lista para enviar — a diferencia del stub original, acá sí hace
@@ -121,7 +121,13 @@ impl OutboundEmailRepository for PgOutboundEmailRepository {
         .await?;
         Ok(filas
             .into_iter()
-            .map(|f| EmailPendiente { id: f.id, recipient: f.recipient, subject: f.subject, body: f.body, html_body: f.html_body })
+            .map(|f| EmailPendiente {
+                id: f.id,
+                recipient: f.recipient,
+                subject: f.subject,
+                body: f.body,
+                html_body: f.html_body,
+            })
             .collect())
     }
 
@@ -136,8 +142,8 @@ impl OutboundEmailRepository for PgOutboundEmailRepository {
                where id = $1"#,
             id
         )
-            .execute(&self.pool)
-            .await?;
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -317,11 +323,7 @@ where
                 }
                 DomainEvent::AccountRecoveryCodigoConfirmacion { email, codigo } => {
                     let locale = resolver_locale(&locales, &email).await;
-                    let asunto = asunto(
-                        &locale,
-                        "Ellkan: confirmá la recuperación de tu cuenta",
-                        "Ellkan: confirm your account recovery",
-                    );
+                    let asunto = asunto(&locale, "Ellkan: confirmá la recuperación de tu cuenta", "Ellkan: confirm your account recovery");
                     let mut ctx = Context::new();
                     ctx.insert("codigo", &codigo);
                     match renderizar(&plantillas, &locale, "account_recovery_confirmar", ctx) {
@@ -429,8 +431,10 @@ fn construir_mailer(cfg: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executo
 }
 
 async fn enviar(mailer: &AsyncSmtpTransport<Tokio1Executor>, from: &str, correo: &EmailPendiente) -> anyhow::Result<()> {
-    let builder =
-        Message::builder().from(from.parse::<Mailbox>()?).to(correo.recipient.parse::<Mailbox>()?).subject(&correo.subject);
+    let builder = Message::builder()
+        .from(from.parse::<Mailbox>()?)
+        .to(correo.recipient.parse::<Mailbox>()?)
+        .subject(&correo.subject);
     let mensaje = match &correo.html_body {
         Some(html) => builder.multipart(
             MultiPart::alternative()

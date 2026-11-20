@@ -18,13 +18,7 @@ use crate::groups::repository::GroupMemberRepository;
 pub struct SqliteGroupMemberRepository;
 
 impl GroupMemberRepository for SqliteGroupMemberRepository {
-    async fn agregar_simple(
-        &self,
-        _group_id: Uuid,
-        _user_id: Uuid,
-        _is_admin: bool,
-        _added_by: Option<Uuid>,
-    ) -> Result<(), RepoError> {
+    async fn agregar_simple(&self, _group_id: Uuid, _user_id: Uuid, _is_admin: bool, _added_by: Option<Uuid>) -> Result<(), RepoError> {
         unimplemented!("modo escritorio: sin grupos, no hay UI que llegue acá")
     }
 

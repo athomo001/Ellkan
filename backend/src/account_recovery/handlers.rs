@@ -1,10 +1,10 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::Json;
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
@@ -12,22 +12,19 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarAccountRecoveryPolicyRequest, AccountRecoveryPolicyResponse, CompletarSolicitudRequest,
-    ConfirmarSolicitudRequest, ConfirmarSolicitudResponse, CrearSolicitudRequest, EnrolarRequest, EscrowResponse, MiEstadoResponse, OrgPublicKeyResponse,
+    AccountRecoveryPolicyResponse, ActualizarAccountRecoveryPolicyRequest, CompletarSolicitudRequest, ConfirmarSolicitudRequest,
+    ConfirmarSolicitudResponse, CrearSolicitudRequest, EnrolarRequest, EscrowResponse, MiEstadoResponse, OrgPublicKeyResponse,
     SolicitudAdminResponse, SolicitudResponse,
 };
 use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
-use super::repository::{
-    PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository,
-    PgRecoveryRequestRepository,
-};
+use super::repository::{PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository, PgRecoveryRequestRepository};
 use super::service::AccountRecoveryService;
 use crate::admin::repository::PgRoleRepository;
 use crate::auth::repository::{PgAuthChallengeRepository, PgUserRepository};
 use crate::groups::repository::PgGroupMemberRepository;
 use crate::me::models::NuevaClavePrivada;
-use crate::me::service::PruebaDePosesion;
 use crate::me::repository::PgPreferenciasRepository;
+use crate::me::service::PruebaDePosesion;
 
 type Servicio<'a> = AccountRecoveryService<
     'a,
@@ -85,10 +82,7 @@ fn solicitud_a_response(r: RecoveryRequest) -> SolicitudResponse {
     }
 }
 
-pub async fn politica(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<AccountRecoveryPolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<AccountRecoveryPolicyResponse>, ApiError> {
     let p = servicio(&state).politica().await?;
     Ok(Json(politica_a_response(p)))
 }
@@ -104,18 +98,12 @@ pub async fn actualizar_politica(
     Ok(Json(politica_a_response(p)))
 }
 
-pub async fn mi_estado(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<Json<MiEstadoResponse>, ApiError> {
+pub async fn mi_estado(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<MiEstadoResponse>, ApiError> {
     let enrolled = servicio(&state).mi_estado(auth.user_id).await?;
     Ok(Json(MiEstadoResponse { enrolled }))
 }
 
-pub async fn org_public_key(
-    State(state): State<AppState>,
-    _auth: AuthenticatedUser,
-) -> Result<Json<OrgPublicKeyResponse>, ApiError> {
+pub async fn org_public_key(State(state): State<AppState>, _auth: AuthenticatedUser) -> Result<Json<OrgPublicKeyResponse>, ApiError> {
     let publica = servicio(&state).obtener_org_public_key().await?;
     Ok(Json(OrgPublicKeyResponse { public_key_x25519_b64: B64.encode(publica) }))
 }

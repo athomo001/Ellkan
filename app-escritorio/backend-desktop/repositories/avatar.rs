@@ -18,7 +18,9 @@ pub struct SqliteAvatarRepository {
 
 impl AvatarRepository for SqliteAvatarRepository {
     async fn obtener(&self, _user_id: Uuid) -> Result<Option<Avatar>, RepoError> {
-        let fila = sqlx::query("select bytes, content_type from avatar_local where id = 1").fetch_optional(&self.pool).await?;
+        let fila = sqlx::query("select bytes, content_type from avatar_local where id = 1")
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.map(|f| Avatar { bytes: f.get("bytes"), content_type: f.get("content_type") }))
     }
 

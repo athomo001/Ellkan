@@ -9,13 +9,13 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_metadata_key(entorno: &common::Entorno, sesion_admin: Uuid) -> Uuid {
@@ -81,7 +81,12 @@ async fn crear_recurso_compartible(
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    RecursoDePrueba { id: resource_id, dek, secreto_ciphertext: secreto_env.ciphertext, secreto_nonce: secreto_env.nonce.to_vec() }
+    RecursoDePrueba {
+        id: resource_id,
+        dek,
+        secreto_ciphertext: secreto_env.ciphertext,
+        secreto_nonce: secreto_env.nonce.to_vec(),
+    }
 }
 
 #[tokio::test]

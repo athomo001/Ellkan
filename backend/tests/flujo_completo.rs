@@ -5,20 +5,20 @@
 //! lo comparte, y el segundo lo lee — más una verificación explícita de que
 //! ningún secreto viaja ni se guarda en claro.
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
 use ellkan_crypto::aead::{self, Envoltura};
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use ellkan_crypto::sellado;
 use secrecy::{ExposeSecret, SecretBox};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use testcontainers_modules::postgres::Postgres;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ImageExt;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use uuid::Uuid;
 
 struct Usuario {
@@ -30,13 +30,7 @@ struct Usuario {
     device_token: [u8; 32],
 }
 
-async fn registrar(
-    cliente: &reqwest::Client,
-    base: &str,
-    pool: &sqlx::PgPool,
-    email: &str,
-    passphrase_valor: &str,
-) -> Usuario {
+async fn registrar(cliente: &reqwest::Client, base: &str, pool: &sqlx::PgPool, email: &str, passphrase_valor: &str) -> Usuario {
     let x25519 = KeypairAcuerdo::generar();
     let ed25519 = KeypairFirma::generar();
     let passphrase: PassphraseSecreta = SecretBox::new(Box::new(passphrase_valor.to_string()));
@@ -189,9 +183,7 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
 
     let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
-    let estado = ellkan_backend::construir_estado(&database_url, secrets_key)
-        .await
-        .expect("migrar y conectar");
+    let estado = ellkan_backend::construir_estado(&database_url, secrets_key).await.expect("migrar y conectar");
     let pool = estado.pool.clone();
 
     // Parte A/B: sin SMTP configurado, F-02 auto-verifica el dispositivo sin
@@ -211,12 +203,9 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
     tokio::spawn(async move {
         // El rate limiter (PeerIpKeyExtractor) exige `SocketAddr` en las
         // extensions del request — mismo wiring que main.rs.
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+            .await
+            .unwrap();
     });
     let base = format!("http://{addr}");
     let cliente = reqwest::Client::new();
@@ -326,8 +315,7 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
     let cuerpo: Value = resp.json().await.unwrap();
     let sealed_dek_bob_recibido = B64.decode(cuerpo["sealed_dek_b64"].as_str().unwrap()).unwrap();
     let secret_ciphertext_recibido = B64.decode(cuerpo["secret_ciphertext_b64"].as_str().unwrap()).unwrap();
-    let secret_nonce_recibido: [u8; 24] =
-        B64.decode(cuerpo["secret_nonce_b64"].as_str().unwrap()).unwrap().try_into().unwrap();
+    let secret_nonce_recibido: [u8; 24] = B64.decode(cuerpo["secret_nonce_b64"].as_str().unwrap()).unwrap().try_into().unwrap();
 
     let dek_de_bob = sellado::abrir_dek(bob.x25519.privada(), &sealed_dek_bob_recibido).unwrap();
     assert_eq!(dek_de_bob.expose_secret(), dek_secreta.expose_secret());
@@ -343,8 +331,7 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
 
     // --- El test de "esto es E2E de verdad": ningún secreto viaja/se guarda en claro ---
     // 1) La contraseña en claro nunca aparece en las filas persistidas.
-    let filas_secreto: Vec<(Vec<u8>,)> =
-        sqlx::query_as("select secret_ciphertext from secret_envelopes").fetch_all(&pool).await.unwrap();
+    let filas_secreto: Vec<(Vec<u8>,)> = sqlx::query_as("select secret_ciphertext from secret_envelopes").fetch_all(&pool).await.unwrap();
     assert_eq!(filas_secreto.len(), 2, "una fila de secret_envelopes por usuario con acceso");
     for (ciphertext,) in &filas_secreto {
         let como_texto = String::from_utf8_lossy(ciphertext);
@@ -354,8 +341,7 @@ async fn dos_usuarios_comparten_un_recurso_sin_fuga_de_secretos() {
         );
     }
     // 2) La clave privada de ningún usuario quedó en claro en `user_keys`.
-    let filas_claves: Vec<(Vec<u8>,)> =
-        sqlx::query_as("select encrypted_private_key_blob from user_keys").fetch_all(&pool).await.unwrap();
+    let filas_claves: Vec<(Vec<u8>,)> = sqlx::query_as("select encrypted_private_key_blob from user_keys").fetch_all(&pool).await.unwrap();
     assert_eq!(filas_claves.len(), 2);
     for (blob,) in &filas_claves {
         assert_ne!(blob.as_slice(), alice.x25519.privada().to_bytes().as_slice());

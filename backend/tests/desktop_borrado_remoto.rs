@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use ellkan_backend::auth::repository::SessionRepository;
-use ellkan_backend::desktop::borrado_remoto::{ejecutar, marcar, pendiente, MARCA};
 use ellkan_backend::desktop::bootstrap_sqlite;
+use ellkan_backend::desktop::borrado_remoto::{MARCA, ejecutar, marcar, pendiente};
 use ellkan_backend::desktop::router::construir_router_desktop;
 use ellkan_backend::desktop::state::AppStateDesktop;
 use secrecy::SecretBox;
@@ -40,7 +40,11 @@ fn ejecutar_borra_todo_y_por_ultimo_la_marca() {
     ejecutar(&dir).unwrap();
 
     assert!(!pendiente(&dir), "completo: la marca se borra al final");
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "la carpeta de datos queda vacía, como recién instalada");
+    assert_eq!(
+        std::fs::read_dir(&dir).unwrap().count(),
+        0,
+        "la carpeta de datos queda vacía, como recién instalada"
+    );
 }
 
 #[tokio::test]
@@ -57,7 +61,10 @@ async fn el_endpoint_corta_el_acceso_y_borra_la_boveda_con_la_base_abierta() {
     let estado = AppStateDesktop::nuevo(dir.clone(), pool.clone(), [9u8; 32], SecretBox::new(Box::new([0u8; 32])));
     let sesion = estado
         .sesiones
-        .crear(Uuid::parse_str("01a0a85d-3be1-70f1-b692-e270dd61fcf3").unwrap(), Uuid::parse_str("01a0a85d-3be1-70f1-b692-e270dd61fcf4").unwrap())
+        .crear(
+            Uuid::parse_str("01a0a85d-3be1-70f1-b692-e270dd61fcf3").unwrap(),
+            Uuid::parse_str("01a0a85d-3be1-70f1-b692-e270dd61fcf4").unwrap(),
+        )
         .await
         .unwrap();
     let router = construir_router_desktop(estado);
@@ -87,7 +94,14 @@ async fn el_endpoint_corta_el_acceso_y_borra_la_boveda_con_la_base_abierta() {
     let resp = router.clone().oneshot(pedido("GET", "/me", "")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     let resp = router
-        .oneshot(Request::builder().method("POST").uri("/auth/challenge").header("content-type", "application/json").body(Body::from(r#"{"email":"yo@local.ellkan"}"#)).unwrap())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/auth/challenge")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"email":"yo@local.ellkan"}"#))
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);

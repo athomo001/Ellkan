@@ -27,6 +27,24 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 | **Desktop (Windows)** | A password manager for **one person**. Everything stays encrypted on your PC: it works offline, with no server and no cloud account, and can optionally connect to an Ellkan server. It ships with an MSI installer, a tray icon with a global shortcut, a «Connect» button (SSH, RDP, PostgreSQL, MySQL, MongoDB, FTP, Telnet, VNC), vault health checks, automatic backups and the browser extension built in. | [Desktop app guide](app-escritorio/GUIA.md) (Spanish) |
 | **Browser extension** | Autofills your credentials in Chrome, Edge, Brave, Opera and Firefox. It works with the server or with the desktop app, which can also install it. | [Browser extension](extension/README.md) (Spanish) |
 
+## Downloads
+
+Every version is published on **[Releases](https://github.com/athomo001/Ellkan/releases/latest)** (that link always points to the latest one):
+
+| File | What it is |
+| --- | --- |
+| `Ellkan_X.Y.Z_x64_es-ES.msi` | Desktop app for Windows (installer) |
+| `Ellkan_X.Y.Z_x64_portable.zip` | The same app, no install needed |
+| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` | Desktop app for Linux |
+| `ellkan-chrome-X.Y.Z.zip` (also `-edge`, `-brave`, `-opera`) | Extension for Chromium browsers |
+| `ellkan-firefox-X.Y.Z.xpi` | Extension for Firefox |
+| `ellkan-cli_X.Y.Z_windows_x64.exe` · `ellkan-cli_X.Y.Z_linux_x64` | Server administration CLI |
+| `SHA256SUMS.txt` | Checksums to verify the downloads |
+
+**The server** is published as a Docker image at `ghcr.io/athomo001/ellkan`, tagged `latest` (newest version), `X.Y` and `X.Y.Z`. The [quickstart](#quickstart) pulls it for you.
+
+To verify a download: `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or `Get-FileHash <file>` in PowerShell and compare it with its line in `SHA256SUMS.txt`. How to load the extension by hand in each browser: [extension/README.md](extension/README.md) (Spanish).
+
 ## Screenshots
 
 | Vault | Admin panel | New item |
@@ -85,7 +103,7 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 
 ## Quickstart
 
-Requires Docker and Docker Compose.
+Requires Docker and Docker Compose. Nothing needs to be compiled: the server is pulled ready-made from `ghcr.io` (see [Downloads](#downloads)).
 
 ```bash
 git clone https://github.com/athomo001/Ellkan.git
@@ -101,13 +119,17 @@ openssl rand -hex 24 > secrets/postgres_password.txt
 openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
 echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
 
+# Pulls the image for the version set in ELLKAN_VERSION (.env; the latest
+# by default). If it can't find it, it builds it from this source tree.
 docker compose up -d
 ```
 
-The app is now at `http://localhost:${ELLKAN_PORT:-8080}`. The first admin is created via the CLI (no pre-built binaries yet — build it from source):
+> To build the server from source instead of pulling it: `docker compose up -d --build`. To move to a newer version later, see [Updating / rebuilding after a change](#updating--rebuilding-after-a-change).
+
+The app is now at `http://localhost:${ELLKAN_PORT:-8080}`. The first admin is created with the CLI: download `ellkan-cli_X.Y.Z_linux_x64` (or the `windows_x64.exe`) from [Releases](https://github.com/athomo001/Ellkan/releases/latest) and save it in this folder as `ellkan-cli` (or build it with `cargo build --release -p ellkan-cli` and copy `target/release/ellkan-cli`):
 
 ```bash
-cargo build --release -p ellkan-cli
+chmod +x ellkan-cli
 
 # DATABASE_URL here is DIFFERENT from the one in secrets/database_url.txt:
 # that one uses Docker's internal hostname (ellkan-db), which only
@@ -115,10 +137,10 @@ cargo build --release -p ellkan-cli
 # docker-compose exposes on 127.0.0.1 so the CLI (running on the host)
 # can reach it.
 DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
-  ./target/release/ellkan-cli admin create-user \
+  ./ellkan-cli admin create-user \
   --email you@example.com --display-name "Your name" --role admin
 
-./target/release/ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email you@example.com
+./ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email you@example.com
 ```
 
 `--role admin` promotes directly (over SQL, never through HTTP — no HTTP route lets an account self-assign admin) and marks this device as known, so the `login` above works right away without waiting on any email — no SMTP needed to get started. Once inside, configure a real relay at `/admin/smtp` so device verification for any other login/user arrives by email for real.
@@ -129,15 +151,25 @@ By default the backend serves plain HTTP — for TLS (terminated by Ellkan itsel
 
 ### Updating / rebuilding after a change
 
+**With the published image** (the usual case). If you pinned a version in `ELLKAN_VERSION` (`.env`), change it to the new one first; with `latest` there is nothing to change:
+
 ```bash
-git pull
-docker compose build ellkan
+docker compose pull ellkan
 docker compose up -d ellkan
 ```
 
-Both commands are needed: `build` creates the new image, but `up -d` is the one that actually replaces the running container — forgetting this second step is the most common mistake. If you still don't see the change after this, it's probably the browser serving the old bundle from its own cache (`Ctrl+Shift+R`/`Cmd+Shift+R`, or try a private window); if that's not enough either, see [Reconstruir sin caché](manual/instalacion.md#reconstruir-sin-caché-cuando-un-cambio-no-aparece) in the manual (Spanish only) for the extra step to force a build with no cached layers at all.
+Database migrations run on their own when the new version starts. Take a backup before updating ([manual/instalacion.md](manual/instalacion.md#backup-y-restauración), Spanish).
 
-> **`docker compose build ellkan` can take several minutes, every time** (not just the first) — the build compiles the Rust backend in release mode from scratch (the whole dependency tree, not just what you changed) plus the cryptographic core to WebAssembly, with no build cache between runs. That's expected, it doesn't mean it's stuck.
+**Building from source** (your own changes, or something not released yet):
+
+```bash
+git pull
+docker compose up -d --build ellkan
+```
+
+`--build` builds the image from your local tree and `up -d` replaces the running container. Note: that local image has the same name as the published one, so a later `docker compose pull` replaces it with the official image. If you still don't see the change after this, it's probably the browser serving the old bundle from its own cache (`Ctrl+Shift+R`/`Cmd+Shift+R`, or try a private window); if that's not enough either, see [Reconstruir sin caché](manual/instalacion.md#reconstruir-sin-caché-cuando-un-cambio-no-aparece) in the manual (Spanish only) for the extra step to force a build with no cached layers at all.
+
+> **Building (`--build`) can take several minutes, every time** (not just the first) — the build compiles the Rust backend in release mode from scratch (the whole dependency tree, not just what you changed) plus the cryptographic core to WebAssembly, with no build cache between runs. That's expected, it doesn't mean it's stuck.
 
 ### Hardware requirements (reasoned estimate, not measured under real load — details and assumptions in [manual/instalacion.md](manual/instalacion.md#requisitos-de-hardware--estimación-razonada-no-medida-con-carga-real))
 
@@ -179,7 +211,7 @@ Actively in development. Backend and web frontend work end to end (registration,
 
 ## Security
 
-Ellkan has not had an independent security audit of its own yet. If you find a vulnerability, please don't open a public issue: follow the steps in [SECURITY.md](SECURITY.md).
+Ellkan has not had an independent security audit of its own yet. If you find a vulnerability, please don't open a public issue: follow the steps in [SECURITY.md](SECURITY.md). What data Ellkan stores and which services it contacts: [PRIVACY.md](PRIVACY.md).
 
 ## No warranty
 

@@ -10,15 +10,23 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
 use ellkan_crypto::claves::KeypairFirma;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use time::OffsetDateTime;
 
 async fn clave_del_servidor(entorno: &common::Entorno) -> VerifyingKey {
-    let cuerpo: Value = entorno.cliente.get(format!("{}/auth/server-key", entorno.base)).send().await.unwrap().json().await.unwrap();
+    let cuerpo: Value = entorno
+        .cliente
+        .get(format!("{}/auth/server-key", entorno.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let bytes = B64.decode(cuerpo["public_key_ed25519_b64"].as_str().unwrap()).unwrap();
     VerifyingKey::from_bytes(&bytes.try_into().unwrap()).unwrap()
 }
@@ -42,7 +50,9 @@ async fn estado_cuenta(entorno: &common::Entorno, email: &str, firmante: &Keypai
     let resp = entorno
         .cliente
         .post(format!("{}/auth/estado-cuenta", entorno.base))
-        .json(&json!({ "email": email, "public_key_ed25519_b64": publica, "emitido_en": emitido, "firma_b64": B64.encode(firma.to_bytes()) }))
+        .json(
+            &json!({ "email": email, "public_key_ed25519_b64": publica, "emitido_en": emitido, "firma_b64": B64.encode(firma.to_bytes()) }),
+        )
         .send()
         .await
         .unwrap();
@@ -95,7 +105,10 @@ async fn bloquear_manda_el_aviso_firmado_por_el_stream_y_lo_cierra() {
     .await;
     assert!(lectura.is_ok(), "el stream tiene que cerrarse solo tras el aviso; llegó: {texto}");
 
-    let mensaje = texto.split("\n\n").find(|m| m.contains("event: cuenta_revocada")).expect("tiene que llegar el aviso de revocación");
+    let mensaje = texto
+        .split("\n\n")
+        .find(|m| m.contains("event: cuenta_revocada"))
+        .expect("tiene que llegar el aviso de revocación");
     let datos: String = mensaje.lines().filter_map(|l| l.strip_prefix("data:")).map(str::trim_start).collect();
     let aviso = aviso_verificado(&clave, &serde_json::from_str(&datos).unwrap());
     assert_eq!(aviso["tipo"], "cuenta_revocada");
@@ -106,11 +119,13 @@ async fn bloquear_manda_el_aviso_firmado_por_el_stream_y_lo_cierra() {
     // Queda auditado.
     let auditado = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let n: i64 = sqlx::query_scalar("select count(*) from audit_log_entries where event_type = 'user.remote_wipe_signaled' and subject_id = $1")
-                .bind(victima.user_id)
-                .fetch_one(&entorno.pool)
-                .await
-                .unwrap();
+            let n: i64 = sqlx::query_scalar(
+                "select count(*) from audit_log_entries where event_type = 'user.remote_wipe_signaled' and subject_id = $1",
+            )
+            .bind(victima.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
             if n > 0 {
                 break;
             }
@@ -205,7 +220,9 @@ async fn estado_cuenta_no_le_dice_nada_a_quien_no_es_dueno_de_las_claves() {
     assert_eq!(r["estado"], "desconocida");
 
     // Una pregunta vieja (fuera de la tolerancia de reloj) tampoco.
-    let viejo = (OffsetDateTime::now_utc() - time::Duration::hours(1)).format(&time::format_description::well_known::Rfc3339).unwrap();
+    let viejo = (OffsetDateTime::now_utc() - time::Duration::hours(1))
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
     let mensaje = ellkan_backend::revocacion::mensaje_estado_cuenta("victima@test.ellkan", &publica, &viejo);
     let firma = victima.ed25519.firmante().sign(mensaje.as_bytes());
     let r: Value = entorno

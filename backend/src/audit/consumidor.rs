@@ -6,7 +6,7 @@
 //! si esta escritura fallara, nunca tumba la operación real que audita
 //! (mismo criterio ya aplicado a la cola de emails).
 
-use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
+use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 
 use super::repository::AuditLogRepository;
 

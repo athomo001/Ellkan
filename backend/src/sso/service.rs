@@ -8,8 +8,8 @@
 
 use openidconnect::core::{CoreClient, CoreProviderMetadata, CoreResponseType};
 use openidconnect::{
-    AuthenticationFlow, AuthorizationCode, ClientId, CsrfToken, EndpointMaybeSet, EndpointNotSet,
-    EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    AuthenticationFlow, AuthorizationCode, ClientId, CsrfToken, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -35,7 +35,9 @@ pub enum SsoError {
     Protocolo(String),
     #[error("state inválido, vencido, o ya usado")]
     StateInvalido,
-    #[error("el IdP no confirmó el email (email_verified) y ya existe una cuenta local con ese email — no se vincula sin confirmación explícita")]
+    #[error(
+        "el IdP no confirmó el email (email_verified) y ya existe una cuenta local con ese email — no se vincula sin confirmación explícita"
+    )]
     EmailNoVerificado,
     #[error("no existe una cuenta local con ese email y el aprovisionamiento automático está deshabilitado")]
     SinCuentaYJitDeshabilitado,
@@ -45,9 +47,7 @@ impl From<SsoError> for DomainError {
     fn from(e: SsoError) -> Self {
         match e {
             SsoError::NoConfigurado | SsoError::StateInvalido => DomainError::InvalidCredentials,
-            SsoError::EmailNoVerificado | SsoError::SinCuentaYJitDeshabilitado => {
-                DomainError::ValidacionInvalida(e.to_string())
-            }
+            SsoError::EmailNoVerificado | SsoError::SinCuentaYJitDeshabilitado => DomainError::ValidacionInvalida(e.to_string()),
             SsoError::Protocolo(_) => DomainError::InvalidCredentials,
         }
     }
@@ -73,19 +73,13 @@ where
         Ok(self.config.obtener().await?)
     }
 
-    pub async fn actualizar_config(
-        &self,
-        actor_id: Uuid,
-        nueva: SsoConfig,
-    ) -> Result<SsoConfig, DomainError> {
+    pub async fn actualizar_config(&self, actor_id: Uuid, nueva: SsoConfig) -> Result<SsoConfig, DomainError> {
         self.config.actualizar(&nueva).await?;
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::SsoConfigUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "issuer_url": nueva.issuer_url,
-                    "jit_provisioning_enabled": nueva.jit_provisioning_enabled,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::SsoConfigUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "issuer_url": nueva.issuer_url,
+                "jit_provisioning_enabled": nueva.jit_provisioning_enabled,
+            })),
         ));
         Ok(nueva)
     }
@@ -94,10 +88,7 @@ where
     async fn cliente(
         &self,
         cfg: &SsoConfig,
-    ) -> Result<
-        CoreClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet, EndpointMaybeSet>,
-        SsoError,
-    > {
+    ) -> Result<CoreClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet, EndpointMaybeSet>, SsoError> {
         let issuer_url = cfg.issuer_url.as_deref().ok_or(SsoError::NoConfigurado)?;
         let client_id = cfg.client_id.as_deref().ok_or(SsoError::NoConfigurado)?;
 
@@ -132,11 +123,7 @@ where
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
         let (auth_url, csrf_token, nonce) = client
-            .authorize_url(
-                AuthenticationFlow::<CoreResponseType>::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            )
+            .authorize_url(AuthenticationFlow::<CoreResponseType>::AuthorizationCode, CsrfToken::new_random, Nonce::new_random)
             .add_scope(Scope::new("email".to_string()))
             .set_pkce_challenge(pkce_challenge)
             .url();
@@ -154,11 +141,7 @@ where
     /// verifica firma/`nonce`/`aud`/`iss` del `id_token` contra el JWKS del
     /// IdP, y resuelve la vinculación de cuenta (F-17: ver
     /// `resolver_linking`).
-    pub async fn resolver_callback(
-        &self,
-        code: String,
-        state_recibido: &str,
-    ) -> Result<User, DomainError> {
+    pub async fn resolver_callback(&self, code: String, state_recibido: &str) -> Result<User, DomainError> {
         let cfg = self.config.obtener().await?;
         let estado = self.login_state.consumir(state_recibido).await?.ok_or(SsoError::StateInvalido)?;
 
@@ -186,10 +169,9 @@ where
         let user_id = match resultado_linking {
             ResultadoLinking::Vinculado(id) => id,
             ResultadoLinking::RechazadoEmailNoVerificado => {
-                let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
-                    AuditEventType::SsoLinkRejectedUnverifiedEmail,
-                    None,
-                )));
+                let _ = self
+                    .eventos
+                    .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::SsoLinkRejectedUnverifiedEmail, None)));
                 return Err(SsoError::EmailNoVerificado.into());
             }
             ResultadoLinking::SinCuentaYJitDeshabilitado => {
@@ -230,12 +212,9 @@ where
             if !email_verified {
                 return Ok(ResultadoLinking::RechazadoEmailNoVerificado);
             }
-            self.identities
-                .vincular(existente.id, PROVIDER, sub, serde_json::json!({ "email": email }))
-                .await?;
+            self.identities.vincular(existente.id, PROVIDER, sub, serde_json::json!({ "email": email })).await?;
             let _ = self.eventos.send(DomainEvent::Auditoria(
-                EventoAuditoria::nuevo(AuditEventType::SsoAccountLinked, Some(existente.id))
-                    .con_sujeto("user", existente.id),
+                EventoAuditoria::nuevo(AuditEventType::SsoAccountLinked, Some(existente.id)).con_sujeto("user", existente.id),
             ));
             return Ok(ResultadoLinking::Vinculado(existente.id));
         }

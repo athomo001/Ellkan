@@ -19,19 +19,26 @@ use ellkan_backend::desktop::repositories::groups::SqliteGroupMemberRepository;
 use ellkan_backend::desktop::repositories::resources::{
     SqlitePermissionRepository, SqliteResourceRepository, SqliteResourceTypeRepository, SqliteSecretEnvelopeRepository,
 };
-use ellkan_backend::desktop::{cargar_config, guardar_config, ConfigSyncRemoto};
+use ellkan_backend::desktop::{ConfigSyncRemoto, cargar_config, guardar_config};
 use ellkan_backend::error::DomainError;
 use ellkan_backend::eventos;
 use ellkan_backend::resources::models::EnvelopeInput;
 use ellkan_backend::resources::repository::{ResourceRepository, SecretEnvelopeRepository};
 use ellkan_backend::resources::service::ResourceService;
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
 
 async fn pool_de_prueba() -> SqlitePool {
-    let pool = SqlitePoolOptions::new().max_connections(8).connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    let pool = SqlitePoolOptions::new()
+        .max_connections(8)
+        .connect("sqlite::memory:")
+        .await
+        .expect("conectar sqlite en memoria");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -95,7 +102,13 @@ fn envelope(user_id: Uuid, marca: &str) -> EnvelopeInput {
 
 /// Una edición desde "otro cliente": arma sus propios repos (mismo pool) y
 /// guarda partiendo de `base`. Corre en su propia tarea para competir de verdad.
-fn editar_como_cliente(pool: SqlitePool, recurso_id: Uuid, user_id: Uuid, base: time::OffsetDateTime, marca: String) -> tokio::task::JoinHandle<Result<String, DomainError>> {
+fn editar_como_cliente(
+    pool: SqlitePool,
+    recurso_id: Uuid,
+    user_id: Uuid,
+    base: time::OffsetDateTime,
+    marca: String,
+) -> tokio::task::JoinHandle<Result<String, DomainError>> {
     tokio::spawn(async move {
         let repos = Repos::nuevos(&pool);
         repos
@@ -114,7 +127,11 @@ async fn dos_ediciones_a_la_vez_del_mismo_recurso_gana_una_y_la_otra_recibe_conf
 
     // Varias vueltas: una carrera sólo sale mal a veces, una sola no alcanza.
     for vuelta in 0..25 {
-        let recurso = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-base", b"nonce-base", user_id, None).await.unwrap();
+        let recurso = repos
+            .recursos
+            .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-base", b"nonce-base", user_id, None)
+            .await
+            .unwrap();
         // Como el alta real: el creador queda con su sobre (QA-05 exige que
         // la edición re-selle exactamente para los destinatarios vigentes).
         repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
@@ -154,7 +171,10 @@ async fn el_cliente_que_perdio_la_carrera_reintenta_con_la_version_nueva_y_no_pi
     let base = recurso.updated_at;
 
     // El cliente A guarda primero.
-    let de_a = servicio.editar(recurso.id, user_id, base, b"v1-de-A", b"n1", vec![envelope(user_id, "A")]).await.expect("A guarda");
+    let de_a = servicio
+        .editar(recurso.id, user_id, base, b"v1-de-A", b"n1", vec![envelope(user_id, "A")])
+        .await
+        .expect("A guarda");
 
     // El cliente B, que partió de `base`, choca.
     let choque = servicio.editar(recurso.id, user_id, base, b"v1-de-B", b"n1", vec![envelope(user_id, "B")]).await;
@@ -186,7 +206,9 @@ async fn muchos_clientes_a_la_vez_nunca_pierden_un_cambio_en_silencio() {
     // la edición re-selle exactamente para los destinatarios vigentes).
     repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
 
-    let tareas: Vec<_> = (0..6).map(|i| editar_como_cliente(pool.clone(), recurso.id, user_id, recurso.updated_at, format!("cliente-{i}"))).collect();
+    let tareas: Vec<_> = (0..6)
+        .map(|i| editar_como_cliente(pool.clone(), recurso.id, user_id, recurso.updated_at, format!("cliente-{i}")))
+        .collect();
     let mut resultados = Vec::new();
     for t in tareas {
         resultados.push(t.await.unwrap());
@@ -230,7 +252,9 @@ async fn desvincular_el_servidor_deja_la_boveda_funcionando_en_local() {
     // La bóveda sigue entera y se puede seguir usando, sin ningún servidor.
     let visibles = servicio.listar_visibles(user_id).await.unwrap();
     assert_eq!(visibles.len(), 1, "el recurso creado estando conectada sigue ahí");
-    let editado = servicio.editar(recurso.id, user_id, recurso.updated_at, b"despues", b"n2", vec![envelope(user_id, "local")]).await;
+    let editado = servicio
+        .editar(recurso.id, user_id, recurso.updated_at, b"despues", b"n2", vec![envelope(user_id, "local")])
+        .await;
     assert!(editado.is_ok(), "se puede editar sin servidor");
     let nuevo = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"nuevo", b"n", user_id, None).await;
     assert!(nuevo.is_ok(), "y crear recursos nuevos");

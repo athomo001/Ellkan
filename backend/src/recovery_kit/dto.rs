@@ -21,6 +21,9 @@ pub struct MaterialKitResponse {
     pub sealed_identity_material_b64: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    /// Pendiente #23: el sync app ↔ servidor la propaga — un kit usado para
+    /// recuperar la cuenta en un lado tiene que quedar marcado en los dos.
+    pub must_rotate: bool,
 }
 
 #[derive(Debug, Deserialize)]

@@ -6,12 +6,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -89,8 +89,12 @@ async fn passwords_expired_respeta_el_umbral_de_la_politica() {
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(cuerpo["report_id"], "passwords_expired");
-    let emails: Vec<String> =
-        cuerpo["items"].as_array().unwrap().iter().map(|i| i["email"].as_str().unwrap().to_string()).collect();
+    let emails: Vec<String> = cuerpo["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["email"].as_str().unwrap().to_string())
+        .collect();
     assert!(emails.contains(&vieja.email), "la cuenta vieja debe aparecer como expirada");
     assert!(!emails.contains(&fresca.email), "la cuenta recién creada no debe aparecer");
 }
@@ -150,8 +154,12 @@ async fn inactive_users_incluye_a_quien_nunca_inicio_sesion() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
-    let emails: Vec<String> =
-        cuerpo["items"].as_array().unwrap().iter().map(|i| i["email"].as_str().unwrap().to_string()).collect();
+    let emails: Vec<String> = cuerpo["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["email"].as_str().unwrap().to_string())
+        .collect();
     assert!(emails.contains(&nunca_logueado.email));
     assert!(!emails.contains(&activo.email), "un login reciente no debería contar como inactivo");
 }
@@ -214,8 +222,12 @@ async fn resources_never_rotated_excluye_lo_ya_editado() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
-    let ids: Vec<String> =
-        cuerpo["items"].as_array().unwrap().iter().map(|i| i["resource_id"].as_str().unwrap().to_string()).collect();
+    let ids: Vec<String> = cuerpo["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["resource_id"].as_str().unwrap().to_string())
+        .collect();
     assert!(ids.contains(&resource_id.to_string()), "un recurso nunca editado debe aparecer");
 
     // Se edita -> `updated_at` avanza -> desaparece del reporte.
@@ -257,7 +269,11 @@ async fn resources_never_rotated_excluye_lo_ya_editado() {
         .await
         .unwrap();
     let cuerpo: Value = resp.json().await.unwrap();
-    let ids: Vec<String> =
-        cuerpo["items"].as_array().unwrap().iter().map(|i| i["resource_id"].as_str().unwrap().to_string()).collect();
+    let ids: Vec<String> = cuerpo["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["resource_id"].as_str().unwrap().to_string())
+        .collect();
     assert!(!ids.contains(&resource_id.to_string()), "un recurso ya editado no debe aparecer más");
 }

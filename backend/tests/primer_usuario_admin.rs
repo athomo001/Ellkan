@@ -11,13 +11,11 @@ async fn primer_usuario_de_una_instancia_nueva_nace_admin() {
     let entorno = common::levantar_sin_usuarios().await;
     let primero = common::registrar(&entorno, "primer-usuario@test.ellkan").await;
 
-    let rol: String = sqlx::query_scalar(
-        "select r.name from users u join roles r on r.id = u.role_id where u.id = $1",
-    )
-    .bind(primero.user_id)
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let rol: String = sqlx::query_scalar("select r.name from users u join roles r on r.id = u.role_id where u.id = $1")
+        .bind(primero.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
 
     assert_eq!(rol, "admin", "el primer registro de una instancia nueva debe nacer admin");
 }
@@ -28,20 +26,18 @@ async fn segundo_usuario_nace_user_aunque_el_primero_ya_sea_admin() {
     common::registrar(&entorno, "primero@test.ellkan").await;
     let segundo = common::registrar(&entorno, "segundo@test.ellkan").await;
 
-    let rol: String = sqlx::query_scalar(
-        "select r.name from users u join roles r on r.id = u.role_id where u.id = $1",
-    )
-    .bind(segundo.user_id)
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let rol: String = sqlx::query_scalar("select r.name from users u join roles r on r.id = u.role_id where u.id = $1")
+        .bind(segundo.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
 
     assert_eq!(rol, "user", "a partir del segundo registro, sigue naciendo user como siempre");
 }
 
 async fn registrar_crudo(entorno: &common::Entorno, email: &str, setup_token: Option<&str>) -> u16 {
-    use base64::engine::general_purpose::STANDARD as B64;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as B64;
     let mut cuerpo = serde_json::json!({
         "email": email,
         "display_name": email,
@@ -73,17 +69,19 @@ async fn con_token_de_instalacion_el_primer_registro_lo_exige() {
     let entorno = common::levantar_sin_usuarios_con_setup_token(token).await;
 
     assert_eq!(registrar_crudo(&entorno, "sin-token@test.ellkan", None).await, 403);
-    assert_eq!(registrar_crudo(&entorno, "token-malo@test.ellkan", Some("token-incorrecto-0123456789abc")).await, 403);
+    assert_eq!(
+        registrar_crudo(&entorno, "token-malo@test.ellkan", Some("token-incorrecto-0123456789abc")).await,
+        403
+    );
     let usuarios: i64 = sqlx::query_scalar("select count(*) from users").fetch_one(&entorno.pool).await.unwrap();
     assert_eq!(usuarios, 0, "un registro rechazado no debe crear nada");
 
     assert_eq!(registrar_crudo(&entorno, "operador@test.ellkan", Some(token)).await, 200);
-    let rol: String = sqlx::query_scalar(
-        "select r.name from users u join roles r on r.id = u.role_id where u.email = 'operador@test.ellkan'",
-    )
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let rol: String =
+        sqlx::query_scalar("select r.name from users u join roles r on r.id = u.role_id where u.email = 'operador@test.ellkan'")
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
     assert_eq!(rol, "admin");
 }
 
@@ -98,11 +96,9 @@ async fn registros_simultaneos_en_instancia_vacia_dejan_un_solo_admin() {
         registrar_crudo(&entorno, "carrera-c@test.ellkan", None),
     );
     assert!([a, b, c].contains(&200));
-    let admins: i64 = sqlx::query_scalar(
-        "select count(*) from users u join roles r on r.id = u.role_id where r.name = 'admin'",
-    )
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    let admins: i64 = sqlx::query_scalar("select count(*) from users u join roles r on r.id = u.role_id where r.name = 'admin'")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert_eq!(admins, 1);
 }

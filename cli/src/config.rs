@@ -64,8 +64,7 @@ fn dir_config() -> anyhow::Result<PathBuf> {
 fn escribir_archivo_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut archivo =
-        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(ruta)?;
+    let mut archivo = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(ruta)?;
     archivo.write_all(contenido)?;
     Ok(())
 }
@@ -95,8 +94,7 @@ pub fn guardar_perfil(perfil: &Perfil) -> anyhow::Result<()> {
 
 pub fn cargar_perfil() -> anyhow::Result<Perfil> {
     let ruta = ruta_perfil()?;
-    let datos = std::fs::read(&ruta)
-        .map_err(|_| anyhow::anyhow!("no hay perfil local — corré `ellkan-cli register` primero"))?;
+    let datos = std::fs::read(&ruta).map_err(|_| anyhow::anyhow!("no hay perfil local — corré `ellkan-cli register` primero"))?;
     Ok(serde_json::from_slice(&datos)?)
 }
 
@@ -108,8 +106,7 @@ pub fn guardar_sesion(sesion: &Sesion) -> anyhow::Result<()> {
 
 pub fn cargar_sesion() -> anyhow::Result<Sesion> {
     let ruta = ruta_sesion()?;
-    let datos = std::fs::read(&ruta)
-        .map_err(|_| anyhow::anyhow!("no hay sesión activa — corré `ellkan-cli login` primero"))?;
+    let datos = std::fs::read(&ruta).map_err(|_| anyhow::anyhow!("no hay sesión activa — corré `ellkan-cli login` primero"))?;
     Ok(serde_json::from_slice(&datos)?)
 }
 

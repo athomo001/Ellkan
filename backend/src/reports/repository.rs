@@ -9,21 +9,11 @@ use crate::error::RepoError;
 use super::models::{FilaMfaCoverage, FilaPasswordExpirado, FilaRecursoSinRotar, FilaUsuarioInactivo};
 
 pub trait ReportsRepository {
-    async fn passwords_expired(
-        &self,
-        umbral_dias: i64,
-        cursor: Option<Uuid>,
-        limite: i64,
-    ) -> Result<Vec<FilaPasswordExpirado>, RepoError>;
+    async fn passwords_expired(&self, umbral_dias: i64, cursor: Option<Uuid>, limite: i64) -> Result<Vec<FilaPasswordExpirado>, RepoError>;
 
     async fn mfa_coverage(&self, cursor: Option<Uuid>, limite: i64) -> Result<Vec<FilaMfaCoverage>, RepoError>;
 
-    async fn inactive_users(
-        &self,
-        umbral_dias: i64,
-        cursor: Option<Uuid>,
-        limite: i64,
-    ) -> Result<Vec<FilaUsuarioInactivo>, RepoError>;
+    async fn inactive_users(&self, umbral_dias: i64, cursor: Option<Uuid>, limite: i64) -> Result<Vec<FilaUsuarioInactivo>, RepoError>;
 
     async fn resources_never_rotated(
         &self,
@@ -39,12 +29,7 @@ pub struct PgReportsRepository {
 }
 
 impl ReportsRepository for PgReportsRepository {
-    async fn passwords_expired(
-        &self,
-        umbral_dias: i64,
-        cursor: Option<Uuid>,
-        limite: i64,
-    ) -> Result<Vec<FilaPasswordExpirado>, RepoError> {
+    async fn passwords_expired(&self, umbral_dias: i64, cursor: Option<Uuid>, limite: i64) -> Result<Vec<FilaPasswordExpirado>, RepoError> {
         let filas = sqlx::query!(
             r#"
             select u.id as user_id, u.email, uk.created_at as passphrase_set_at
@@ -89,15 +74,13 @@ impl ReportsRepository for PgReportsRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filas.into_iter().map(|f| FilaMfaCoverage { user_id: f.user_id, email: f.email, mfa_enabled: f.mfa_enabled }).collect())
+        Ok(filas
+            .into_iter()
+            .map(|f| FilaMfaCoverage { user_id: f.user_id, email: f.email, mfa_enabled: f.mfa_enabled })
+            .collect())
     }
 
-    async fn inactive_users(
-        &self,
-        umbral_dias: i64,
-        cursor: Option<Uuid>,
-        limite: i64,
-    ) -> Result<Vec<FilaUsuarioInactivo>, RepoError> {
+    async fn inactive_users(&self, umbral_dias: i64, cursor: Option<Uuid>, limite: i64) -> Result<Vec<FilaUsuarioInactivo>, RepoError> {
         let filas = sqlx::query!(
             r#"
             select u.id as user_id, u.email, max(s.created_at) as last_login_at

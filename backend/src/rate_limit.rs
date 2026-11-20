@@ -24,11 +24,7 @@ use crate::auth::extractor::{AuthenticatedUser, SesionValida};
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
-pub async fn limitar_solicitudes(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Result<Response, ApiError> {
+pub async fn limitar_solicitudes(State(state): State<AppState>, req: Request, next: Next) -> Result<Response, ApiError> {
     let (mut parts, body) = req.into_parts();
 
     let usuario = if parts.headers.contains_key(axum::http::header::AUTHORIZATION) {
@@ -67,11 +63,7 @@ pub async fn limitar_solicitudes(
 /// código TOTP de 6 dígitos tiene espacio de búsqueda acotado y este
 /// endpoint puntual lo necesita antes de agotarlo (hallazgo real de
 /// Passbolt citado en la spec de F-14).
-pub async fn limitar_mfa_por_sesion(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Result<Response, ApiError> {
+pub async fn limitar_mfa_por_sesion(State(state): State<AppState>, req: Request, next: Next) -> Result<Response, ApiError> {
     let (mut parts, body) = req.into_parts();
     let sesion = SesionValida::from_request_parts(&mut parts, &state).await?;
 

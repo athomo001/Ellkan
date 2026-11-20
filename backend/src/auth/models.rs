@@ -109,14 +109,22 @@ impl PropositoSesion {
 #[derive(Debug, Clone)]
 pub enum ResultadoVerify {
     SesionCompleta(Session),
-    PendienteDispositivo { device_challenge_id: Uuid },
-    PendienteMfa { session_id: Uuid },
-    RequiereConfigurarMfa { session_id: Uuid },
+    PendienteDispositivo {
+        device_challenge_id: Uuid,
+    },
+    PendienteMfa {
+        session_id: Uuid,
+    },
+    RequiereConfigurarMfa {
+        session_id: Uuid,
+    },
     /// Cuenta con `users.must_change_passphrase = true` (creada por un
     /// admin con una passphrase provisoria) — sesión parcial, sólo puede
     /// llegar a `/me/change-passphrase` (propósito `cambiar_passphrase`).
     /// Se resuelve ANTES que la decisión de MFA en `resolver_tras_f02`.
-    RequiereCambiarPassphrase { session_id: Uuid },
+    RequiereCambiarPassphrase {
+        session_id: Uuid,
+    },
 }
 
 /// Fila de `device_challenges` pendiente — el service compara `code_hash` en

@@ -5,9 +5,9 @@
 //! `From<RepoError>`; `ApiError` implementa `IntoResponse` y es el único
 //! punto que decide qué llega al cliente.
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -86,11 +86,7 @@ impl IntoResponse for ApiError {
         // respuesta para no perder el punto de enganche cuando se conecte
         // tracing completo.
         let body = ErrorBody {
-            error: ErrorDetalle {
-                code: self.code,
-                message: self.message,
-                request_id: Uuid::now_v7().to_string(),
-            },
+            error: ErrorDetalle { code: self.code, message: self.message, request_id: Uuid::now_v7().to_string() },
         };
         (self.status, Json(body)).into_response()
     }
@@ -99,37 +95,19 @@ impl IntoResponse for ApiError {
 impl From<DomainError> for ApiError {
     fn from(err: DomainError) -> Self {
         match err {
-            DomainError::NotFound => {
-                ApiError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "no encontrado")
-            }
-            DomainError::Conflict => {
-                ApiError::new(StatusCode::CONFLICT, "CONFLICT", "conflicto de estado")
-            }
+            DomainError::NotFound => ApiError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "no encontrado"),
+            DomainError::Conflict => ApiError::new(StatusCode::CONFLICT, "CONFLICT", "conflicto de estado"),
             // Nunca distinguir "usuario no existe" de "credenciales inválidas"
             // — anti user-enumeration.
-            DomainError::InvalidCredentials => ApiError::new(
-                StatusCode::UNAUTHORIZED,
-                "INVALID_CREDENTIALS",
-                "credenciales inválidas",
-            ),
-            DomainError::PermissionDenied => ApiError::new(
-                StatusCode::FORBIDDEN,
-                "PERMISSION_DENIED",
-                "no tenés permiso para esta acción",
-            ),
-            DomainError::ValidacionInvalida(detalle) => {
-                ApiError::new(StatusCode::BAD_REQUEST, "INVALID_INPUT", detalle)
+            DomainError::InvalidCredentials => ApiError::new(StatusCode::UNAUTHORIZED, "INVALID_CREDENTIALS", "credenciales inválidas"),
+            DomainError::PermissionDenied => ApiError::new(StatusCode::FORBIDDEN, "PERMISSION_DENIED", "no tenés permiso para esta acción"),
+            DomainError::ValidacionInvalida(detalle) => ApiError::new(StatusCode::BAD_REQUEST, "INVALID_INPUT", detalle),
+            DomainError::RateLimited => {
+                ApiError::new(StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED", "demasiadas solicitudes, esperá antes de reintentar")
             }
-            DomainError::RateLimited => ApiError::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                "RATE_LIMITED",
-                "demasiadas solicitudes, esperá antes de reintentar",
-            ),
-            DomainError::CicloDeGrupo => ApiError::new(
-                StatusCode::BAD_REQUEST,
-                "GROUP_CYCLE",
-                "ese movimiento crearía un ciclo en el árbol de grupos",
-            ),
+            DomainError::CicloDeGrupo => {
+                ApiError::new(StatusCode::BAD_REQUEST, "GROUP_CYCLE", "ese movimiento crearía un ciclo en el árbol de grupos")
+            }
             DomainError::GrupoTieneSubgrupos => ApiError::new(
                 StatusCode::CONFLICT,
                 "GROUP_HAS_SUBGROUPS",
@@ -150,9 +128,7 @@ impl From<DomainError> for ApiError {
             // Un choque de clave única que llegó por `?` (`#[from] RepoError`)
             // es un conflicto, no una falla del servidor: antes salía como 500
             // "error interno" (ej. el sync del escritorio, 2026-10-18).
-            DomainError::Interno(RepoError::Conflict) => {
-                ApiError::new(StatusCode::CONFLICT, "CONFLICT", "conflicto de estado")
-            }
+            DomainError::Interno(RepoError::Conflict) => ApiError::new(StatusCode::CONFLICT, "CONFLICT", "conflicto de estado"),
             DomainError::Interno(RepoError::Database(causa)) => {
                 // Antes la causa se descartaba sin dejar rastro: el cliente veía
                 // "error interno" y ni el log del servidor ni el del escritorio

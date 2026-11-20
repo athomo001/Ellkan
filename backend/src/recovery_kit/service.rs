@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zeroize::Zeroize;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
@@ -22,7 +22,7 @@ use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::ClavePrivadaRepository;
-use crate::me::service::{verificar_posesion, CambiarPassphraseService, PruebaDePosesion};
+use crate::me::service::{CambiarPassphraseService, PruebaDePosesion, verificar_posesion};
 use crate::mfa::repository::TotpCredentialRepository;
 
 use super::models::{MetodoMfa, RecoveryKit};
@@ -109,6 +109,15 @@ where
         Ok(self.kits.buscar_por_usuario(user_id).await?)
     }
 
+    /// `POST /me/recovery-kit/must-rotate` — pendiente #23: el sync de la app
+    /// vinculada avisa que el kit (el MISMO en los dos lados) ya se usó para
+    /// recuperar la cuenta del otro lado. Sólo puede marcar el kit propio, y
+    /// marcar no da acceso a nada: obliga a generar uno nuevo. 404 sin kit.
+    pub async fn marcar_para_rotar(&self, user_id: Uuid) -> Result<(), DomainError> {
+        self.kits.buscar_por_usuario(user_id).await?.ok_or(DomainError::NotFound)?;
+        Ok(self.kits.marcar_para_rotar(user_id).await?)
+    }
+
     /// `POST /recovery-kit/reset` — sin sesión, a propósito. Anti-enumeración
     /// idéntica a `AccountRecoveryService::crear_solicitud`: un email sin
     /// cuenta y un email sin kit configurado devuelven el mismo resultado.
@@ -121,7 +130,9 @@ where
         let expires_at = time::OffsetDateTime::now_utc() + time::Duration::seconds(TTL_RESET_TOKEN_SEGUNDOS);
         self.tokens.crear(user.id, &hash_de_token(&token), expires_at).await?;
 
-        let _ = self.eventos.send(DomainEvent::RecoveryKitResetRequested { user_id: user.id, email: email.to_string(), token });
+        let _ = self
+            .eventos
+            .send(DomainEvent::RecoveryKitResetRequested { user_id: user.id, email: email.to_string(), token });
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::RecoveryKitResetRequested, None).con_sujeto("user", user.id),
         ));
@@ -218,9 +229,10 @@ where
         if !mfa_valido {
             // QA-23: tope de intentos por token, además del límite por IP.
             self.tokens.registrar_intento_fallido(fila.id, MAX_INTENTOS_SEGUNDO_FACTOR).await?;
-            let _ = self.eventos.send(DomainEvent::Auditoria(
-                EventoAuditoria::nuevo(AuditEventType::RecoveryKitResetMfaFailed, Some(fila.user_id)),
-            ));
+            let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
+                AuditEventType::RecoveryKitResetMfaFailed,
+                Some(fila.user_id),
+            )));
             return Err(DomainError::InvalidCredentials);
         }
 
@@ -238,8 +250,7 @@ where
         let (email, _nombre) = self.usuarios.email_y_nombre(fila.user_id).await?.ok_or(DomainError::NotFound)?;
         let _ = self.eventos.send(DomainEvent::RecoveryKitResetCompleted { user_id: fila.user_id, email });
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::RecoveryKitResetCompleted, Some(fila.user_id))
-                .con_sujeto("user", fila.user_id),
+            EventoAuditoria::nuevo(AuditEventType::RecoveryKitResetCompleted, Some(fila.user_id)).con_sujeto("user", fila.user_id),
         ));
 
         Ok(())

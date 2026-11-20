@@ -7,18 +7,14 @@ use governor::{DefaultKeyedRateLimiter, Quota};
 use uuid::Uuid;
 
 use crate::account_recovery::repository::{
-    PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository,
-    PgRecoveryRequestRepository,
+    PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository, PgRecoveryRequestRepository,
 };
 use crate::admin::repository::PgRoleRepository;
 use crate::audit::repository::PgAuditLogRepository;
 use crate::auth::repository::{
-    PgAuthChallengeRepository, PgDeviceChallengeRepository, PgKnownDeviceRepository,
-    PgSessionRepository, PgUserRepository,
+    PgAuthChallengeRepository, PgDeviceChallengeRepository, PgKnownDeviceRepository, PgSessionRepository, PgUserRepository,
 };
-use crate::devices::repository::{
-    PgApprovalRequestRepository, PgDeviceApprovalPolicyRepository, PgTrustedDeviceRepository,
-};
+use crate::devices::repository::{PgApprovalRequestRepository, PgDeviceApprovalPolicyRepository, PgTrustedDeviceRepository};
 use crate::directory_sync::repository::PgDirectorySyncConfigRepository;
 use crate::emergency_access::repository::{
     PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
@@ -35,14 +31,11 @@ use crate::notificaciones::PgOutboundEmailRepository;
 use crate::passkeys::repository::{PgCeremonyStateRepository, PgPasskeyRepository};
 use crate::password_policy::repository::PgPasswordPolicyRepository;
 use crate::recovery_kit::repository::{PgRecoveryKitRepository, PgResetTokenRepository};
-use crate::self_registration::repository::PgSelfRegistrationPolicyRepository;
 use crate::reports::repository::PgReportsRepository;
-use crate::resources::repository::{
-    PgPermissionRepository, PgResourceRepository, PgResourceTypeRepository,
-    PgSecretEnvelopeRepository,
-};
+use crate::resources::repository::{PgPermissionRepository, PgResourceRepository, PgResourceTypeRepository, PgSecretEnvelopeRepository};
 use crate::retention::repository::{PgPurgeRepository, PgRetentionPolicyRepository};
 use crate::scim::repository::{PgScimTokenRepository, PgScimUserRepository};
+use crate::self_registration::repository::PgSelfRegistrationPolicyRepository;
 use crate::sharing_policy::repository::PgSharingPolicyRepository;
 use crate::smtp_config::repository::PgSmtpConfigRepository;
 use crate::sso::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIdentityRepository};
@@ -181,8 +174,8 @@ impl AppState {
         // pedido por recurso (N+1): con 139 claves eran ~141 pedidos y la
         // ráfaga de 20 cortaba a mitad de la carga. Sigue frenando a una
         // sesión robada que intente descargar todo en un loop.
-        let cuota = Quota::per_second(NonZeroU32::new(20).expect("20 no es cero"))
-            .allow_burst(NonZeroU32::new(300).expect("300 no es cero"));
+        let cuota =
+            Quota::per_second(NonZeroU32::new(20).expect("20 no es cero")).allow_burst(NonZeroU32::new(300).expect("300 no es cero"));
         // Sin sesión (login, registro, recuperación, enlaces públicos), por
         // IP. Era 2/s con ráfaga 60; un login son ~4 pedidos sin sesión, así
         // que 50 personas detrás de la NAT de una oficina entrando a la vez
@@ -192,8 +185,8 @@ impl AppState {
         // intentos por desafío (migración 0052), MFA tiene `limitador_mfa`
         // por sesión, y recuperación / enlaces públicos sus propios límites
         // más estrictos.
-        let cuota_ip = Quota::per_second(NonZeroU32::new(10).expect("10 no es cero"))
-            .allow_burst(NonZeroU32::new(250).expect("250 no es cero"));
+        let cuota_ip =
+            Quota::per_second(NonZeroU32::new(10).expect("10 no es cero")).allow_burst(NonZeroU32::new(250).expect("250 no es cero"));
         // F-14: "más estricto que el general" — 5 intentos por minuto por
         // sesión parcial, muy por debajo del espacio de búsqueda de un
         // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.

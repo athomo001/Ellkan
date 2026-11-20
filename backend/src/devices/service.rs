@@ -56,8 +56,7 @@ where
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::DeviceTrusted, Some(user_id))
-                .con_sujeto("trusted_device", dispositivo.id),
+            EventoAuditoria::nuevo(AuditEventType::DeviceTrusted, Some(user_id)).con_sujeto("trusted_device", dispositivo.id),
         ));
 
         Ok(dispositivo)
@@ -75,8 +74,7 @@ where
         self.confiables.revocar(device_id).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::DeviceRevoked, Some(user_id))
-                .con_sujeto("trusted_device", device_id),
+            EventoAuditoria::nuevo(AuditEventType::DeviceRevoked, Some(user_id)).con_sujeto("trusted_device", device_id),
         ));
 
         Ok(())
@@ -86,31 +84,21 @@ where
         Ok(self.policy.obtener().await?)
     }
 
-    pub async fn actualizar_politica(
-        &self,
-        actor_id: Uuid,
-        policy: DeviceApprovalPolicy,
-    ) -> Result<(), DomainError> {
+    pub async fn actualizar_politica(&self, actor_id: Uuid, policy: DeviceApprovalPolicy) -> Result<(), DomainError> {
         self.policy.actualizar(&policy).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::DeviceApprovalPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "allow_peer_device_approval": policy.allow_peer_device_approval,
-                    "allow_admin_device_approval": policy.allow_admin_device_approval,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::DeviceApprovalPolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "allow_peer_device_approval": policy.allow_peer_device_approval,
+                "allow_admin_device_approval": policy.allow_admin_device_approval,
+            })),
         ));
 
         Ok(())
     }
 
     /// `POST /auth/device-approval/request` — sin sesión, dispositivo nuevo.
-    pub async fn solicitar_aprobacion(
-        &self,
-        user_id: Uuid,
-        device_public_key: &[u8],
-    ) -> Result<ApprovalRequest, DomainError> {
+    pub async fn solicitar_aprobacion(&self, user_id: Uuid, device_public_key: &[u8]) -> Result<ApprovalRequest, DomainError> {
         let politica = self.policy.obtener().await?;
         if !politica.allow_peer_device_approval {
             return Err(DomainError::PermissionDenied);
@@ -118,10 +106,7 @@ where
 
         let fingerprint = fingerprint_de(device_public_key);
         let expires_at = OffsetDateTime::now_utc() + Duration::seconds(TTL_APROBACION_SEGUNDOS);
-        Ok(self
-            .solicitudes
-            .crear(Uuid::now_v7(), user_id, device_public_key, &fingerprint, expires_at)
-            .await?)
+        Ok(self.solicitudes.crear(Uuid::now_v7(), user_id, device_public_key, &fingerprint, expires_at).await?)
     }
 
     /// `GET /auth/device-approval/{id}` — poll sin sesión (endpoint nuevo,
@@ -141,12 +126,7 @@ where
     /// dispositivo de otra persona). Mintea la sesión que el dispositivo
     /// nuevo termina usando, guarda el envelope sellado, y da de alta el
     /// dispositivo nuevo como confiable (ya puede aprobar a otros).
-    pub async fn aprobar(
-        &self,
-        actor_id: Uuid,
-        approval_request_id: Uuid,
-        sealed_user_private_key: &[u8],
-    ) -> Result<(), DomainError> {
+    pub async fn aprobar(&self, actor_id: Uuid, approval_request_id: Uuid, sealed_user_private_key: &[u8]) -> Result<(), DomainError> {
         let politica = self.policy.obtener().await?;
         if !politica.allow_peer_device_approval {
             return Err(DomainError::PermissionDenied);

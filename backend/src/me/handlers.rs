@@ -1,9 +1,9 @@
 // Autor: Athan Espinoza
 
-use axum::extract::State;
-use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::IntoResponse;
 use axum::Json;
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::IntoResponse;
 
 use crate::admin::repository::RoleRepository;
 use crate::auth::extractor::{AuthenticatedUser, SesionValida};
@@ -12,21 +12,19 @@ use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
-use super::dto::{
-    ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, PerfilResponse,
-    PreferenciasResponse,
-};
+use super::dto::{ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, PerfilResponse, PreferenciasResponse};
 use super::models::{Avatar, NuevaClavePrivada, Preferencias};
 use super::repository::PgPreferenciasRepository;
-use super::service::{
-    verificar_posesion, AvatarService, CambiarPassphraseService, PerfilService, PreferenciasService, PruebaDePosesion,
-};
+use super::service::{AvatarService, CambiarPassphraseService, PerfilService, PreferenciasService, PruebaDePosesion, verificar_posesion};
 use crate::password_policy::repository::PgPasswordPolicyRepository;
 
 type Servicio<'a> = PreferenciasService<'a, PgPreferenciasRepository, PgPasswordPolicyRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
-    PreferenciasService { preferencias: &state.preferencias_usuario, password_policy: &state.password_policy }
+    PreferenciasService {
+        preferencias: &state.preferencias_usuario,
+        password_policy: &state.password_policy,
+    }
 }
 
 fn a_response(p: Preferencias) -> PreferenciasResponse {
@@ -38,10 +36,7 @@ fn a_response(p: Preferencias) -> PreferenciasResponse {
     }
 }
 
-pub async fn obtener(
-    State(state): State<AppState>,
-    user: AuthenticatedUser,
-) -> Result<Json<PreferenciasResponse>, ApiError> {
+pub async fn obtener(State(state): State<AppState>, user: AuthenticatedUser) -> Result<Json<PreferenciasResponse>, ApiError> {
     let p = servicio(&state).obtener(user.user_id).await?;
     Ok(Json(a_response(p)))
 }
@@ -62,10 +57,7 @@ pub async fn actualizar(
 }
 
 /// `GET /me` — perfil de sólo lectura (F-01, no estaba expuesto).
-pub async fn perfil(
-    State(state): State<AppState>,
-    user: AuthenticatedUser,
-) -> Result<Json<PerfilResponse>, ApiError> {
+pub async fn perfil(State(state): State<AppState>, user: AuthenticatedUser) -> Result<Json<PerfilResponse>, ApiError> {
     let p = PerfilService { perfil: &state.preferencias_usuario }.obtener(user.user_id).await?;
     Ok(Json(PerfilResponse {
         id: user.user_id,
@@ -133,8 +125,7 @@ pub async fn avatar_actualizar(
     user: AuthenticatedUser,
     Json(req): Json<ActualizarAvatarRequest>,
 ) -> Result<(), ApiError> {
-    let bytes =
-        b64::decode(&req.avatar_b64).map_err(|_| DomainError::ValidacionInvalida("avatar_b64 inválido".into()))?;
+    let bytes = b64::decode(&req.avatar_b64).map_err(|_| DomainError::ValidacionInvalida("avatar_b64 inválido".into()))?;
     AvatarService { avatar: &state.preferencias_usuario }
         .actualizar(user.user_id, Avatar { bytes, content_type: req.content_type })
         .await?;
@@ -169,15 +160,13 @@ pub async fn cambiar_passphrase(
     sesion.exigir(&[PropositoSesion::Completa, PropositoSesion::CambiarPassphrase])?;
     let encrypted_private_key_blob = b64::decode(&req.encrypted_private_key_blob_b64)
         .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let private_key_nonce = b64::decode(&req.private_key_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let kdf_salt = b64::decode(&req.kdf_salt_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let private_key_nonce =
+        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
+    let kdf_salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
     let prueba = PruebaDePosesion {
         challenge: b64::decode(&req.challenge_nonce_b64)
             .map_err(|_| DomainError::ValidacionInvalida("challenge_nonce_b64 inválido".into()))?,
-        firma: b64::decode(&req.signature_b64)
-            .map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?,
+        firma: b64::decode(&req.signature_b64).map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?,
     };
 
     // QA-06: una sesión (aunque sea completa) no alcanza para reemplazar la

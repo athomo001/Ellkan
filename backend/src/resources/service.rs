@@ -14,9 +14,7 @@ use crate::folders::repository::FolderItemRepository;
 use crate::groups::repository::GroupMemberRepository;
 
 use super::models::{Destinatario, EnvelopeInput, NivelPermiso, PermisoGrantee, Resource, SecretEnvelope};
-use super::repository::{
-    PermissionRepository, ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository,
-};
+use super::repository::{PermissionRepository, ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository};
 
 /// Ítem ya decodificado (base64 aplicado, `level` resuelto) para
 /// `ResourceService::compartir_lote` — evita un tuple de 6 elementos.
@@ -115,11 +113,7 @@ where
     /// cantidad fija de queries (rol, grupos administrados, grupo dueño de la
     /// carpeta y owner propio) en vez de 3–5 por recurso. Devuelve el
     /// subconjunto de `resource_ids` que `actor_id` puede borrar.
-    pub async fn puede_borrar_lote(
-        &self,
-        actor_id: Uuid,
-        resource_ids: &[Uuid],
-    ) -> Result<std::collections::HashSet<Uuid>, DomainError> {
+    pub async fn puede_borrar_lote(&self, actor_id: Uuid, resource_ids: &[Uuid]) -> Result<std::collections::HashSet<Uuid>, DomainError> {
         if resource_ids.is_empty() {
             return Ok(std::collections::HashSet::new());
         }
@@ -159,17 +153,14 @@ where
             .crear(id, resource_type_id, metadata_ciphertext, metadata_nonce, owner_id, metadata_key_id)
             .await?;
 
-        self.envolturas
-            .insertar(recurso.id, owner_id, sealed_dek, secret_ciphertext, secret_nonce)
-            .await?;
+        self.envolturas.insertar(recurso.id, owner_id, sealed_dek, secret_ciphertext, secret_nonce).await?;
 
         self.permisos
             .otorgar("resource", recurso.id, "user", owner_id, NivelPermiso::Owner.as_db_str())
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::ResourceCreated, Some(owner_id))
-                .con_sujeto("resource", recurso.id),
+            EventoAuditoria::nuevo(AuditEventType::ResourceCreated, Some(owner_id)).con_sujeto("resource", recurso.id),
         ));
 
         Ok(recurso)
@@ -194,11 +185,7 @@ where
 
     /// Devuelve el envelope del usuario autenticado únicamente — para
     /// `GET /resources/{id}/secret`.
-    pub async fn obtener_secreto(
-        &self,
-        resource_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<SecretEnvelope, DomainError> {
+    pub async fn obtener_secreto(&self, resource_id: Uuid, user_id: Uuid) -> Result<SecretEnvelope, DomainError> {
         if !self
             .permisos
             .tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str())
@@ -207,10 +194,7 @@ where
             return Err(DomainError::PermissionDenied);
         }
 
-        self.envolturas
-            .buscar(resource_id, user_id)
-            .await?
-            .ok_or(DomainError::NotFound)
+        self.envolturas.buscar(resource_id, user_id).await?.ok_or(DomainError::NotFound)
     }
 
     /// F-05, F-11 básico: comparte con un usuario concreto, sin grupos
@@ -257,15 +241,11 @@ where
                 // posible es `unique(resource_id, user_id)` de
                 // `secret_envelopes`, o sea que ese destinatario ya tiene
                 // acceso. Mensaje explícito en vez del genérico.
-                crate::error::RepoError::Conflict => {
-                    DomainError::ValidacionInvalida("esta persona ya tiene acceso a este recurso".into())
-                }
+                crate::error::RepoError::Conflict => DomainError::ValidacionInvalida("esta persona ya tiene acceso a este recurso".into()),
                 otro => DomainError::Interno(otro),
             })?;
 
-        self.permisos
-            .otorgar("resource", resource_id, "user", recipient_id, nivel.as_db_str())
-            .await?;
+        self.permisos.otorgar("resource", resource_id, "user", recipient_id, nivel.as_db_str()).await?;
         // H-31: ver comentario en `ResourceRepository::tocar_updated_at`.
         self.recursos.tocar_updated_at(resource_id).await?;
 
@@ -313,7 +293,11 @@ where
     /// más allá de agregar un destinatario nuevo a ciegas. Owner-only, mismo
     /// criterio que "sólo un Owner puede tocar quién tiene acceso" (F-11).
     pub async fn listar_permisos(&self, resource_id: Uuid, actor_id: Uuid) -> Result<Vec<PermisoGrantee>, DomainError> {
-        if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+        if !self
+            .permisos
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str())
+            .await?
+        {
             return Err(DomainError::PermissionDenied);
         }
         Ok(self.permisos.listar("resource", resource_id).await?)
@@ -332,7 +316,11 @@ where
         grantee_id: Uuid,
         nuevo_nivel: NivelPermiso,
     ) -> Result<(), DomainError> {
-        if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+        if !self
+            .permisos
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str())
+            .await?
+        {
             return Err(DomainError::PermissionDenied);
         }
 
@@ -359,7 +347,9 @@ where
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(actor_id))
                 .con_sujeto("resource", resource_id)
-                .con_metadata(serde_json::json!({ "grantee_type": grantee_type, "grantee_id": grantee_id, "level": nuevo_nivel.as_db_str() })),
+                .con_metadata(
+                    serde_json::json!({ "grantee_type": grantee_type, "grantee_id": grantee_id, "level": nuevo_nivel.as_db_str() }),
+                ),
         ));
         Ok(())
     }
@@ -376,7 +366,11 @@ where
         grantee_type: &str,
         grantee_id: Uuid,
     ) -> Result<(), DomainError> {
-        if !self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await? {
+        if !self
+            .permisos
+            .tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str())
+            .await?
+        {
             return Err(DomainError::PermissionDenied);
         }
         // H-26: ver comentario equivalente en `cambiar_nivel`.
@@ -567,11 +561,7 @@ where
             .json_schema_por_id(recurso.resource_type_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let schema_nuevo = self
-            .tipos_recurso
-            .json_schema_por_id(nuevo_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
+        let schema_nuevo = self.tipos_recurso.json_schema_por_id(nuevo_id).await?.ok_or(DomainError::NotFound)?;
         if schema_actual != schema_nuevo {
             return Err(DomainError::ValidacionInvalida(
                 "sólo se puede cambiar entre tipos con el mismo formato (ej. login-password/ssh/ftp/telnet/vnc)".to_string(),
@@ -613,9 +603,7 @@ where
             .await?
             .ok_or(DomainError::NotFound)?;
 
-        let declara_totp = schema["secret"]
-            .as_array()
-            .is_some_and(|campos| campos.iter().any(|c| c == "totp_secret"));
+        let declara_totp = schema["secret"].as_array().is_some_and(|campos| campos.iter().any(|c| c == "totp_secret"));
         Ok(declara_totp)
     }
 }

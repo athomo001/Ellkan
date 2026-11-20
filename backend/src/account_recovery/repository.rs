@@ -16,10 +16,7 @@ pub trait AccountRecoveryPolicyRepository {
 pub trait OrgRecoveryKeyRepository {
     /// Genera (una sola vez, lazy) el keypair X25519 de recuperación
     /// organizacional si todavía no existe, y lo devuelve.
-    async fn obtener_o_crear(
-        &self,
-        generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>),
-    ) -> Result<OrgRecoveryKey, RepoError>;
+    async fn obtener_o_crear(&self, generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>)) -> Result<OrgRecoveryKey, RepoError>;
 }
 
 pub trait EscrowRepository {
@@ -62,12 +59,7 @@ pub trait RecoveryRequestRepository {
     /// bloqueen el índice de "una sola pendiente". `Ok(false)` si ya no
     /// estaba `unconfirmed` o venció; `Conflict` si el escrow ya tiene otra
     /// solicitud pendiente vigente.
-    async fn confirmar(
-        &self,
-        id: Uuid,
-        requester_token_hash: &[u8],
-        expires_at: time::OffsetDateTime,
-    ) -> Result<bool, RepoError>;
+    async fn confirmar(&self, id: Uuid, requester_token_hash: &[u8], expires_at: time::OffsetDateTime) -> Result<bool, RepoError>;
 
     /// Bloquea la fila (`FOR UPDATE`) y la devuelve junto al umbral de su
     /// escrow — el Service decide en Rust si ya alcanzó el umbral, nunca en
@@ -79,12 +71,7 @@ pub trait RecoveryRequestRepository {
         tx: &mut sqlx::PgConnection,
     ) -> Result<Option<(RecoveryRequest, i32)>, RepoError>;
 
-    async fn guardar_aprobaciones(
-        &self,
-        id: Uuid,
-        approvals: serde_json::Value,
-        tx: &mut sqlx::PgConnection,
-    ) -> Result<(), RepoError>;
+    async fn guardar_aprobaciones(&self, id: Uuid, approvals: serde_json::Value, tx: &mut sqlx::PgConnection) -> Result<(), RepoError>;
 
     /// Marca `approved` + guarda el material re-sellado para el solicitante
     /// — sólo se llama una vez alcanzado el umbral.
@@ -189,10 +176,7 @@ pub struct PgOrgRecoveryKeyRepository {
 }
 
 impl OrgRecoveryKeyRepository for PgOrgRecoveryKeyRepository {
-    async fn obtener_o_crear(
-        &self,
-        generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>),
-    ) -> Result<OrgRecoveryKey, RepoError> {
+    async fn obtener_o_crear(&self, generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>)) -> Result<OrgRecoveryKey, RepoError> {
         if let Some(fila) = sqlx::query!(
             r#"select id, public_key_x25519, encrypted_private_key, private_key_nonce
                from org_recovery_keys where id = 1"#,
@@ -417,12 +401,7 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
         Ok(())
     }
 
-    async fn confirmar(
-        &self,
-        id: Uuid,
-        requester_token_hash: &[u8],
-        expires_at: time::OffsetDateTime,
-    ) -> Result<bool, RepoError> {
+    async fn confirmar(&self, id: Uuid, requester_token_hash: &[u8], expires_at: time::OffsetDateTime) -> Result<bool, RepoError> {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
@@ -502,19 +481,10 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
         }))
     }
 
-    async fn guardar_aprobaciones(
-        &self,
-        id: Uuid,
-        approvals: serde_json::Value,
-        tx: &mut sqlx::PgConnection,
-    ) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"update account_recovery_requests set approvals = $2 where id = $1"#,
-            id,
-            approvals,
-        )
-        .execute(&mut *tx)
-        .await?;
+    async fn guardar_aprobaciones(&self, id: Uuid, approvals: serde_json::Value, tx: &mut sqlx::PgConnection) -> Result<(), RepoError> {
+        sqlx::query!(r#"update account_recovery_requests set approvals = $2 where id = $1"#, id, approvals,)
+            .execute(&mut *tx)
+            .await?;
         Ok(())
     }
 

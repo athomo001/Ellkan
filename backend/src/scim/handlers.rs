@@ -1,11 +1,11 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -17,8 +17,8 @@ use crate::state::AppState;
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 
 use super::dto::{
-    CrearScimUserRequest, ListarScimQuery, PatchScimUserRequest, ScimErrorResponse, ScimListResponse,
-    ScimTokenResponse, ScimTokenRowResponse, ScimUserResponse,
+    CrearScimUserRequest, ListarScimQuery, PatchScimUserRequest, ScimErrorResponse, ScimListResponse, ScimTokenResponse,
+    ScimTokenRowResponse, ScimUserResponse,
 };
 use super::extractor::ScimAuth;
 use super::models::ResultadoCrearUsuario;
@@ -38,10 +38,7 @@ fn scim_error(status: StatusCode, detail: impl Into<String>) -> Response {
 /// `POST /admin/scim-tokens` — el token en claro se devuelve **una sola
 /// vez** (mismo criterio que el secreto TOTP en el QR de F-14); sólo el
 /// hash queda persistido.
-pub async fn crear_token(
-    State(state): State<AppState>,
-    admin: AdminUser,
-) -> Result<Json<ScimTokenResponse>, ApiError> {
+pub async fn crear_token(State(state): State<AppState>, admin: AdminUser) -> Result<Json<ScimTokenResponse>, ApiError> {
     let token_bytes: [u8; 32] = bytes_aleatorios();
     let token = B64.encode(token_bytes);
     let hash = Sha256::digest(token.as_bytes());
@@ -49,9 +46,10 @@ pub async fn crear_token(
     use super::repository::ScimTokenRepository;
     state.scim_tokens.crear(Uuid::now_v7(), &hash).await.map_err(crate::error::DomainError::from)?;
 
-    let _ = state.eventos.send(DomainEvent::Auditoria(
-        EventoAuditoria::nuevo(AuditEventType::ScimTokenCreated, Some(admin.user_id)),
-    ));
+    let _ = state.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
+        AuditEventType::ScimTokenCreated,
+        Some(admin.user_id),
+    )));
 
     Ok(Json(ScimTokenResponse { token }))
 }
@@ -78,26 +76,18 @@ pub async fn revocar_token(State(state): State<AppState>, admin: AdminUser, Path
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub async fn crear_usuario(
-    State(state): State<AppState>,
-    _auth: ScimAuth,
-    Json(req): Json<CrearScimUserRequest>,
-) -> Response {
+pub async fn crear_usuario(State(state): State<AppState>, _auth: ScimAuth, Json(req): Json<CrearScimUserRequest>) -> Response {
     let email = req.email();
     let nombre = req.nombre();
     let resultado = servicio(&state).crear_usuario(&req.external_id, &email, &nombre).await;
 
     match resultado {
-        Ok(ResultadoCrearUsuario::Creado(u)) => {
-            (StatusCode::CREATED, Json(ScimUserResponse::from(u))).into_response()
-        }
+        Ok(ResultadoCrearUsuario::Creado(u)) => (StatusCode::CREATED, Json(ScimUserResponse::from(u))).into_response(),
         Ok(ResultadoCrearUsuario::YaExistiaPorExternalId(u)) => scim_error(
             StatusCode::CONFLICT,
             format!("ya existe un usuario con externalId={} (id={})", req.external_id, u.id),
         ),
-        Ok(ResultadoCrearUsuario::ConflictoDeEmail) => {
-            scim_error(StatusCode::CONFLICT, "el email ya pertenece a una cuenta existente")
-        }
+        Ok(ResultadoCrearUsuario::ConflictoDeEmail) => scim_error(StatusCode::CONFLICT, "el email ya pertenece a una cuenta existente"),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
