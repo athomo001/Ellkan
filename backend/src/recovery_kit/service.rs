@@ -118,12 +118,16 @@ where
         Ok(self.kits.marcar_para_rotar(user_id).await?)
     }
 
-    /// `POST /recovery-kit/reset` — sin sesión, a propósito. Anti-enumeración
-    /// idéntica a `AccountRecoveryService::crear_solicitud`: un email sin
-    /// cuenta y un email sin kit configurado devuelven el mismo resultado.
+    /// `POST /recovery-kit/reset` — sin sesión, a propósito. QA-15: la
+    /// respuesta es la misma exista o no la cuenta y tenga o no kit (antes
+    /// 404 contra 200 confirmaba ambas cosas); sólo cambia si sale el email.
     pub async fn solicitar_reset(&self, email: &str) -> Result<(), DomainError> {
-        let user = self.usuarios.buscar_por_email(email).await?.ok_or(DomainError::NotFound)?;
-        self.kits.buscar_por_usuario(user.id).await?.ok_or(DomainError::NotFound)?;
+        let Some(user) = self.usuarios.buscar_por_email(email).await? else {
+            return Ok(());
+        };
+        if self.kits.buscar_por_usuario(user.id).await?.is_none() {
+            return Ok(());
+        }
 
         let token_bytes: [u8; 32] = bytes_aleatorios();
         let token = URL_SAFE_NO_PAD.encode(token_bytes);

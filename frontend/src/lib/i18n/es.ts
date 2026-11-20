@@ -105,7 +105,8 @@ const es = {
 			'Esta bóveda no tiene un kit de recuperación registrado (o el correo no coincide), así que no se puede recuperar desde acá.',
 		pedirLink: 'Enviar link de recuperación',
 		sinKitLink: '¿No tenés tu kit de recuperación? Pedir aprobación de un admin',
-		esperandoEmailHint: 'Revisá tu email y abrí el link que te mandamos. Podés cerrar esta pantalla.',
+		esperandoEmailHint:
+			'Si ese email tiene una cuenta con kit de recuperación, te llega un link. Revisá tu correo (también el spam); podés cerrar esta pantalla.',
 		kitYPassphraseHint: 'Pegá tu kit de recuperación y elegí una contraseña nueva.',
 		pegarKit: 'Kit de recuperación',
 		pegarKitHint: 'El texto que guardaste cuando configuraste tu kit.',

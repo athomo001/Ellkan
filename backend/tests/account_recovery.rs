@@ -547,15 +547,25 @@ async fn admin_de_grupo_del_solicitante_puede_gestionar_y_queda_bien_marcado_en_
     assert_eq!(cuerpo["status"], "pending", "un solo manager de grupo no alcanza para liberar la clave");
     assert_eq!(cuerpo["sealed_private_key_for_requester_b64"], Value::Null);
 
-    let fila: (String, Option<Uuid>) = sqlx::query_as(
-        "select metadata->>'authority', (metadata->>'group_id')::uuid from audit_log_entries
-         where event_type = 'account_recovery.approved' and subject_id = $1
-         order by created_at desc limit 1",
-    )
-    .bind(uuid::Uuid::parse_str(&request_id).unwrap())
-    .fetch_one(&entorno.pool)
-    .await
-    .unwrap();
+    // La auditoría la escribe un listener del canal de eventos, después de
+    // la respuesta: se espera a que aparezca en vez de leerla una sola vez.
+    let mut fila: Option<(String, Option<Uuid>)> = None;
+    for _ in 0..50 {
+        fila = sqlx::query_as(
+            "select metadata->>'authority', (metadata->>'group_id')::uuid from audit_log_entries
+             where event_type = 'account_recovery.approved' and subject_id = $1
+             order by created_at desc limit 1",
+        )
+        .bind(uuid::Uuid::parse_str(&request_id).unwrap())
+        .fetch_optional(&entorno.pool)
+        .await
+        .unwrap();
+        if fila.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let fila = fila.expect("la aprobación debería quedar en la auditoría");
     assert_eq!(fila.0, "group_admin", "la auditoría debe distinguir claramente una acción de admin de grupo");
     assert_eq!(fila.1, Some(grupo_id));
 

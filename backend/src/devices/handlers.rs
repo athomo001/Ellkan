@@ -5,7 +5,6 @@ use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
-use crate::auth::repository::UserRepository;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
@@ -44,7 +43,7 @@ fn a_response(d: TrustedDevice) -> TrustedDeviceResponse {
 fn solicitud_a_response(s: ApprovalRequest, incluir_sellado: bool) -> ApprovalRequestResponse {
     ApprovalRequestResponse {
         id: s.id,
-        fingerprint: s.fingerprint,
+        fingerprint: Some(s.fingerprint),
         status: s.status,
         session_id: s.session_id,
         sealed_user_private_key_b64: if incluir_sellado {
@@ -97,21 +96,14 @@ pub async fn solicitar_aprobacion(
     let public_key =
         b64::decode(&req.device_public_key_b64).map_err(|_| DomainError::ValidacionInvalida("device_public_key_b64 inválido".into()))?;
 
-    let usuario = state
-        .usuarios
-        .buscar_por_email(&req.email)
-        .await
-        .map_err(DomainError::from)?
-        .ok_or(DomainError::InvalidCredentials)?;
-
-    let solicitud = servicio(&state).solicitar_aprobacion(usuario.id, &public_key).await?;
+    let solicitud = servicio(&state).solicitar_aprobacion(&req.email, &public_key).await?;
     Ok(Json(solicitud_a_response(solicitud, false)))
 }
 
 pub async fn estado_aprobacion(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Json<ApprovalRequestResponse>, ApiError> {
     let solicitud = servicio(&state).estado_aprobacion(id).await?;
     let aprobada = solicitud.status == "approved";
-    Ok(Json(solicitud_a_response(solicitud, aprobada)))
+    Ok(Json(ApprovalRequestResponse { fingerprint: None, ..solicitud_a_response(solicitud, aprobada) }))
 }
 
 pub async fn aprobar(

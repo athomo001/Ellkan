@@ -31,7 +31,11 @@ pub struct SolicitarAprobacionRequest {
 #[derive(Debug, Serialize)]
 pub struct ApprovalRequestResponse {
     pub id: Uuid,
-    pub fingerprint: String,
+    /// No va en el poll sin sesión (`GET /auth/device-approval/{id}`): quien
+    /// pregunta ya la recibió al crear la solicitud, y para una solicitud que
+    /// no existe no habría cómo calcularla (QA-15).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
     pub status: String,
     /// Sólo presentes una vez `status == "approved"`.
     pub session_id: Option<Uuid>,

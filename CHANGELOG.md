@@ -15,10 +15,12 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 - **Comandos de conexión sin inyección:** el comando que se copia para pegar en una terminal (SSH, psql, mysql…) ya no se ofrece si el usuario o el host de un recurso tienen caracteres de shell (`;`, `|`, `$`, espacios…) o empiezan con `-` (`-oProxyCommand=…`). Un recurso compartido o importado podía armar uno que ejecutara otra cosa. En la web y en la extensión.
 - **Dirección pública obligatoria (QA-30, pendiente #115):** el servidor ya no arranca sin `ELLKAN_RP_ID` y `ELLKAN_RP_ORIGIN` (antes usaba `localhost` en silencio: passkeys inservibles y links de email apuntando a localhost). `docker-compose.yml` los define con `localhost` por defecto; en un servidor van en `.env` con el dominio real.
+- **Sin enumeración de cuentas (QA-15, pendiente #104):** pedir el reset con kit de recuperación o la aprobación de un dispositivo responde lo mismo exista o no la cuenta (antes 404/401 contra 200).
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
 
 ### CI
 
+- **Test de auditoría de recuperación de cuenta sin carrera:** espera a que el evento llegue a la auditoría en vez de leerlo una sola vez.
 - **Accesibilidad en el CI (QA-13):** Playwright + axe (WCAG 2.2 AA) sobre las pantallas sin sesión, en los dos temas, incluido el registro con token de instalación. Encontró y se corrigió una región con scroll no alcanzable con el teclado.
 - **Tests unitarios (QA-14):** vitest en el frontend y la extensión, y en el CI. Incluyen un ida y vuelta de cifrado con el WASM real.
 - **Tests de LDAP y SSO en el CI (pendiente #127):** `.github/scripts/levantar-fixtures.sh` levanta OpenLDAP y Keycloak con los datos de `backend/tests/fixtures/` antes de `cargo test`.

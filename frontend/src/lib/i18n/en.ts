@@ -104,7 +104,8 @@ const en: Diccionario = {
 			'This vault has no recovery kit registered (or the email doesn’t match), so it can’t be recovered from here.',
 		pedirLink: 'Send recovery link',
 		sinKitLink: 'Don’t have your recovery kit? Request admin approval instead',
-		esperandoEmailHint: 'Check your email and open the link we sent you. You can close this screen.',
+		esperandoEmailHint:
+			'If that email has an account with a recovery kit, a link is on its way. Check your inbox (and spam); you can close this screen.',
 		kitYPassphraseHint: 'Paste your recovery kit and choose a new passphrase.',
 		pegarKit: 'Recovery kit',
 		pegarKitHint: 'The text you saved when you set up your kit.',

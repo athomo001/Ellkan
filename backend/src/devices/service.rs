@@ -98,7 +98,11 @@ where
     }
 
     /// `POST /auth/device-approval/request` — sin sesión, dispositivo nuevo.
-    pub async fn solicitar_aprobacion(&self, user_id: Uuid, device_public_key: &[u8]) -> Result<ApprovalRequest, DomainError> {
+    ///
+    /// QA-15: un email sin cuenta recibe la misma respuesta que uno con cuenta
+    /// (una solicitud "pendiente" que nunca se guarda ni nadie va a ver), y la
+    /// política se mira antes que el email para que el 403 tampoco dependa de él.
+    pub async fn solicitar_aprobacion(&self, email: &str, device_public_key: &[u8]) -> Result<ApprovalRequest, DomainError> {
         let politica = self.policy.obtener().await?;
         if !politica.allow_peer_device_approval {
             return Err(DomainError::PermissionDenied);
@@ -106,13 +110,55 @@ where
 
         let fingerprint = fingerprint_de(device_public_key);
         let expires_at = OffsetDateTime::now_utc() + Duration::seconds(TTL_APROBACION_SEGUNDOS);
-        Ok(self.solicitudes.crear(Uuid::now_v7(), user_id, device_public_key, &fingerprint, expires_at).await?)
+        let Some(usuario) = self.usuarios.buscar_por_email(email).await? else {
+            return Ok(ApprovalRequest {
+                id: Uuid::now_v7(),
+                user_id: Uuid::nil(),
+                device_public_key: device_public_key.to_vec(),
+                fingerprint,
+                status: "pending".into(),
+                sealed_user_private_key: None,
+                session_id: None,
+                expires_at,
+            });
+        };
+        Ok(self
+            .solicitudes
+            .crear(Uuid::now_v7(), usuario.id, device_public_key, &fingerprint, expires_at)
+            .await?)
     }
 
     /// `GET /auth/device-approval/{id}` — poll sin sesión (endpoint nuevo,
     /// no listado en `03-api-contrato.md`, ver nota del plan de esta fase).
+    ///
+    /// QA-15: un id que no existe (la solicitud "pendiente" de un email sin
+    /// cuenta, o una real ya purgada) no da 404: se contesta como una
+    /// pendiente que vence a los `TTL_APROBACION_SEGUNDOS` de la hora que trae
+    /// el propio UUIDv7. Una pendiente real vencida se informa como `expired`,
+    /// igual que la inexistente después de ese plazo.
     pub async fn estado_aprobacion(&self, id: Uuid) -> Result<ApprovalRequest, DomainError> {
-        self.solicitudes.buscar(id).await?.ok_or(DomainError::NotFound)
+        let ahora = OffsetDateTime::now_utc();
+        if let Some(mut solicitud) = self.solicitudes.buscar(id).await? {
+            if solicitud.status == "pending" && solicitud.expires_at <= ahora {
+                solicitud.status = "expired".into();
+            }
+            return Ok(solicitud);
+        }
+        let creada = id
+            .get_timestamp()
+            .and_then(|t| OffsetDateTime::from_unix_timestamp(t.to_unix().0 as i64).ok())
+            .unwrap_or(ahora - Duration::seconds(TTL_APROBACION_SEGUNDOS));
+        let expires_at = creada + Duration::seconds(TTL_APROBACION_SEGUNDOS);
+        Ok(ApprovalRequest {
+            id,
+            user_id: Uuid::nil(),
+            device_public_key: Vec::new(),
+            fingerprint: String::new(),
+            status: if expires_at > ahora { "pending" } else { "expired" }.into(),
+            sealed_user_private_key: None,
+            session_id: None,
+            expires_at,
+        })
     }
 
     /// `GET /me/devices/pending-approvals` — autenticado (endpoint nuevo,

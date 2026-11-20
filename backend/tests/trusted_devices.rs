@@ -285,4 +285,55 @@ async fn policy_sin_aprobacion_peer_rechaza_el_flujo_explicito() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 403, "con la política apagada, ni siquiera se puede crear la solicitud");
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/device-approval/request", entorno.base))
+        .json(&json!({ "email": "nadie-5@test.ellkan", "device_public_key_b64": B64.encode(clave_publica_de_prueba()) }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "mismo 403 para un email sin cuenta (QA-15)");
+}
+
+/// QA-15: pedir aprobación para un email sin cuenta, y después preguntar por
+/// esa solicitud, se ve igual que con una cuenta real.
+#[tokio::test]
+async fn solicitud_para_email_sin_cuenta_no_se_distingue() {
+    let entorno = common::levantar().await;
+    let usuario = common::registrar(&entorno, "trust-6@test.ellkan").await;
+
+    let mut respuestas = Vec::new();
+    for email in [usuario.email.as_str(), "nadie-6@test.ellkan"] {
+        let resp = entorno
+            .cliente
+            .post(format!("{}/auth/device-approval/request", entorno.base))
+            .json(&json!({ "email": email, "device_public_key_b64": B64.encode(clave_publica_de_prueba()) }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "{email}");
+        let solicitud: Value = resp.json().await.unwrap();
+        assert_eq!(solicitud["status"], "pending", "{email}");
+        assert!(solicitud["fingerprint"].is_string(), "{email}");
+
+        let resp = entorno
+            .cliente
+            .get(format!("{}/auth/device-approval/{}", entorno.base, solicitud["id"].as_str().unwrap()))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "{email}");
+        let estado: Value = resp.json().await.unwrap();
+        respuestas.push(estado.as_object().unwrap().keys().cloned().collect::<Vec<_>>());
+        assert_eq!(estado["status"], "pending", "{email}");
+    }
+    assert_eq!(respuestas[0], respuestas[1], "mismos campos en el poll");
+
+    // Un id viejo que no existe ya se informa vencido, no 404.
+    let viejo = Uuid::new_v7(uuid::Timestamp::from_unix(uuid::NoContext, 1_700_000_000, 0));
+    let resp = entorno.cliente.get(format!("{}/auth/device-approval/{viejo}", entorno.base)).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let estado: Value = resp.json().await.unwrap();
+    assert_eq!(estado["status"], "expired");
 }

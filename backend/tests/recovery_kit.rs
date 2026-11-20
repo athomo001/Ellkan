@@ -250,7 +250,7 @@ async fn el_kit_se_puede_marcar_para_rotar_y_el_material_lo_refleja() {
 }
 
 #[tokio::test]
-async fn reset_sin_kit_configurado_da_404() {
+async fn reset_responde_igual_sin_kit_y_sin_cuenta() {
     let entorno = common::levantar().await;
     let user = common::registrar(&entorno, "sin-kit@test.ellkan").await;
 
@@ -261,7 +261,14 @@ async fn reset_sin_kit_configurado_da_404() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404, "sin kit configurado no hay forma de resetear (anti-enumeración)");
+    assert_eq!(resp.status(), 200, "sin kit: misma respuesta que con kit (QA-15), pero no sale ningún email");
+    let (tokens,): (i64,) =
+        sqlx::query_as("select count(*) from recovery_reset_tokens t join users u on u.id = t.user_id where u.email = $1")
+            .bind(&user.email)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
+    assert_eq!(tokens, 0, "sin kit no se crea token ni sale el email de reset");
 
     let resp = entorno
         .cliente
@@ -270,7 +277,7 @@ async fn reset_sin_kit_configurado_da_404() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404, "mismo código para un email inexistente — anti-enumeración");
+    assert_eq!(resp.status(), 200, "mismo código para un email inexistente — anti-enumeración");
 }
 
 #[tokio::test]
