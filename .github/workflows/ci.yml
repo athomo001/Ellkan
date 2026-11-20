@@ -47,6 +47,11 @@ jobs:
   rust:
     name: Rust (clippy, tests, audit)
     runs-on: ubuntu-24.04
+    env:
+      # El LDAP de prueba (`levantar-fixtures.sh`) usa un certificado
+      # autofirmado, y el de la imagen ya venció: lo necesitan los dos pasos
+      # de tests (con y sin la feature `desktop`).
+      ELLKAN_DIRECTORY_SYNC_INSECURE_TLS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain (rust-toolchain.toml)
@@ -63,9 +68,6 @@ jobs:
       - name: Servicios de prueba (OpenLDAP + Keycloak)
         run: bash .github/scripts/levantar-fixtures.sh
       - name: Tests
-        env:
-          # El LDAP de prueba usa un certificado autofirmado.
-          ELLKAN_DIRECTORY_SYNC_INSECURE_TLS: "1"
         run: cargo test --no-fail-fast --workspace $CARGO_EXCLUDE
       - name: Tests (feature desktop)
         run: cargo test --no-fail-fast -p ellkan-backend --features desktop
