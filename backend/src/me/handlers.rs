@@ -7,6 +7,7 @@ use axum::Json;
 
 use crate::admin::repository::RoleRepository;
 use crate::auth::extractor::{AuthenticatedUser, SesionValida};
+use crate::auth::models::PropositoSesion;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
@@ -17,7 +18,9 @@ use super::dto::{
 };
 use super::models::{Avatar, NuevaClavePrivada, Preferencias};
 use super::repository::PgPreferenciasRepository;
-use super::service::{AvatarService, CambiarPassphraseService, PerfilService, PreferenciasService};
+use super::service::{
+    verificar_posesion, AvatarService, CambiarPassphraseService, PerfilService, PreferenciasService, PruebaDePosesion,
+};
 use crate::password_policy::repository::PgPasswordPolicyRepository;
 
 type Servicio<'a> = PreferenciasService<'a, PgPreferenciasRepository, PgPasswordPolicyRepository>;
@@ -153,26 +156,36 @@ pub async fn avatar_eliminar(State(state): State<AppState>, user: AuthenticatedU
 /// (`$lib/crypto/identity.ts::cambiarPassphrase`); el servidor nunca ve
 /// ninguna de las dos passphrases, sólo el blob ya re-sellado.
 ///
-/// `SesionValida` (no `AuthenticatedUser`): quien llega hasta acá ya
-/// demostró conocer la passphrase actual (la firma Ed25519 de
-/// `/auth/verify` exige haberla desbloqueado client-side antes de firmar),
-/// así que una sesión parcial también puede cambiarla — es justo lo que
-/// necesita `RequiereCambiarPassphrase` (passphrase provisoria creada por un
-/// admin) para no tener que abrir un endpoint nuevo sólo para ese caso.
+/// `SesionValida` (no `AuthenticatedUser`) para admitir la sesión parcial de
+/// `RequiereCambiarPassphrase` (passphrase provisoria creada por un admin),
+/// pero sólo esa: una sesión que todavía debe verificar o configurar MFA no
+/// puede reemplazar la clave privada sellada, porque no demostró el segundo
+/// factor.
 pub async fn cambiar_passphrase(
     State(state): State<AppState>,
     sesion: SesionValida,
     Json(req): Json<CambiarPassphraseRequest>,
 ) -> Result<(), ApiError> {
+    sesion.exigir(&[PropositoSesion::Completa, PropositoSesion::CambiarPassphrase])?;
     let encrypted_private_key_blob = b64::decode(&req.encrypted_private_key_blob_b64)
         .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
     let private_key_nonce = b64::decode(&req.private_key_nonce_b64)
         .map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
     let kdf_salt = b64::decode(&req.kdf_salt_b64)
         .map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let prueba = PruebaDePosesion {
+        challenge: b64::decode(&req.challenge_nonce_b64)
+            .map_err(|_| DomainError::ValidacionInvalida("challenge_nonce_b64 inválido".into()))?,
+        firma: b64::decode(&req.signature_b64)
+            .map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?,
+    };
 
+    // QA-06: una sesión (aunque sea completa) no alcanza para reemplazar la
+    // clave privada sellada; hace falta probar que se tiene la identidad.
+    let nueva = NuevaClavePrivada { encrypted_private_key_blob, private_key_nonce, kdf_salt };
+    let verificado = verificar_posesion(&state.usuarios, &state.challenges, sesion.user_id, nueva, &prueba).await?;
     CambiarPassphraseService { claves: &state.preferencias_usuario, eventos: state.eventos.clone() }
-        .actualizar(sesion.user_id, NuevaClavePrivada { encrypted_private_key_blob, private_key_nonce, kdf_salt })
+        .actualizar(verificado)
         .await?;
     Ok(())
 }

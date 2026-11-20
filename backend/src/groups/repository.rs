@@ -45,7 +45,16 @@ pub trait GroupRepository {
 }
 
 pub trait GroupMemberRepository {
-    async fn agregar_simple(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), RepoError>;
+    /// `added_by`: quién hizo el alta (`None` = sistema, p. ej. Directory
+    /// Sync). Account Recovery lo usa para que un manager no pueda aprobar la
+    /// recuperación de alguien que él mismo acaba de meter en su grupo.
+    async fn agregar_simple(
+        &self,
+        group_id: Uuid,
+        user_id: Uuid,
+        is_admin: bool,
+        added_by: Option<Uuid>,
+    ) -> Result<(), RepoError>;
 
     /// F-12: agregar a alguien a un grupo que ya comparte recursos exige
     /// sellarle la DEK de cada uno — todo en una transacción: si algo falla,
@@ -56,6 +65,7 @@ pub trait GroupMemberRepository {
         group_id: Uuid,
         user_id: Uuid,
         is_admin: bool,
+        added_by: Option<Uuid>,
         envelopes: &[EnvelopeParaMiembroNuevo],
     ) -> Result<(), RepoError>;
 
@@ -96,6 +106,16 @@ pub trait GroupMemberRepository {
     /// selector "compartir con mi grupo" y para autorizar `DELETE
     /// /resources/{id}` de un recurso que vive en una carpeta de grupo.
     async fn grupos_administrados_por(&self, user_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
+
+    /// Account Recovery (QA-02): un grupo vigente donde `actor_id` es admin y
+    /// `target_id` es miembro desde antes de `antes_de`, sin que el alta la
+    /// haya hecho el propio `actor_id`. `None` si no hay ninguno.
+    async fn grupo_administrado_con_membresia_previa(
+        &self,
+        actor_id: Uuid,
+        target_id: Uuid,
+        antes_de: time::OffsetDateTime,
+    ) -> Result<Option<Uuid>, RepoError>;
 
     /// F-19: grupos raíz **gestionados por Directory Sync**
     /// (`managed_by_directory_sync`) a los que pertenece `user_id` — usado
@@ -263,12 +283,19 @@ pub struct PgGroupMemberRepository {
 }
 
 impl GroupMemberRepository for PgGroupMemberRepository {
-    async fn agregar_simple(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), RepoError> {
+    async fn agregar_simple(
+        &self,
+        group_id: Uuid,
+        user_id: Uuid,
+        is_admin: bool,
+        added_by: Option<Uuid>,
+    ) -> Result<(), RepoError> {
         sqlx::query!(
-            r#"insert into group_members (group_id, user_id, is_admin) values ($1, $2, $3)"#,
+            r#"insert into group_members (group_id, user_id, is_admin, added_by) values ($1, $2, $3, $4)"#,
             group_id,
             user_id,
             is_admin,
+            added_by,
         )
         .execute(&self.pool)
         .await
@@ -284,15 +311,17 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         group_id: Uuid,
         user_id: Uuid,
         is_admin: bool,
+        added_by: Option<Uuid>,
         envelopes: &[EnvelopeParaMiembroNuevo],
     ) -> Result<(), RepoError> {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
-            r#"insert into group_members (group_id, user_id, is_admin) values ($1, $2, $3)"#,
+            r#"insert into group_members (group_id, user_id, is_admin, added_by) values ($1, $2, $3, $4)"#,
             group_id,
             user_id,
             is_admin,
+            added_by,
         )
         .execute(&mut *tx)
         .await
@@ -532,6 +561,34 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         .fetch_all(&self.pool)
         .await?;
         Ok(filas.into_iter().map(|f| f.group_id).collect())
+    }
+
+    async fn grupo_administrado_con_membresia_previa(
+        &self,
+        actor_id: Uuid,
+        target_id: Uuid,
+        antes_de: time::OffsetDateTime,
+    ) -> Result<Option<Uuid>, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select gm_t.group_id
+            from group_members gm_t
+            join group_members gm_a
+              on gm_a.group_id = gm_t.group_id and gm_a.user_id = $1 and gm_a.is_admin
+            join groups g on g.id = gm_t.group_id and g.deleted_at is null
+            where gm_t.user_id = $2
+              and gm_t.created_at < $3
+              and gm_t.added_by is distinct from $1
+            order by gm_t.group_id
+            limit 1
+            "#,
+            actor_id,
+            target_id,
+            antes_de,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| f.group_id))
     }
 
     async fn grupos_gestionados_de(&self, user_id: Uuid) -> Result<Vec<GrupoDeUsuario>, RepoError> {

@@ -55,6 +55,11 @@ const en: Diccionario = {
 		subtitulo: 'If you enabled account recovery before losing your passphrase, an admin can approve your request.',
 		email: 'Email',
 		solicitar: 'Request recovery',
+		codigoHint:
+			"We sent an 8-digit code to the account's email. Enter it so the request reaches the administrators.",
+		codigo: 'Confirmation code',
+		confirmarCodigo: 'Confirm',
+		vencida: 'The request expired or was rejected. Request recovery again.',
 		esperandoAprobacion: 'Waiting for an administrator to approve your request… you can leave this screen open.',
 		aprobadaHint: 'Your request was approved. Set a new passphrase for your account.',
 		passphraseNueva: 'New passphrase',
@@ -524,6 +529,8 @@ const en: Diccionario = {
 		recoveryTitulo: 'Account recovery',
 		recoveryHint:
 			'Enable this to be able to recover access to your account if you lose your passphrase — an administrator has to approve the request.',
+		recoveryAdvertencia:
+			'Important: this option is an exception to zero-knowledge encryption. Your private key is stored on the server, encrypted with an organization key that also lives on the server. Whoever controls the server (its database and configuration) could open it and read your vault. If that is not acceptable to you, use the personal recovery kit instead.',
 		recoveryHabilitada: 'Enabled on this account.',
 		recoveryHabilitar: 'Enable account recovery',
 		recoveryErrorHabilitar: 'Could not enable account recovery.',

@@ -4,6 +4,28 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.70] - 2026-11-20
+
+### Remediación de la auditoría QA/AppSec (Crítico, Alto y parte de Medio)
+
+**Seguridad:**
+- Sesiones parciales con propósito explícito (`sessions.proposito`, migración 0053): una sesión pendiente de MFA ya no puede reemplazar el TOTP ni cambiar la passphrase.
+- Account recovery endurecido (0054): confirmación por código al email, token del solicitante y vencimiento; un manager no puede aprobar la recuperación de alguien que él mismo agregó ni de un admin de organización.
+- Reemplazar la clave privada sellada exige prueba de posesión Ed25519 atada al blob nuevo (cambio de passphrase, reset por kit, account recovery). Nuevo `firmar_reemplazo_clave_privada` en `ellkan-crypto` (WASM).
+- `PUT /resources/{id}` exige el conjunto exacto de destinatarios; mover a una carpeta compartida exige Owner; un recurso borrado ya no concede permisos.
+- Token de instalación opcional `ELLKAN_SETUP_TOKEN[_FILE]` y lock transaccional para el primer admin.
+- `key-material` falso y estable para emails inexistentes; topes por cuenta en la verificación de correo; tope de 5 intentos por token de reset del kit (0055) y vencimiento real del código por email.
+- Los miembros de un grupo sólo se muestran a miembros/administradores; sacar un subgrupo a la raíz exige poder crear grupos raíz.
+- Clave privada del servidor cifrada con `ELLKAN_SECRETS_KEY` (se migra sola al arrancar); cuerpos de email vaciados tras el envío; la CLI pasa la contraseña de Postgres por `PGPASSWORD`.
+- README y UI de enrolamiento documentan que la recuperación aprobada por administradores es una excepción a zero-knowledge.
+
+**Robustez e infraestructura:**
+- Un host SMTP inválido ya no tira el proceso; sin `expect` sobre datos persistidos de passkeys.
+- `GET /resources` calcula `puede_borrar` en lote (antes 3–5 queries por recurso; cierra el pendiente #28).
+- CI nuevo (`.github/workflows/ci.yml`, acciones fijadas por SHA); Dockerfile con imágenes por digest y `wasm-pack` con versión fija; el compose ya no apaga la detección de migraciones alteradas.
+
+**Compatibilidad:** `/me/change-passphrase`, `/recovery-kit/reset/{token}/complete` y `/account-recovery/requests/{id}/complete` exigen `challenge_nonce_b64` + `signature_b64`; los clientes viejos reciben 422.
+
 ## [0.1.69] - 2026-10-18
 
 ### «Too Many Requests» con 137 claves, borrados del escritorio que no llegaban al servidor, logs útiles

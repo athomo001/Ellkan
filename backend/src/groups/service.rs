@@ -124,6 +124,18 @@ where
         self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)
     }
 
+    /// QA-19: el listado de miembros (con sus correos) sólo lo ve un
+    /// miembro del grupo, quien lo administra (directo o vía un ancestro) o
+    /// un admin de organización. El resto recibe sólo los metadatos del
+    /// grupo: antes cualquier sesión leía el directorio de cualquier grupo y
+    /// anulaba `restrict_visibility_by_group`.
+    pub async fn puede_ver_miembros(&self, actor_id: Uuid, group_id: Uuid) -> Result<bool, DomainError> {
+        if self.miembros.es_miembro(group_id, actor_id).await? {
+            return Ok(true);
+        }
+        self.autorizado_para_administrar(actor_id, group_id).await
+    }
+
     pub async fn subgrupos(&self, group_id: Uuid) -> Result<Vec<Group>, DomainError> {
         Ok(self.grupos.hijos_directos(group_id).await?)
     }
@@ -139,14 +151,22 @@ where
         group_id: Uuid,
         new_parent_group_id: Option<Uuid>,
     ) -> Result<(), DomainError> {
-        self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
+        let grupo = self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
 
         if !self.autorizado_para_administrar(actor_id, group_id).await? {
             return Err(DomainError::PermissionDenied);
         }
 
         let profundidad_nueva = match new_parent_group_id {
-            None => 1,
+            // QA-20: sacar un subgrupo a la raíz lo saca de la autoridad de
+            // los managers del padre — exige el mismo privilegio que crear un
+            // grupo raíz, no sólo ser manager del subgrupo.
+            None => {
+                if grupo.parent_group_id.is_some() && !self.puede_crear_grupo_raiz(actor_id).await? {
+                    return Err(DomainError::PermissionDenied);
+                }
+                1
+            }
             Some(nuevo_padre) => {
                 if nuevo_padre == group_id {
                     return Err(DomainError::CicloDeGrupo);
@@ -207,9 +227,9 @@ where
         }
 
         let resultado = if envelopes.is_empty() {
-            self.miembros.agregar_simple(group_id, user_id, is_admin).await
+            self.miembros.agregar_simple(group_id, user_id, is_admin, Some(actor_id)).await
         } else {
-            self.miembros.agregar_con_envelopes(group_id, user_id, is_admin, &envelopes).await
+            self.miembros.agregar_con_envelopes(group_id, user_id, is_admin, Some(actor_id), &envelopes).await
         };
 
         resultado.map_err(|e| match e {

@@ -55,13 +55,13 @@ where
     /// compartida con un grupo (de cualquier usuario que lo tenga
     /// posicionado ahí) — determina si el borrado exige ser admin de ESE
     /// grupo en vez del criterio de `owner` de siempre.
+    ///
+    /// QA-04: sólo cuenta una posición hecha por alguien que es `owner` del
+    /// recurso. Antes alcanzaba con que CUALQUIER usuario lo hubiera
+    /// posicionado en una carpeta de grupo: un lector podía moverlo a una
+    /// carpeta propia, compartirla con un grupo que administra y borrarlo.
     async fn grupo_dueno_de_carpeta(&self, resource_id: Uuid) -> Result<Option<Uuid>, DomainError> {
-        for folder_id in self.items.carpetas_de_recurso(resource_id).await? {
-            if let Some(group_id) = self.permisos.grupo_grantee_de("folder", folder_id).await? {
-                return Ok(Some(group_id));
-            }
-        }
-        Ok(None)
+        Ok(self.items.grupos_duenos_de_carpeta(&[resource_id]).await?.remove(&resource_id))
     }
 
     /// `DELETE /resources/{id}` (2026-08-11, antes no existía ningún camino
@@ -108,15 +108,39 @@ where
     /// `RecursoResponse` y así el frontend no muestre un botón que siempre
     /// va a devolver 403.
     pub async fn puede_borrar(&self, resource_id: Uuid, actor_id: Uuid) -> Result<bool, DomainError> {
+        Ok(self.puede_borrar_lote(actor_id, &[resource_id]).await?.contains(&resource_id))
+    }
+
+    /// QA-12: la misma regla que `puede_borrar` para todo un listado, con una
+    /// cantidad fija de queries (rol, grupos administrados, grupo dueño de la
+    /// carpeta y owner propio) en vez de 3–5 por recurso. Devuelve el
+    /// subconjunto de `resource_ids` que `actor_id` puede borrar.
+    pub async fn puede_borrar_lote(
+        &self,
+        actor_id: Uuid,
+        resource_ids: &[Uuid],
+    ) -> Result<std::collections::HashSet<Uuid>, DomainError> {
+        if resource_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
         if self.roles.usuario_tiene_permiso(actor_id, "*").await? {
-            return Ok(true);
+            return Ok(resource_ids.iter().copied().collect());
         }
-        match self.grupo_dueno_de_carpeta(resource_id).await? {
-            Some(group_id) => Ok(self.grupos.grupos_administrados_por(actor_id).await?.contains(&group_id)),
-            None => {
-                self.permisos.tiene_permiso("resource", resource_id, actor_id, NivelPermiso::Owner.as_db_str()).await.map_err(DomainError::from)
-            }
-        }
+        let grupos_duenos = self.items.grupos_duenos_de_carpeta(resource_ids).await?;
+        let administrados: std::collections::HashSet<Uuid> = if grupos_duenos.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            self.grupos.grupos_administrados_por(actor_id).await?.into_iter().collect()
+        };
+        let propios = self.permisos.recursos_owner_de(actor_id, resource_ids).await?;
+        Ok(resource_ids
+            .iter()
+            .copied()
+            .filter(|id| match grupos_duenos.get(id) {
+                Some(group_id) => administrados.contains(group_id),
+                None => propios.contains(id),
+            })
+            .collect())
     }
     pub async fn crear(
         &self,
@@ -485,10 +509,17 @@ where
             return Err(DomainError::PermissionDenied);
         }
 
+        // 409 tanto si otro cambio ganó la carrera (`None`) como si la lista
+        // de destinatarios no coincide con la vigente (QA-05): en los dos
+        // casos el cliente tiene que volver a leer y re-sellar.
         let resultado = self
             .recursos
             .actualizar(resource_id, expected_updated_at, metadata_ciphertext, metadata_nonce, &envelopes)
-            .await?;
+            .await
+            .map_err(|e| match e {
+                crate::error::RepoError::Conflict => DomainError::Conflict,
+                otro => DomainError::Interno(otro),
+            })?;
         let recurso = resultado.ok_or(DomainError::Conflict)?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(

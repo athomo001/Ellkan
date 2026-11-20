@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update sessions set mfa_verified_at = now(), proposito = 'completa' where id = $1 and mfa_verified_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "feeb26db1977d59cf999b262ad41e059ac8d50f7306d385d902c7f3db8029c05"
+}

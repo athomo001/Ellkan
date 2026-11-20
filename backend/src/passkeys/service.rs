@@ -85,8 +85,12 @@ where
             .ok_or_else(|| {
                 DomainError::ValidacionInvalida("no hay un registro de passkey en curso (venció o no se inició)".into())
             })?;
-        let estado: PasskeyRegistration =
-            serde_json::from_value(estado_json).expect("estado persistido siempre es válido");
+        // QA-34: nunca `expect` sobre datos persistidos (ver
+        // `repository::decodificar_passkey`).
+        let estado: PasskeyRegistration = serde_json::from_value(estado_json).map_err(|e| {
+            tracing::error!(error = %e, "estado de ceremonia de registro WebAuthn ilegible");
+            DomainError::ValidacionInvalida("la ceremonia de registro de passkey no es válida; volvé a iniciarla".into())
+        })?;
 
         let passkey = self
             .webauthn
@@ -161,8 +165,10 @@ where
             .tomar(user.id, TipoCeremonia::Autenticacion.as_db_str())
             .await?
             .ok_or(DomainError::InvalidCredentials)?;
-        let estado: PasskeyAuthentication =
-            serde_json::from_value(estado_json).expect("estado persistido siempre es válido");
+        let estado: PasskeyAuthentication = serde_json::from_value(estado_json).map_err(|e| {
+            tracing::error!(error = %e, "estado de ceremonia de autenticación WebAuthn ilegible");
+            DomainError::InvalidCredentials
+        })?;
 
         let resultado = self
             .webauthn

@@ -215,6 +215,19 @@ impl ResourceRepository for SqliteResourceRepository {
             return Ok(None);
         }
 
+        // QA-05: mismo criterio que la implementación Postgres (la
+        // transacción de SQLite ya es exclusiva para escritura).
+        let actuales = sqlx::query("select user_id from secret_envelopes where resource_id = ?1")
+            .bind(resource_id.to_string())
+            .fetch_all(&mut *tx)
+            .await?
+            .iter()
+            .map(|f| parse_uuid(f.try_get::<String, _>("user_id")?.as_str()))
+            .collect::<Result<Vec<Uuid>, RepoError>>()?;
+        if !crate::resources::repository::mismo_conjunto_de_destinatarios(&actuales, envelopes) {
+            return Err(RepoError::Conflict);
+        }
+
         sqlx::query("delete from secret_envelopes where resource_id = ?1")
             .bind(resource_id.to_string())
             .execute(&mut *tx)
@@ -493,6 +506,27 @@ impl PermissionRepository for SqlitePermissionRepository {
 
     async fn grupo_grantee_de(&self, _subject_type: &str, _subject_id: Uuid) -> Result<Option<Uuid>, RepoError> {
         Ok(None)
+    }
+
+    /// Mismo criterio que `tiene_permiso` en este modo: owner = creador.
+    async fn recursos_owner_de(
+        &self,
+        user_id: Uuid,
+        resource_ids: &[Uuid],
+    ) -> Result<std::collections::HashSet<Uuid>, RepoError> {
+        let pedidos: std::collections::HashSet<Uuid> = resource_ids.iter().copied().collect();
+        let filas = sqlx::query("select id from resources where created_by = ?1 and deleted_at is null")
+            .bind(user_id.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        let mut propios = std::collections::HashSet::new();
+        for fila in &filas {
+            let id = parse_uuid(fila.try_get::<String, _>("id")?.as_str())?;
+            if pedidos.contains(&id) {
+                propios.insert(id);
+            }
+        }
+        Ok(propios)
     }
 
     async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<PermisoGrantee>, RepoError> {

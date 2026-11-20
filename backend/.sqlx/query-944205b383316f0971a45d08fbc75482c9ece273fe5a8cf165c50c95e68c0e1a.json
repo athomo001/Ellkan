@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update recovery_reset_tokens set consumed_at = now() where id = $1 and consumed_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "944205b383316f0971a45d08fbc75482c9ece273fe5a8cf165c50c95e68c0e1a"
+}

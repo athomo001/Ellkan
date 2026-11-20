@@ -214,6 +214,15 @@ pub trait PermissionRepository {
     /// devuelve cualquiera.
     async fn grupo_grantee_de(&self, subject_type: &str, subject_id: Uuid) -> Result<Option<Uuid>, RepoError>;
 
+    /// QA-12: de `resource_ids`, los que `user_id` tiene con nivel `owner`
+    /// (directo o vía grupo) — mismo criterio que `tiene_permiso(..,
+    /// "owner")`, en una sola query para todo el listado.
+    async fn recursos_owner_de(
+        &self,
+        user_id: Uuid,
+        resource_ids: &[Uuid],
+    ) -> Result<std::collections::HashSet<Uuid>, RepoError>;
+
     /// Todos los grantees (usuario o grupo) con acceso a `subject`, con su
     /// nivel — `GET /resources/{id}/permissions`, panel de "compartir".
     async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<super::models::PermisoGrantee>, RepoError>;
@@ -257,6 +266,16 @@ pub trait PermissionRepository {
         grantee_id: Uuid,
         nuevo_nivel: &str,
     ) -> Result<bool, RepoError>;
+}
+
+/// QA-05: `true` si `recibidos` trae exactamente un envelope por cada
+/// destinatario `actual` (ni de más, ni de menos, ni repetidos). Compartida
+/// por las implementaciones Postgres y SQLite de `actualizar`.
+pub fn mismo_conjunto_de_destinatarios(actuales: &[Uuid], recibidos: &[EnvelopeInput]) -> bool {
+    use std::collections::HashSet;
+    let esperados: HashSet<Uuid> = actuales.iter().copied().collect();
+    let recibidos_set: HashSet<Uuid> = recibidos.iter().map(|e| e.user_id).collect();
+    recibidos_set.len() == recibidos.len() && esperados == recibidos_set
 }
 
 #[derive(Clone)]
@@ -501,6 +520,20 @@ impl ResourceRepository for PgResourceRepository {
             return Ok(None);
         };
 
+        // QA-05: el conjunto de envelopes recibido tiene que ser EXACTAMENTE
+        // el de los destinatarios vigentes (bloqueados para que no cambien
+        // entre la comparación y el reemplazo). Sin esto, un editor podía
+        // mandar sólo el suyo y borrar el acceso de todos los demás.
+        let actuales = sqlx::query_scalar!(
+            r#"select user_id as "user_id!" from secret_envelopes where resource_id = $1 for update"#,
+            resource_id,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !mismo_conjunto_de_destinatarios(&actuales, envelopes) {
+            return Err(RepoError::Conflict);
+        }
+
         // Reemplazo completo de `secret_envelopes`: el cliente ya resolvió
         // la lista completa de destinatarios actuales (`listar_destinatarios`)
         // y las re-selló con la DEK nueva — nunca un merge parcial, porque
@@ -722,6 +755,11 @@ impl PermissionRepository for PgPermissionRepository {
                     select group_id from group_members where user_id = $3
                 ))
               )
+              -- QA-35: un recurso borrado (soft-delete) no concede nada
+              -- aunque sus filas de permiso sigan hasta la purga física.
+              and ($1 <> 'resource' or exists (
+                select 1 from resources r where r.id = $2 and r.deleted_at is null
+              ))
             "#,
             subject_type,
             subject_id,
@@ -805,6 +843,30 @@ impl PermissionRepository for PgPermissionRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.is_some())
+    }
+
+    async fn recursos_owner_de(
+        &self,
+        user_id: Uuid,
+        resource_ids: &[Uuid],
+    ) -> Result<std::collections::HashSet<Uuid>, RepoError> {
+        let filas = sqlx::query_scalar!(
+            r#"
+            select distinct subject_id from permissions
+            where subject_type = 'resource' and subject_id = any($2) and level = 'owner'
+              and (
+                (grantee_type = 'user' and grantee_id = $1)
+                or (grantee_type = 'group' and grantee_id in (
+                    select group_id from group_members where user_id = $1
+                ))
+              )
+            "#,
+            user_id,
+            resource_ids,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().collect())
     }
 
     async fn grupo_grantee_de(&self, subject_type: &str, subject_id: Uuid) -> Result<Option<Uuid>, RepoError> {

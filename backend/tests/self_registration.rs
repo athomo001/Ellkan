@@ -272,3 +272,34 @@ async fn no_admin_no_puede_leer_ni_cambiar_la_politica() {
         .unwrap();
     assert_eq!(resp.status(), 403);
 }
+
+/// QA-17: tope de códigos de verificación por cuenta (registro + 5
+/// reenvíos en 24 h). Pasado el tope la respuesta es la misma (200,
+/// anti-enumeración) pero no se emite ningún código nuevo.
+#[tokio::test]
+async fn reenviar_verificacion_tiene_tope_por_cuenta() {
+    let entorno = common::levantar().await;
+    registrar_crudo(&entorno, "tope-reenvio@test.ellkan").await;
+
+    for _ in 0..7 {
+        // Espaciado para medir el tope por cuenta, no el límite por IP.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let resp = entorno
+            .cliente
+            .post(format!("{}/auth/verify-email/resend", entorno.base))
+            .json(&json!({ "email": "tope-reenvio@test.ellkan" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    let emitidos: i64 = sqlx::query_scalar(
+        "select count(*) from email_verification_challenges c join users u on u.id = c.user_id
+         where u.email = 'tope-reenvio@test.ellkan'",
+    )
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(emitidos, 6, "registro + 5 reenvíos, ninguno más");
+}

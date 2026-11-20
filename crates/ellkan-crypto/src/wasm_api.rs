@@ -174,6 +174,23 @@ pub fn firmar(ed25519_private: Vec<u8>, mensaje: Vec<u8>) -> Result<Vec<u8>, JsV
     Ok(firmante.sign(&mensaje).to_bytes().to_vec())
 }
 
+/// QA-06: prueba de posesión que exige el servidor para reemplazar el blob
+/// sellado (`/me/change-passphrase`, reset por recovery kit, account
+/// recovery). Ver `clave_privada::mensaje_reemplazo_clave_privada`.
+#[wasm_bindgen]
+pub fn firmar_reemplazo_clave_privada(
+    ed25519_private: Vec<u8>,
+    challenge: Vec<u8>,
+    blob: Vec<u8>,
+    nonce: Vec<u8>,
+    salt: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let mut arreglo: [u8; 32] = ed25519_private.try_into().map_err(|_| err_js("clave privada debe ser de 32 bytes"))?;
+    let firma = crate::clave_privada::firmar_reemplazo_clave_privada(&arreglo, &challenge, &blob, &nonce, &salt);
+    arreglo.zeroize();
+    Ok(firma.to_vec())
+}
+
 #[wasm_bindgen]
 pub fn clave_publica_x25519_de(x25519_private: Vec<u8>) -> Result<Vec<u8>, JsValue> {
     use x25519_dalek::{PublicKey, StaticSecret};

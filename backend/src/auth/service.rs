@@ -18,7 +18,7 @@ use crate::smtp_config::repository::SmtpConfigRepository;
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
 
-use super::models::{DeviceChallengeRow, NuevoUsuario, ResultadoRegistro, ResultadoVerify, User};
+use super::models::{DeviceChallengeRow, NuevoUsuario, PropositoSesion, ResultadoRegistro, ResultadoVerify, User};
 use super::repository::{
     AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository,
     SessionRepository, UserRepository,
@@ -31,8 +31,39 @@ const TTL_DEVICE_CHALLENGE_SEGUNDOS: i64 = 600;
 /// que no revisa el correo de inmediato.
 const TTL_EMAIL_VERIFICATION_SEGUNDOS: i64 = 24 * 3600;
 
+/// QA-17: por cuenta, en 24 h: códigos de verificación emitidos (el del
+/// registro + 5 reenvíos) e intentos fallidos sumados entre todos ellos.
+const MAX_CODIGOS_VERIFICACION_24H: i64 = 6;
+const MAX_INTENTOS_VERIFICACION_24H: i64 = 20;
+
 fn hash_de_codigo(codigo: &str) -> Vec<u8> {
     Sha256::digest(codigo.as_bytes()).to_vec()
+}
+
+/// Material de desbloqueo con la forma del real (blob 80, nonce 24, salt 16
+/// bytes) para un email sin cuenta: HKDF-SHA256 sobre la clave de servidor,
+/// con el email normalizado en el `info`. Estable entre llamadas e
+/// indistinguible de bytes aleatorios para quien no tiene la clave.
+fn material_desbloqueo_falso(
+    secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+    email: &str,
+) -> crate::auth::models::MaterialDesbloqueo {
+    use secrecy::ExposeSecret;
+    let email = email.trim().to_lowercase();
+    let mut bytes = Vec::with_capacity(128);
+    for parte in [b"a", b"b", b"c", b"d"] {
+        let mut info = b"ellkan:v1:key-material-falso:".to_vec();
+        info.extend_from_slice(parte);
+        info.push(b':');
+        info.extend_from_slice(email.as_bytes());
+        let bloque = ellkan_crypto::derivacion::derivar_clave_desde_secreto(secrets_key.expose_secret(), &info);
+        bytes.extend_from_slice(bloque.expose_secret());
+    }
+    crate::auth::models::MaterialDesbloqueo {
+        encrypted_private_key_blob: bytes[..80].to_vec(),
+        private_key_nonce: bytes[80..104].to_vec(),
+        kdf_salt: bytes[104..120].to_vec(),
+    }
 }
 
 /// Código de un solo uso de 6 dígitos — CSPRNG, nunca `thread_rng`.
@@ -87,7 +118,16 @@ where
     /// política habilitada + dominio permitido + SMTP configurado (el
     /// código de verificación tiene que poder llegar), y queda
     /// `pending_verification` hasta confirmar el email.
-    pub async fn registrar(&self, nuevo: NuevoUsuario<'_>) -> Result<ResultadoRegistro, DomainError> {
+    /// `setup_token_presentado`/`setup_token_esperado` (QA-11): si el
+    /// operador configuró un token de instalación, el registro que nacería
+    /// admin en una instancia vacía tiene que presentarlo (comparación en
+    /// tiempo constante); cualquier otro registro lo ignora.
+    pub async fn registrar(
+        &self,
+        nuevo: NuevoUsuario<'_>,
+        setup_token_presentado: Option<&str>,
+        setup_token_esperado: Option<&secrecy::SecretBox<String>>,
+    ) -> Result<ResultadoRegistro, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
             return Err(DomainError::ValidacionInvalida(
                 "las claves públicas deben ser de 32 bytes".to_string(),
@@ -95,7 +135,20 @@ where
         }
 
         let bootstrap = !self.usuarios.existe_alguno().await?;
-        if !bootstrap {
+        if bootstrap {
+            match setup_token_esperado {
+                Some(esperado) => {
+                    use secrecy::ExposeSecret;
+                    let presentado = setup_token_presentado.unwrap_or_default();
+                    if !secreto_coincide(esperado.expose_secret().as_bytes(), presentado.as_bytes()) {
+                        return Err(DomainError::PermissionDenied);
+                    }
+                }
+                None => tracing::warn!(
+                    "ELLKAN_SETUP_TOKEN no configurado: el primer registro de esta instancia nace admin sin token de instalación"
+                ),
+            }
+        } else {
             let politica = self.self_registration.obtener().await?;
             if !politica.enabled {
                 return Err(DomainError::ValidacionInvalida("auto-registro desactivado".into()));
@@ -159,6 +212,12 @@ where
     /// mismo `InvalidCredentials` genérico que una inexistente.
     pub async fn verificar_email(&self, email: &str, codigo: &str) -> Result<(), DomainError> {
         let user = self.usuarios.buscar_no_verificado_por_email(email).await?.ok_or(DomainError::InvalidCredentials)?;
+        // QA-17: tope de intentos por cuenta (no sólo por desafío): sin él,
+        // reenviar el código reiniciaba los intentos indefinidamente.
+        let (_, fallidos) = self.email_verification.uso_ultimas_24h(user.id).await?;
+        if fallidos >= MAX_INTENTOS_VERIFICACION_24H {
+            return Err(DomainError::InvalidCredentials);
+        }
         let desafio =
             self.email_verification.buscar_pendiente_por_usuario(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
 
@@ -185,6 +244,13 @@ where
         let Some(user) = self.usuarios.buscar_no_verificado_por_email(email).await? else {
             return Ok(());
         };
+
+        // QA-17: tope de códigos por cuenta; misma respuesta (anti-enumeration).
+        let (emitidos, _) = self.email_verification.uso_ultimas_24h(user.id).await?;
+        if emitidos >= MAX_CODIGOS_VERIFICACION_24H {
+            tracing::warn!(user_id = %user.id, "tope de reenvíos de verificación de correo alcanzado");
+            return Ok(());
+        }
 
         self.email_verification.invalidar_pendientes_de_usuario(user.id).await?;
 
@@ -217,20 +283,23 @@ where
 
     /// F-01 (frontend web): material de desbloqueo por email — mismo
     /// criterio anti-enumeración que `challenge()`: si el email no existe,
-    /// devuelve bytes aleatorios con exactamente el mismo largo que el
-    /// material real (80/24/16 bytes), para que la forma de la respuesta
-    /// nunca distinga "no existe" de "existe" — el intento de desbloqueo
-    /// va a fallar en los dos casos de la misma manera (passphrase
-    /// "incorrecta").
-    pub async fn material_desbloqueo(&self, email: &str) -> Result<crate::auth::models::MaterialDesbloqueo, DomainError> {
+    /// devuelve material con exactamente el mismo largo que el real
+    /// (80/24/16 bytes); el intento de desbloqueo falla igual en los dos
+    /// casos (passphrase "incorrecta").
+    ///
+    /// QA-03/QA-15: el material falso es determinístico por email (HKDF con
+    /// la clave de servidor), igual que el real: antes eran bytes aleatorios
+    /// distintos en cada llamada, y comparar dos respuestas alcanzaba para
+    /// saber si la cuenta existía.
+    pub async fn material_desbloqueo(
+        &self,
+        email: &str,
+        secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+    ) -> Result<crate::auth::models::MaterialDesbloqueo, DomainError> {
         if let Some(material) = self.usuarios.material_desbloqueo_por_email(email).await? {
             return Ok(material);
         }
-        Ok(crate::auth::models::MaterialDesbloqueo {
-            encrypted_private_key_blob: bytes_aleatorios::<80>().to_vec(),
-            private_key_nonce: bytes_aleatorios::<24>().to_vec(),
-            kdf_salt: bytes_aleatorios::<16>().to_vec(),
-        })
+        Ok(material_desbloqueo_falso(secrets_key, email))
     }
 
     /// F-13: envuelve `verify_con_usuario` para poder auditar exactamente una
@@ -387,10 +456,13 @@ where
         // Passphrase provisoria (creada por un admin): se resuelve ANTES que
         // MFA, a propósito — nunca tiene sentido dejar que alguien configure
         // un segundo factor atado a una passphrase que todavía conoce otra
-        // persona. Sesión parcial, sólo `/me/change-passphrase` la acepta
-        // (`SesionValida`) hasta que se limpie la marca.
+        // persona. Sesión parcial con propósito `cambiar_passphrase`: sólo
+        // `/me/change-passphrase` la acepta hasta que se limpie la marca.
         if user.must_change_passphrase {
-            let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+            let parcial = self
+                .sesiones
+                .crear_parcial(user.id, user.security_stamp, PropositoSesion::CambiarPassphrase)
+                .await?;
             return Ok(ResultadoVerify::RequiereCambiarPassphrase { session_id: parcial.id });
         }
 
@@ -418,7 +490,10 @@ where
                 Ok(ResultadoVerify::SesionCompleta(sesion))
             }
             DecisionMfa::DebeVerificar => {
-                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+                let parcial = self
+                    .sesiones
+                    .crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaPendiente)
+                    .await?;
                 let hash = crate::mfa::service::hash_de_sesion(parcial.id);
                 let expires_at = OffsetDateTime::now_utc()
                     + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
@@ -444,7 +519,10 @@ where
                 Ok(ResultadoVerify::PendienteMfa { session_id: parcial.id })
             }
             DecisionMfa::DebeConfigurar => {
-                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+                let parcial = self
+                    .sesiones
+                    .crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaConfigurar)
+                    .await?;
                 Ok(ResultadoVerify::RequiereConfigurarMfa { session_id: parcial.id })
             }
         }

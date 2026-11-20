@@ -45,6 +45,10 @@ pub enum DomainEvent {
     /// organización si no tiene grupo) — antes esta acción no mandaba
     /// ningún email a nadie.
     AccountRecoveryAdminNotify { request_id: Uuid, target_email: String, recipient_emails: Vec<String> },
+    /// F-16 (QA-10): código que confirma que quien pide recuperar la cuenta
+    /// controla su email — sin él la solicitud nunca llega a los admins.
+    /// Mismo criterio de `codigo` en claro sólo en memoria que los demás.
+    AccountRecoveryCodigoConfirmacion { email: String, codigo: String },
     /// F-13: dispara el consumidor de `audit::consumidor`, que persiste la
     /// entrada de forma asíncrona — nunca dentro de la transacción de la
     /// acción que audita.

@@ -57,6 +57,17 @@ pub trait CeremonyStateRepository {
     async fn tomar(&self, user_id: Uuid, kind: &str) -> Result<Option<serde_json::Value>, RepoError>;
 }
 
+/// QA-34: `passkey_data` viene de la DB y su formato lo define
+/// `webauthn-rs` (prerelease): un cambio de versión puede dejarlo ilegible.
+/// Se devuelve como error de decodificación (500 logueado), nunca `expect`
+/// — con `panic = "abort"` eso tiraba el proceso entero.
+fn decodificar_passkey(valor: serde_json::Value) -> Result<WebauthnPasskey, RepoError> {
+    serde_json::from_value(valor).map_err(|e| {
+        tracing::error!(error = %e, "passkey_data persistido no se pudo decodificar");
+        RepoError::Database(sqlx::Error::Decode(Box::new(e)))
+    })
+}
+
 #[derive(Clone)]
 pub struct PgPasskeyRepository {
     pub pool: sqlx::PgPool,
@@ -105,19 +116,20 @@ impl PasskeyRepository for PgPasskeyRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filas
+        filas
             .into_iter()
-            .map(|f| PasskeyRow {
+            .map(|f| -> Result<PasskeyRow, RepoError> {
+                Ok(PasskeyRow {
                 id: f.id,
                 user_id: f.user_id,
-                passkey_data: serde_json::from_value(f.passkey_data)
-                    .expect("passkey_data persistido siempre es un Passkey válido"),
+                passkey_data: decodificar_passkey(f.passkey_data)?,
                 prf_wrapped_private_key: f.prf_wrapped_private_key,
                 label: f.label,
                 created_at: f.created_at,
                 last_used_at: f.last_used_at,
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<PasskeyRow>, RepoError> {
@@ -131,16 +143,18 @@ impl PasskeyRepository for PgPasskeyRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| PasskeyRow {
+        fila.map(|f| -> Result<PasskeyRow, RepoError> {
+            Ok(PasskeyRow {
             id: f.id,
             user_id: f.user_id,
-            passkey_data: serde_json::from_value(f.passkey_data)
-                .expect("passkey_data persistido siempre es un Passkey válido"),
+            passkey_data: decodificar_passkey(f.passkey_data)?,
             prf_wrapped_private_key: f.prf_wrapped_private_key,
             label: f.label,
             created_at: f.created_at,
             last_used_at: f.last_used_at,
-        }))
+            })
+        })
+        .transpose()
     }
 
     async fn eliminar(&self, id: Uuid) -> Result<(), RepoError> {

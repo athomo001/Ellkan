@@ -1,6 +1,7 @@
 // Autor: Athan Espinoza
 
 use axum::extract::{Path, State};
+use axum::http::HeaderMap;
 use axum::Json;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -12,7 +13,7 @@ use crate::state::AppState;
 
 use super::dto::{
     ActualizarAccountRecoveryPolicyRequest, AccountRecoveryPolicyResponse, CompletarSolicitudRequest,
-    CrearSolicitudRequest, EnrolarRequest, EscrowResponse, MiEstadoResponse, OrgPublicKeyResponse,
+    ConfirmarSolicitudRequest, ConfirmarSolicitudResponse, CrearSolicitudRequest, EnrolarRequest, EscrowResponse, MiEstadoResponse, OrgPublicKeyResponse,
     SolicitudAdminResponse, SolicitudResponse,
 };
 use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
@@ -22,9 +23,10 @@ use super::repository::{
 };
 use super::service::AccountRecoveryService;
 use crate::admin::repository::PgRoleRepository;
-use crate::auth::repository::PgUserRepository;
+use crate::auth::repository::{PgAuthChallengeRepository, PgUserRepository};
 use crate::groups::repository::PgGroupMemberRepository;
 use crate::me::models::NuevaClavePrivada;
+use crate::me::service::PruebaDePosesion;
 use crate::me::repository::PgPreferenciasRepository;
 
 type Servicio<'a> = AccountRecoveryService<
@@ -37,6 +39,7 @@ type Servicio<'a> = AccountRecoveryService<
     PgPreferenciasRepository,
     PgRoleRepository,
     PgGroupMemberRepository,
+    PgAuthChallengeRepository,
 >;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
@@ -51,6 +54,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         pool: &state.pool,
         roles: &state.roles,
         grupos: &state.miembros_de_grupo,
+        challenges: &state.challenges,
         eventos: state.eventos.clone(),
     }
 }
@@ -126,25 +130,53 @@ pub async fn enrolar(
     Ok(Json(escrow_a_response(escrow)))
 }
 
+/// Header con el token del solicitante (QA-10). Header y no query string:
+/// las URLs terminan en logs de proxies.
+const HEADER_TOKEN: &str = "x-ellkan-recovery-token";
+
 /// `POST /account-recovery/requests` — sin sesión, a propósito (ver
-/// `AccountRecoveryService::crear_solicitud`).
+/// `AccountRecoveryService::crear_solicitud`). Siempre la misma forma de
+/// respuesta: la solicitud queda `unconfirmed` hasta que se confirma el
+/// código enviado al email de la cuenta.
 pub async fn crear_solicitud(
     State(state): State<AppState>,
     Json(req): Json<CrearSolicitudRequest>,
 ) -> Result<Json<SolicitudResponse>, ApiError> {
     let clave = decodificar_b64("requester_public_key_x25519_b64", &req.requester_public_key_x25519_b64)?;
-    let solicitud = servicio(&state).crear_solicitud(&req.email, clave).await?;
-    Ok(Json(solicitud_a_response(solicitud)))
+    let id = servicio(&state).crear_solicitud(&req.email, clave).await?;
+    Ok(Json(SolicitudResponse {
+        id,
+        status: "unconfirmed".to_string(),
+        approvals_count: 0,
+        sealed_private_key_for_requester_b64: None,
+    }))
+}
+
+/// `POST /account-recovery/requests/{id}/confirm` — QA-10, ver
+/// `AccountRecoveryService::confirmar_solicitud`.
+pub async fn confirmar_solicitud(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ConfirmarSolicitudRequest>,
+) -> Result<Json<ConfirmarSolicitudResponse>, ApiError> {
+    let token = servicio(&state).confirmar_solicitud(id, &req.code).await?;
+    Ok(Json(ConfirmarSolicitudResponse { requester_token_b64: B64.encode(token) }))
 }
 
 /// `GET /account-recovery/requests/{id}` — poll sin sesión, mismo criterio
-/// que `GET /auth/device-approval/{id}` (F-37): sin esto no hay forma de
-/// que el cliente que perdió su passphrase se entere de que ya lo aprobaron.
+/// que `GET /auth/device-approval/{id}` (F-37), pero con el token del
+/// solicitante en `X-Ellkan-Recovery-Token`: conocer el id no alcanza.
 pub async fn estado_solicitud(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
 ) -> Result<Json<SolicitudResponse>, ApiError> {
-    let solicitud = servicio(&state).estado_solicitud(id).await?;
+    let token = headers
+        .get(HEADER_TOKEN)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| B64.decode(v).ok())
+        .ok_or(DomainError::NotFound)?;
+    let solicitud = servicio(&state).estado_solicitud(id, &token).await?;
     Ok(Json(solicitud_a_response(solicitud)))
 }
 
@@ -178,12 +210,17 @@ pub async fn completar(
     Path(id): Path<Uuid>,
     Json(req): Json<CompletarSolicitudRequest>,
 ) -> Result<(), ApiError> {
+    let token = decodificar_b64("requester_token_b64", &req.requester_token_b64)?;
     let blob = decodificar_b64("encrypted_private_key_blob_b64", &req.encrypted_private_key_blob_b64)?;
     let nonce = decodificar_b64("private_key_nonce_b64", &req.private_key_nonce_b64)?;
     let salt = decodificar_b64("kdf_salt_b64", &req.kdf_salt_b64)?;
     let nueva = NuevaClavePrivada { encrypted_private_key_blob: blob, private_key_nonce: nonce, kdf_salt: salt };
+    let prueba = PruebaDePosesion {
+        challenge: decodificar_b64("challenge_nonce_b64", &req.challenge_nonce_b64)?,
+        firma: decodificar_b64("signature_b64", &req.signature_b64)?,
+    };
 
-    servicio(&state).completar(id, nueva).await?;
+    servicio(&state).completar(id, &token, nueva, &prueba).await?;
     Ok(())
 }
 

@@ -12,6 +12,10 @@ pub struct RegisterRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-11: sólo cuenta para el primer registro de una instancia vacía,
+    /// y sólo si el operador configuró `ELLKAN_SETUP_TOKEN`.
+    #[serde(default)]
+    pub setup_token: Option<String>,
 }
 
 /// F-24: `pending_verification` distingue el bootstrap (sesión ya

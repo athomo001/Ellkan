@@ -17,12 +17,12 @@ use ellkan_crypto::comparacion::secreto_coincide;
 use ellkan_crypto::totp;
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
-use crate::auth::repository::UserRepository;
+use crate::auth::repository::{AuthChallengeRepository, UserRepository};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::ClavePrivadaRepository;
-use crate::me::service::CambiarPassphraseService;
+use crate::me::service::{verificar_posesion, CambiarPassphraseService, PruebaDePosesion};
 use crate::mfa::repository::TotpCredentialRepository;
 
 use super::models::{MetodoMfa, RecoveryKit};
@@ -35,6 +35,10 @@ const TTL_RESET_TOKEN_SEGUNDOS: i64 = 3600;
 /// Mismo TTL que el MFA por correo de login (`mfa::service::TTL_CHALLENGE_SEGUNDOS`),
 /// por consistencia — es el mismo tipo de código, sólo que en otro flujo.
 const TTL_EMAIL_CODE_SEGUNDOS: i64 = crate::mfa::service::TTL_CHALLENGE_SEGUNDOS;
+
+/// QA-23: intentos fallidos de segundo factor (TOTP o código por email) que
+/// admite un token de reset antes de quemarse.
+const MAX_INTENTOS_SEGUNDO_FACTOR: i32 = 5;
 
 fn hash_de_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
@@ -54,23 +58,26 @@ fn hash_de_codigo(codigo: &str) -> Vec<u8> {
     Sha256::digest(codigo.as_bytes()).to_vec()
 }
 
-pub struct RecoveryKitService<'a, K, T, U, TC, C> {
+pub struct RecoveryKitService<'a, K, T, U, TC, C, CH> {
     pub kits: &'a K,
     pub tokens: &'a T,
     pub usuarios: &'a U,
     pub totp: &'a TC,
     pub claves: &'a C,
+    /// QA-06: challenges de `POST /auth/challenge` para la prueba de posesión.
+    pub challenges: &'a CH,
     pub secrets_key: &'a ellkan_crypto::secretos::ClaveSecreta32,
     pub eventos: EmisorDeEventos,
 }
 
-impl<'a, K, T, U, TC, C> RecoveryKitService<'a, K, T, U, TC, C>
+impl<'a, K, T, U, TC, C, CH> RecoveryKitService<'a, K, T, U, TC, C, CH>
 where
     K: RecoveryKitRepository,
     T: ResetTokenRepository,
     U: UserRepository,
     TC: TotpCredentialRepository,
     C: ClavePrivadaRepository,
+    CH: AuthChallengeRepository,
 {
     /// `PUT /me/recovery-kit` — sirve tanto para la generación inicial
     /// (onboarding) como para regenerar desde ajustes: el `on conflict` del
@@ -170,11 +177,16 @@ where
     /// de la organización; email si no), se persiste la passphrase nueva
     /// (reusando `CambiarPassphraseService` — mata todas las sesiones), y se
     /// marca el kit usado para forzar su reemplazo en el próximo login.
+    ///
+    /// QA-06: además del segundo factor exige la prueba de posesión de la
+    /// identidad (el kit la desella del lado del cliente): con acceso sólo
+    /// al buzón no se puede reemplazar la clave privada por basura.
     pub async fn completar_reset(
         &self,
         token: &str,
         mfa_code: &str,
         nueva: NuevaClavePrivada,
+        prueba: &PruebaDePosesion,
     ) -> Result<(), DomainError> {
         let fila = self.tokens.buscar_vigente_por_hash(&hash_de_token(token)).await?.ok_or(DomainError::NotFound)?;
 
@@ -193,25 +205,33 @@ where
                     None => false,
                 }
             }
-            None => match &fila.email_code_hash {
-                Some(hash_esperado) => secreto_coincide(hash_esperado, &hash_de_codigo(mfa_code.trim())),
-                None => false,
+            // QA-23: el código por email vence a los
+            // `TTL_EMAIL_CODE_SEGUNDOS`, no cuando vence el token.
+            None => match (&fila.email_code_hash, fila.email_code_expires_at) {
+                (Some(hash_esperado), Some(vence)) if vence > time::OffsetDateTime::now_utc() => {
+                    secreto_coincide(hash_esperado, &hash_de_codigo(mfa_code.trim()))
+                }
+                _ => false,
             },
         };
 
         if !mfa_valido {
+            // QA-23: tope de intentos por token, además del límite por IP.
+            self.tokens.registrar_intento_fallido(fila.id, MAX_INTENTOS_SEGUNDO_FACTOR).await?;
             let _ = self.eventos.send(DomainEvent::Auditoria(
                 EventoAuditoria::nuevo(AuditEventType::RecoveryKitResetMfaFailed, Some(fila.user_id)),
             ));
             return Err(DomainError::InvalidCredentials);
         }
 
+        let verificado = verificar_posesion(self.usuarios, self.challenges, fila.user_id, nueva, prueba).await?;
+
         if !self.tokens.marcar_consumido(fila.id).await? {
             return Err(DomainError::Conflict);
         }
 
         let cambio = CambiarPassphraseService { claves: self.claves, eventos: self.eventos.clone() };
-        cambio.actualizar(fila.user_id, nueva).await?;
+        cambio.actualizar(verificado).await?;
 
         self.kits.marcar_para_rotar(fila.user_id).await?;
 

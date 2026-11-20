@@ -388,7 +388,7 @@ where
 
                 for nombre_grupo in &entrada.grupos {
                     let group_id = self.grupos.buscar_o_crear_raiz_gestionado(nombre_grupo).await?;
-                    if let Err(e) = self.miembros.agregar_simple(group_id, usuario.id, false).await
+                    if let Err(e) = self.miembros.agregar_simple(group_id, usuario.id, false, None).await
                         && !matches!(e, crate::error::RepoError::Conflict)
                     {
                         return Err(e.into());

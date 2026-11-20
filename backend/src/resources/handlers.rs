@@ -148,11 +148,14 @@ pub async fn listar(
     // se adjunta a recursos que ya pasaron el filtro de visibilidad.
     let deks_propias = state.envolturas.sealed_deks_de(auth.user_id).await.map_err(DomainError::from)?;
 
-    let servicio_recursos = servicio(&state);
+    // QA-12: `puede_borrar` de todo el listado en una cantidad fija de
+    // queries (antes eran 3–5 por recurso).
+    let ids: Vec<Uuid> = recursos.iter().map(|r| r.id).collect();
+    let borrables = servicio(&state).puede_borrar_lote(auth.user_id, &ids).await?;
     let mut respuesta = Vec::with_capacity(recursos.len());
     for r in recursos {
         let slug = slugs.get(&r.resource_type_id).cloned().unwrap_or_default();
-        let puede_borrar = servicio_recursos.puede_borrar(r.id, auth.user_id).await?;
+        let puede_borrar = borrables.contains(&r.id);
         let mut resp = a_response(r, slug, puede_borrar);
         resp.folder_id = posiciones.get(&resp.id).copied();
         resp.own_sealed_dek_b64 = deks_propias.get(&resp.id).map(|d| b64::encode(d));

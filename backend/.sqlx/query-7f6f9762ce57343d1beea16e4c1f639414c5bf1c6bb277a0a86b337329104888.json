@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select group_id from group_members where user_id = $1 and is_admin",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "group_members",
+            "name": "group_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7f6f9762ce57343d1beea16e4c1f639414c5bf1c6bb277a0a86b337329104888"
+}

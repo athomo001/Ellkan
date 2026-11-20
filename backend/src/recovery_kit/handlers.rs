@@ -6,9 +6,10 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 
 use crate::auth::extractor::AuthenticatedUser;
-use crate::auth::repository::PgUserRepository;
+use crate::auth::repository::{PgAuthChallengeRepository, PgUserRepository};
 use crate::error::{ApiError, DomainError};
 use crate::me::models::NuevaClavePrivada;
+use crate::me::service::PruebaDePosesion;
 use crate::me::repository::PgPreferenciasRepository;
 use crate::mfa::repository::PgTotpCredentialRepository;
 use crate::state::AppState;
@@ -21,8 +22,15 @@ use super::models::{MetodoMfa, RecoveryKit};
 use super::repository::{PgRecoveryKitRepository, PgResetTokenRepository};
 use super::service::RecoveryKitService;
 
-type Servicio<'a> =
-    RecoveryKitService<'a, PgRecoveryKitRepository, PgResetTokenRepository, PgUserRepository, PgTotpCredentialRepository, PgPreferenciasRepository>;
+type Servicio<'a> = RecoveryKitService<
+    'a,
+    PgRecoveryKitRepository,
+    PgResetTokenRepository,
+    PgUserRepository,
+    PgTotpCredentialRepository,
+    PgPreferenciasRepository,
+    PgAuthChallengeRepository,
+>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     RecoveryKitService {
@@ -31,6 +39,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         usuarios: &state.usuarios,
         totp: &state.mfa_totp,
         claves: &state.preferencias_usuario,
+        challenges: &state.challenges,
         secrets_key: &state.secrets_key,
         eventos: state.eventos.clone(),
     }
@@ -116,7 +125,11 @@ pub async fn completar_reset(
     let nonce = decodificar_b64("private_key_nonce_b64", &req.private_key_nonce_b64)?;
     let salt = decodificar_b64("kdf_salt_b64", &req.kdf_salt_b64)?;
     let nueva = NuevaClavePrivada { encrypted_private_key_blob: blob, private_key_nonce: nonce, kdf_salt: salt };
+    let prueba = PruebaDePosesion {
+        challenge: decodificar_b64("challenge_nonce_b64", &req.challenge_nonce_b64)?,
+        firma: decodificar_b64("signature_b64", &req.signature_b64)?,
+    };
 
-    servicio(&state).completar_reset(&token, &req.mfa_code, nueva).await?;
+    servicio(&state).completar_reset(&token, &req.mfa_code, nueva, &prueba).await?;
     Ok(())
 }

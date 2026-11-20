@@ -92,6 +92,9 @@ pub struct AppState {
     /// `SecretBox` en sí) para que `AppState` siga siendo barato de clonar
     /// por request, igual criterio que `server_public_key_ed25519`.
     pub secrets_key: Arc<ClaveSecreta32>,
+    /// QA-11: token de instalación (`ELLKAN_SETUP_TOKEN[_FILE]`); `None` =
+    /// el primer registro de una instancia vacía nace admin sin pedirlo.
+    pub setup_token: Option<Arc<secrecy::SecretBox<String>>>,
     /// Rate limiting dedicado sobre `POST /auth/mfa/verify`, keyed por
     /// sesión parcial — más estricto que el general por usuario, porque un
     /// código TOTP de 6 dígitos tiene espacio de búsqueda acotado (F-14).
@@ -228,6 +231,7 @@ impl AppState {
             mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },
             smtp_config: PgSmtpConfigRepository { pool: pool.clone() },
             secrets_key: Arc::new(secrets_key),
+            setup_token: None,
             limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),

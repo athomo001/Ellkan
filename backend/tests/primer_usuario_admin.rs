@@ -38,3 +38,71 @@ async fn segundo_usuario_nace_user_aunque_el_primero_ya_sea_admin() {
 
     assert_eq!(rol, "user", "a partir del segundo registro, sigue naciendo user como siempre");
 }
+
+async fn registrar_crudo(entorno: &common::Entorno, email: &str, setup_token: Option<&str>) -> u16 {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+    let mut cuerpo = serde_json::json!({
+        "email": email,
+        "display_name": email,
+        "public_key_x25519_b64": B64.encode([1u8; 32]),
+        "public_key_ed25519_b64": B64.encode([2u8; 32]),
+        "encrypted_private_key_blob_b64": B64.encode([3u8; 80]),
+        "private_key_nonce_b64": B64.encode([4u8; 24]),
+        "kdf_salt_b64": B64.encode([5u8; 16]),
+    });
+    if let Some(t) = setup_token {
+        cuerpo["setup_token"] = serde_json::Value::String(t.to_string());
+    }
+    entorno
+        .cliente
+        .post(format!("{}/auth/register", entorno.base))
+        .json(&cuerpo)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
+/// QA-11: con `ELLKAN_SETUP_TOKEN` configurado, el registro que nacería
+/// admin en una instancia vacía exige el token.
+#[tokio::test]
+async fn con_token_de_instalacion_el_primer_registro_lo_exige() {
+    let token = "token-de-instalacion-de-prueba-0123456789";
+    let entorno = common::levantar_sin_usuarios_con_setup_token(token).await;
+
+    assert_eq!(registrar_crudo(&entorno, "sin-token@test.ellkan", None).await, 403);
+    assert_eq!(registrar_crudo(&entorno, "token-malo@test.ellkan", Some("token-incorrecto-0123456789abc")).await, 403);
+    let usuarios: i64 = sqlx::query_scalar("select count(*) from users").fetch_one(&entorno.pool).await.unwrap();
+    assert_eq!(usuarios, 0, "un registro rechazado no debe crear nada");
+
+    assert_eq!(registrar_crudo(&entorno, "operador@test.ellkan", Some(token)).await, 200);
+    let rol: String = sqlx::query_scalar(
+        "select r.name from users u join roles r on r.id = u.role_id where u.email = 'operador@test.ellkan'",
+    )
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(rol, "admin");
+}
+
+/// QA-11: dos registros simultáneos en una instancia vacía nunca dejan dos
+/// admins (lock transaccional sobre el alta).
+#[tokio::test]
+async fn registros_simultaneos_en_instancia_vacia_dejan_un_solo_admin() {
+    let entorno = common::levantar_sin_usuarios().await;
+    let (a, b, c) = tokio::join!(
+        registrar_crudo(&entorno, "carrera-a@test.ellkan", None),
+        registrar_crudo(&entorno, "carrera-b@test.ellkan", None),
+        registrar_crudo(&entorno, "carrera-c@test.ellkan", None),
+    );
+    assert!([a, b, c].contains(&200));
+    let admins: i64 = sqlx::query_scalar(
+        "select count(*) from users u join roles r on r.id = u.role_id where r.name = 'admin'",
+    )
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(admins, 1);
+}

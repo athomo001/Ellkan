@@ -185,4 +185,25 @@ impl ResetTokenRepository for SqliteResetTokenRepository {
         .await?;
         Ok(resultado.rows_affected() == 1)
     }
+
+    async fn registrar_intento_fallido(&self, id: Uuid, maximo: i32) -> Result<bool, RepoError> {
+        let fila = sqlx::query(
+            r#"
+            update recovery_reset_tokens
+            set failed_attempts = failed_attempts + 1,
+                consumed_at = case when failed_attempts + 1 >= ?2 then ?3 else consumed_at end
+            where id = ?1 and consumed_at is null
+            returning consumed_at is not null as quemado
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(maximo)
+        .bind(fmt_dt(OffsetDateTime::now_utc()))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(match fila {
+            Some(f) => f.try_get::<bool, _>("quemado")?,
+            None => false,
+        })
+    }
 }

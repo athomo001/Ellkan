@@ -239,12 +239,15 @@ async fn flujo_completo_de_reset_con_totp_y_kit_queda_marcado_para_rotar() {
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     let nuevo_blob =
         clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
 
     let body_completar = json!({
         "mfa_code": "000000",
         "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
         "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
         "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+        "challenge_nonce_b64": challenge,
+        "signature_b64": firma,
     });
 
     // Código incorrecto: falla, y el token sigue vigente para reintentar.
@@ -352,6 +355,28 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
     let nuevo_blob =
         clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
 
+    // QA-06: con acceso sólo al buzón (código por email correcto) pero sin
+    // el kit, no hay forma de firmar con la identidad — 403 y el token
+    // sigue vigente para el dueño real.
+    let basura = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &[0u8; 64], victima.email.as_bytes()).unwrap();
+    let (challenge, firma_ajena) = common::prueba_de_posesion(&entorno, &victima.email, &[7u8; 32], &basura).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/recovery-kit/reset/{token}/complete", entorno.base))
+        .json(&json!({
+            "mfa_code": codigo,
+            "encrypted_private_key_blob_b64": B64.encode(&basura.envoltura.ciphertext),
+            "private_key_nonce_b64": B64.encode(basura.envoltura.nonce),
+            "kdf_salt_b64": B64.encode(basura.salt),
+            "challenge_nonce_b64": challenge,
+            "signature_b64": firma_ajena,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "sin la identidad no se reemplaza la clave privada");
+
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
     let resp = entorno
         .cliente
         .post(format!("{}/recovery-kit/reset/{token}/complete", entorno.base))
@@ -360,9 +385,75 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "challenge_nonce_b64": challenge,
+            "signature_b64": firma,
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 200, "el código por email correcto debería completar el reset");
+}
+
+/// QA-23: un token de reset admite como mucho 5 intentos fallidos de
+/// segundo factor; al quinto queda quemado aunque no haya vencido.
+#[tokio::test]
+async fn token_de_reset_se_quema_tras_cinco_codigos_incorrectos() {
+    let entorno = common::levantar().await;
+    let victima = common::registrar(&entorno, "reset-tope@test.ellkan").await;
+    let sesion = common::login(&entorno, &victima).await;
+    let material = material_de_identidad(&victima);
+    generar_kit(&entorno, sesion, &material).await;
+
+    entorno
+        .cliente
+        .post(format!("{}/recovery-kit/reset", entorno.base))
+        .json(&json!({ "email": victima.email }))
+        .send()
+        .await
+        .unwrap();
+    let token = token_de_reset_encolado(&entorno.pool, &victima.email).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/recovery-kit/reset/{token}/email-code", entorno.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let codigo = codigo_mfa_encolado(&entorno.pool, &victima.email).await;
+    let incorrecto = if codigo == "000000" { "111111" } else { "000000" };
+
+    for intento in 1..=5 {
+        // El governor de estas rutas es 1/s: se espacian los intentos para
+        // medir el tope por token, no el límite por IP.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let resp = entorno
+            .cliente
+            .post(format!("{}/recovery-kit/reset/{token}/complete", entorno.base))
+            .json(&json!({
+                "mfa_code": incorrecto,
+                "encrypted_private_key_blob_b64": B64.encode([0u8; 80]),
+                "private_key_nonce_b64": B64.encode([0u8; 24]),
+                "kdf_salt_b64": B64.encode([0u8; 16]),
+                "challenge_nonce_b64": B64.encode([0u8; 32]),
+                "signature_b64": B64.encode([0u8; 64]),
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401, "intento {intento}");
+    }
+
+    let (consumido, intentos): (bool, i32) = sqlx::query_as(
+        "select consumed_at is not null, failed_attempts from recovery_reset_tokens where user_id = $1",
+    )
+    .bind(victima.user_id)
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(intentos, 5);
+    assert!(consumido, "al quinto intento fallido el token queda quemado");
+
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    let resp = entorno.cliente.get(format!("{}/recovery-kit/reset/{token}", entorno.base)).send().await.unwrap();
+    assert_eq!(resp.status(), 404, "un token quemado ya no sirve, ni siquiera con el código correcto");
 }

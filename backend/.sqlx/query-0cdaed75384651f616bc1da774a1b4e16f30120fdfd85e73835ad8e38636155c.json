@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select p.subject_id as resource_id, g.id as group_id, g.name, p.level,\n            (\n                select count(*) from group_members gm\n                join users u on u.id = gm.user_id and u.active and u.deleted_at is null\n                where gm.group_id = g.id and gm.user_id <> $2\n                  and exists (select 1 from secret_envelopes se where se.resource_id = p.subject_id and se.user_id = gm.user_id)\n            ) as \"miembros_con_acceso!\"\n        from permissions p\n        join groups g on g.id = p.grantee_id and g.deleted_at is null\n        where p.subject_type = 'resource' and p.grantee_type = 'group' and p.subject_id = any($1)\n        order by g.name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "subject_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "level",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "level"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "miembros_con_acceso!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "0cdaed75384651f616bc1da774a1b4e16f30120fdfd85e73835ad8e38636155c"
+}

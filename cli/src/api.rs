@@ -111,6 +111,10 @@ pub struct CambiarPassphraseRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-06: challenge nuevo y firma de
+    /// `clave_privada::mensaje_reemplazo_clave_privada` sobre el blob nuevo.
+    pub challenge_nonce_b64: String,
+    pub signature_b64: String,
 }
 
 #[derive(Deserialize)]

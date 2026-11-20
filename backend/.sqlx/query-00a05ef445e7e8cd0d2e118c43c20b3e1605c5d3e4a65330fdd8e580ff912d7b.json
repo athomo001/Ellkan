@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n                 count(*) filter (where status = 'pendiente') as \"pendientes!\",\n                 count(*) filter (where status = 'fallido') as \"fallidos!\"\n               from outbound_emails",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pendientes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "fallidos!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "00a05ef445e7e8cd0d2e118c43c20b3e1605c5d3e4a65330fdd8e580ff912d7b"
+}

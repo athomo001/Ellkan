@@ -1,0 +1,118 @@
+# Autor: Athan Espinoza
+#
+# QA-13: gates de calidad y seguridad que antes sólo se corrían a mano.
+# Acciones fijadas por SHA de commit (no por tag movible): un tag
+# reescrito en un repo de terceros no puede cambiar lo que corre acá.
+# Permisos mínimos: sólo lectura del repo.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Las macros `sqlx::query!` validan contra el caché versionado en
+  # `backend/.sqlx` (regenerar con `cargo sqlx prepare --workspace`).
+  SQLX_OFFLINE: "true"
+  # `ellkan-desktop` (Tauri) necesita las librerías de sistema de WebKitGTK
+  # y el build del frontend embebido; se compila en su propio pipeline de
+  # empaquetado, no acá. Su lógica de servidor (`backend` con la feature
+  # `desktop`) sí se prueba en este workflow.
+  CARGO_EXCLUDE: --exclude ellkan-desktop
+
+jobs:
+  # Job propio para que un problema de formato no tape los resultados de
+  # clippy/tests. Al crear este workflow el árbol tenía 218 archivos sin
+  # `cargo fmt` aplicado: este job queda en rojo hasta el commit de formato
+  # dedicado (a propósito, sin `continue-on-error`).
+  fmt:
+    name: Rust (formato)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Formato
+        run: cargo fmt --all --check
+
+  rust:
+    name: Rust (clippy, tests, audit)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Clippy
+        run: cargo clippy --workspace $CARGO_EXCLUDE --all-targets -- -D warnings
+      - name: Clippy (feature desktop)
+        run: cargo clippy -p ellkan-backend --features desktop --all-targets -- -D warnings
+      # Los tests de integración levantan Postgres 18 con testcontainers
+      # (Docker ya viene en el runner).
+      - name: Tests
+        run: cargo test --workspace $CARGO_EXCLUDE
+      - name: Tests (feature desktop)
+        run: cargo test -p ellkan-backend --features desktop
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        run: cargo audit
+
+  web:
+    name: WASM, frontend y extensión
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      # Los bindings son un artefacto (gitignored): frontend y extensión
+      # importan `frontend/src/lib/wasm/ellkan_crypto.js`.
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Frontend — dependencias
+        run: pnpm -C frontend install --frozen-lockfile
+      - name: Frontend — check
+        run: pnpm -C frontend check
+      - name: Frontend — build
+        run: pnpm -C frontend build
+      - name: Frontend — audit
+        run: pnpm -C frontend audit --audit-level high
+      - name: Extensión — dependencias
+        run: pnpm -C extension install --frozen-lockfile
+      - name: Extensión — check
+        run: pnpm -C extension check
+      - name: Extensión — audit
+        run: pnpm -C extension audit --audit-level high
+
+  docker:
+    name: Imagen Docker
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: docker build -f backend/Dockerfile -t ellkan:ci .

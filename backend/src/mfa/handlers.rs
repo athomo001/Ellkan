@@ -5,6 +5,7 @@ use axum::Json;
 use base32::Alphabet;
 
 use crate::auth::extractor::{AdminUser, SesionValida};
+use crate::auth::models::PropositoSesion;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
@@ -78,11 +79,18 @@ fn otpauth_uri(secreto_base32: &str) -> String {
     format!("otpauth://totp/Ellkan?secret={secreto_base32}&issuer=Ellkan&algorithm=SHA1&digits=6&period=30")
 }
 
+/// Propósitos que pueden configurar un TOTP: una sesión completa (el
+/// usuario lo agrega o rota desde su perfil) o la emitida específicamente
+/// para "configurá tu MFA ahora". Nunca la de "verificá tu código": esa
+/// sesión todavía no demostró el segundo factor que ya existe.
+const PROPOSITOS_SETUP_TOTP: &[PropositoSesion] = &[PropositoSesion::Completa, PropositoSesion::MfaConfigurar];
+
 pub async fn setup_totp(
     State(state): State<AppState>,
     sesion: SesionValida,
 ) -> Result<Json<SetupTotpResponse>, ApiError> {
-    let secreto = servicio(&state).iniciar_setup_totp(sesion.user_id).await?;
+    sesion.exigir(PROPOSITOS_SETUP_TOTP)?;
+    let secreto = servicio(&state).iniciar_setup_totp(sesion.user_id, sesion.proposito).await?;
     let secret_base32 = codificar_secreto_base32(&secreto);
     let otpauth_uri = otpauth_uri(&secret_base32);
     Ok(Json(SetupTotpResponse { secret_base32, otpauth_uri }))
@@ -99,9 +107,12 @@ pub async fn confirm_totp(
     sesion: SesionValida,
     Json(req): Json<ConfirmarTotpRequest>,
 ) -> Result<(), ApiError> {
+    sesion.exigir(PROPOSITOS_SETUP_TOTP)?;
     let codigo = parsear_codigo(&req.code)?;
     let device_token_hash = decodificar_device_token_opt(req.device_token_hash_b64.as_deref())?;
-    servicio(&state).confirmar_setup_totp(sesion.user_id, codigo, sesion.session_id, device_token_hash.as_deref()).await?;
+    servicio(&state)
+        .confirmar_setup_totp(sesion.user_id, codigo, sesion.session_id, sesion.proposito, device_token_hash.as_deref())
+        .await?;
     Ok(())
 }
 
@@ -110,6 +121,7 @@ pub async fn verify(
     sesion: SesionValida,
     Json(req): Json<VerificarMfaRequest>,
 ) -> Result<(), ApiError> {
+    sesion.exigir(&[PropositoSesion::MfaPendiente])?;
     let codigo = parsear_codigo(&req.code)?;
     let device_token_hash = decodificar_device_token_opt(req.device_token_hash_b64.as_deref())?;
     servicio(&state).verificar_login(sesion.user_id, sesion.session_id, codigo, device_token_hash.as_deref()).await?;

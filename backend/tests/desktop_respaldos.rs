@@ -118,10 +118,13 @@ async fn arrancar_con_migraciones_pendientes_guarda_una_copia_y_migra() {
     let ultima: i64 = sqlx::query_scalar("select max(version) from _sqlx_migrations").fetch_one(&pool).await.unwrap();
 
     // Se simula una app vieja: las migraciones 7 (`metadata_deks`), 8 (tipos rdp/db),
-    // 9 (tipo api-token) y 10 (`avatar_local`) no se habían aplicado — se deshace lo
-    // que hicieron y se borra su registro.
+    // 9 (tipo api-token), 10 (`avatar_local`), 11 (`sessions.proposito`) y 12
+    // (`recovery_reset_tokens.failed_attempts`) no se habían aplicado — se deshace
+    // lo que hicieron y se borra su registro.
     sqlx::query("drop table metadata_deks").execute(&pool).await.unwrap();
     sqlx::query("drop table avatar_local").execute(&pool).await.unwrap();
+    sqlx::query("alter table sessions drop column proposito").execute(&pool).await.unwrap();
+    sqlx::query("alter table recovery_reset_tokens drop column failed_attempts").execute(&pool).await.unwrap();
     sqlx::query("delete from resource_types where slug in ('rdp', 'postgresql', 'mysql', 'mongodb', 'api-token')").execute(&pool).await.unwrap();
     sqlx::query("delete from _sqlx_migrations where version >= 7").execute(&pool).await.unwrap();
     assert!(ultima >= 7, "el test parte de una base con las migraciones 7 y siguientes aplicadas");

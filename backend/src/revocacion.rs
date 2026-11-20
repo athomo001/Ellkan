@@ -26,6 +26,10 @@ use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use ellkan_crypto::aead::{self, Envoltura};
+use ellkan_crypto::secretos::ClaveSecreta32;
+use zeroize::Zeroize;
+
 use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::b64;
 use crate::error::{ApiError, RepoError};
@@ -72,25 +76,62 @@ fn ahora_rfc3339() -> String {
     OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).expect("formato de fecha válido")
 }
 
-async fn clave_del_servidor(pool: &PgPool) -> Result<SigningKey, RepoError> {
-    let privada: Vec<u8> = sqlx::query_scalar("select private_key_ed25519 from server_keys where id = 1").fetch_one(pool).await?;
-    let bytes: [u8; 32] = privada
-        .try_into()
-        .map_err(|_| RepoError::Database(sqlx::Error::Decode("clave privada del servidor con largo inválido".into())))?;
-    Ok(SigningKey::from_bytes(&bytes))
+/// QA-37: AAD de la privada Ed25519 del servidor cifrada con `secrets_key`.
+pub(crate) const AAD_SERVER_KEY: &[u8] = b"server_key";
+
+/// QA-37: `nonce (24) || ciphertext` — formato de `server_keys.private_key_ed25519`.
+pub(crate) fn cifrar_clave_del_servidor(clave: &ClaveSecreta32, privada: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let envoltura = aead::cifrar(clave, privada, AAD_SERVER_KEY)
+        .map_err(|_| anyhow::anyhow!("no se pudo cifrar la clave privada del servidor"))?;
+    let mut almacenada = envoltura.nonce.to_vec();
+    almacenada.extend_from_slice(&envoltura.ciphertext);
+    Ok(almacenada)
+}
+
+fn error_de_clave(motivo: &'static str) -> RepoError {
+    RepoError::Database(sqlx::Error::Decode(motivo.into()))
+}
+
+/// Sólo acepta el formato cifrado: `cargar_o_generar_server_key` migra al
+/// arrancar cualquier fila en claro de una versión anterior.
+async fn clave_del_servidor(pool: &PgPool, clave: &ClaveSecreta32) -> Result<SigningKey, RepoError> {
+    let almacenada: Vec<u8> =
+        sqlx::query_scalar("select private_key_ed25519 from server_keys where id = 1").fetch_one(pool).await?;
+    if almacenada.len() <= 24 {
+        return Err(error_de_clave("clave privada del servidor sin cifrar o truncada"));
+    }
+    let (nonce, ciphertext) = almacenada.split_at(24);
+    let envoltura = Envoltura {
+        nonce: nonce.try_into().map_err(|_| error_de_clave("nonce de la clave del servidor inválido"))?,
+        ciphertext: ciphertext.to_vec(),
+    };
+    let mut privada = aead::descifrar(clave, &envoltura, AAD_SERVER_KEY)
+        .map_err(|_| error_de_clave("no se pudo descifrar la clave privada del servidor"))?;
+    let bytes: Result<[u8; 32], _> = privada.as_slice().try_into();
+    privada.zeroize();
+    let mut bytes = bytes.map_err(|_| error_de_clave("clave privada del servidor con largo inválido"))?;
+    let firmante = SigningKey::from_bytes(&bytes);
+    bytes.zeroize();
+    Ok(firmante)
 }
 
 /// Arma y firma el aviso de cuenta revocada.
-pub async fn firmar_aviso(pool: &PgPool, user_id: Uuid, email: Option<&str>, motivo: Motivo) -> Result<AvisoFirmado, RepoError> {
+pub async fn firmar_aviso(
+    pool: &PgPool,
+    clave: &ClaveSecreta32,
+    user_id: Uuid,
+    email: Option<&str>,
+    motivo: Motivo,
+) -> Result<AvisoFirmado, RepoError> {
     let cuerpo = CuerpoAviso { tipo: "cuenta_revocada", user_id, email, motivo: motivo.as_str(), emitido_en: ahora_rfc3339() };
     let aviso = serde_json::to_string(&cuerpo).expect("serializar el aviso no falla");
-    let firma = clave_del_servidor(pool).await?.sign(aviso.as_bytes());
+    let firma = clave_del_servidor(pool, clave).await?.sign(aviso.as_bytes());
     Ok(AvisoFirmado { aviso, firma_b64: b64::encode(&firma.to_bytes()) })
 }
 
 /// Escucha bloqueos y purgas en el bus de eventos (desde el panel de admin,
 /// SCIM o directory sync) y publica el aviso firmado para las apps conectadas.
-pub fn spawn_consumidor(eventos: &EmisorDeEventos, pool: PgPool, avisos: CanalAvisos) {
+pub fn spawn_consumidor(eventos: &EmisorDeEventos, pool: PgPool, clave: Arc<ClaveSecreta32>, avisos: CanalAvisos) {
     let mut receptor = eventos.subscribe();
     let emisor = eventos.clone();
     tokio::spawn(async move {
@@ -98,8 +139,10 @@ pub fn spawn_consumidor(eventos: &EmisorDeEventos, pool: PgPool, avisos: CanalAv
             let DomainEvent::Auditoria(entrada) = evento else { continue };
             let Some(user_id) = entrada.subject_id.filter(|_| entrada.subject_type == Some("user")) else { continue };
             let resultado = match entrada.event_type {
-                AuditEventType::UserDeactivated | AuditEventType::ScimUserDeactivated => avisar_bloqueada(&pool, user_id).await,
-                AuditEventType::UserPurged => avisar_purgada(&pool, user_id).await,
+                AuditEventType::UserDeactivated | AuditEventType::ScimUserDeactivated => {
+                    avisar_bloqueada(&pool, &clave, user_id).await
+                }
+                AuditEventType::UserPurged => avisar_purgada(&pool, &clave, user_id).await,
                 _ => continue,
             };
             match resultado {
@@ -117,17 +160,17 @@ pub fn spawn_consumidor(eventos: &EmisorDeEventos, pool: PgPool, avisos: CanalAv
 }
 
 /// `None` si la cuenta ya no está bloqueada (la reactivaron enseguida).
-async fn avisar_bloqueada(pool: &PgPool, user_id: Uuid) -> Result<Option<AvisoFirmado>, RepoError> {
+async fn avisar_bloqueada(pool: &PgPool, clave: &ClaveSecreta32, user_id: Uuid) -> Result<Option<AvisoFirmado>, RepoError> {
     let fila = sqlx::query("select email, active from users where id = $1").bind(user_id).fetch_optional(pool).await?;
     let Some(fila) = fila else { return Ok(None) };
     if fila.get::<bool, _>("active") {
         return Ok(None);
     }
     let email: String = fila.get("email");
-    Ok(Some(firmar_aviso(pool, user_id, Some(&email), Motivo::Bloqueada).await?))
+    Ok(Some(firmar_aviso(pool, clave, user_id, Some(&email), Motivo::Bloqueada).await?))
 }
 
-async fn avisar_purgada(pool: &PgPool, user_id: Uuid) -> Result<Option<AvisoFirmado>, RepoError> {
+async fn avisar_purgada(pool: &PgPool, clave: &ClaveSecreta32, user_id: Uuid) -> Result<Option<AvisoFirmado>, RepoError> {
     let registrada: bool = sqlx::query_scalar("select exists(select 1 from cuentas_revocadas where user_id = $1)")
         .bind(user_id)
         .fetch_one(pool)
@@ -135,7 +178,7 @@ async fn avisar_purgada(pool: &PgPool, user_id: Uuid) -> Result<Option<AvisoFirm
     if !registrada {
         return Ok(None);
     }
-    Ok(Some(firmar_aviso(pool, user_id, None, Motivo::Purgada).await?))
+    Ok(Some(firmar_aviso(pool, clave, user_id, None, Motivo::Purgada).await?))
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +253,9 @@ pub async fn estado_cuenta(
         }
         let user_id: Uuid = fila.get("id");
         let email: String = fila.get("email");
-        let aviso = firmar_aviso(pool, user_id, Some(&email), Motivo::Bloqueada).await.map_err(|e| ApiError::from(crate::error::DomainError::from(e)))?;
+        let aviso = firmar_aviso(pool, &state.secrets_key, user_id, Some(&email), Motivo::Bloqueada)
+            .await
+            .map_err(|e| ApiError::from(crate::error::DomainError::from(e)))?;
         return Ok(Json(EstadoCuentaResponse { estado: "revocada", aviso: Some(aviso) }));
     }
 
@@ -220,7 +265,9 @@ pub async fn estado_cuenta(
         .await
         .map_err(repo)?;
     if let Some(user_id) = purgada {
-        let aviso = firmar_aviso(pool, user_id, None, Motivo::Purgada).await.map_err(|e| ApiError::from(crate::error::DomainError::from(e)))?;
+        let aviso = firmar_aviso(pool, &state.secrets_key, user_id, None, Motivo::Purgada)
+            .await
+            .map_err(|e| ApiError::from(crate::error::DomainError::from(e)))?;
         return Ok(Json(EstadoCuentaResponse { estado: "revocada", aviso: Some(aviso) }));
     }
 

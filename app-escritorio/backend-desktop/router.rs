@@ -71,10 +71,10 @@ use super::state::AppStateDesktop;
 
 /// Mismo criterio que `auth::extractor::AuthenticatedUser`, para
 /// `AppStateDesktop` — no reusable tal cual porque está atado en
-/// compile-time a `axum::extract::State<crate::state::AppState>`. Sin
-/// `security_stamp`/MFA acá (modo escritorio no monta esos endpoints
-/// todavía) — sólo sesión no revocada/no vencida, igual que
-/// `SessionRepository::validar_cualquiera`.
+/// compile-time a `axum::extract::State<crate::state::AppState>`. Usa
+/// `SessionRepository::validar`: sesión no revocada, no vencida, con
+/// `security_stamp` vigente y propósito `completa` (una sesión parcial nunca
+/// opera sobre esta API).
 pub struct AuthenticatedUserDesktop {
     pub user_id: Uuid,
     pub session_id: Uuid,
@@ -197,7 +197,9 @@ async fn register(
         kdf_salt: &salt,
     };
 
-    let resultado = servicio(&state).registrar(nuevo).await?;
+    // Sin token de instalación: el backend de escritorio sólo escucha en
+    // loopback y su único usuario es quien instaló la app en esa máquina.
+    let resultado = servicio(&state).registrar(nuevo, None, None).await?;
     let (user_id, pending_verification) = match resultado {
         ResultadoRegistro::Completo(usuario) => (usuario.id, false),
         ResultadoRegistro::PendienteVerificacion { user_id } => (user_id, true),
@@ -433,7 +435,7 @@ async fn key_material(
     State(state): State<AppStateDesktop>,
     Json(req): Json<KeyMaterialRequest>,
 ) -> Result<Json<KeyMaterialResponse>, ApiError> {
-    let material = servicio(&state).material_desbloqueo(&req.email).await?;
+    let material = servicio(&state).material_desbloqueo(&req.email, &state.secrets_key).await?;
     Ok(Json(KeyMaterialResponse {
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),

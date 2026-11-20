@@ -13,6 +13,7 @@ use crate::admin::repository::RoleRepository;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
+use super::models::PropositoSesion;
 use super::repository::SessionRepository;
 
 fn extraer_session_id(parts: &Parts) -> Result<Uuid, ApiError> {
@@ -67,13 +68,26 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 /// F-14: sesión válida (no revocada, no vencida, `security_stamp` vigente)
 /// **sin exigir `mfa_verified_at`** — a diferencia de `AuthenticatedUser`,
 /// que sí lo exige y por eso es el único extractor que usa el resto de la
-/// API. Sólo tres endpoints necesitan aceptar una sesión todavía parcial:
-/// verificar el código MFA y configurar un segundo factor por primera vez
-/// (`mfa::handlers`) — ahí es exactamente donde una sesión sin MFA
-/// verificado tiene que poder operar, no en ningún otro lado.
+/// API. Sólo los endpoints que completan un login a medias la aceptan
+/// (verificar MFA, configurar el primer segundo factor, cambiar una
+/// passphrase provisoria), y cada uno debe llamar a `exigir` con los
+/// propósitos que admite: una sesión parcial nunca sirve para otra cosa
+/// que aquello por lo que se emitió.
 pub struct SesionValida {
     pub session_id: Uuid,
     pub user_id: Uuid,
+    pub proposito: PropositoSesion,
+}
+
+impl SesionValida {
+    /// 403 si el propósito de la sesión no está entre los `permitidos`.
+    pub fn exigir(&self, permitidos: &[PropositoSesion]) -> Result<(), ApiError> {
+        if permitidos.contains(&self.proposito) {
+            Ok(())
+        } else {
+            Err(DomainError::PermissionDenied.into())
+        }
+    }
 }
 
 impl FromRequestParts<AppState> for SesionValida {
@@ -85,7 +99,7 @@ impl FromRequestParts<AppState> for SesionValida {
     ) -> Result<Self, Self::Rejection> {
         let session_id = extraer_session_id(parts)?;
 
-        let user_id = state
+        let (user_id, proposito) = state
             .sesiones
             .validar_cualquiera(session_id)
             .await
@@ -94,7 +108,7 @@ impl FromRequestParts<AppState> for SesionValida {
 
         tracing::Span::current().record("actor_id", user_id.to_string());
 
-        Ok(SesionValida { session_id, user_id })
+        Ok(SesionValida { session_id, user_id, proposito })
     }
 }
 

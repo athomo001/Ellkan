@@ -35,6 +35,21 @@ Las dos variables tienen que estar juntas — con sólo una, el binario falla al
 
 No hay una tercera opción real: el canal tiene que cerrarse en algún punto entre el navegador/extensión y el servidor. La Opción A es la más liviana porque no agrega contenedor ni proceso nuevo.
 
+## Primer administrador: token de instalación (recomendado)
+
+En una instancia vacía, el primer usuario que se registra nace **admin**. Si la instancia queda expuesta antes de que vos te registres, cualquiera que llegue primero se queda con ese rol. Para cerrar esa ventana, configurá un token de instalación (mínimo 24 caracteres) en el `environment:` del servicio `ellkan`:
+
+```yaml
+environment:
+  ELLKAN_SETUP_TOKEN_FILE: /run/secrets/ellkan_setup_token   # o ELLKAN_SETUP_TOKEN: <valor>
+```
+
+```bash
+openssl rand -base64 32   # genera un valor adecuado
+```
+
+Con el token configurado, el primer registro sólo se acepta si la URL de registro lo trae en el fragmento: `https://tu-ellkan/register#setup=<token>` (el fragmento no viaja al servidor como parte de la URL ni queda en logs de proxy). Sin el token, o con uno incorrecto, el servidor responde 403. Los registros posteriores no lo usan. Si la variable no está configurada, el comportamiento es el histórico y el binario lo advierte en el log al registrarse el primer usuario.
+
 ## Compartir externo (F-26): el link no sirve de nada si nadie de afuera puede alcanzarlo
 
 `/admin/policies/external-share` tiene un toggle **"Compartir externo habilitado"** — activarlo sólo prende la lógica del lado del servidor (crear/expirar/quemar el share). No hace que el link sea alcanzable desde afuera de tu red. Si Ellkan vive detrás de VPN/LAN (lo recomendado para un password manager), un destinatario externo que abre `https://tu-ellkan/s/{id}#{clave}` se encuentra con lo mismo que cualquier otra página interna: la conexión no llega, no es un error de la app.
@@ -80,6 +95,7 @@ En la web y en la app de escritorio, el error real de una pantalla que no carga 
 
 | Síntoma | Causa | Reparación |
 | --- | --- | --- |
+| El contenedor `ellkan` no arranca: "migration … was previously applied but has been modified" | El checksum de una migración ya aplicada no coincide con el archivo. Puede ser un archivo alterado (revisalo antes que nada) o un disco que reescribió el archivo (visto en NTFS/FUSE) | Si confirmaste que el contenido es el correcto, arrancá **una sola vez** con `ELLKAN_MIGRATE_REPAIR_CHECKSUMS=true`, verificá en el log que reparó el checksum y quitá la variable. No la dejes fija en el compose: mientras está prendida, una migración alterada pasa sin aviso |
 | El contenedor `ellkan` no arranca, log menciona una migración | Migraciones corren automáticamente al boot (forward-only, sin rollback) — una migración que falla a mitad de camino puede dejar el schema en un estado intermedio | Revisá el log completo del contenedor (`docker logs ellkan`) para identificar cuál migración falló; si es un `CHECK`/`UNIQUE` violado por datos preexistentes de una versión vieja, hace falta limpiar esos datos a mano antes de reintentar — no hay downgrade automático |
 | `ellkan-cli` no puede conectar a Postgres aunque el contenedor esté sano | `DATABASE_URL` de la CLI (host) usa `localhost:${POSTGRES_PORT}`, **no** el mismo valor que `secrets/database_url.txt` (que usa el hostname interno `ellkan-db`, sólo resuelve dentro de la red de Docker) | Usar el `DATABASE_URL` armado con `localhost`, ver el snippet en [manual/cli.md](cli.md#administración-ellkan-cli-admin-subcomando) |
 | `ellkan-cli`/`docker` no ven el daemon aunque Docker Desktop esté corriendo (Linux con Docker Desktop instalado) | El contexto de Docker activo puede seguir apuntando al socket de Docker Desktop en vez del daemon real del sistema — nos pasó en desarrollo | `docker context ls` para confirmar, `docker context use default` para volver al daemon real |

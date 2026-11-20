@@ -4,10 +4,11 @@
 	// `account_recovery::handlers`), cubre justo el caso de alguien que
 	// perdió la passphrase Y no tiene (o perdió) su recovery kit. Contenido
 	// movido tal cual desde `/recover` cuando el kit pasó a ser el flujo
-	// primario — mismo criterio: pedir por email, esperar aprobación (poll),
-	// fijar una passphrase nueva. `requestId` sólo vive en memoria del
-	// componente — un F5 pierde el estado y hay que reintentar, flujo raro,
-	// aceptable.
+	// primario — mismo criterio: pedir por email, confirmar el código que
+	// llega a ese email, esperar aprobación (poll), fijar una passphrase
+	// nueva. `requestId`, el token del solicitante y la clave efímera sólo
+	// viven en memoria del componente — un F5 pierde el estado y hay que
+	// reintentar, flujo raro, aceptable.
 	import { goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
@@ -15,19 +16,26 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import { accountRecoveryApi } from '$lib/api/accountRecovery';
-	import { generarClaveEfimera, desellarMaterialDelEscrow, reSellarConNuevaPassphrase } from '$lib/crypto/accountRecovery';
+	import {
+		generarClaveEfimera,
+		desellarMaterialDelEscrow,
+		reSellarConNuevaPassphrase,
+		pruebaDePosesion
+	} from '$lib/crypto/accountRecovery';
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import { ApiError, api } from '$lib/api/client';
 
-	type Paso = 'email' | 'esperando' | 'passphrase' | 'lista';
+	type Paso = 'email' | 'codigo' | 'esperando' | 'passphrase' | 'lista';
 	let paso = $state<Paso>('email');
 	let email = $state('');
 	let cargando = $state(false);
 	let error = $state<string | undefined>();
 
 	let requestId: string | undefined;
+	let tokenSolicitante: string | undefined;
 	let efimeraPrivada: Uint8Array | undefined;
+	let codigo = $state('');
 	let intervalo: ReturnType<typeof setInterval> | undefined;
 
 	let passphraseNueva = $state('');
@@ -58,14 +66,33 @@
 			efimeraPrivada = efimera.privada;
 			const solicitud = await accountRecoveryApi.crearSolicitud(email, efimera.publicaB64);
 			requestId = solicitud.id;
+			paso = 'codigo';
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : get(t).recuperacionCuenta.errorGenerico;
+		} finally {
+			cargando = false;
+		}
+	}
+
+	async function confirmarCodigo(e: SubmitEvent) {
+		e.preventDefault();
+		error = undefined;
+		if (!requestId) return;
+		cargando = true;
+		try {
+			const { requester_token_b64 } = await accountRecoveryApi.confirmar(requestId, codigo.trim());
+			tokenSolicitante = requester_token_b64;
 			paso = 'esperando';
 			intervalo = setInterval(async () => {
-				if (!requestId) return;
+				if (!requestId || !tokenSolicitante) return;
 				try {
-					const actual = await accountRecoveryApi.estadoSolicitud(requestId);
+					const actual = await accountRecoveryApi.estadoSolicitud(requestId, tokenSolicitante);
 					if (actual.status === 'approved') {
 						detenerPoll();
 						paso = 'passphrase';
+					} else if (actual.status === 'expired' || actual.status === 'rejected') {
+						detenerPoll();
+						error = get(t).recuperacionCuenta.vencida;
 					}
 				} catch {
 					/* red intermitente: el próximo tick reintenta solo */
@@ -86,17 +113,19 @@
 			error = get(t).recuperacionCuenta.errorNoCoinciden;
 			return;
 		}
-		if (!requestId || !efimeraPrivada) return;
+		if (!requestId || !tokenSolicitante || !efimeraPrivada) return;
 
 		cargando = true;
 		try {
-			const estado = await accountRecoveryApi.estadoSolicitud(requestId);
+			const estado = await accountRecoveryApi.estadoSolicitud(requestId, tokenSolicitante);
 			if (!estado.sealed_private_key_for_requester_b64) {
 				throw new Error(get(t).recuperacionCuenta.errorGenerico);
 			}
 			const material = await desellarMaterialDelEscrow(efimeraPrivada, estado.sealed_private_key_for_requester_b64);
 			const blob = await reSellarConNuevaPassphrase(email, passphraseNueva, material);
-			await accountRecoveryApi.completar(requestId, blob.blobB64, blob.nonceB64, blob.saltB64);
+			// QA-06: firma con la identidad recién desellada.
+			const prueba = await pruebaDePosesion(api.post, email, material.slice(32, 64), blob);
+			await accountRecoveryApi.completar(requestId, tokenSolicitante, blob.blobB64, blob.nonceB64, blob.saltB64, prueba);
 			paso = 'lista';
 		} catch (err) {
 			error = err instanceof ApiError || err instanceof Error ? err.message : get(t).recuperacionCuenta.errorGenerico;
@@ -121,8 +150,21 @@
 			<Button type="submit" variant="primary" loading={cargando}>{$t.recuperacionCuenta.solicitar}</Button>
 		</form>
 		<p class="hint centrado"><a href="/recover">{$t.recuperacionCuenta.volverAlKit}</a></p>
+	{:else if paso === 'codigo'}
+		<p class="hint">{$t.recuperacionCuenta.codigoHint}</p>
+		<form onsubmit={confirmarCodigo}>
+			<TextField
+				label={$t.recuperacionCuenta.codigo}
+				bind:value={codigo}
+				autocomplete="one-time-code"
+				required
+			/>
+			{#if error}<p class="error">{error}</p>{/if}
+			<Button type="submit" variant="primary" loading={cargando}>{$t.recuperacionCuenta.confirmarCodigo}</Button>
+		</form>
 	{:else if paso === 'esperando'}
 		<p class="hint">{$t.recuperacionCuenta.esperandoAprobacion}</p>
+		{#if error}<p class="error">{error}</p>{/if}
 	{:else if paso === 'passphrase'}
 		<p class="hint">{$t.recuperacionCuenta.aprobadaHint}</p>
 		<form onsubmit={fijarPassphraseNueva}>

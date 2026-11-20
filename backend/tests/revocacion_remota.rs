@@ -220,3 +220,33 @@ async fn estado_cuenta_no_le_dice_nada_a_quien_no_es_dueno_de_las_claves() {
         .unwrap();
     assert_eq!(r["estado"], "desconocida");
 }
+
+/// QA-37: la privada Ed25519 del servidor (firma los avisos de revocación)
+/// no queda en claro en la DB; una fila heredada en claro se cifra al
+/// arrancar.
+#[tokio::test]
+async fn la_clave_privada_del_servidor_se_guarda_cifrada() {
+    let entorno = common::levantar().await;
+    let (publica, privada): (Vec<u8>, Vec<u8>) =
+        sqlx::query_as("select public_key_ed25519, private_key_ed25519 from server_keys where id = 1")
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
+    assert_eq!(privada.len(), 24 + 32 + 16, "nonce || ciphertext || tag, nunca los 32 bytes en claro");
+
+    // Fila heredada de una versión anterior: privada en claro.
+    sqlx::query("update server_keys set private_key_ed25519 = $1 where id = 1")
+        .bind(&[9u8; 32][..])
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+    let clave: secrecy::SecretBox<[u8; 32]> = secrecy::SecretBox::new(Box::new([3u8; 32]));
+    let publica_devuelta = ellkan_backend::cargar_o_generar_server_key(&entorno.pool, &clave).await.unwrap();
+    assert_eq!(publica_devuelta.to_vec(), publica, "la identidad pública no cambia");
+    let migrada: Vec<u8> = sqlx::query_scalar("select private_key_ed25519 from server_keys where id = 1")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(migrada.len(), 24 + 32 + 16);
+    assert!(!migrada.windows(32).any(|w| w == [9u8; 32]), "la privada heredada ya no aparece en claro");
+}

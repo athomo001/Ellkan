@@ -161,8 +161,11 @@ async fn purga_borra_datos_efimeros_vencidos_y_conserva_los_vigentes() {
     // (desfases en días respecto de ahora; `None` = sin revocar).
     for (vence, revocada) in [(-2, None), (1, Some(-2))] {
         sqlx::query(
-            "insert into sessions (user_id, security_stamp, expires_at, revoked_at)
-             select id, security_stamp, now() + make_interval(days => $2), now() + make_interval(days => $3) from users where id = $1",
+            // Sesiones completas (`mfa_verified_at` puesto): el check
+            // `sessions_proposito_coherente` (0053) exige que `proposito`
+            // 'completa' (el default) venga con la verificación hecha.
+            "insert into sessions (user_id, security_stamp, expires_at, revoked_at, mfa_verified_at)
+             select id, security_stamp, now() + make_interval(days => $2), now() + make_interval(days => $3), now() from users where id = $1",
         )
         .bind(usuario.user_id)
         .bind(vence)

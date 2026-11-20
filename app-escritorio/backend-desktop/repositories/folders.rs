@@ -225,12 +225,10 @@ impl FolderItemRepository for SqliteFolderItemRepository {
             .collect()
     }
 
-    async fn carpetas_de_recurso(&self, resource_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
-        let filas = sqlx::query("select distinct folder_id from folder_items where resource_id = ?1 and folder_id is not null")
-            .bind(resource_id.to_string())
-            .fetch_all(&self.pool)
-            .await?;
-        filas.iter().map(|f| parse_uuid(f.try_get::<String, _>("folder_id")?.as_str())).collect()
+    /// Escritorio no tiene grupos (`PermissionRepository::grupo_grantee_de`
+    /// siempre es `None` acá), así que ninguna carpeta es de grupo.
+    async fn grupos_duenos_de_carpeta(&self, _resource_ids: &[Uuid]) -> Result<HashMap<Uuid, Uuid>, RepoError> {
+        Ok(HashMap::new())
     }
 
     async fn tiene_hijos(&self, folder_id: Uuid) -> Result<bool, RepoError> {

@@ -49,6 +49,28 @@ pub enum ErrorConfig {
     ClaveInvalida(&'static str),
     #[error("ELLKAN_TLS_CERT_FILE y ELLKAN_TLS_KEY_FILE tienen que estar las dos o ninguna, no sólo una")]
     TlsIncompleto,
+    #[error("ELLKAN_SETUP_TOKEN debe tener al menos {0} caracteres")]
+    TokenDeInstalacionCorto(usize),
+}
+
+/// Largo mínimo del token de instalación: es una credencial que da el rol
+/// de admin, no puede ser adivinable.
+const SETUP_TOKEN_LARGO_MINIMO: usize = 24;
+
+/// QA-11: token de instalación opcional (`ELLKAN_SETUP_TOKEN` o
+/// `ELLKAN_SETUP_TOKEN_FILE`). Si está configurado, el primer registro de
+/// una instancia vacía (el que nace admin) tiene que presentarlo; si no,
+/// se mantiene el comportamiento histórico (el primer registro nace admin).
+pub fn token_de_instalacion() -> Result<Option<SecretBox<String>>, ErrorConfig> {
+    let valor = match resolver_secreto("ELLKAN_SETUP_TOKEN") {
+        Ok(v) => v,
+        Err(ErrorConfig::Faltante(_)) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    if valor.chars().count() < SETUP_TOKEN_LARGO_MINIMO {
+        return Err(ErrorConfig::TokenDeInstalacionCorto(SETUP_TOKEN_LARGO_MINIMO));
+    }
+    Ok(Some(SecretBox::new(Box::new(valor))))
 }
 
 fn resolver_secreto(nombre: &'static str) -> Result<String, ErrorConfig> {

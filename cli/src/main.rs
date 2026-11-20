@@ -392,12 +392,24 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
             let nuevo_blob =
                 ellkan_crypto::clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &clave.privadas_concatenadas(), email.as_bytes())
                     .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
+            // QA-06: el servidor exige probar la posesión de la identidad
+            // sobre ESE blob, con un challenge nuevo (el del login ya se usó).
+            let desafio = cliente.challenge(email)?;
+            let nonce_desafio = B64.decode(&desafio.nonce_b64)?;
+            let firma_reemplazo = clave.firmar(&ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada(
+                &nonce_desafio,
+                &nuevo_blob.envoltura.ciphertext,
+                &nuevo_blob.envoltura.nonce,
+                &nueva_salt,
+            ));
             cliente.change_passphrase(
                 session_parcial,
                 &api::CambiarPassphraseRequest {
                     encrypted_private_key_blob_b64: B64.encode(&nuevo_blob.envoltura.ciphertext),
                     private_key_nonce_b64: B64.encode(nuevo_blob.envoltura.nonce),
                     kdf_salt_b64: B64.encode(nueva_salt),
+                    challenge_nonce_b64: desafio.nonce_b64,
+                    signature_b64: B64.encode(firma_reemplazo.to_bytes()),
                 },
             )?;
             println!("Passphrase cambiada — la sesión murió (mismo criterio que un cambio de passphrase normal). Corré 'ellkan-cli login --email {email}' de nuevo con la passphrase nueva.");

@@ -171,8 +171,7 @@ where
         // `resource_id` podía "enmarcarlo" en una carpeta propia compartida
         // con su grupo y de ahí borrarlo vía `ResourceService::eliminar`
         // (que confía en `carpetas_de_recurso` sin volver a chequear
-        // ownership). Mismo nivel mínimo que el resto de las lecturas de
-        // recurso (`obtener`, `obtener_secreto`, `listar_destinatarios`).
+        // ownership). Mover dentro del árbol personal alcanza con `read`.
         if !self.permisos.tiene_permiso("resource", resource_id, user_id, NivelPermiso::Read.as_db_str()).await? {
             return Err(DomainError::PermissionDenied);
         }
@@ -183,15 +182,33 @@ where
                 .await?
                 .ok_or_else(|| DomainError::ValidacionInvalida("folder_id no existe".into()))?;
 
-            let autorizado = if let Some(group_id) = self.permisos.grupo_grantee_de("folder", destino).await? {
+            let grupo_destino = self.permisos.grupo_grantee_de("folder", destino).await?;
+            // Toda carpeta tiene al menos el permiso `owner` de quien la creó:
+            // "con permisos" no es lo mismo que "compartida con otros".
+            let con_permisos = self.permisos.existe_algun_permiso("folder", destino).await?;
+            let compartida_con_otros = grupo_destino.is_some()
+                || self
+                    .permisos
+                    .listar("folder", destino)
+                    .await?
+                    .iter()
+                    .any(|p| !(p.grantee_type == "user" && p.grantee_id == user_id));
+
+            // QA-04: poner un recurso en una carpeta compartida cambia quién
+            // lo ve y, en una carpeta de grupo, quién puede borrarlo. Esa
+            // decisión es del dueño: exige `owner` sobre el recurso.
+            if compartida_con_otros
+                && !self.permisos.tiene_permiso("resource", resource_id, user_id, NivelPermiso::Owner.as_db_str()).await?
+            {
+                return Err(DomainError::PermissionDenied);
+            }
+
+            let autorizado = if let Some(group_id) = grupo_destino {
                 self.grupos.es_miembro(group_id, user_id).await?
+            } else if con_permisos {
+                self.permisos.tiene_permiso("folder", destino, user_id, NivelPermiso::Update.as_db_str()).await?
             } else {
-                let compartida = self.permisos.existe_algun_permiso("folder", destino).await?;
-                if compartida {
-                    self.permisos.tiene_permiso("folder", destino, user_id, NivelPermiso::Update.as_db_str()).await?
-                } else {
-                    self.items.tiene_en_su_arbol(user_id, destino).await?
-                }
+                self.items.tiene_en_su_arbol(user_id, destino).await?
             };
             if !autorizado {
                 return Err(DomainError::PermissionDenied);

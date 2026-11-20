@@ -93,12 +93,13 @@ pub trait FolderItemRepository {
     /// raíz (nunca posicionado, o repuesto a `None` explícitamente).
     async fn posiciones_de_recursos(&self, user_id: Uuid) -> Result<HashMap<Uuid, Uuid>, RepoError>;
 
-    /// 2026-08-11: todas las carpetas (de cualquier usuario) donde
-    /// `resource_id` está posicionado — usado por `DELETE /resources/{id}`
-    /// para saber si el recurso vive en alguna carpeta de grupo (borrado
-    /// restringido a admin de ese grupo) o no (borrado con el criterio de
-    /// `owner` de siempre).
-    async fn carpetas_de_recurso(&self, resource_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
+    /// 2026-08-11: para cada recurso de `resource_ids` que vive en una
+    /// carpeta compartida con un grupo, ese `group_id` — usado por `DELETE
+    /// /resources/{id}` y por `puede_borrar`. QA-04: sólo cuenta la posición
+    /// hecha por un `owner` del recurso (directo o vía grupo). QA-12: una
+    /// sola query para todo el listado, en vez de 3–5 por recurso. Si hubiera
+    /// más de un grupo, gana el de menor id (determinístico).
+    async fn grupos_duenos_de_carpeta(&self, resource_ids: &[Uuid]) -> Result<HashMap<Uuid, Uuid>, RepoError>;
 
     /// F-47: `true` si `folder_id` tiene al menos un ítem posicionado
     /// adentro (subcarpeta o recurso) EN CUALQUIER árbol de usuario — usado
@@ -333,15 +334,34 @@ impl FolderItemRepository for PgFolderItemRepository {
         Ok(filas.into_iter().map(|f| (f.resource_id, f.folder_id)).collect())
     }
 
-    async fn carpetas_de_recurso(&self, resource_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
+    async fn grupos_duenos_de_carpeta(&self, resource_ids: &[Uuid]) -> Result<HashMap<Uuid, Uuid>, RepoError> {
+        // El `exists` replica `PermissionRepository::tiene_permiso(..,
+        // "owner")` para quien hizo la posición: permiso directo o vía un
+        // grupo del que es miembro.
         let filas = sqlx::query!(
-            r#"select distinct folder_id as "folder_id!" from folder_items
-               where resource_id = $1 and folder_id is not null"#,
-            resource_id,
+            r#"
+            select distinct on (fi.resource_id) fi.resource_id as "resource_id!", pf.grantee_id as group_id
+            from folder_items fi
+            join permissions pf
+              on pf.subject_type = 'folder' and pf.subject_id = fi.folder_id and pf.grantee_type = 'group'
+            where fi.resource_id = any($1) and fi.folder_id is not null
+              and exists (
+                select 1 from permissions po
+                where po.subject_type = 'resource' and po.subject_id = fi.resource_id and po.level = 'owner'
+                  and (
+                    (po.grantee_type = 'user' and po.grantee_id = fi.user_id)
+                    or (po.grantee_type = 'group' and po.grantee_id in (
+                        select gm.group_id from group_members gm where gm.user_id = fi.user_id
+                    ))
+                  )
+              )
+            order by fi.resource_id, pf.grantee_id
+            "#,
+            resource_ids,
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(filas.into_iter().map(|f| f.folder_id).collect())
+        Ok(filas.into_iter().map(|f| (f.resource_id, f.group_id)).collect())
     }
 
     async fn tiene_hijos(&self, folder_id: Uuid) -> Result<bool, RepoError> {

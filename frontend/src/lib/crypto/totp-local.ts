@@ -21,14 +21,16 @@
 //
 // Fix: el secreto ya no se guarda en claro en `localStorage`. Se envuelve
 // con una `CryptoKey` AES-GCM `extractable:false` generada por dispositivo y
-// guardada en IndexedDB — el navegador nunca permite exportar los bytes de
-// una clave no-extraíble, así que un volcado de `localStorage`/IndexedDB (el
-// escenario real de un backup robado o un infostealer que sólo lee archivos)
-// ya no alcanza para reconstruir el secreto. Esto no protege contra un
-// atacante con ejecución de JS activa en la página (una futura XSS) — igual
-// que ningún esquema 100% client-side puede protegerse de eso (mismo límite
-// ya aceptado para el bearer token de sesión, ver `session.ts`) — pero cierra
-// el vector real y más probable: exfiltración pasiva de storage.
+// guardada en IndexedDB. Eso frena a quien sólo lee `localStorage` (o una
+// API JS que no puede exportar la clave), pero NO a quien copia los archivos
+// del perfil: QA-08 — Chromium y Firefox guardan el
+// material de la `CryptoKey` en disco dentro de la base IndexedDB del
+// perfil, así que un backup del perfil o un infostealer que lee archivos
+// recupera la clave, el secreto TOTP y con ellos la passphrase maestra.
+// Tampoco protege contra ejecución de JS activa en la página (XSS), mismo
+// límite ya aceptado para el bearer token de sesión (ver `session.ts`).
+// Cerrarlo de verdad exige que la operación dependa de algo fuera del perfil
+// (PRF de WebAuthn en web, llavero del SO en escritorio): pendiente, QA-08.
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';

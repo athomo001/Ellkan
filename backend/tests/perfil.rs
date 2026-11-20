@@ -125,6 +125,7 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     let nuevo_blob =
         clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, user.email.as_bytes()).unwrap();
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privadas[32..], &nuevo_blob).await;
 
     let resp = entorno
         .cliente
@@ -134,6 +135,8 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "challenge_nonce_b64": challenge,
+            "signature_b64": firma,
         }))
         .send()
         .await
@@ -186,9 +189,86 @@ async fn cambiar_passphrase_rechaza_longitudes_invalidas() {
             "encrypted_private_key_blob_b64": B64.encode(b"muy corto"),
             "private_key_nonce_b64": B64.encode(b"nonce-de-longitud-incorrecta"),
             "kdf_salt_b64": B64.encode(b"salt-mal"),
+            "challenge_nonce_b64": B64.encode([0u8; 32]),
+            "signature_b64": B64.encode([0u8; 64]),
         }))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 400);
+}
+
+/// QA-06: una sesión completa (robada, por ejemplo) no alcanza para
+/// reemplazar la clave privada sellada: sin una firma de la identidad sobre
+/// ESE blob, el servidor responde 403 y `user_keys` no cambia. Tampoco sirve
+/// reusar un challenge ni la firma de otro blob.
+#[tokio::test]
+async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
+    let entorno = common::levantar().await;
+    let user = common::registrar(&entorno, "posesion-qa06@test.ellkan").await;
+    let sesion = common::login(&entorno, &user).await;
+    let blob_original: (Vec<u8>,) = sqlx::query_as("select encrypted_private_key_blob from user_keys where user_id = $1")
+        .bind(user.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+
+    let basura = clave_privada::cifrar_clave_privada(
+        &SecretBox::new(Box::new("passphrase-del-atacante-larga".to_string())),
+        [9u8; 16],
+        &[0u8; 64],
+        user.email.as_bytes(),
+    )
+    .unwrap();
+    let cuerpo = |challenge: &str, firma: &str| {
+        json!({
+            "encrypted_private_key_blob_b64": B64.encode(&basura.envoltura.ciphertext),
+            "private_key_nonce_b64": B64.encode(basura.envoltura.nonce),
+            "kdf_salt_b64": B64.encode(basura.salt),
+            "challenge_nonce_b64": challenge,
+            "signature_b64": firma,
+        })
+    };
+    let enviar = |body: Value| {
+        entorno.cliente.post(format!("{}/me/change-passphrase", entorno.base)).bearer_auth(sesion).json(&body).send()
+    };
+
+    // Firma con una clave que no es la de la cuenta: 403, y el challenge
+    // queda consumido igual.
+    let (challenge, firma_ajena) = common::prueba_de_posesion(&entorno, &user.email, &[5u8; 32], &basura).await;
+    assert_eq!(enviar(cuerpo(&challenge, &firma_ajena)).await.unwrap().status(), 403);
+
+    // Firma legítima, pero sobre ese challenge ya consumido.
+    let privada = user.ed25519.firmante().to_bytes();
+    let firma_reusada = B64.encode(clave_privada::firmar_reemplazo_clave_privada(
+        &privada,
+        &B64.decode(&challenge).unwrap(),
+        &basura.envoltura.ciphertext,
+        &basura.envoltura.nonce,
+        &basura.salt,
+    ));
+    assert_eq!(enviar(cuerpo(&challenge, &firma_reusada)).await.unwrap().status(), 403, "un challenge ya usado no sirve dos veces");
+
+    // Firma legítima de OTRO blob, presentada con el blob basura.
+    let otro = clave_privada::cifrar_clave_privada(&user.passphrase, [3u8; 16], &[1u8; 64], user.email.as_bytes()).unwrap();
+    let (challenge, firma_otro) = common::prueba_de_posesion(&entorno, &user.email, &privada, &otro).await;
+    assert_eq!(enviar(cuerpo(&challenge, &firma_otro)).await.unwrap().status(), 403);
+
+    let blob_intermedio: (Vec<u8>,) = sqlx::query_as("select encrypted_private_key_blob from user_keys where user_id = $1")
+        .bind(user.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(blob_intermedio.0, blob_original.0, "ningún intento sin prueba válida escribió");
+
+    // Con la prueba válida sí se acepta.
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privada, &basura).await;
+    assert_eq!(enviar(cuerpo(&challenge, &firma)).await.unwrap().status(), 200, "la prueba válida se acepta");
+
+    let blob_final: (Vec<u8>,) = sqlx::query_as("select encrypted_private_key_blob from user_keys where user_id = $1")
+        .bind(user.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(blob_final.0, basura.envoltura.ciphertext);
 }

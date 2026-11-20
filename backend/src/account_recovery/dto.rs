@@ -59,10 +59,30 @@ pub struct SolicitudResponse {
 /// material del escrow con su clave efímera y lo re-selló contra una
 /// passphrase nueva antes de llamar acá.
 #[derive(Debug, Deserialize)]
+pub struct ConfirmarSolicitudRequest {
+    pub code: String,
+}
+
+/// QA-10: el token sólo se entrega una vez, al confirmar el código; el
+/// cliente lo manda en `X-Ellkan-Recovery-Token` al consultar el estado y en
+/// el cuerpo al completar.
+#[derive(Debug, Serialize)]
+pub struct ConfirmarSolicitudResponse {
+    pub requester_token_b64: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CompletarSolicitudRequest {
+    pub requester_token_b64: String,
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-06: nonce de `POST /auth/challenge` (un solo uso) y firma Ed25519
+    /// de `ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada`
+    /// sobre ese nonce y el blob nuevo — prueba de que quien lo sube tiene
+    /// la identidad de la cuenta.
+    pub challenge_nonce_b64: String,
+    pub signature_b64: String,
 }
 
 #[derive(Debug, Serialize)]

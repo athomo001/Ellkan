@@ -31,7 +31,7 @@ pub struct Entorno {
 
 #[allow(dead_code)]
 pub async fn levantar() -> Entorno {
-    levantar_interna(true).await
+    levantar_interna(true, None).await
 }
 
 /// Como `levantar()`, pero **sin** el usuario bootstrap admin — sólo para
@@ -40,10 +40,17 @@ pub async fn levantar() -> Entorno {
 /// genuinamente vacía para ejercitar la rama que nace `admin`.
 #[allow(dead_code)]
 pub async fn levantar_sin_usuarios() -> Entorno {
-    levantar_interna(false).await
+    levantar_interna(false, None).await
 }
 
-async fn levantar_interna(seedear_bootstrap_admin: bool) -> Entorno {
+/// QA-11: instancia vacía con token de instalación configurado (como si el
+/// operador hubiera definido `ELLKAN_SETUP_TOKEN`).
+#[allow(dead_code)]
+pub async fn levantar_sin_usuarios_con_setup_token(token: &str) -> Entorno {
+    levantar_interna(false, Some(token)).await
+}
+
+async fn levantar_interna(seedear_bootstrap_admin: bool, setup_token: Option<&str>) -> Entorno {
     let contenedor = Postgres::default()
         .with_db_name("ellkan")
         .with_user("postgres")
@@ -57,9 +64,10 @@ async fn levantar_interna(seedear_bootstrap_admin: bool) -> Entorno {
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
 
     let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
-    let estado = ellkan_backend::construir_estado(&database_url, secrets_key)
+    let mut estado = ellkan_backend::construir_estado(&database_url, secrets_key)
         .await
         .expect("migrar y conectar");
+    estado.setup_token = setup_token.map(|t| std::sync::Arc::new(SecretBox::new(Box::new(t.to_string()))));
     let pool = estado.pool.clone();
 
     // Parte A/B: sin esto, `smtp_config` queda sin configurar por default
@@ -133,6 +141,38 @@ pub struct Usuario {
     pub ed25519: KeypairFirma,
     pub passphrase: PassphraseSecreta,
     pub device_token: [u8; 32],
+}
+
+/// QA-06: pide un challenge para `email` y firma con `ed25519_privada` el
+/// mensaje de reemplazo del blob — lo mismo que hace el cliente real antes
+/// de `/me/change-passphrase` y de los dos `complete` de recuperación.
+/// Devuelve `(challenge_nonce_b64, signature_b64)`.
+#[allow(dead_code)]
+pub async fn prueba_de_posesion(
+    entorno: &Entorno,
+    email: &str,
+    ed25519_privada: &[u8],
+    blob: &clave_privada::EncryptedPrivateKeyBlob,
+) -> (String, String) {
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/challenge", entorno.base))
+        .json(&json!({ "email": email }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    let challenge = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
+    let privada: [u8; 32] = ed25519_privada.try_into().unwrap();
+    let firma = clave_privada::firmar_reemplazo_clave_privada(
+        &privada,
+        &challenge,
+        &blob.envoltura.ciphertext,
+        &blob.envoltura.nonce,
+        &blob.salt,
+    );
+    (B64.encode(&challenge), B64.encode(firma))
 }
 
 #[allow(dead_code)]

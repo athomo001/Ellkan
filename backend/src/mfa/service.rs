@@ -16,6 +16,7 @@ use uuid::Uuid;
 use zeroize::Zeroize;
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
+use crate::auth::models::PropositoSesion;
 use crate::auth::repository::{KnownDeviceRepository, SessionRepository};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
@@ -160,7 +161,12 @@ where
     /// `POST /me/mfa/totp/setup` — genera un secreto nuevo y lo guarda sin
     /// confirmar. Devuelve el secreto en claro **una sola vez** (para el QR);
     /// nunca vuelve a exponerse tras esta llamada.
-    pub async fn iniciar_setup_totp(&self, user_id: Uuid) -> Result<[u8; ellkan_crypto::totp::SECRETO_LEN], DomainError> {
+    pub async fn iniciar_setup_totp(
+        &self,
+        user_id: Uuid,
+        proposito: PropositoSesion,
+    ) -> Result<[u8; ellkan_crypto::totp::SECRETO_LEN], DomainError> {
+        self.exigir_sin_mfa_previo_si_parcial(user_id, proposito).await?;
         self.totp.limpiar_pendientes(user_id).await?;
 
         let secreto = totp::generar_secreto_totp();
@@ -187,8 +193,10 @@ where
         user_id: Uuid,
         codigo: u32,
         session_id_actual: Uuid,
+        proposito: PropositoSesion,
         device_token_hash: Option<&[u8]>,
     ) -> Result<(), DomainError> {
+        self.exigir_sin_mfa_previo_si_parcial(user_id, proposito).await?;
         let pendiente = self.totp.buscar_pendiente(user_id).await?.ok_or(DomainError::NotFound)?;
         let mut secreto = descifrar_secreto(self.secrets_key, &pendiente)?;
 
@@ -211,6 +219,25 @@ where
         ));
 
         Ok(())
+    }
+
+    /// Una sesión parcial sólo puede configurar el *primer* segundo factor.
+    /// Si ya existe uno confirmado (por ejemplo, se confirmó desde otra
+    /// pestaña entre el login y este pedido), reemplazarlo exigiría haberlo
+    /// demostrado antes: se rechaza y el usuario tiene que iniciar sesión de
+    /// nuevo para pasar por `/auth/mfa/verify`.
+    async fn exigir_sin_mfa_previo_si_parcial(&self, user_id: Uuid, proposito: PropositoSesion) -> Result<(), DomainError> {
+        match proposito {
+            PropositoSesion::Completa => Ok(()),
+            PropositoSesion::MfaConfigurar => {
+                if self.totp.buscar_confirmado(user_id).await?.is_some() {
+                    Err(DomainError::PermissionDenied)
+                } else {
+                    Ok(())
+                }
+            }
+            PropositoSesion::MfaPendiente | PropositoSesion::CambiarPassphrase => Err(DomainError::PermissionDenied),
+        }
     }
 
     /// `POST /auth/mfa/verify` — F-14/F-34. Busca, entre los desafíos

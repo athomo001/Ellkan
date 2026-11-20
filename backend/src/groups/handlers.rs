@@ -79,14 +79,16 @@ pub async fn crear(
 
 pub async fn obtener(
     State(state): State<AppState>,
-    _auth: AuthenticatedUser,
+    auth: AuthenticatedUser,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<GrupoResponse>, ApiError> {
     let servicio = servicio(&state);
     let grupo = servicio.obtener(group_id).await?;
-    let miembros = servicio.miembros(group_id).await?;
     let mut respuesta = a_response(grupo);
-    respuesta.members = miembros.into_iter().map(miembro_a_response).collect();
+    if servicio.puede_ver_miembros(auth.user_id, group_id).await? {
+        let miembros = servicio.miembros(group_id).await?;
+        respuesta.members = miembros.into_iter().map(miembro_a_response).collect();
+    }
     Ok(Json(respuesta))
 }
 

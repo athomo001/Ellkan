@@ -142,7 +142,14 @@ fn capa_cors() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(ORIGENES_ESCRITORIO.map(HeaderValue::from_static)))
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::IF_MATCH, header::IF_NONE_MATCH])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::IF_MATCH,
+            header::IF_NONE_MATCH,
+            // Token del solicitante de Account Recovery (`GET /account-recovery/requests/{id}`).
+            header::HeaderName::from_static("x-ellkan-recovery-token"),
+        ])
         // `ETag` de `GET /me/avatar`: la app lo guarda para no volver a bajar la foto.
         .expose_headers([header::ETAG])
         .max_age(std::time::Duration::from_secs(3600))
@@ -250,23 +257,42 @@ async fn rescate_spa_en_recarga(req: axum::extract::Request, next: axum::middlew
 /// Carga la identidad Ed25519 propia del servidor (`GET /auth/server-key`) —
 /// se genera una sola vez, en el primer arranque. No es un secreto
 /// zero-knowledge del usuario, es la identidad del propio servidor.
-pub async fn cargar_o_generar_server_key(pool: &sqlx::PgPool) -> anyhow::Result<[u8; 32]> {
-    if let Some(fila) = sqlx::query!("select public_key_ed25519 from server_keys where id = 1")
+///
+/// QA-37: la privada se guarda cifrada con `secrets_key` (AAD
+/// `revocacion::AAD_SERVER_KEY`): con sólo leer la DB ya no se pueden
+/// falsificar avisos de revocación firmados. Una fila de una versión
+/// anterior (privada en claro, 32 bytes) se cifra acá, al arrancar.
+pub async fn cargar_o_generar_server_key(
+    pool: &sqlx::PgPool,
+    secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+) -> anyhow::Result<[u8; 32]> {
+    if let Some(fila) = sqlx::query!("select public_key_ed25519, private_key_ed25519 from server_keys where id = 1")
         .fetch_optional(pool)
         .await?
     {
-        return Ok(fila.public_key_ed25519.try_into().expect("32 bytes"));
+        let publica: [u8; 32] = fila
+            .public_key_ed25519
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("server_keys.public_key_ed25519 no mide 32 bytes"))?;
+        if fila.private_key_ed25519.len() == 32 {
+            let cifrada = revocacion::cifrar_clave_del_servidor(secrets_key, &fila.private_key_ed25519)?;
+            sqlx::query!("update server_keys set private_key_ed25519 = $1 where id = 1", &cifrada[..])
+                .execute(pool)
+                .await?;
+            tracing::info!("clave privada del servidor migrada a almacenamiento cifrado");
+        }
+        return Ok(publica);
     }
 
     let par = ellkan_crypto::claves::KeypairFirma::generar();
     let publica = par.verificadora().to_bytes();
-    let privada = par.firmante().to_bytes();
+    let cifrada = revocacion::cifrar_clave_del_servidor(secrets_key, &par.firmante().to_bytes())?;
 
     sqlx::query!(
         "insert into server_keys (id, public_key_ed25519, private_key_ed25519) values (1, $1, $2)
          on conflict (id) do nothing",
         &publica[..],
-        &privada[..],
+        &cifrada[..],
     )
     .execute(pool)
     .await?;
@@ -367,8 +393,10 @@ pub async fn construir_estado(
     let migrator = sqlx::migrate!("./migrations");
     reparar_checksums_de_migraciones(&pool, &migrator).await;
     migrator.run(&pool).await?;
-    let server_public_key = cargar_o_generar_server_key(&pool).await?;
-    Ok(AppState::nuevo(pool, server_public_key, secrets_key))
+    let server_public_key = cargar_o_generar_server_key(&pool, &secrets_key).await?;
+    let mut estado = AppState::nuevo(pool, server_public_key, secrets_key);
+    estado.setup_token = config::token_de_instalacion()?.map(std::sync::Arc::new);
+    Ok(estado)
 }
 
 /// Arma el router completo — separado de `main()` para que los tests de
@@ -429,7 +457,12 @@ pub fn construir_router(estado: AppState) -> Router {
     sync::avisos::spawn_consumidor(&estado.eventos, estado.recursos.clone(), estado.avisos_sync.clone());
 
     // Revocación remota: aviso firmado a las apps vinculadas al bloquear o purgar.
-    revocacion::spawn_consumidor(&estado.eventos, estado.pool.clone(), estado.avisos_sync.clone());
+    revocacion::spawn_consumidor(
+        &estado.eventos,
+        estado.pool.clone(),
+        estado.secrets_key.clone(),
+        estado.avisos_sync.clone(),
+    );
 
     // F-40: purga física de lo soft-deleted vencido — diaria, idempotente,
     // sin cursor propio (cada corrida sólo actúa sobre lo que siga vencido).
@@ -636,7 +669,8 @@ pub fn construir_router(estado: AppState) -> Router {
     // solicitudes pendientes el email de una víctima (mail-bombing a los
     // admins que las revisan). Mismo patrón de dos tiers que
     // `recovery_kit_reset_router`: general para pedir/consultar estado, más
-    // estricto dedicado sobre `complete` (segundo factor en juego).
+    // estricto dedicado sobre `confirm`/`complete` (código del email y
+    // segundo factor en juego).
     let account_recovery_requests_governor_conf = GovernorConfigBuilder::default()
         .per_second(1)
         .burst_size(5)
@@ -677,6 +711,7 @@ pub fn construir_router(estado: AppState) -> Router {
         )
         .merge(
             Router::new()
+                .route("/requests/{id}/confirm", post(account_recovery::handlers::confirmar_solicitud))
                 .route("/requests/{id}/complete", post(account_recovery::handlers::completar))
                 .layer(GovernorLayer::new(account_recovery_complete_governor_conf).error_handler(respuesta_limite_por_ip)),
         );

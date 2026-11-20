@@ -46,6 +46,11 @@ pub trait ResetTokenRepository {
     /// Update condicional (`where consumed_at is null`) — mismo idiom de
     /// lock optimista que `RecoveryRequestRepository::marcar_completada`.
     async fn marcar_consumido(&self, id: Uuid) -> Result<bool, RepoError>;
+
+    /// QA-23: suma un intento fallido de segundo factor; al llegar a
+    /// `maximo` el token queda consumido (quemado) en el mismo `update`.
+    /// Devuelve `true` si lo quemó.
+    async fn registrar_intento_fallido(&self, id: Uuid, maximo: i32) -> Result<bool, RepoError>;
 }
 
 fn fila_a_kit(
@@ -204,5 +209,22 @@ impl ResetTokenRepository for PgResetTokenRepository {
         .execute(&self.pool)
         .await?;
         Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn registrar_intento_fallido(&self, id: Uuid, maximo: i32) -> Result<bool, RepoError> {
+        let quemado = sqlx::query_scalar!(
+            r#"
+            update recovery_reset_tokens
+            set failed_attempts = failed_attempts + 1,
+                consumed_at = case when failed_attempts + 1 >= $2 then now() else consumed_at end
+            where id = $1 and consumed_at is null
+            returning consumed_at is not null as "quemado!"
+            "#,
+            id,
+            maximo,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(quemado.unwrap_or(false))
     }
 }

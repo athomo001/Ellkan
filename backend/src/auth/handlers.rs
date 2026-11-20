@@ -116,7 +116,9 @@ pub async fn register(
         kdf_salt: &salt,
     };
 
-    let resultado = servicio(&state).registrar(nuevo).await?;
+    let resultado = servicio(&state)
+        .registrar(nuevo, req.setup_token.as_deref(), state.setup_token.as_deref())
+        .await?;
     let (user_id, pending_verification) = match resultado {
         ResultadoRegistro::Completo(usuario) => (usuario.id, false),
         ResultadoRegistro::PendienteVerificacion { user_id } => (user_id, true),
@@ -188,7 +190,7 @@ pub async fn key_material(
     State(state): State<AppState>,
     Json(req): Json<KeyMaterialRequest>,
 ) -> Result<Json<KeyMaterialResponse>, ApiError> {
-    let material = servicio(&state).material_desbloqueo(&req.email).await?;
+    let material = servicio(&state).material_desbloqueo(&req.email, &state.secrets_key).await?;
     Ok(Json(KeyMaterialResponse {
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),

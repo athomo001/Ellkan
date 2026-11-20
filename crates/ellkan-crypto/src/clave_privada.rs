@@ -57,10 +57,95 @@ pub fn descifrar_clave_privada(
     Ok(Zeroizing::new(descifrar(&subclave, &blob.envoltura, aad)?))
 }
 
+/// QA-06: prefijo de dominio del mensaje que prueba la posesión de la
+/// identidad al reemplazar el blob sellado. Distinto del challenge de login
+/// (F-02, que firma el nonce crudo), así que ninguna de las dos firmas sirve
+/// para la otra.
+const DOMINIO_REEMPLAZO_CLAVE_PRIVADA: &[u8] = b"ellkan:v1:reemplazo-clave-privada:";
+
+/// QA-06: mensaje que el cliente firma con su Ed25519 privada para que el
+/// servidor acepte un blob nuevo. Ata el challenge de un solo uso
+/// (`POST /auth/challenge`) a ese blob exacto (ciphertext, nonce y salt): una
+/// firma capturada no sirve para subir otro contenido. Cada parte entra
+/// hasheada, así todas miden 32 bytes y la concatenación no es ambigua.
+pub fn mensaje_reemplazo_clave_privada(challenge: &[u8], blob: &[u8], nonce: &[u8], salt: &[u8]) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+    let mut mensaje = Vec::with_capacity(DOMINIO_REEMPLAZO_CLAVE_PRIVADA.len() + 4 * 32);
+    mensaje.extend_from_slice(DOMINIO_REEMPLAZO_CLAVE_PRIVADA);
+    for parte in [challenge, blob, nonce, salt] {
+        mensaje.extend_from_slice(&Sha256::digest(parte));
+    }
+    mensaje
+}
+
+/// QA-06: firma del mensaje de `mensaje_reemplazo_clave_privada`.
+pub fn firmar_reemplazo_clave_privada(
+    ed25519_privada: &[u8; 32],
+    challenge: &[u8],
+    blob: &[u8],
+    nonce: &[u8],
+    salt: &[u8],
+) -> [u8; 64] {
+    use ed25519_dalek::{Signer, SigningKey};
+    SigningKey::from_bytes(ed25519_privada)
+        .sign(&mensaje_reemplazo_clave_privada(challenge, blob, nonce, salt))
+        .to_bytes()
+}
+
+/// QA-06: `true` sólo si `firma` es una firma Ed25519 estricta de la
+/// identidad `publica_ed25519` sobre ese challenge y ese blob.
+pub fn verificar_reemplazo_clave_privada(
+    publica_ed25519: &[u8],
+    firma: &[u8],
+    challenge: &[u8],
+    blob: &[u8],
+    nonce: &[u8],
+    salt: &[u8],
+) -> bool {
+    use ed25519_dalek::{Signature, VerifyingKey};
+    let (Ok(publica), Ok(firma)) = (<[u8; 32]>::try_from(publica_ed25519), <[u8; 64]>::try_from(firma)) else {
+        return false;
+    };
+    let Ok(verificadora) = VerifyingKey::from_bytes(&publica) else {
+        return false;
+    };
+    verificadora
+        .verify_strict(&mensaje_reemplazo_clave_privada(challenge, blob, nonce, salt), &Signature::from_bytes(&firma))
+        .is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use secrecy::SecretBox;
+
+    #[test]
+    fn la_firma_de_reemplazo_ata_challenge_y_blob() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let privada = [7u8; 32];
+        let publica = SigningKey::from_bytes(&privada).verifying_key().to_bytes();
+        let (challenge, blob, nonce, salt) = ([1u8; 32], [2u8; 80], [3u8; 24], [4u8; 16]);
+        let firma = firmar_reemplazo_clave_privada(&privada, &challenge, &blob, &nonce, &salt);
+
+        assert!(verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &blob, &nonce, &salt));
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &[9u8; 32], &blob, &nonce, &salt));
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &[0u8; 80], &nonce, &salt));
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &blob, &[0u8; 24], &salt));
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &blob, &nonce, &[0u8; 16]));
+        let otra = SigningKey::from_bytes(&[8u8; 32]).verifying_key().to_bytes();
+        assert!(!verificar_reemplazo_clave_privada(&otra, &firma, &challenge, &blob, &nonce, &salt));
+
+        // Separación de dominio: una firma de login (nonce crudo) no sirve acá.
+        let firma_login = SigningKey::from_bytes(&privada).sign(&challenge).to_bytes();
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma_login, &challenge, &blob, &nonce, &salt));
+    }
+
+    #[test]
+    fn el_formato_del_mensaje_de_reemplazo_no_cambia() {
+        let mensaje = mensaje_reemplazo_clave_privada(b"c", b"b", b"n", b"s");
+        assert_eq!(mensaje.len(), DOMINIO_REEMPLAZO_CLAVE_PRIVADA.len() + 128);
+        assert!(mensaje.starts_with(b"ellkan:v1:reemplazo-clave-privada:"));
+    }
 
     fn passphrase(valor: &str) -> PassphraseSecreta {
         SecretBox::new(Box::new(valor.to_string()))

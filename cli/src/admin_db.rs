@@ -296,6 +296,67 @@ pub fn backup_create(database_url: &str, output_path: &Path, recipient_str: &str
     resultado
 }
 
+/// QA-36: separa la contraseña de `DATABASE_URL` (del userinfo o del
+/// parámetro `password` de la query) para pasársela a `pg_dump`/`psql` por
+/// `PGPASSWORD` en el entorno del hijo, en vez de como argumento: los
+/// argumentos los ve cualquier usuario del host (`ps`, `/proc/*/cmdline`).
+fn separar_password(database_url: &str) -> anyhow::Result<(String, Option<String>)> {
+    let mut url = reqwest::Url::parse(database_url).map_err(|_| anyhow::anyhow!("DATABASE_URL no es una URL válida"))?;
+    let mut password = match url.password() {
+        Some(p) => Some(decodificar_porcentaje(p)?),
+        None => None,
+    };
+    url.set_password(None).map_err(|_| anyhow::anyhow!("DATABASE_URL no admite quitarle la contraseña"))?;
+
+    let pares: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+    if pares.iter().any(|(k, _)| k == "password") {
+        let resto: Vec<&(String, String)> = pares.iter().filter(|(k, _)| k != "password").collect();
+        if let Some((_, v)) = pares.iter().find(|(k, _)| k == "password") {
+            password.get_or_insert_with(|| v.clone());
+        }
+        if resto.is_empty() {
+            url.set_query(None);
+        } else {
+            url.query_pairs_mut().clear().extend_pairs(resto.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        }
+    }
+    Ok((url.to_string(), password))
+}
+
+/// Decodifica `%XX` (el userinfo de una URL llega codificado).
+fn decodificar_porcentaje(valor: &str) -> anyhow::Result<String> {
+    let bytes = valor.as_bytes();
+    let mut salida = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let byte = bytes
+                .get(i + 1..i + 3)
+                .and_then(|h| std::str::from_utf8(h).ok())
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+                .ok_or_else(|| anyhow::anyhow!("DATABASE_URL tiene una secuencia %XX inválida en la contraseña"))?;
+            salida.push(byte);
+            i += 3;
+        } else {
+            salida.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(salida).map_err(|_| anyhow::anyhow!("la contraseña de DATABASE_URL no es UTF-8 válido"))
+}
+
+/// `Command` de `pg_dump`/`psql` con la URL sin contraseña como argumento y
+/// la contraseña (si la hay) sólo en el entorno del proceso hijo.
+fn comando_postgres(programa: &str, database_url: &str) -> anyhow::Result<Command> {
+    let (url_sin_password, password) = separar_password(database_url)?;
+    let mut comando = Command::new(programa);
+    comando.arg(url_sin_password);
+    if let Some(p) = password {
+        comando.env("PGPASSWORD", p);
+    }
+    Ok(comando)
+}
+
 fn backup_create_interno(database_url: &str, output_path: &Path, recipient_str: &str) -> anyhow::Result<()> {
     let recipient: age::x25519::Recipient =
         recipient_str.parse().map_err(|e| anyhow::anyhow!("clave pública de backup (age) inválida: {e}"))?;
@@ -306,8 +367,7 @@ fn backup_create_interno(database_url: &str, output_path: &Path, recipient_str: 
         .map_err(|e| anyhow::anyhow!("no se pudo crear '{}': {e}", output_path.display()))?;
     let mut writer = encryptor.wrap_output(salida)?;
 
-    let mut hijo = Command::new("pg_dump")
-        .arg(database_url)
+    let mut hijo = comando_postgres("pg_dump", database_url)?
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| anyhow::anyhow!("no se pudo ejecutar pg_dump (¿está en PATH? paquete postgresql-client): {e}"))?;
@@ -339,8 +399,7 @@ pub fn backup_restore(database_url: &str, input_path: &Path, identity_str: &str)
         .decrypt(std::iter::once(&identity as &dyn age::Identity))
         .map_err(|_| anyhow::anyhow!("no se pudo descifrar — clave privada incorrecta o archivo corrupto"))?;
 
-    let mut hijo = Command::new("psql")
-        .arg(database_url)
+    let mut hijo = comando_postgres("psql", database_url)?
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|e| anyhow::anyhow!("no se pudo ejecutar psql (¿está en PATH? paquete postgresql-client): {e}"))?;
@@ -356,6 +415,38 @@ pub fn backup_restore(database_url: &str, input_path: &Path, identity_str: &str)
         anyhow::bail!("psql (restore) terminó con error (código {:?})", estado.code());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests_password {
+    use super::separar_password;
+
+    #[test]
+    fn la_password_sale_de_la_url_y_queda_decodificada() {
+        let (url, password) = separar_password("postgres://ellkan:p%40ss%3Aw0rd@db:5432/ellkan?sslmode=require").unwrap();
+        assert_eq!(password.as_deref(), Some("p@ss:w0rd"));
+        assert!(!url.contains("p%40ss"), "la URL que va al argv no lleva la contraseña: {url}");
+        assert_eq!(url, "postgres://ellkan@db:5432/ellkan?sslmode=require");
+    }
+
+    #[test]
+    fn la_password_en_la_query_tambien_se_separa() {
+        let (url, password) = separar_password("postgres://ellkan@db/ellkan?password=secreta&sslmode=disable").unwrap();
+        assert_eq!(password.as_deref(), Some("secreta"));
+        assert_eq!(url, "postgres://ellkan@db/ellkan?sslmode=disable");
+    }
+
+    #[test]
+    fn sin_password_no_cambia_nada() {
+        let (url, password) = separar_password("postgres://ellkan@db/ellkan").unwrap();
+        assert_eq!(password, None);
+        assert_eq!(url, "postgres://ellkan@db/ellkan");
+    }
+
+    #[test]
+    fn secuencia_porcentual_invalida_se_rechaza() {
+        assert!(separar_password("postgres://ellkan:abc%2@db/ellkan").is_err());
+    }
 }
 
 #[cfg(test)]

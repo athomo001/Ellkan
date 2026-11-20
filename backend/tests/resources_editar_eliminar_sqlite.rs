@@ -18,7 +18,7 @@ use ellkan_backend::desktop::repositories::resources::{
 use ellkan_backend::error::DomainError;
 use ellkan_backend::eventos;
 use ellkan_backend::resources::models::EnvelopeInput;
-use ellkan_backend::resources::repository::{ResourceRepository, ResourceTypeRepository};
+use ellkan_backend::resources::repository::{ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository};
 use ellkan_backend::resources::service::ResourceService;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -91,6 +91,9 @@ async fn editar_recurso_re_sella_metadata_y_secreto() {
         .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-v1", b"nonce-v1", user_id, None)
         .await
         .expect("crear recurso de prueba");
+    // Como el alta real: el creador queda con su sobre (QA-05 exige que
+    // la edición re-selle exactamente para los destinatarios vigentes).
+    repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
 
     let envelope = EnvelopeInput { user_id, sealed_dek: b"dek-v2".to_vec(), secret_ciphertext: b"secreto-v2".to_vec(), secret_nonce: b"nonce-secreto-v2".to_vec() };
 

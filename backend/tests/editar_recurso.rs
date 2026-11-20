@@ -506,3 +506,69 @@ async fn todos_los_tipos_del_frontend_existen_en_el_servidor() {
         assert_eq!(get["resource_type_slug"], slug);
     }
 }
+
+/// QA-05: un editor (`update`) con el `If-Match` vigente que manda sólo su
+/// propio envelope no puede borrar el acceso del resto: 409 y nada cambia.
+#[tokio::test]
+async fn editor_que_omite_envelope_del_owner_recibe_409() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "editar-qa05-owner@test.ellkan").await;
+    let sesion_owner = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion_owner, &owner).await;
+
+    let editor = common::registrar(&entorno, "editar-qa05-editor@test.ellkan").await;
+    let sesion_editor = common::login(&entorno, &editor).await;
+    let dek = SecretBox::new(Box::new([3u8; 32]));
+    let aad = aad_de(recurso.id, owner.user_id);
+    let secreto_env = aead::cifrar(&dek, br#"{"password":"pw"}"#, &aad).unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/share", entorno.base, recurso.id))
+        .bearer_auth(sesion_owner)
+        .json(&json!({
+            "recipient_user_id": editor.user_id,
+            "sealed_dek_b64": B64.encode(sellado::sellar_dek(editor.x25519.publica(), &dek)),
+            "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+            "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            "level": "update",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // `updated_at` vigente (después del share).
+    let actual: Value = entorno
+        .cliente
+        .get(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion_editor)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let if_match = actual["updated_at"].as_str().unwrap().to_string();
+
+    let dek_nueva = SecretBox::new(Box::new([4u8; 32]));
+    let body = armar_put_body(&editor, recurso.id, &dek_nueva);
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion_editor)
+        .header("If-Match", &if_match)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409, "omitir el envelope de otro destinatario debe rechazarse");
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/secret", entorno.base, recurso.id))
+        .bearer_auth(sesion_owner)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el owner sigue leyendo su secreto");
+}

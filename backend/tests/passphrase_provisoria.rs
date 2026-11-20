@@ -155,8 +155,8 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
     assert_eq!(estado, "requiere_cambiar_passphrase");
     assert!(!puede_operar(&entorno, sesion_parcial).await, "una sesión parcial por passphrase provisoria no debe poder operar");
 
-    // Cambiar la passphrase con la sesión parcial (SesionValida acepta esto
-    // a propósito) — mismo material, sólo se re-envuelve con la nueva.
+    // Cambiar la passphrase con la sesión parcial (su propósito es justamente
+    // éste) — mismo material, sólo se re-envuelve con la nueva.
     let mut privadas = [0u8; 64];
     privadas[..32].copy_from_slice(usuario.x25519.privada().to_bytes().as_slice());
     privadas[32..].copy_from_slice(&usuario.ed25519.firmante().to_bytes());
@@ -164,6 +164,7 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     let nuevo_blob =
         clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, usuario.email.as_bytes()).unwrap();
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &usuario.email, &privadas[32..], &nuevo_blob).await;
 
     let resp = entorno
         .cliente
@@ -173,11 +174,13 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "challenge_nonce_b64": challenge,
+            "signature_b64": firma,
         }))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200, "una sesión parcial (SesionValida) debería poder cambiar la passphrase");
+    assert_eq!(resp.status(), 200, "la sesión parcial de passphrase provisoria debería poder cambiarla");
 
     // La sesión parcial murió (misma rotación de security_stamp de siempre).
     assert!(!puede_operar(&entorno, sesion_parcial).await);
@@ -193,6 +196,41 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
     // completar directo — el requisito ya no aplica.
     let (estado, _sesion) = login_y_estado(&entorno, &usuario).await;
     assert_eq!(estado, "completo", "tras cambiar la passphrase, el próximo login debe completar normalmente");
+}
+
+/// QA-01: la sesión parcial de passphrase provisoria sirve sólo para cambiar
+/// la passphrase — no puede configurar un segundo factor ni completarse por
+/// ese camino.
+#[tokio::test]
+async fn sesion_de_passphrase_provisoria_no_puede_configurar_mfa() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin-provisoria-mfa@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let usuario = crear_usuario_por_admin(&entorno, sesion_admin, "provisoria-mfa@test.ellkan").await;
+    let (estado, sesion_parcial) = login_y_estado(&entorno, &usuario).await;
+    assert_eq!(estado, "requiere_cambiar_passphrase");
+
+    for ruta in ["/me/mfa/totp/setup", "/me/mfa/totp/confirm"] {
+        let resp = entorno
+            .cliente
+            .post(format!("{}{ruta}", entorno.base))
+            .bearer_auth(sesion_parcial)
+            .json(&json!({ "code": "123456" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403, "{ruta} no debe aceptar una sesión de passphrase provisoria");
+    }
+
+    let fila: (bool,) = sqlx::query_as("select exists (select 1 from user_totp_credentials where user_id = $1)")
+        .bind(usuario.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert!(!fila.0, "no debe quedar ningún TOTP creado");
+    assert!(!puede_operar(&entorno, sesion_parcial).await);
 }
 
 #[tokio::test]
