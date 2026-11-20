@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 use webauthn_rs::prelude::{CreationChallengeResponse, RequestChallengeResponse};
 
@@ -11,8 +11,7 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    FinalizarAutenticacionRequest, FinalizarRegistroRequest, IniciarAutenticacionRequest,
-    PasskeyResponse, SesionWebauthnResponse,
+    FinalizarAutenticacionRequest, FinalizarRegistroRequest, IniciarAutenticacionRequest, PasskeyResponse, SesionWebauthnResponse,
 };
 use super::models::PasskeyRow;
 use super::service::PasskeyService;
@@ -46,10 +45,7 @@ fn a_response(p: PasskeyRow) -> PasskeyResponse {
     }
 }
 
-pub async fn register_options(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<Json<CreationChallengeResponse>, ApiError> {
+pub async fn register_options(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<CreationChallengeResponse>, ApiError> {
     let ccr = servicio(&state).iniciar_registro(auth.user_id).await?;
     Ok(Json(ccr))
 }
@@ -66,9 +62,7 @@ pub async fn register_verify(
         .transpose()
         .map_err(|_| DomainError::ValidacionInvalida("prf_wrapped_private_key_b64 inválido".into()))?;
 
-    servicio(&state)
-        .finalizar_registro(auth.user_id, req.credential, prf_wrapped, req.label)
-        .await?;
+    servicio(&state).finalizar_registro(auth.user_id, req.credential, prf_wrapped, req.label).await?;
     Ok(())
 }
 
@@ -93,20 +87,13 @@ pub async fn login_verify(
 }
 
 /// `GET /me/passkeys` (F-03).
-pub async fn listar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<Json<Vec<PasskeyResponse>>, ApiError> {
+pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<Vec<PasskeyResponse>>, ApiError> {
     let passkeys = servicio(&state).listar(auth.user_id).await?;
     Ok(Json(passkeys.into_iter().map(a_response).collect()))
 }
 
 /// `DELETE /me/passkeys/{id}` (F-03).
-pub async fn revocar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-    Path(passkey_id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn revocar(State(state): State<AppState>, auth: AuthenticatedUser, Path(passkey_id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).revocar(auth.user_id, passkey_id).await?;
     Ok(())
 }

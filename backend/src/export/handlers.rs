@@ -1,9 +1,9 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 
 use crate::admin::repository::PgRoleRepository;
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
@@ -11,8 +11,8 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarExportPolicyRequest, ExportPolicyResponse, FormatoExportQuery, GrupoExportResponse,
-    MiembroDeGrupoResponse, ReportarExportEventRequest, UsuarioExportResponse,
+    ActualizarExportPolicyRequest, ExportPolicyResponse, FormatoExportQuery, GrupoExportResponse, MiembroDeGrupoResponse,
+    ReportarExportEventRequest, UsuarioExportResponse,
 };
 use super::models::{ExportPolicy, FilaExportGrupo, FilaExportUsuario, TipoEventoExport};
 use super::repository::{PgExportPolicyRepository, PgExportRepository};
@@ -39,17 +39,11 @@ fn a_response_policy(p: ExportPolicy) -> ExportPolicyResponse {
 
 /// `GET /export-policy` — cualquier usuario autenticado, necesita saber si
 /// puede exportar/importar (y en qué formatos) antes de intentarlo.
-pub async fn politica(
-    State(state): State<AppState>,
-    _usuario: AuthenticatedUser,
-) -> Result<Json<ExportPolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _usuario: AuthenticatedUser) -> Result<Json<ExportPolicyResponse>, ApiError> {
     Ok(Json(a_response_policy(servicio(&state).politica().await?)))
 }
 
-pub async fn politica_admin(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<ExportPolicyResponse>, ApiError> {
+pub async fn politica_admin(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<ExportPolicyResponse>, ApiError> {
     Ok(Json(a_response_policy(servicio(&state).politica().await?)))
 }
 
@@ -81,9 +75,7 @@ pub async fn reportar_evento(
         "import" => TipoEventoExport::Import,
         _ => return Err(DomainError::ValidacionInvalida("event_type debe ser 'export' o 'import'".into()).into()),
     };
-    servicio(&state)
-        .reportar_evento(usuario.user_id, tipo, &req.format, req.resource_count)
-        .await?;
+    servicio(&state).reportar_evento(usuario.user_id, tipo, &req.format, req.resource_count).await?;
     Ok(())
 }
 
@@ -177,7 +169,11 @@ fn a_response_grupo(f: FilaExportGrupo) -> GrupoExportResponse {
         name: f.name,
         parent_group_id: f.parent_group_id,
         deleted_at: f.deleted_at,
-        members: f.members.into_iter().map(|m| MiembroDeGrupoResponse { user_id: m.user_id, is_admin: m.is_admin }).collect(),
+        members: f
+            .members
+            .into_iter()
+            .map(|m| MiembroDeGrupoResponse { user_id: m.user_id, is_admin: m.is_admin })
+            .collect(),
     }
 }
 

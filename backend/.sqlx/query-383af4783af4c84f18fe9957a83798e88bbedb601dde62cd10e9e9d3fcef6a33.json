@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            with recursive ancestros as (\n                select child_folder_id as id, folder_id as parent\n                from folder_items\n                where user_id = $1 and child_folder_id = $2\n                union all\n                select fi.child_folder_id, fi.folder_id\n                from folder_items fi\n                join ancestros a on fi.child_folder_id = a.parent and fi.user_id = $1\n            )\n            select id as \"id!\" from ancestros\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "383af4783af4c84f18fe9957a83798e88bbedb601dde62cd10e9e9d3fcef6a33"
+}

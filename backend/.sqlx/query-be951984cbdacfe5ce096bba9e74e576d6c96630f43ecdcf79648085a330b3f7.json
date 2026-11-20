@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists(select 1 from users) as \"existe!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "be951984cbdacfe5ce096bba9e74e576d6c96630f43ecdcf79648085a330b3f7"
+}

@@ -21,6 +21,9 @@ pub struct MaterialKitResponse {
     pub sealed_identity_material_b64: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    /// Pendiente #23: el sync app ↔ servidor la propaga — un kit usado para
+    /// recuperar la cuenta en un lado tiene que quedar marcado en los dos.
+    pub must_rotate: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,4 +63,10 @@ pub struct CompletarResetRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-06: nonce de `POST /auth/challenge` (un solo uso) y firma Ed25519
+    /// de `ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada`
+    /// sobre ese nonce y el blob nuevo — prueba de que quien lo sube tiene
+    /// la identidad de la cuenta.
+    pub challenge_nonce_b64: String,
+    pub signature_b64: String,
 }

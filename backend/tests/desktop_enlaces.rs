@@ -18,7 +18,10 @@ fn abrir_la_boveda() {
 #[test]
 fn abrir_un_recurso_por_su_id() {
     assert_eq!(interpretar(&format!("ellkan://item/{ID}")).as_deref(), Some(format!("/vault?abrir={ID}").as_str()));
-    assert_eq!(interpretar(&format!("ellkan://recurso/{ID}/")).as_deref(), Some(format!("/vault?abrir={ID}").as_str()));
+    assert_eq!(
+        interpretar(&format!("ellkan://recurso/{ID}/")).as_deref(),
+        Some(format!("/vault?abrir={ID}").as_str())
+    );
     assert_eq!(
         interpretar(&format!("ellkan://item/{}", ID.to_uppercase())).as_deref(),
         Some(format!("/vault?abrir={ID}").as_str()),

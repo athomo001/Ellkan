@@ -6,10 +6,13 @@
 # shell, sólo el binario y el build estático de `frontend/` (`ServeDir` +
 # fallback SPA, `backend/src/lib.rs`).
 
-FROM rust:1-slim-bookworm AS wasm-builder
+# QA-29: imágenes base fijadas por digest (un tag puede re-apuntarse) y
+# wasm-pack compilado desde crates.io con versión exacta y `--locked`, en vez
+# de `curl … | sh` sin versión ni checksum. Para actualizar una imagen:
+# `docker buildx imagetools inspect <imagen:tag>` y copiar el `Digest`.
+FROM rust:1-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS wasm-builder
 WORKDIR /build
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+RUN cargo install wasm-pack --locked --version 0.15.0
 
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates/ellkan-crypto ./crates/ellkan-crypto
@@ -29,7 +32,7 @@ RUN sed -i 's#, "app-escritorio/src-tauri"##' Cargo.toml
 # se regenera siempre a partir de la fuente Rust, nunca se commitea.
 RUN wasm-pack build --target web --out-dir /wasm-out crates/ellkan-crypto
 
-FROM node:24-slim AS frontend-builder
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS frontend-builder
 WORKDIR /build
 RUN corepack enable
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
@@ -38,7 +41,7 @@ COPY frontend ./
 COPY --from=wasm-builder /wasm-out ./src/lib/wasm
 RUN pnpm run build
 
-FROM rust:1-slim-bookworm AS builder
+FROM rust:1-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS builder
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
@@ -58,7 +61,7 @@ RUN sed -i 's#, "app-escritorio/src-tauri"##' Cargo.toml
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p ellkan-backend
 
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 WORKDIR /app
 
 COPY --from=builder /build/target/release/ellkan-backend /app/ellkan-backend

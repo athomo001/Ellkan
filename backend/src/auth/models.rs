@@ -66,6 +66,41 @@ pub struct Session {
     pub user_id: Uuid,
 }
 
+/// Para qué sirve una sesión (`sessions.proposito`). Una sesión parcial sólo
+/// habilita la operación por la que se emitió: nunca se puede usar la de
+/// "verificá tu código" para configurar un segundo factor nuevo, ni la de
+/// "configurá tu MFA" para cambiar la passphrase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropositoSesion {
+    Completa,
+    MfaPendiente,
+    MfaConfigurar,
+    CambiarPassphrase,
+}
+
+impl PropositoSesion {
+    pub fn como_str(self) -> &'static str {
+        match self {
+            Self::Completa => "completa",
+            Self::MfaPendiente => "mfa_pendiente",
+            Self::MfaConfigurar => "mfa_configurar",
+            Self::CambiarPassphrase => "cambiar_passphrase",
+        }
+    }
+
+    /// Lectura desde la base. Un valor desconocido (no debería existir: la
+    /// columna tiene `check`) se trata como el más restrictivo, nunca como
+    /// sesión completa.
+    pub fn desde_str(valor: &str) -> Self {
+        match valor {
+            "completa" => Self::Completa,
+            "mfa_configurar" => Self::MfaConfigurar,
+            "cambiar_passphrase" => Self::CambiarPassphrase,
+            _ => Self::MfaPendiente,
+        }
+    }
+}
+
 /// Resultado de `AuthService::verify` — puede resolver en sesión completa,
 /// un desafío de dispositivo pendiente (F-02), o (una vez el dispositivo ya
 /// es conocido) el estado de MFA que corresponda (F-14): verificar un
@@ -74,14 +109,22 @@ pub struct Session {
 #[derive(Debug, Clone)]
 pub enum ResultadoVerify {
     SesionCompleta(Session),
-    PendienteDispositivo { device_challenge_id: Uuid },
-    PendienteMfa { session_id: Uuid },
-    RequiereConfigurarMfa { session_id: Uuid },
+    PendienteDispositivo {
+        device_challenge_id: Uuid,
+    },
+    PendienteMfa {
+        session_id: Uuid,
+    },
+    RequiereConfigurarMfa {
+        session_id: Uuid,
+    },
     /// Cuenta con `users.must_change_passphrase = true` (creada por un
     /// admin con una passphrase provisoria) — sesión parcial, sólo puede
-    /// llegar a `/me/change-passphrase` (`SesionValida`) hasta cambiarla.
+    /// llegar a `/me/change-passphrase` (propósito `cambiar_passphrase`).
     /// Se resuelve ANTES que la decisión de MFA en `resolver_tras_f02`.
-    RequiereCambiarPassphrase { session_id: Uuid },
+    RequiereCambiarPassphrase {
+        session_id: Uuid,
+    },
 }
 
 /// Fila de `device_challenges` pendiente — el service compara `code_hash` en

@@ -56,6 +56,11 @@ const es = {
 			'Si habilitaste la recuperación de cuenta antes de perder tu contraseña, un admin puede aprobar tu solicitud.',
 		email: 'Email',
 		solicitar: 'Solicitar recuperación',
+		codigoHint:
+			'Te enviamos un código de 8 dígitos al email de la cuenta. Ingresalo para que la solicitud llegue a los administradores.',
+		codigo: 'Código de confirmación',
+		confirmarCodigo: 'Confirmar',
+		vencida: 'La solicitud venció o fue rechazada. Volvé a pedir la recuperación.',
 		esperandoAprobacion: 'Esperando que un administrador apruebe tu solicitud… podés dejar esta pantalla abierta.',
 		aprobadaHint: 'Tu solicitud fue aprobada. Fijá una contraseña nueva para tu cuenta.',
 		passphraseNueva: 'Contraseña nueva',
@@ -527,6 +532,8 @@ const es = {
 		recoveryTitulo: 'Recuperación de cuenta',
 		recoveryHint:
 			'Habilitá esto para poder recuperar el acceso a tu cuenta si perdés tu contraseña — un administrador tiene que aprobar la solicitud.',
+		recoveryAdvertencia:
+			'Importante: esta opción es una excepción al cifrado de conocimiento cero. Tu clave privada queda guardada en el servidor, cifrada con una clave de la organización que también vive en el servidor. Quien controle el servidor (su base de datos y su configuración) podría abrirla y leer tu bóveda. Si eso no es aceptable para vos, usá el kit de recuperación personal.',
 		recoveryHabilitada: 'Habilitada en esta cuenta.',
 		recoveryHabilitar: 'Habilitar recuperación de cuenta',
 		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',

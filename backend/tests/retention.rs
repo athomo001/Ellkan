@@ -84,8 +84,11 @@ async fn purga_elimina_lo_vencido_y_nunca_toca_el_audit_log_reciente() {
         .await
         .unwrap();
 
-    let existe_antes: (bool,) =
-        sqlx::query_as("select exists(select 1 from groups where id = $1)").bind(group_id.parse::<uuid::Uuid>().unwrap()).fetch_one(&entorno.pool).await.unwrap();
+    let existe_antes: (bool,) = sqlx::query_as("select exists(select 1 from groups where id = $1)")
+        .bind(group_id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(existe_antes.0, "el grupo debería seguir en la tabla (soft-delete, no hard-delete)");
 
     let policy = PgRetentionPolicyRepository { pool: entorno.pool.clone() };
@@ -96,8 +99,11 @@ async fn purga_elimina_lo_vencido_y_nunca_toca_el_audit_log_reciente() {
     assert_eq!(resultado.groups, 1, "el grupo vencido debe purgarse");
     assert_eq!(resultado.audit_log_entries, 0, "ninguna entrada de audit log tiene 365+ días todavía");
 
-    let existe_despues: (bool,) =
-        sqlx::query_as("select exists(select 1 from groups where id = $1)").bind(group_id.parse::<uuid::Uuid>().unwrap()).fetch_one(&entorno.pool).await.unwrap();
+    let existe_despues: (bool,) = sqlx::query_as("select exists(select 1 from groups where id = $1)")
+        .bind(group_id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(!existe_despues.0, "tras la purga, el grupo vencido ya no debe existir en la tabla");
 
     // El trigger append-only sigue bloqueando un DELETE manual de una
@@ -134,7 +140,13 @@ async fn purga_no_toca_lo_que_todavia_no_vencio() {
     let cuerpo: serde_json::Value = resp.json().await.unwrap();
     let group_id: uuid::Uuid = cuerpo["id"].as_str().unwrap().parse().unwrap();
 
-    entorno.cliente.delete(format!("{}/groups/{group_id}", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    entorno
+        .cliente
+        .delete(format!("{}/groups/{group_id}", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
 
     let policy = PgRetentionPolicyRepository { pool: entorno.pool.clone() };
     let purga = PgPurgeRepository { pool: entorno.pool.clone() };
@@ -142,8 +154,11 @@ async fn purga_no_toca_lo_que_todavia_no_vencio() {
     let resultado = purga.purgar(politica.data_retention_days, politica.audit_log_retention_days).await.unwrap();
     assert_eq!(resultado.groups, 0, "un grupo borrado hace un instante no debe purgarse todavía");
 
-    let existe: (bool,) =
-        sqlx::query_as("select exists(select 1 from groups where id = $1)").bind(group_id).fetch_one(&entorno.pool).await.unwrap();
+    let existe: (bool,) = sqlx::query_as("select exists(select 1 from groups where id = $1)")
+        .bind(group_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(existe.0);
 }
 
@@ -161,8 +176,11 @@ async fn purga_borra_datos_efimeros_vencidos_y_conserva_los_vigentes() {
     // (desfases en días respecto de ahora; `None` = sin revocar).
     for (vence, revocada) in [(-2, None), (1, Some(-2))] {
         sqlx::query(
-            "insert into sessions (user_id, security_stamp, expires_at, revoked_at)
-             select id, security_stamp, now() + make_interval(days => $2), now() + make_interval(days => $3) from users where id = $1",
+            // Sesiones completas (`mfa_verified_at` puesto): el check
+            // `sessions_proposito_coherente` (0053) exige que `proposito`
+            // 'completa' (el default) venga con la verificación hecha.
+            "insert into sessions (user_id, security_stamp, expires_at, revoked_at, mfa_verified_at)
+             select id, security_stamp, now() + make_interval(days => $2), now() + make_interval(days => $3), now() from users where id = $1",
         )
         .bind(usuario.user_id)
         .bind(vence)
@@ -202,21 +220,37 @@ async fn purga_borra_datos_efimeros_vencidos_y_conserva_los_vigentes() {
         .unwrap();
     assert!(resultado.datos_efimeros >= 4, "dos sesiones, un desafío y un correo: {}", resultado.datos_efimeros);
 
-    let sesiones: i64 = sqlx::query_scalar("select count(*) from sessions where user_id = $1").bind(usuario.user_id).fetch_one(pool).await.unwrap();
+    let sesiones: i64 = sqlx::query_scalar("select count(*) from sessions where user_id = $1")
+        .bind(usuario.user_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
     assert_eq!(sesiones, 1, "sólo queda la sesión vigente");
-    let vigente: bool = sqlx::query_scalar("select exists(select 1 from sessions where id = $1)").bind(sesion_vigente).fetch_one(pool).await.unwrap();
+    let vigente: bool = sqlx::query_scalar("select exists(select 1 from sessions where id = $1)")
+        .bind(sesion_vigente)
+        .fetch_one(pool)
+        .await
+        .unwrap();
     assert!(vigente);
 
-    let desafio_vencido: bool = sqlx::query_scalar("select exists(select 1 from auth_challenges where expires_at < now())").fetch_one(pool).await.unwrap();
+    let desafio_vencido: bool = sqlx::query_scalar("select exists(select 1 from auth_challenges where expires_at < now())")
+        .fetch_one(pool)
+        .await
+        .unwrap();
     assert!(!desafio_vencido, "el desafío vencido se borró");
-    let desafio_vigente: bool = sqlx::query_scalar("select exists(select 1 from auth_challenges where expires_at > now())").fetch_one(pool).await.unwrap();
+    let desafio_vigente: bool = sqlx::query_scalar("select exists(select 1 from auth_challenges where expires_at > now())")
+        .fetch_one(pool)
+        .await
+        .unwrap();
     assert!(desafio_vigente, "el vigente sigue");
 
     let correos_despues: i64 = sqlx::query_scalar("select count(*) from outbound_emails").fetch_one(pool).await.unwrap();
     assert_eq!(correos_despues, correos_antes - 1, "sólo se borra el enviado de hace más de una semana");
-    let pendiente_viejo: bool = sqlx::query_scalar("select exists(select 1 from outbound_emails where status = 'pendiente' and created_at < now() - interval '7 days')")
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let pendiente_viejo: bool = sqlx::query_scalar(
+        "select exists(select 1 from outbound_emails where status = 'pendiente' and created_at < now() - interval '7 days')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
     assert!(pendiente_viejo, "un correo pendiente nunca se borra");
 }

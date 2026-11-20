@@ -211,7 +211,10 @@ impl TryFrom<TransferDto> for Transferencia {
                 )),
             })
             .collect::<Result<_, _>>()?;
-        Ok(Self { owners, managers: t.managers.into_iter().map(|m| (m.group_id, m.new_manager_user_id)).collect() })
+        Ok(Self {
+            owners,
+            managers: t.managers.into_iter().map(|m| (m.group_id, m.new_manager_user_id)).collect(),
+        })
     }
 }
 

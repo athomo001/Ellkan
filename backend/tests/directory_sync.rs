@@ -8,7 +8,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn ldap_url() -> String {
     std::env::var("ELLKAN_TEST_LDAP_URL").unwrap_or_else(|_| "ldaps://localhost:6360".to_string())
@@ -73,7 +73,10 @@ async fn config_de_directory_sync_persiste_attribute_mapping_y_campos_de_grupos(
         .await
         .unwrap();
     let cuerpo: Value = resp.json().await.unwrap();
-    assert_eq!(cuerpo["attribute_mapping"]["external_id"], "employeeID", "el mapeo configurado debe persistir, no pisarse con {{}}");
+    assert_eq!(
+        cuerpo["attribute_mapping"]["external_id"], "employeeID",
+        "el mapeo configurado debe persistir, no pisarse con {{}}"
+    );
     assert_eq!(cuerpo["user_object_class"], "user", "objectClass configurable para Active Directory");
     assert_eq!(cuerpo["sync_groups"], true);
     assert_eq!(cuerpo["group_membership_attribute"], "memberOf");
@@ -167,8 +170,10 @@ async fn apply_real_crea_el_usuario_y_repetir_no_duplica() {
         .unwrap();
     assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
 
-    let fila: (String, bool) =
-        sqlx::query_as("select email, active from users where external_id = 'carol'").fetch_one(&entorno.pool).await.unwrap();
+    let fila: (String, bool) = sqlx::query_as("select email, active from users where external_id = 'carol'")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert_eq!(fila.0, "carol@ellkan-test.example");
     assert!(fila.1);
 
@@ -181,8 +186,10 @@ async fn apply_real_crea_el_usuario_y_repetir_no_duplica() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let count: (i64,) =
-        sqlx::query_as("select count(*) from users where external_id = 'carol'").fetch_one(&entorno.pool).await.unwrap();
+    let count: (i64,) = sqlx::query_as("select count(*) from users where external_id = 'carol'")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert_eq!(count.0, 1);
 }
 
@@ -273,8 +280,10 @@ async fn sync_groups_crea_grupo_gestionado_agrega_miembro_y_reconcilia_la_baja()
         .unwrap();
     assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
 
-    let carol_id: uuid::Uuid =
-        sqlx::query_scalar("select id from users where external_id = 'carol'").fetch_one(&entorno.pool).await.unwrap();
+    let carol_id: uuid::Uuid = sqlx::query_scalar("select id from users where external_id = 'carol'")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
 
     let grupo: (uuid::Uuid, bool) =
         sqlx::query_as("select id, managed_by_directory_sync from groups where name = 'carol@ellkan-test.example'")
@@ -283,13 +292,12 @@ async fn sync_groups_crea_grupo_gestionado_agrega_miembro_y_reconcilia_la_baja()
             .unwrap();
     assert!(grupo.1, "el grupo creado por directory sync debe quedar marcado como gestionado");
 
-    let es_miembro: (bool,) =
-        sqlx::query_as("select exists(select 1 from group_members where group_id = $1 and user_id = $2)")
-            .bind(grupo.0)
-            .bind(carol_id)
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
+    let es_miembro: (bool,) = sqlx::query_as("select exists(select 1 from group_members where group_id = $1 and user_id = $2)")
+        .bind(grupo.0)
+        .bind(carol_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(es_miembro.0, "carol debería quedar como miembro del grupo gestionado recién creado");
 
     // Cambiar a otro atributo (cn) cambia el nombre de grupo "deseado" —
@@ -305,12 +313,11 @@ async fn sync_groups_crea_grupo_gestionado_agrega_miembro_y_reconcilia_la_baja()
         .unwrap();
     assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
 
-    let sigue_en_el_viejo: (bool,) =
-        sqlx::query_as("select exists(select 1 from group_members where group_id = $1 and user_id = $2)")
-            .bind(grupo.0)
-            .bind(carol_id)
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
+    let sigue_en_el_viejo: (bool,) = sqlx::query_as("select exists(select 1 from group_members where group_id = $1 and user_id = $2)")
+        .bind(grupo.0)
+        .bind(carol_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(!sigue_en_el_viejo.0, "la reconciliación debe sacar a carol del grupo gestionado que ya no aplica");
 }

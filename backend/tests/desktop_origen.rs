@@ -8,24 +8,27 @@
 //! sesión en el backend local en vez de sólo olvidar el token en el cliente.
 #![cfg(feature = "desktop")]
 
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_backend::auth::repository::SessionRepository;
 use ellkan_backend::desktop::origen::{host_permitido, origen_permitido};
 use ellkan_backend::desktop::router::construir_router_desktop;
 use ellkan_backend::desktop::state::AppStateDesktop;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
-use sqlx::sqlite::SqlitePoolOptions;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -91,10 +94,26 @@ fn el_servidor_de_vite_solo_se_permite_en_debug() {
 
 #[test]
 fn el_host_tiene_que_ser_loopback() {
-    for bueno in ["127.0.0.1", "127.0.0.1:54416", "localhost", "localhost:54416", "LOCALHOST:1", "[::1]", "[::1]:54416"] {
+    for bueno in [
+        "127.0.0.1",
+        "127.0.0.1:54416",
+        "localhost",
+        "localhost:54416",
+        "LOCALHOST:1",
+        "[::1]",
+        "[::1]:54416",
+    ] {
         assert!(host_permitido(bueno), "{bueno} es loopback");
     }
-    for malo in ["evil.example", "evil.example:54416", "127.0.0.1.evil.example", "127.0.0.1.evil.example:80", "10.0.0.5:54416", "[::2]:1", ""] {
+    for malo in [
+        "evil.example",
+        "evil.example:54416",
+        "127.0.0.1.evil.example",
+        "127.0.0.1.evil.example:80",
+        "10.0.0.5:54416",
+        "[::2]:1",
+        "",
+    ] {
         assert!(!host_permitido(malo), "{malo:?} no es loopback (DNS rebinding)");
     }
 }
@@ -134,7 +153,11 @@ async fn el_preflight_de_una_pagina_ajena_tambien_se_corta() {
         &pool,
         "OPTIONS",
         "/auth/challenge",
-        &[("host", "127.0.0.1:54416"), ("origin", "https://evil.example"), ("access-control-request-method", "POST")],
+        &[
+            ("host", "127.0.0.1:54416"),
+            ("origin", "https://evil.example"),
+            ("access-control-request-method", "POST"),
+        ],
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);

@@ -46,7 +46,9 @@ const CARPETAS_PROPIAS: &[&str] = &["Ellkan", "ellkan-datos", "com.ellkan.deskto
 /// los procesos de WebView2 tardan un instante en soltar sus archivos.
 pub fn borrar_carpeta_de_datos(ruta: &std::path::Path) -> Result<(), String> {
   let nombre = ruta.file_name().and_then(|n| n.to_str()).unwrap_or("");
-  if !CARPETAS_PROPIAS.iter().any(|propia| propia.eq_ignore_ascii_case(nombre)) || ruta.components().filter(|c| matches!(c, std::path::Component::Normal(_))).count() < 3 {
+  if !CARPETAS_PROPIAS.iter().any(|propia| propia.eq_ignore_ascii_case(nombre))
+    || ruta.components().filter(|c| matches!(c, std::path::Component::Normal(_))).count() < 3
+  {
     return Err(format!("se rechazó borrar {}: no es una carpeta de datos de Ellkan", ruta.display()));
   }
   if !ruta.exists() {
@@ -143,7 +145,8 @@ mod windows_impl {
   }
 
   pub fn enlaces_activos() -> bool {
-    let (Some(comando), Ok(salida)) = (comando_de_enlace(), reg(&["query", &format!(r"{}\shell\open\command", clave_esquema()), "/ve"])) else {
+    let (Some(comando), Ok(salida)) = (comando_de_enlace(), reg(&["query", &format!(r"{}\shell\open\command", clave_esquema()), "/ve"]))
+    else {
       return false;
     };
     salida.to_lowercase().contains(&comando.to_lowercase())
@@ -183,7 +186,16 @@ mod windows_impl {
   pub fn registrar_host_nativo(manifiesto_chromium: &std::path::Path, manifiesto_firefox: &std::path::Path) -> Result<(), String> {
     for (rama, es_firefox) in CLAVES_HOST_NATIVO {
       let manifiesto = if *es_firefox { manifiesto_firefox } else { manifiesto_chromium };
-      reg(&["add", &clave_host_nativo(rama), "/ve", "/t", "REG_SZ", "/d", &manifiesto.display().to_string(), "/f"])?;
+      reg(&[
+        "add",
+        &clave_host_nativo(rama),
+        "/ve",
+        "/t",
+        "REG_SZ",
+        "/d",
+        &manifiesto.display().to_string(),
+        "/f",
+      ])?;
     }
     Ok(())
   }
@@ -202,16 +214,22 @@ mod windows_impl {
   /// seguidos, los dos con «No» por defecto: la bóveda es la única copia de sus
   /// contraseñas y borrarla no se puede deshacer.
   pub fn preguntar_borrar_datos() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+      IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW,
+    };
     use windows::core::PCWSTR;
-    use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO};
 
     let titulo = a_utf16_nulo("Desinstalar Ellkan");
     let preguntar = |texto: &str| -> bool {
       let texto = a_utf16_nulo(texto);
       // SAFETY: los dos buffers terminan en nulo y viven durante la llamada.
       unsafe {
-        MessageBoxW(None, PCWSTR(texto.as_ptr()), PCWSTR(titulo.as_ptr()), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND | MB_TOPMOST)
-          == IDYES
+        MessageBoxW(
+          None,
+          PCWSTR(texto.as_ptr()),
+          PCWSTR(titulo.as_ptr()),
+          MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND | MB_TOPMOST,
+        ) == IDYES
       }
     };
     preguntar(
@@ -229,8 +247,10 @@ mod windows_impl {
 
   /// Igual, pero sólo las que empiezan con `prefijo` (así las pruebas no tocan las claves reales).
   pub fn borrar_credenciales_con_prefijo(prefijo: &str) -> usize {
+    use windows::Win32::Security::Credentials::{
+      CRED_ENUMERATE_FLAGS, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredEnumerateW, CredFree,
+    };
     use windows::core::PCWSTR;
-    use windows::Win32::Security::Credentials::{CredDeleteW, CredEnumerateW, CredFree, CREDENTIALW, CRED_ENUMERATE_FLAGS, CRED_TYPE_GENERIC};
 
     let filtro = a_utf16_nulo(&format!("{prefijo}*"));
     let mut cantidad = 0u32;
@@ -281,8 +301,8 @@ mod windows_impl {
   }
 
   pub fn guardar_credencial_rdp(host: &str, puerto: u16, usuario: &str, contrasena: &str) -> Result<(), String> {
+    use windows::Win32::Security::Credentials::{CRED_PERSIST_SESSION, CRED_TYPE_GENERIC, CREDENTIALW, CredWriteW};
     use windows::core::PWSTR;
-    use windows::Win32::Security::Credentials::{CredWriteW, CREDENTIALW, CRED_PERSIST_SESSION, CRED_TYPE_GENERIC};
 
     // `cmdkey` guarda la contraseña como UTF-16 sin nulo final: mismo formato.
     let mut blob: Vec<u8> = contrasena.encode_utf16().flat_map(u16::to_le_bytes).collect();
@@ -307,8 +327,8 @@ mod windows_impl {
 
   /// Borra las credenciales que dejó `guardar_credencial_rdp` (si ya no están, no es un error).
   pub fn borrar_credencial_rdp(host: &str, puerto: u16) {
+    use windows::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CredDeleteW};
     use windows::core::PCWSTR;
-    use windows::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
     for objetivo in objetivos_rdp(host, puerto) {
       let objetivo_w = a_utf16_nulo(&objetivo);
       // SAFETY: `objetivo_w` termina en nulo y vive durante la llamada.
@@ -344,7 +364,7 @@ mod windows_impl {
   fn publicar(formato: u32, bytes: &[u8]) -> Result<(), String> {
     use windows::Win32::Foundation::{GlobalFree, HANDLE};
     use windows::Win32::System::DataExchange::SetClipboardData;
-    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 
     // SAFETY: el bloque se reserva con el tamaño exacto que se copia; si
     // `SetClipboardData` lo acepta pasa a ser del sistema, si no se libera acá.
@@ -368,13 +388,12 @@ mod windows_impl {
   /// Copia `texto` al portapapeles excluido del historial (`Win+V`) y de la
   /// sincronización en la nube.
   pub fn copiar_sin_historial(hwnd: windows::Win32::Foundation::HWND, texto: &str) -> Result<(), String> {
-    use windows::core::w;
     use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, RegisterClipboardFormatW};
+    use windows::core::w;
     use zeroize::Zeroizing;
 
     const CF_UNICODETEXT: u32 = 13;
-    let unidades: Zeroizing<Vec<u8>> =
-      Zeroizing::new(texto.encode_utf16().chain(std::iter::once(0)).flat_map(u16::to_le_bytes).collect());
+    let unidades: Zeroizing<Vec<u8>> = Zeroizing::new(texto.encode_utf16().chain(std::iter::once(0)).flat_map(u16::to_le_bytes).collect());
     let cero = 0u32.to_le_bytes();
 
     abrir_portapapeles(hwnd)?;
@@ -382,7 +401,11 @@ mod windows_impl {
     let resultado = (|| unsafe {
       EmptyClipboard().map_err(|e| format!("no se pudo vaciar el portapapeles: {e}"))?;
       publicar(CF_UNICODETEXT, &unidades)?;
-      for nombre in [w!("ExcludeClipboardContentFromMonitorProcessing"), w!("CanIncludeInClipboardHistory"), w!("CanUploadToCloudClipboard")] {
+      for nombre in [
+        w!("ExcludeClipboardContentFromMonitorProcessing"),
+        w!("CanIncludeInClipboardHistory"),
+        w!("CanUploadToCloudClipboard"),
+      ] {
         let formato = RegisterClipboardFormatW(nombre);
         if formato != 0 {
           publicar(formato, &cero)?;
@@ -408,8 +431,8 @@ mod windows_impl {
   /// Usuario y contraseña de la credencial `TERMSRV/<host>` (sólo para pruebas).
   #[cfg(test)]
   pub fn leer_credencial_rdp(host: &str) -> Option<(String, String)> {
+    use windows::Win32::Security::Credentials::{CRED_TYPE_GENERIC, CREDENTIALW, CredFree, CredReadW};
     use windows::core::PCWSTR;
-    use windows::Win32::Security::Credentials::{CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC};
     let objetivo_w = a_utf16_nulo(&format!("TERMSRV/{host}"));
     let mut puntero: *mut CREDENTIALW = std::ptr::null_mut();
     // SAFETY: la API deja en `puntero` un buffer propio que se libera con `CredFree`.
@@ -437,9 +460,9 @@ mod windows_impl {
     _id: usize,
     dato: usize,
   ) -> windows::Win32::Foundation::LRESULT {
-    use windows::Win32::UI::WindowsAndMessaging::WTS_SESSION_LOCK;
     use windows::Win32::UI::Shell::DefSubclassProc;
     use windows::Win32::UI::WindowsAndMessaging::WM_WTSSESSION_CHANGE;
+    use windows::Win32::UI::WindowsAndMessaging::WTS_SESSION_LOCK;
 
     if mensaje == WM_WTSSESSION_CHANGE && wparam.0 as u32 == WTS_SESSION_LOCK {
       // SAFETY: `dato` es el `Box<Callback>` que dejó `vigilar_bloqueo`, que
@@ -461,14 +484,15 @@ mod windows_impl {
   ///
   /// Hay que llamarla desde el hilo que creó la ventana (el principal).
   pub fn vigilar_bloqueo(hwnd: windows::Win32::Foundation::HWND, al_bloquear: impl Fn() + Send + Sync + 'static) -> Result<(), String> {
-    use windows::Win32::System::RemoteDesktop::{WTSRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION};
+    use windows::Win32::System::RemoteDesktop::{NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification};
     use windows::Win32::UI::Shell::SetWindowSubclass;
 
     let dato = Box::into_raw(Box::new(Box::new(al_bloquear) as Callback)) as usize;
     // SAFETY: `hwnd` es la ventana viva de la app y se llama desde su hilo;
     // el puntero `dato` queda válido para siempre (se filtra a propósito).
     unsafe {
-      WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION).map_err(|e| format!("no se pudo registrar el aviso de bloqueo de pantalla: {e}"))?;
+      WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION)
+        .map_err(|e| format!("no se pudo registrar el aviso de bloqueo de pantalla: {e}"))?;
       if !SetWindowSubclass(hwnd, Some(subclase), ID_SUBCLASE, dato).as_bool() {
         return Err("no se pudo enganchar el aviso de bloqueo de pantalla a la ventana".to_string());
       }
@@ -567,7 +591,9 @@ mod otros {
   }
 }
 #[cfg(not(windows))]
-pub use otros::{autostart_activo, borrar_credenciales_llavero, configurar_autostart, configurar_enlaces, enlaces_activos, preguntar_borrar_datos};
+pub use otros::{
+  autostart_activo, borrar_credenciales_llavero, configurar_autostart, configurar_enlaces, enlaces_activos, preguntar_borrar_datos,
+};
 
 #[cfg(test)]
 mod pruebas_de_borrado {

@@ -5,8 +5,8 @@ mod api;
 mod config;
 mod crypto_local;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use clap::{Parser, Subcommand};
 use ellkan_crypto::clave_privada::EncryptedPrivateKeyBlob;
 use secrecy::SecretBox;
@@ -276,9 +276,7 @@ fn cliente_desde(cli: &Cli) -> anyhow::Result<Cliente> {
             Some(api::OpcionesMtls { client_cert_path, client_key_path, ca_bundle_path: ca })
         }
         (None, None) => None,
-        _ => anyhow::bail!(
-            "mTLS requiere --client-cert y --client-key juntos (F-35) — falta uno de los dos"
-        ),
+        _ => anyhow::bail!("mTLS requiere --client-cert y --client-key juntos (F-35) — falta uno de los dos"),
     };
 
     Cliente::nuevo(url, mtls)
@@ -304,15 +302,7 @@ fn registrar(
     let nonce_b64 = B64.encode(blob.envoltura.nonce);
     let salt_b64 = B64.encode(blob.salt);
 
-    let resp = cliente.register(
-        email,
-        display_name,
-        &publica_x25519_b64,
-        &publica_ed25519_b64,
-        &blob_b64,
-        &nonce_b64,
-        &salt_b64,
-    )?;
+    let resp = cliente.register(email, display_name, &publica_x25519_b64, &publica_ed25519_b64, &blob_b64, &nonce_b64, &salt_b64)?;
 
     // Token de dispositivo persistente (F-02) — se genera una sola vez acá,
     // sólo su hash viaja al backend en cada `login` futuro.
@@ -389,21 +379,41 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
             println!("Esta cuenta tiene una passphrase provisoria — hay que cambiarla antes de poder operar.");
             let nueva_passphrase = leer_passphrase("Passphrase nueva: ")?;
             let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-            let nuevo_blob =
-                ellkan_crypto::clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &clave.privadas_concatenadas(), email.as_bytes())
-                    .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
+            let nuevo_blob = ellkan_crypto::clave_privada::cifrar_clave_privada(
+                &nueva_passphrase,
+                nueva_salt,
+                &clave.privadas_concatenadas(),
+                email.as_bytes(),
+            )
+            .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
+            // QA-06: el servidor exige probar la posesión de la identidad
+            // sobre ESE blob, con un challenge nuevo (el del login ya se usó).
+            let desafio = cliente.challenge(email)?;
+            let nonce_desafio = B64.decode(&desafio.nonce_b64)?;
+            let firma_reemplazo = clave.firmar(&ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada(
+                &nonce_desafio,
+                &nuevo_blob.envoltura.ciphertext,
+                &nuevo_blob.envoltura.nonce,
+                &nueva_salt,
+            ));
             cliente.change_passphrase(
                 session_parcial,
                 &api::CambiarPassphraseRequest {
                     encrypted_private_key_blob_b64: B64.encode(&nuevo_blob.envoltura.ciphertext),
                     private_key_nonce_b64: B64.encode(nuevo_blob.envoltura.nonce),
                     kdf_salt_b64: B64.encode(nueva_salt),
+                    challenge_nonce_b64: desafio.nonce_b64,
+                    signature_b64: B64.encode(firma_reemplazo.to_bytes()),
                 },
             )?;
-            println!("Passphrase cambiada — la sesión murió (mismo criterio que un cambio de passphrase normal). Corré 'ellkan-cli login --email {email}' de nuevo con la passphrase nueva.");
+            println!(
+                "Passphrase cambiada — la sesión murió (mismo criterio que un cambio de passphrase normal). Corré 'ellkan-cli login --email {email}' de nuevo con la passphrase nueva."
+            );
             return Ok(());
         }
-        otro => anyhow::bail!("estado de verify desconocido: {otro} (pendiente_mfa/requiere_configurar_mfa todavía no soportados por la CLI)"),
+        otro => {
+            anyhow::bail!("estado de verify desconocido: {otro} (pendiente_mfa/requiere_configurar_mfa todavía no soportados por la CLI)")
+        }
     };
 
     config::guardar_sesion(&config::Sesion { session_id })?;
@@ -441,14 +451,7 @@ fn blob_desde_perfil(perfil: &config::Perfil) -> anyhow::Result<EncryptedPrivate
     Ok(EncryptedPrivateKeyBlob { salt, envoltura: Envoltura { nonce, ciphertext } })
 }
 
-fn crear(
-    cliente: &Cliente,
-    name: &str,
-    username: &str,
-    uri: &str,
-    password: &str,
-    notes: &str,
-) -> anyhow::Result<()> {
+fn crear(cliente: &Cliente, name: &str, username: &str, uri: &str, password: &str, notes: &str) -> anyhow::Result<()> {
     let perfil = config::cargar_perfil()?;
     let sesion = config::cargar_sesion()?;
 
@@ -604,22 +607,14 @@ fn leer(cliente: &Cliente, resource_id: Uuid) -> anyhow::Result<()> {
         .try_into()
         .map_err(|_| anyhow::anyhow!("metadata_nonce corrupto"))?;
     let metadata_ciphertext = B64.decode(&recurso.metadata_ciphertext_b64)?;
-    let metadata = crypto_local::descifrar_json(
-        &dek,
-        &Envoltura { nonce: metadata_nonce, ciphertext: metadata_ciphertext },
-        &aad,
-    )?;
+    let metadata = crypto_local::descifrar_json(&dek, &Envoltura { nonce: metadata_nonce, ciphertext: metadata_ciphertext }, &aad)?;
 
     let secret_nonce: [u8; 24] = B64
         .decode(&secreto.secret_nonce_b64)?
         .try_into()
         .map_err(|_| anyhow::anyhow!("secret_nonce corrupto"))?;
     let secret_ciphertext = B64.decode(&secreto.secret_ciphertext_b64)?;
-    let secreto_json = crypto_local::descifrar_json(
-        &dek,
-        &Envoltura { nonce: secret_nonce, ciphertext: secret_ciphertext },
-        &aad,
-    )?;
+    let secreto_json = crypto_local::descifrar_json(&dek, &Envoltura { nonce: secret_nonce, ciphertext: secret_ciphertext }, &aad)?;
 
     println!("metadata: {metadata}");
     println!("secreto:  {secreto_json}");
@@ -650,11 +645,7 @@ fn listar(cliente: &Cliente, filtro: Option<&str>) -> anyhow::Result<()> {
             .try_into()
             .map_err(|_| anyhow::anyhow!("metadata_nonce corrupto"))?;
         let metadata_ciphertext = B64.decode(&recurso.metadata_ciphertext_b64)?;
-        let metadata = crypto_local::descifrar_json(
-            &dek,
-            &Envoltura { nonce: metadata_nonce, ciphertext: metadata_ciphertext },
-            &aad,
-        )?;
+        let metadata = crypto_local::descifrar_json(&dek, &Envoltura { nonce: metadata_nonce, ciphertext: metadata_ciphertext }, &aad)?;
 
         let coincide = match &programa {
             None => true,
@@ -706,11 +697,7 @@ fn secreto_principal(
         .try_into()
         .map_err(|_| anyhow::anyhow!("secret_nonce corrupto"))?;
     let secret_ciphertext = B64.decode(&secreto.secret_ciphertext_b64)?;
-    let secreto_json = crypto_local::descifrar_json(
-        &dek,
-        &Envoltura { nonce: secret_nonce, ciphertext: secret_ciphertext },
-        &aad,
-    )?;
+    let secreto_json = crypto_local::descifrar_json(&dek, &Envoltura { nonce: secret_nonce, ciphertext: secret_ciphertext }, &aad)?;
     let valor = ["password", "token"]
         .iter()
         .find_map(|campo| secreto_json.get(*campo).and_then(|v| v.as_str()))
@@ -718,13 +705,7 @@ fn secreto_principal(
     Ok(Zeroizing::new(valor.to_string()))
 }
 
-fn ejecutar(
-    cliente: &Cliente,
-    resource_id: Option<Uuid>,
-    env_var: &str,
-    env: &[(String, Uuid)],
-    comando: &[String],
-) -> anyhow::Result<()> {
+fn ejecutar(cliente: &Cliente, resource_id: Option<Uuid>, env_var: &str, env: &[(String, Uuid)], comando: &[String]) -> anyhow::Result<()> {
     let perfil = config::cargar_perfil()?;
     let sesion = config::cargar_sesion()?;
     let passphrase = leer_passphrase("Passphrase: ")?;
@@ -753,10 +734,7 @@ fn ejecutar(
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let cliente = cliente_desde(&cli)?;
-    let server_url_efectiva = cli
-        .server_url
-        .clone()
-        .unwrap_or_else(|| config::resolver_server_url(None));
+    let server_url_efectiva = cli.server_url.clone().unwrap_or_else(|| config::resolver_server_url(None));
 
     match &cli.comando {
         Comando::Register { email, display_name } => registrar(
@@ -774,9 +752,7 @@ fn main() -> anyhow::Result<()> {
             let password = leer_password_de_recurso()?;
             crear(&cliente, name, username, uri, &password, notes)?
         }
-        Comando::Share { resource_id, recipient_email, level } => {
-            compartir(&cliente, *resource_id, recipient_email, level)?
-        }
+        Comando::Share { resource_id, recipient_email, level } => compartir(&cliente, *resource_id, recipient_email, level)?,
         Comando::Read { resource_id } => leer(&cliente, *resource_id)?,
         Comando::List { filter } => listar(&cliente, filter.as_deref())?,
         Comando::Exec { resource_id, env_var, env, comando } => ejecutar(&cliente, *resource_id, env_var, env, comando)?,
@@ -817,7 +793,9 @@ fn main() -> anyhow::Result<()> {
                         "Promovido a admin — 'ellkan-cli login --email {email}' ya funciona ahora mismo, sin esperar ningún email (este dispositivo quedó marcado como conocido)."
                     );
                 } else {
-                    println!("Nota: usuario creado con rol 'user'. Para promoverlo a admin después, corré 'ellkan-cli admin promote-to-admin --user {email}'.");
+                    println!(
+                        "Nota: usuario creado con rol 'user'. Para promoverlo a admin después, corré 'ellkan-cli admin promote-to-admin --user {email}'."
+                    );
                 }
             }
             AdminAccion::Healthcheck => println!("{}", cliente.healthz()?),
@@ -896,7 +874,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 BackupAccion::Restore { input, identity } => {
                     let identity = identity.clone().ok_or_else(|| {
-                        anyhow::anyhow!("--identity es obligatorio para restore (la clave privada de operaciones, nunca almacenada en la instancia)")
+                        anyhow::anyhow!(
+                            "--identity es obligatorio para restore (la clave privada de operaciones, nunca almacenada en la instancia)"
+                        )
                     })?;
                     let database_url = admin_db::database_url()?;
                     admin_db::backup_restore(&database_url, input, &identity)?;
@@ -908,9 +888,7 @@ fn main() -> anyhow::Result<()> {
             GroupAccion::Create { name, parent_group_id } => grupo_crear(&cliente, name, *parent_group_id)?,
             GroupAccion::List => grupo_listar(&cliente)?,
             GroupAccion::Get { group_id } => grupo_obtener(&cliente, *group_id)?,
-            GroupAccion::AddMember { group_id, user_email, is_admin } => {
-                grupo_agregar_miembro(&cliente, *group_id, user_email, *is_admin)?
-            }
+            GroupAccion::AddMember { group_id, user_email, is_admin } => grupo_agregar_miembro(&cliente, *group_id, user_email, *is_admin)?,
             GroupAccion::RemoveMember { group_id, user_email } => grupo_quitar_miembro(&cliente, *group_id, user_email)?,
         },
     }

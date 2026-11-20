@@ -18,7 +18,7 @@ use zeroize::Zeroize;
 
 use crate::aead::{self, Envoltura};
 use crate::aleatoriedad::bytes_aleatorios;
-use crate::clave_privada::{cifrar_clave_privada, descifrar_clave_privada, EncryptedPrivateKeyBlob};
+use crate::clave_privada::{EncryptedPrivateKeyBlob, cifrar_clave_privada, descifrar_clave_privada};
 use crate::prf;
 use crate::secretos::PassphraseSecreta;
 use crate::totp;
@@ -157,12 +157,15 @@ pub fn abrir_clave_privada(
     let nonce: [u8; 24] = nonce.try_into().map_err(|_| err_js("nonce debe ser de 24 bytes"))?;
     let blob = EncryptedPrivateKeyBlob { salt, envoltura: Envoltura { nonce, ciphertext } };
 
-    let privadas = descifrar_clave_privada(&passphrase_de(passphrase), &blob, &aad)
-        .map_err(|_| err_js("passphrase incorrecta o blob inválido"))?;
+    let privadas =
+        descifrar_clave_privada(&passphrase_de(passphrase), &blob, &aad).map_err(|_| err_js("passphrase incorrecta o blob inválido"))?;
     if privadas.len() != 64 {
         return Err(err_js("blob de clave privada corrupto"));
     }
-    Ok(ClavePrivadaAbierta { x25519_private: privadas[..32].to_vec(), ed25519_private: privadas[32..].to_vec() })
+    Ok(ClavePrivadaAbierta {
+        x25519_private: privadas[..32].to_vec(),
+        ed25519_private: privadas[32..].to_vec(),
+    })
 }
 
 /// Firma un nonce de desafío de login con la clave Ed25519 (F-01/F-02).
@@ -172,6 +175,23 @@ pub fn firmar(ed25519_private: Vec<u8>, mensaje: Vec<u8>) -> Result<Vec<u8>, JsV
     let arreglo: [u8; 32] = ed25519_private.try_into().map_err(|_| err_js("clave privada debe ser de 32 bytes"))?;
     let firmante = SigningKey::from_bytes(&arreglo);
     Ok(firmante.sign(&mensaje).to_bytes().to_vec())
+}
+
+/// QA-06: prueba de posesión que exige el servidor para reemplazar el blob
+/// sellado (`/me/change-passphrase`, reset por recovery kit, account
+/// recovery). Ver `clave_privada::mensaje_reemplazo_clave_privada`.
+#[wasm_bindgen]
+pub fn firmar_reemplazo_clave_privada(
+    ed25519_private: Vec<u8>,
+    challenge: Vec<u8>,
+    blob: Vec<u8>,
+    nonce: Vec<u8>,
+    salt: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let mut arreglo: [u8; 32] = ed25519_private.try_into().map_err(|_| err_js("clave privada debe ser de 32 bytes"))?;
+    let firma = crate::clave_privada::firmar_reemplazo_clave_privada(&arreglo, &challenge, &blob, &nonce, &salt);
+    arreglo.zeroize();
+    Ok(firma.to_vec())
 }
 
 #[wasm_bindgen]
@@ -201,8 +221,7 @@ pub fn generar_dek() -> Vec<u8> {
 #[wasm_bindgen]
 pub fn sellar_para(x25519_public_destinatario: Vec<u8>, payload: Vec<u8>) -> Result<Vec<u8>, JsValue> {
     use x25519_dalek::PublicKey;
-    let arreglo: [u8; 32] =
-        x25519_public_destinatario.try_into().map_err(|_| err_js("clave pública debe ser de 32 bytes"))?;
+    let arreglo: [u8; 32] = x25519_public_destinatario.try_into().map_err(|_| err_js("clave pública debe ser de 32 bytes"))?;
     let publica = PublicKey::from(arreglo);
     Ok(crate::sellado::sellar_bytes(&publica, &payload))
 }
@@ -261,15 +280,10 @@ pub fn descifrar_aead(clave: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8>, aad: 
 /// necesitaría reimplementar Argon2id en TS, que es exactamente lo que el
 /// resto de este archivo evita.
 #[wasm_bindgen]
-pub fn combinar_clave_de_share_con_passphrase(
-    clave_fragmento: Vec<u8>,
-    passphrase: String,
-    salt: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
+pub fn combinar_clave_de_share_con_passphrase(clave_fragmento: Vec<u8>, passphrase: String, salt: Vec<u8>) -> Result<Vec<u8>, JsValue> {
     use secrecy::ExposeSecret;
     let salt: [u8; 16] = salt.try_into().map_err(|_| err_js("salt debe ser de 16 bytes"))?;
-    let derivada_passphrase =
-        crate::derivacion::derivar_clave_maestra(&passphrase_de(passphrase), &salt).map_err(err_js)?;
+    let derivada_passphrase = crate::derivacion::derivar_clave_maestra(&passphrase_de(passphrase), &salt).map_err(err_js)?;
     let combinada = crate::derivacion::combinar_secretos(
         &clave_fragmento,
         derivada_passphrase.expose_secret(),
@@ -308,12 +322,7 @@ pub fn totp_envolver_passphrase(secreto: Vec<u8>, passphrase: String, aad: Vec<u
 /// el llamador ya corrió `totp_verificar` (o el control de intentos propio)
 /// antes de llegar acá.
 #[wasm_bindgen]
-pub fn totp_desenvolver_passphrase(
-    secreto: Vec<u8>,
-    nonce: Vec<u8>,
-    ciphertext: Vec<u8>,
-    aad: Vec<u8>,
-) -> Result<String, JsValue> {
+pub fn totp_desenvolver_passphrase(secreto: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8>, aad: Vec<u8>) -> Result<String, JsValue> {
     use secrecy::ExposeSecret;
     let nonce: [u8; 24] = nonce.try_into().map_err(|_| err_js("nonce debe ser de 24 bytes"))?;
     let envoltura = Envoltura { nonce, ciphertext };
@@ -336,12 +345,7 @@ pub fn prf_envolver_passphrase(prf_output: Vec<u8>, passphrase: String, aad: Vec
 /// F-03 (PRF): reconstruye la passphrase a partir del output de PRF
 /// obtenido en la ceremonia de login (`getClientExtensionResults().prf`).
 #[wasm_bindgen]
-pub fn prf_desenvolver_passphrase(
-    prf_output: Vec<u8>,
-    nonce: Vec<u8>,
-    ciphertext: Vec<u8>,
-    aad: Vec<u8>,
-) -> Result<String, JsValue> {
+pub fn prf_desenvolver_passphrase(prf_output: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8>, aad: Vec<u8>) -> Result<String, JsValue> {
     use secrecy::ExposeSecret;
     let nonce: [u8; 24] = nonce.try_into().map_err(|_| err_js("nonce debe ser de 24 bytes"))?;
     let envoltura = Envoltura { nonce, ciphertext };

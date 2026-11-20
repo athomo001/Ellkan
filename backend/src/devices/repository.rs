@@ -49,12 +49,7 @@ pub trait ApprovalRequestRepository {
     /// vencida), para que el Service pueda distinguir "ya no existe una
     /// solicitud pendiente" sin una carrera entre dos aprobaciones
     /// simultáneas.
-    async fn aprobar(
-        &self,
-        id: Uuid,
-        sealed_user_private_key: &[u8],
-        session_id: Uuid,
-    ) -> Result<bool, RepoError>;
+    async fn aprobar(&self, id: Uuid, sealed_user_private_key: &[u8], session_id: Uuid) -> Result<bool, RepoError>;
 }
 
 pub trait DeviceApprovalPolicyRepository {
@@ -253,12 +248,7 @@ impl ApprovalRequestRepository for PgApprovalRequestRepository {
             .collect())
     }
 
-    async fn aprobar(
-        &self,
-        id: Uuid,
-        sealed_user_private_key: &[u8],
-        session_id: Uuid,
-    ) -> Result<bool, RepoError> {
+    async fn aprobar(&self, id: Uuid, sealed_user_private_key: &[u8], session_id: Uuid) -> Result<bool, RepoError> {
         let resultado = sqlx::query!(
             r#"
             update device_approval_requests
@@ -282,11 +272,9 @@ pub struct PgDeviceApprovalPolicyRepository {
 
 impl DeviceApprovalPolicyRepository for PgDeviceApprovalPolicyRepository {
     async fn obtener(&self) -> Result<DeviceApprovalPolicy, RepoError> {
-        let fila = sqlx::query!(
-            r#"select allow_peer_device_approval, allow_admin_device_approval from organizations where id = 1"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select allow_peer_device_approval, allow_admin_device_approval from organizations where id = 1"#,)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(DeviceApprovalPolicy {
             allow_peer_device_approval: fila.allow_peer_device_approval,
             allow_admin_device_approval: fila.allow_admin_device_approval,

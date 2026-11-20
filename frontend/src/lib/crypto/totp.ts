@@ -12,7 +12,7 @@ export interface SetupTotp {
 	otpauthUri: string;
 }
 
-/** `POST /me/mfa/totp/setup` — sesión parcial (`SesionValida`) alcanza. */
+/** `POST /me/mfa/totp/setup` — sesión completa o la parcial emitida para configurar MFA. */
 export async function iniciarSetupTotp(): Promise<SetupTotp> {
 	const resp = await api.post<{ secret_base32: string; otpauth_uri: string }>('/me/mfa/totp/setup');
 	return { secretBase32: resp.secret_base32, otpauthUri: resp.otpauth_uri };

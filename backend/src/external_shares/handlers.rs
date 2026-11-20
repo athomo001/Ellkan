@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
@@ -10,8 +10,8 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarExternalSharePolicyRequest, CrearExternalShareRequest, ExternalShareContenidoResponse,
-    ExternalShareCreadoResponse, ExternalSharePolicyResponse, ExternalShareResumenResponse,
+    ActualizarExternalSharePolicyRequest, CrearExternalShareRequest, ExternalShareContenidoResponse, ExternalShareCreadoResponse,
+    ExternalSharePolicyResponse, ExternalShareResumenResponse,
 };
 use super::repository::{PgExternalSharePolicyRepository, PgExternalShareRepository};
 use super::service::ExternalShareService;
@@ -31,8 +31,7 @@ pub async fn crear(
     usuario: AuthenticatedUser,
     Json(req): Json<CrearExternalShareRequest>,
 ) -> Result<Json<ExternalShareCreadoResponse>, ApiError> {
-    let ciphertext = b64::decode(&req.ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("ciphertext_b64 inválido".into()))?;
+    let ciphertext = b64::decode(&req.ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("ciphertext_b64 inválido".into()))?;
     let password_salt = req
         .password_salt_b64
         .as_deref()
@@ -41,10 +40,21 @@ pub async fn crear(
         .map_err(|_| DomainError::ValidacionInvalida("password_salt_b64 inválido".into()))?;
 
     let fila = servicio(&state)
-        .crear(usuario.user_id, ciphertext, req.password_protected, password_salt, req.max_views, req.expires_in_hours)
+        .crear(
+            usuario.user_id,
+            ciphertext,
+            req.password_protected,
+            password_salt,
+            req.max_views,
+            req.expires_in_hours,
+        )
         .await?;
 
-    Ok(Json(ExternalShareCreadoResponse { id: fila.id, max_views: fila.max_views, expires_at: fila.expires_at }))
+    Ok(Json(ExternalShareCreadoResponse {
+        id: fila.id,
+        max_views: fila.max_views,
+        expires_at: fila.expires_at,
+    }))
 }
 
 pub async fn listar(
@@ -69,11 +79,7 @@ pub async fn listar(
     ))
 }
 
-pub async fn revocar(
-    State(state): State<AppState>,
-    usuario: AuthenticatedUser,
-    Path(id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn revocar(State(state): State<AppState>, usuario: AuthenticatedUser, Path(id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).revocar(usuario.user_id, id).await?;
     Ok(())
 }
@@ -82,10 +88,7 @@ pub async fn revocar(
 /// API que no exige auth (F-26): lo abre el destinatario externo, que no
 /// tiene cuenta. La barrera es el `id` de alta entropía + el rate limiting
 /// dedicado (`lib.rs`), no una sesión.
-pub async fn obtener(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> Result<Json<ExternalShareContenidoResponse>, ApiError> {
+pub async fn obtener(State(state): State<AppState>, Path(id): Path<Uuid>) -> Result<Json<ExternalShareContenidoResponse>, ApiError> {
     let contenido = servicio(&state).acceder(id).await?;
     Ok(Json(ExternalShareContenidoResponse {
         ciphertext_b64: b64::encode(&contenido.ciphertext),
@@ -97,10 +100,7 @@ pub async fn obtener(
 /// No-admin — el Vault necesita saber si mostrar el botón de "Compartir
 /// externo" y qué método(s) ofrecer, mismo patrón que `export::handlers::politica`
 /// (no-admin) vs `politica_admin` (sólo el panel de administración).
-pub async fn politica(
-    State(state): State<AppState>,
-    _usuario: AuthenticatedUser,
-) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
+pub async fn politica(State(state): State<AppState>, _usuario: AuthenticatedUser) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
     let p = servicio(&state).politica().await?;
     Ok(Json(ExternalSharePolicyResponse {
         enabled: p.enabled,
@@ -111,10 +111,7 @@ pub async fn politica(
     }))
 }
 
-pub async fn politica_admin(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
+pub async fn politica_admin(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<ExternalSharePolicyResponse>, ApiError> {
     let p = servicio(&state).politica().await?;
     Ok(Json(ExternalSharePolicyResponse {
         enabled: p.enabled,

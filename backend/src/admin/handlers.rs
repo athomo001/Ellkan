@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::AdminUser;
@@ -19,13 +19,15 @@ fn servicio(state: &AppState) -> Servicio<'_> {
 }
 
 fn a_response(rol: Role) -> RolResponse {
-    RolResponse { id: rol.id, name: rol.name, permissions: rol.permissions, created_at: rol.created_at }
+    RolResponse {
+        id: rol.id,
+        name: rol.name,
+        permissions: rol.permissions,
+        created_at: rol.created_at,
+    }
 }
 
-pub async fn listar(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<Vec<RolResponse>>, ApiError> {
+pub async fn listar(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<Vec<RolResponse>>, ApiError> {
     let roles = servicio(&state).listar().await?;
     Ok(Json(roles.into_iter().map(a_response).collect()))
 }

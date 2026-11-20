@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
@@ -10,8 +10,8 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarShareExemptRequest, AgregarMiembroRequest, CrearGrupoRequest, GrupoResponse, MiembroResponse,
-    MoverGrupoRequest, SetManagerRequest,
+    ActualizarShareExemptRequest, AgregarMiembroRequest, CrearGrupoRequest, GrupoResponse, MiembroResponse, MoverGrupoRequest,
+    SetManagerRequest,
 };
 use super::models::{EnvelopeParaMiembroNuevo, Group, Miembro};
 use super::service::GroupService;
@@ -47,7 +47,12 @@ fn a_response(grupo: Group) -> GrupoResponse {
 }
 
 fn miembro_a_response(m: Miembro) -> MiembroResponse {
-    MiembroResponse { user_id: m.user_id, is_admin: m.is_admin, email: m.email, display_name: m.display_name }
+    MiembroResponse {
+        user_id: m.user_id,
+        is_admin: m.is_admin,
+        email: m.email,
+        display_name: m.display_name,
+    }
 }
 
 /// `GET /groups/{id}/resources` (F-12).
@@ -60,10 +65,7 @@ pub async fn recursos_compartidos(
     Ok(Json(ids))
 }
 
-pub async fn listar(
-    State(state): State<AppState>,
-    _auth: AuthenticatedUser,
-) -> Result<Json<Vec<GrupoResponse>>, ApiError> {
+pub async fn listar(State(state): State<AppState>, _auth: AuthenticatedUser) -> Result<Json<Vec<GrupoResponse>>, ApiError> {
     let raices = servicio(&state).listar_raices().await?;
     Ok(Json(raices.into_iter().map(a_response).collect()))
 }
@@ -79,14 +81,16 @@ pub async fn crear(
 
 pub async fn obtener(
     State(state): State<AppState>,
-    _auth: AuthenticatedUser,
+    auth: AuthenticatedUser,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<GrupoResponse>, ApiError> {
     let servicio = servicio(&state);
     let grupo = servicio.obtener(group_id).await?;
-    let miembros = servicio.miembros(group_id).await?;
     let mut respuesta = a_response(grupo);
-    respuesta.members = miembros.into_iter().map(miembro_a_response).collect();
+    if servicio.puede_ver_miembros(auth.user_id, group_id).await? {
+        let miembros = servicio.miembros(group_id).await?;
+        respuesta.members = miembros.into_iter().map(miembro_a_response).collect();
+    }
     Ok(Json(respuesta))
 }
 
@@ -117,23 +121,15 @@ pub async fn agregar_miembro(
 ) -> Result<(), ApiError> {
     let mut envelopes = Vec::with_capacity(req.envelopes.len());
     for e in req.envelopes {
-        let sealed_dek = b64::decode(&e.sealed_dek_b64)
-            .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-        let secret_ciphertext = b64::decode(&e.secret_ciphertext_b64)
-            .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-        let secret_nonce = b64::decode(&e.secret_nonce_b64)
-            .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
-        envelopes.push(EnvelopeParaMiembroNuevo {
-            resource_id: e.resource_id,
-            sealed_dek,
-            secret_ciphertext,
-            secret_nonce,
-        });
+        let sealed_dek = b64::decode(&e.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+        let secret_ciphertext =
+            b64::decode(&e.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
+        let secret_nonce =
+            b64::decode(&e.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+        envelopes.push(EnvelopeParaMiembroNuevo { resource_id: e.resource_id, sealed_dek, secret_ciphertext, secret_nonce });
     }
 
-    servicio(&state)
-        .agregar_miembro(auth.user_id, group_id, user_id, req.is_admin, envelopes)
-        .await?;
+    servicio(&state).agregar_miembro(auth.user_id, group_id, user_id, req.is_admin, envelopes).await?;
     Ok(())
 }
 
@@ -156,11 +152,7 @@ pub async fn set_manager(
     Ok(())
 }
 
-pub async fn eliminar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-    Path(group_id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn eliminar(State(state): State<AppState>, auth: AuthenticatedUser, Path(group_id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).eliminar(auth.user_id, group_id).await?;
     Ok(())
 }

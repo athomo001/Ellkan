@@ -159,7 +159,7 @@
 				break;
 			case 'requiere_cambiar_passphrase':
 				// Sesión parcial: queda como Bearer para POST
-				// /me/change-passphrase (SesionValida la acepta a propósito).
+				// /me/change-passphrase (única operación que admite esta sesión).
 				sesion.set({ sessionId: resultado.sessionId ?? null, userId: null, email });
 				cambioObligatorioPendiente = true;
 				break;

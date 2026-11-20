@@ -32,25 +32,17 @@ where
         Ok(self.policy.obtener().await?)
     }
 
-    pub async fn actualizar(
-        &self,
-        actor_id: Uuid,
-        nueva: PasswordPolicy,
-    ) -> Result<PasswordPolicy, DomainError> {
+    pub async fn actualizar(&self, actor_id: Uuid, nueva: PasswordPolicy) -> Result<PasswordPolicy, DomainError> {
         if nueva.min_passphrase_length < PISO_MIN_PASSPHRASE_LENGTH {
             return Err(DomainError::ValidacionInvalida(format!(
                 "min_passphrase_length no puede bajar de {PISO_MIN_PASSPHRASE_LENGTH}"
             )));
         }
         if nueva.min_passphrase_entropy_bits < 0 {
-            return Err(DomainError::ValidacionInvalida(
-                "min_passphrase_entropy_bits no puede ser negativo".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("min_passphrase_entropy_bits no puede ser negativo".into()));
         }
         if nueva.generator_default_length < 1 {
-            return Err(DomainError::ValidacionInvalida(
-                "generator_default_length debe ser al menos 1".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("generator_default_length debe ser al menos 1".into()));
         }
         if nueva.passphrase_rotation_days.is_some_and(|d| d <= 0) {
             return Err(DomainError::ValidacionInvalida(
@@ -61,13 +53,11 @@ where
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::PasswordPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "min_passphrase_length": nueva.min_passphrase_length,
-                    "min_passphrase_entropy_bits": nueva.min_passphrase_entropy_bits,
-                    "passphrase_rotation_days": nueva.passphrase_rotation_days,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::PasswordPolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "min_passphrase_length": nueva.min_passphrase_length,
+                "min_passphrase_entropy_bits": nueva.min_passphrase_entropy_bits,
+                "passphrase_rotation_days": nueva.passphrase_rotation_days,
+            })),
         ));
 
         Ok(nueva)

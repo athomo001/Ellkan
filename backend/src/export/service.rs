@@ -34,11 +34,7 @@ where
         Ok(self.policy.obtener().await?)
     }
 
-    pub async fn actualizar_politica(
-        &self,
-        actor_id: Uuid,
-        nueva: ExportPolicy,
-    ) -> Result<ExportPolicy, DomainError> {
+    pub async fn actualizar_politica(&self, actor_id: Uuid, nueva: ExportPolicy) -> Result<ExportPolicy, DomainError> {
         for formato in &nueva.allowed_formats {
             if !FORMATOS_VALIDOS.contains(&formato.as_str()) {
                 return Err(DomainError::ValidacionInvalida(format!(
@@ -50,13 +46,11 @@ where
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::ExportPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "export_enabled": nueva.export_enabled,
-                    "allowed_formats": nueva.allowed_formats,
-                    "import_enabled": nueva.import_enabled,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::ExportPolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "export_enabled": nueva.export_enabled,
+                "allowed_formats": nueva.allowed_formats,
+                "import_enabled": nueva.import_enabled,
+            })),
         ));
 
         Ok(nueva)
@@ -81,9 +75,7 @@ where
 
         let politica = self.policy.obtener().await?;
         if !politica.allowed_formats.iter().any(|f| f == format) {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "el formato '{format}' no está habilitado por política"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("el formato '{format}' no está habilitado por política")));
         }
 
         // F-27: la excepción de admin/owner (Ellkan no tiene un rol "Owner"
@@ -112,14 +104,16 @@ where
             TipoEventoExport::Import => (AuditEventType::ImportPerformed, "import"),
         };
 
-        let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(evento, Some(actor_id)).con_metadata(
-            serde_json::json!({
-                "event_type": tipo_str,
-                "format": format,
-                "resource_count": resource_count,
-                "via_role_exception": via_excepcion_admin,
-            }),
-        )));
+        let _ = self
+            .eventos
+            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(evento, Some(actor_id)).con_metadata(
+                serde_json::json!({
+                    "event_type": tipo_str,
+                    "format": format,
+                    "resource_count": resource_count,
+                    "via_role_exception": via_excepcion_admin,
+                }),
+            )));
 
         Ok(())
     }
@@ -127,8 +121,7 @@ where
     pub async fn listar_usuarios(&self, actor_id: Uuid) -> Result<Vec<FilaExportUsuario>, DomainError> {
         let filas = self.datos.listar_usuarios().await?;
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::UsersExported, Some(actor_id))
-                .con_metadata(serde_json::json!({ "count": filas.len() })),
+            EventoAuditoria::nuevo(AuditEventType::UsersExported, Some(actor_id)).con_metadata(serde_json::json!({ "count": filas.len() })),
         ));
         Ok(filas)
     }

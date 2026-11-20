@@ -20,8 +20,8 @@ use sqlx::SqlitePool;
 
 use crate::desktop::repositories::admin::SqliteRoleRepository;
 use crate::desktop::repositories::auth::{
-    SqliteAuthChallengeRepository, SqliteDeviceChallengeRepository, SqliteKnownDeviceRepository,
-    SqliteSessionRepository, SqliteUserRepository,
+    SqliteAuthChallengeRepository, SqliteDeviceChallengeRepository, SqliteKnownDeviceRepository, SqliteSessionRepository,
+    SqliteUserRepository,
 };
 use crate::desktop::repositories::avatar::SqliteAvatarRepository;
 use crate::desktop::repositories::folders::{SqliteFolderItemRepository, SqliteFolderRepository};

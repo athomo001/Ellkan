@@ -399,6 +399,8 @@
 <Card>
 	<h2>{$t.settingsSecurity.recoveryTitulo}</h2>
 	<p class="hint">{$t.settingsSecurity.recoveryHint}</p>
+	<!-- QA-09: el escrow lo custodia el servidor; se avisa antes de habilitar. -->
+	<p class="hint">{$t.settingsSecurity.recoveryAdvertencia}</p>
 
 	{#if cargandoRecovery}
 		<p class="hint">{$t.settingsSecurity.cargando}</p>

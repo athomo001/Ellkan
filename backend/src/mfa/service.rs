@@ -16,6 +16,7 @@ use uuid::Uuid;
 use zeroize::Zeroize;
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
+use crate::auth::models::PropositoSesion;
 use crate::auth::repository::{KnownDeviceRepository, SessionRepository};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
@@ -82,8 +83,7 @@ pub(crate) fn descifrar_secreto(clave: &ClaveSecreta32, credential: &TotpCredent
         .try_into()
         .expect("secret_nonce siempre tiene 24 bytes, escrito sólo por iniciar_setup_totp");
     let envoltura = Envoltura { nonce, ciphertext: credential.secret_ciphertext.clone() };
-    aead::descifrar(clave, &envoltura, credential.user_id.as_bytes())
-        .map_err(|_| DomainError::InvalidCredentials)
+    aead::descifrar(clave, &envoltura, credential.user_id.as_bytes()).map_err(|_| DomainError::InvalidCredentials)
 }
 
 pub struct MfaService<'a, P, T, C, S, D> {
@@ -128,9 +128,7 @@ where
             ));
         }
         if allowed_methods.len() > 1 {
-            return Err(DomainError::ValidacionInvalida(
-                "allowed_methods admite un único método activo a la vez".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("allowed_methods admite un único método activo a la vez".into()));
         }
         if grace_period_days < 0 {
             return Err(DomainError::ValidacionInvalida("grace_period_days no puede ser negativo".into()));
@@ -160,19 +158,21 @@ where
     /// `POST /me/mfa/totp/setup` — genera un secreto nuevo y lo guarda sin
     /// confirmar. Devuelve el secreto en claro **una sola vez** (para el QR);
     /// nunca vuelve a exponerse tras esta llamada.
-    pub async fn iniciar_setup_totp(&self, user_id: Uuid) -> Result<[u8; ellkan_crypto::totp::SECRETO_LEN], DomainError> {
+    pub async fn iniciar_setup_totp(
+        &self,
+        user_id: Uuid,
+        proposito: PropositoSesion,
+    ) -> Result<[u8; ellkan_crypto::totp::SECRETO_LEN], DomainError> {
+        self.exigir_sin_mfa_previo_si_parcial(user_id, proposito).await?;
         self.totp.limpiar_pendientes(user_id).await?;
 
         let secreto = totp::generar_secreto_totp();
         // XChaCha20-Poly1305 cifrando (no descifrando) no tiene ningún caso
         // de error real — el `Result` de `cifrar` existe por simetría con
         // `descifrar`, que sí puede fallar por tag inválido.
-        let envoltura = aead::cifrar(self.secrets_key, &secreto, user_id.as_bytes())
-            .expect("cifrar con XChaCha20-Poly1305 no falla");
+        let envoltura = aead::cifrar(self.secrets_key, &secreto, user_id.as_bytes()).expect("cifrar con XChaCha20-Poly1305 no falla");
 
-        self.totp
-            .crear_pendiente(user_id, &envoltura.ciphertext, &envoltura.nonce)
-            .await?;
+        self.totp.crear_pendiente(user_id, &envoltura.ciphertext, &envoltura.nonce).await?;
 
         Ok(secreto)
     }
@@ -187,8 +187,10 @@ where
         user_id: Uuid,
         codigo: u32,
         session_id_actual: Uuid,
+        proposito: PropositoSesion,
         device_token_hash: Option<&[u8]>,
     ) -> Result<(), DomainError> {
+        self.exigir_sin_mfa_previo_si_parcial(user_id, proposito).await?;
         let pendiente = self.totp.buscar_pendiente(user_id).await?.ok_or(DomainError::NotFound)?;
         let mut secreto = descifrar_secreto(self.secrets_key, &pendiente)?;
 
@@ -213,6 +215,25 @@ where
         Ok(())
     }
 
+    /// Una sesión parcial sólo puede configurar el *primer* segundo factor.
+    /// Si ya existe uno confirmado (por ejemplo, se confirmó desde otra
+    /// pestaña entre el login y este pedido), reemplazarlo exigiría haberlo
+    /// demostrado antes: se rechaza y el usuario tiene que iniciar sesión de
+    /// nuevo para pasar por `/auth/mfa/verify`.
+    async fn exigir_sin_mfa_previo_si_parcial(&self, user_id: Uuid, proposito: PropositoSesion) -> Result<(), DomainError> {
+        match proposito {
+            PropositoSesion::Completa => Ok(()),
+            PropositoSesion::MfaConfigurar => {
+                if self.totp.buscar_confirmado(user_id).await?.is_some() {
+                    Err(DomainError::PermissionDenied)
+                } else {
+                    Ok(())
+                }
+            }
+            PropositoSesion::MfaPendiente | PropositoSesion::CambiarPassphrase => Err(DomainError::PermissionDenied),
+        }
+    }
+
     /// `POST /auth/mfa/verify` — F-14/F-34. Busca, entre los desafíos
     /// pendientes del usuario, el que corresponde a `session_id_actual`
     /// (comparación en tiempo constante), y sólo entonces valida el código.
@@ -226,10 +247,9 @@ where
         let resultado = self.verificar_login_interno(user_id, session_id_actual, codigo, device_token_hash).await;
 
         if resultado.is_err() {
-            let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
-                AuditEventType::AuthMfaFailed,
-                Some(user_id),
-            )));
+            let _ = self
+                .eventos
+                .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthMfaFailed, Some(user_id))));
         }
 
         resultado
@@ -289,8 +309,7 @@ where
         }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(user_id))
-                .con_sujeto("user", user_id),
+            EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(user_id)).con_sujeto("user", user_id),
         ));
 
         Ok(())

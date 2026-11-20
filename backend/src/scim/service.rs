@@ -24,12 +24,7 @@ where
     /// alta nunca crea un duplicado. Conflicto de email con una cuenta
     /// gestionada por otro `externalId` (o creada manualmente) falla
     /// explícito, nunca fusiona ni pisa silenciosamente.
-    pub async fn crear_usuario(
-        &self,
-        external_id: &str,
-        email: &str,
-        display_name: &str,
-    ) -> Result<ResultadoCrearUsuario, DomainError> {
+    pub async fn crear_usuario(&self, external_id: &str, email: &str, display_name: &str) -> Result<ResultadoCrearUsuario, DomainError> {
         if let Some(existente) = self.usuarios.buscar_por_external_id(external_id).await? {
             return Ok(ResultadoCrearUsuario::YaExistiaPorExternalId(existente));
         }
@@ -66,10 +61,14 @@ where
             return Err(DomainError::NotFound);
         }
 
-        let evento = if active { AuditEventType::ScimUserUpdated } else { AuditEventType::ScimUserDeactivated };
-        let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(evento, None).con_sujeto("user", id),
-        ));
+        let evento = if active {
+            AuditEventType::ScimUserUpdated
+        } else {
+            AuditEventType::ScimUserDeactivated
+        };
+        let _ = self
+            .eventos
+            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(evento, None).con_sujeto("user", id)));
 
         self.obtener(id).await
     }

@@ -1,0 +1,134 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select ldap_url, bind_dn, require_starttls, base_dn, user_filter,\n                   attribute_mapping, last_sync_at,\n                   user_object_class, sync_groups, group_membership_attribute\n            from directory_sync_config where organization_id = 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ldap_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "ldap_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bind_dn",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "bind_dn"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "require_starttls",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "require_starttls"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "base_dn",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "base_dn"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "user_filter",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "user_filter"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "attribute_mapping",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "attribute_mapping"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "last_sync_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "last_sync_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "user_object_class",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "user_object_class"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "sync_groups",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "sync_groups"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "group_membership_attribute",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "group_membership_attribute"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3fa3a059f43f4b4b4aef1f669f8a7e9e6734444169dabd25f43c1e085e3949b0"
+}

@@ -49,11 +49,7 @@ pub fn detectar(metodo: &str, ruta: &str, status: u16, cuerpo_respuesta: &[u8]) 
     let resto = ruta.strip_prefix("/resources")?;
     let id = match resto.strip_prefix('/').and_then(|r| r.split('/').next()) {
         Some(seg) => seg.to_string(),
-        None if resto.is_empty() => serde_json::from_slice::<serde_json::Value>(cuerpo_respuesta)
-            .ok()?
-            .get("id")?
-            .as_str()?
-            .to_string(),
+        None if resto.is_empty() => serde_json::from_slice::<serde_json::Value>(cuerpo_respuesta).ok()?.get("id")?.as_str()?.to_string(),
         None => return None,
     };
     if !es_uuid(&id) {
@@ -65,7 +61,9 @@ pub fn detectar(metodo: &str, ruta: &str, status: u16, cuerpo_respuesta: &[u8]) 
 
 /// Detecta, registra en `Ellkan.log` y avisa a la app.
 pub fn avisar(metodo: &str, ruta: &str, status: u16, cuerpo_respuesta: &[u8]) {
-    let Some((id, operacion)) = detectar(metodo, ruta, status, cuerpo_respuesta) else { return };
+    let Some((id, operacion)) = detectar(metodo, ruta, status, cuerpo_respuesta) else {
+        return;
+    };
     tracing::info!("extensión: {operacion} {id} → se avisa a la app para subirlo al servidor");
     if let Some(aviso) = AVISO.get() {
         aviso(&id, operacion);
@@ -83,11 +81,7 @@ fn es_origen_de_extension(origen: &str) -> bool {
 /// Middleware del router local: avisa los cambios que la extensión hace por
 /// el puerto TCP.
 pub async fn middleware_tcp(req: Request, next: Next) -> Response {
-    let de_extension = req
-        .headers()
-        .get(header::ORIGIN)
-        .and_then(|o| o.to_str().ok())
-        .is_some_and(es_origen_de_extension);
+    let de_extension = req.headers().get(header::ORIGIN).and_then(|o| o.to_str().ok()).is_some_and(es_origen_de_extension);
     let metodo = req.method().as_str().to_string();
     let ruta = req.uri().path().to_string();
     if !de_extension || !matches!(metodo.as_str(), "POST" | "PUT" | "DELETE") || !ruta.starts_with("/resources") {
@@ -114,7 +108,14 @@ pub async fn middleware_tcp(req: Request, next: Next) -> Response {
 /// `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` en hex: a la interfaz llega siempre
 /// un id de recurso válido, nunca un trozo arbitrario de la ruta.
 fn es_uuid(s: &str) -> bool {
-    s.len() == 36 && s.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
+    s.len() == 36
+        && s.char_indices().all(|(i, c)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        })
 }
 
 #[cfg(test)]

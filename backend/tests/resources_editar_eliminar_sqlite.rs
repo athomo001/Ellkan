@@ -18,15 +18,18 @@ use ellkan_backend::desktop::repositories::resources::{
 use ellkan_backend::error::DomainError;
 use ellkan_backend::eventos;
 use ellkan_backend::resources::models::EnvelopeInput;
-use ellkan_backend::resources::repository::{ResourceRepository, ResourceTypeRepository};
+use ellkan_backend::resources::repository::{ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository};
 use ellkan_backend::resources::service::ResourceService;
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -91,8 +94,16 @@ async fn editar_recurso_re_sella_metadata_y_secreto() {
         .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-v1", b"nonce-v1", user_id, None)
         .await
         .expect("crear recurso de prueba");
+    // Como el alta real: el creador queda con su sobre (QA-05 exige que
+    // la edición re-selle exactamente para los destinatarios vigentes).
+    repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
 
-    let envelope = EnvelopeInput { user_id, sealed_dek: b"dek-v2".to_vec(), secret_ciphertext: b"secreto-v2".to_vec(), secret_nonce: b"nonce-secreto-v2".to_vec() };
+    let envelope = EnvelopeInput {
+        user_id,
+        sealed_dek: b"dek-v2".to_vec(),
+        secret_ciphertext: b"secreto-v2".to_vec(),
+        secret_nonce: b"nonce-secreto-v2".to_vec(),
+    };
 
     let editado = servicio
         .editar(recurso.id, user_id, recurso.updated_at, b"metadata-v2", b"nonce-v2", vec![envelope])
@@ -100,12 +111,18 @@ async fn editar_recurso_re_sella_metadata_y_secreto() {
         .expect("editar debe funcionar para el dueño del recurso");
 
     assert_eq!(editado.metadata_ciphertext, b"metadata-v2");
-    assert!(editado.updated_at > recurso.updated_at, "editar debe avanzar el updated_at (concurrencia optimista)");
+    assert!(
+        editado.updated_at > recurso.updated_at,
+        "editar debe avanzar el updated_at (concurrencia optimista)"
+    );
 
     // Reintentar con el `updated_at` VIEJO (el que ya quedó obsoleto tras el
     // edit anterior) debe rechazarse — mismo contrato que la versión Postgres.
     let reintento = servicio.editar(recurso.id, user_id, recurso.updated_at, b"metadata-v3", b"nonce-v3", vec![]).await;
-    assert!(matches!(reintento, Err(DomainError::Conflict)), "editar con un If-Match desactualizado debe devolver conflicto");
+    assert!(
+        matches!(reintento, Err(DomainError::Conflict)),
+        "editar con un If-Match desactualizado debe devolver conflicto"
+    );
 }
 
 #[tokio::test]
@@ -117,7 +134,10 @@ async fn eliminar_recurso_lo_saca_del_listado() {
 
     let recurso = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", user_id, None).await.unwrap();
 
-    servicio.eliminar(recurso.id, user_id).await.expect("eliminar debe funcionar para el dueño del recurso");
+    servicio
+        .eliminar(recurso.id, user_id)
+        .await
+        .expect("eliminar debe funcionar para el dueño del recurso");
 
     let visibles = servicio.listar_visibles(user_id).await.unwrap();
     assert!(visibles.is_empty(), "un recurso eliminado no debe aparecer más en el listado");
@@ -150,7 +170,10 @@ async fn cambiar_tipo_entre_compatibles_funciona_y_rechaza_incompatibles() {
 
     let recurso = repos.recursos.crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None).await.unwrap();
 
-    let cambiado = servicio.cambiar_tipo(recurso.id, user_id, "ssh").await.expect("login-password -> ssh es compatible");
+    let cambiado = servicio
+        .cambiar_tipo(recurso.id, user_id, "ssh")
+        .await
+        .expect("login-password -> ssh es compatible");
     let id_ssh = repos.tipos_recurso.id_por_slug("ssh").await.unwrap().unwrap();
     assert_eq!(cambiado.resource_type_id, id_ssh);
     assert_eq!(cambiado.metadata_ciphertext, b"m", "el contenido no debe tocarse al cambiar sólo el tipo");
@@ -182,10 +205,16 @@ async fn api_token_existe_y_no_es_intercambiable() {
 
     let token = repos.recursos.crear(Uuid::now_v7(), id_token, b"m", b"n", user_id, None).await.unwrap();
     let rechazado = servicio.cambiar_tipo(token.id, user_id, "login-password").await;
-    assert!(matches!(rechazado, Err(DomainError::ValidacionInvalida(_))), "api-token -> login-password debe rechazarse");
+    assert!(
+        matches!(rechazado, Err(DomainError::ValidacionInvalida(_))),
+        "api-token -> login-password debe rechazarse"
+    );
 
     let login = repos.recursos.crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None).await.unwrap();
     let rechazado = servicio.cambiar_tipo(login.id, user_id, "api-token").await;
-    assert!(matches!(rechazado, Err(DomainError::ValidacionInvalida(_))), "login-password -> api-token debe rechazarse");
+    assert!(
+        matches!(rechazado, Err(DomainError::ValidacionInvalida(_))),
+        "login-password -> api-token debe rechazarse"
+    );
     assert_eq!(repos.recursos.buscar(token.id).await.unwrap().unwrap().resource_type_id, id_token);
 }

@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::admin::repository::RoleRepository;
@@ -13,8 +13,7 @@ use super::dto::{CrearTagRequest, TagResponse};
 use super::models::Tag;
 use super::service::TagService;
 
-type Servicio<'a> =
-    TagService<'a, super::repository::PgTagRepository, crate::resources::repository::PgPermissionRepository>;
+type Servicio<'a> = TagService<'a, super::repository::PgTagRepository, crate::resources::repository::PgPermissionRepository>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     TagService { tags: &state.tags, permisos: &state.permisos }
@@ -24,10 +23,7 @@ fn a_response(tag: Tag) -> TagResponse {
     TagResponse { id: tag.id, name: tag.name, is_shared: tag.is_shared, created_by: tag.created_by }
 }
 
-pub async fn listar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<Json<Vec<TagResponse>>, ApiError> {
+pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<Vec<TagResponse>>, ApiError> {
     let tags = servicio(&state).listar_disponibles(auth.user_id).await?;
     Ok(Json(tags.into_iter().map(a_response).collect()))
 }

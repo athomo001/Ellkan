@@ -1,28 +1,33 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
-use base64::engine::general_purpose::STANDARD as B64;
+use axum::extract::{Path, State};
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 
 use crate::auth::extractor::AuthenticatedUser;
-use crate::auth::repository::PgUserRepository;
+use crate::auth::repository::{PgAuthChallengeRepository, PgUserRepository};
 use crate::error::{ApiError, DomainError};
 use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::PgPreferenciasRepository;
+use crate::me::service::PruebaDePosesion;
 use crate::mfa::repository::PgTotpCredentialRepository;
 use crate::state::AppState;
 
-use super::dto::{
-    CompletarResetRequest, EstadoResponse, GenerarRequest, GenerarResponse, SolicitarResetRequest,
-    VerificarTokenResponse,
-};
+use super::dto::{CompletarResetRequest, EstadoResponse, GenerarRequest, GenerarResponse, SolicitarResetRequest, VerificarTokenResponse};
 use super::models::{MetodoMfa, RecoveryKit};
 use super::repository::{PgRecoveryKitRepository, PgResetTokenRepository};
 use super::service::RecoveryKitService;
 
-type Servicio<'a> =
-    RecoveryKitService<'a, PgRecoveryKitRepository, PgResetTokenRepository, PgUserRepository, PgTotpCredentialRepository, PgPreferenciasRepository>;
+type Servicio<'a> = RecoveryKitService<
+    'a,
+    PgRecoveryKitRepository,
+    PgResetTokenRepository,
+    PgUserRepository,
+    PgTotpCredentialRepository,
+    PgPreferenciasRepository,
+    PgAuthChallengeRepository,
+>;
 
 fn servicio(state: &AppState) -> Servicio<'_> {
     RecoveryKitService {
@@ -31,13 +36,15 @@ fn servicio(state: &AppState) -> Servicio<'_> {
         usuarios: &state.usuarios,
         totp: &state.mfa_totp,
         claves: &state.preferencias_usuario,
+        challenges: &state.challenges,
         secrets_key: &state.secrets_key,
         eventos: state.eventos.clone(),
     }
 }
 
 fn decodificar_b64(campo: &str, valor: &str) -> Result<Vec<u8>, ApiError> {
-    B64.decode(valor).map_err(|_| DomainError::ValidacionInvalida(format!("{campo} no es base64 válido")).into())
+    B64.decode(valor)
+        .map_err(|_| DomainError::ValidacionInvalida(format!("{campo} no es base64 válido")).into())
 }
 
 fn kit_a_estado_response(kit: Option<RecoveryKit>) -> EstadoResponse {
@@ -62,7 +69,14 @@ pub async fn material_propio(
         kit_public_key_x25519_b64: B64.encode(&kit.kit_public_key_x25519),
         sealed_identity_material_b64: B64.encode(&kit.sealed_identity_material),
         created_at: kit.created_at,
+        must_rotate: kit.must_rotate,
     }))
+}
+
+/// `POST /me/recovery-kit/must-rotate` — ver `RecoveryKitService::marcar_para_rotar`.
+pub async fn marcar_para_rotar(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<(), ApiError> {
+    servicio(&state).marcar_para_rotar(auth.user_id).await?;
+    Ok(())
 }
 
 pub async fn generar_o_regenerar(
@@ -79,18 +93,12 @@ pub async fn generar_o_regenerar(
 /// `POST /recovery-kit/reset` — sin sesión, a propósito: cubre el caso
 /// central de este flujo (alguien perdió la passphrase). Ver rate limit
 /// dedicado en `lib.rs`.
-pub async fn solicitar_reset(
-    State(state): State<AppState>,
-    Json(req): Json<SolicitarResetRequest>,
-) -> Result<(), ApiError> {
+pub async fn solicitar_reset(State(state): State<AppState>, Json(req): Json<SolicitarResetRequest>) -> Result<(), ApiError> {
     servicio(&state).solicitar_reset(&req.email).await?;
     Ok(())
 }
 
-pub async fn verificar_token(
-    State(state): State<AppState>,
-    Path(token): Path<String>,
-) -> Result<Json<VerificarTokenResponse>, ApiError> {
+pub async fn verificar_token(State(state): State<AppState>, Path(token): Path<String>) -> Result<Json<VerificarTokenResponse>, ApiError> {
     let (material, metodo, email) = servicio(&state).verificar_token(&token).await?;
     Ok(Json(VerificarTokenResponse {
         sealed_identity_material_b64: B64.encode(material),
@@ -116,7 +124,11 @@ pub async fn completar_reset(
     let nonce = decodificar_b64("private_key_nonce_b64", &req.private_key_nonce_b64)?;
     let salt = decodificar_b64("kdf_salt_b64", &req.kdf_salt_b64)?;
     let nueva = NuevaClavePrivada { encrypted_private_key_blob: blob, private_key_nonce: nonce, kdf_salt: salt };
+    let prueba = PruebaDePosesion {
+        challenge: decodificar_b64("challenge_nonce_b64", &req.challenge_nonce_b64)?,
+        firma: decodificar_b64("signature_b64", &req.signature_b64)?,
+    };
 
-    servicio(&state).completar_reset(&token, &req.mfa_code, nueva).await?;
+    servicio(&state).completar_reset(&token, &req.mfa_code, nueva, &prueba).await?;
     Ok(())
 }

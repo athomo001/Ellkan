@@ -6,17 +6,17 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use testcontainers_modules::postgres::Postgres;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::ImageExt;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
 #[tokio::test]
 async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
@@ -33,9 +33,7 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
 
     let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
-    let estado = ellkan_backend::construir_estado(&database_url, secrets_key)
-        .await
-        .expect("migrar y conectar");
+    let estado = ellkan_backend::construir_estado(&database_url, secrets_key).await.expect("migrar y conectar");
     let pool = estado.pool.clone();
 
     // Parte A/B: sin SMTP configurado, F-02 auto-verifica el dispositivo sin
@@ -137,24 +135,14 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
     // Bug 2026-10-17: listar un vault de 139 claves (~141 pedidos) desde la
     // misma IP que la app de escritorio daba 429.
     for i in 0..280 {
-        let resp = cliente
-            .get(format!("{base}/resources"))
-            .bearer_auth(&session_id)
-            .send()
-            .await
-            .unwrap();
+        let resp = cliente.get(format!("{base}/resources")).bearer_auth(&session_id).send().await.unwrap();
         assert_ne!(resp.status(), 429, "pedido {i} con sesión válida cortado: el límite por IP no debería aplicarse");
     }
 
     // --- 2. El límite por usuario sigue existiendo (20/s, ráfaga 300) ---
     let mut vio_429 = false;
     for _ in 0..400 {
-        let resp = cliente
-            .get(format!("{base}/resources"))
-            .bearer_auth(&session_id)
-            .send()
-            .await
-            .unwrap();
+        let resp = cliente.get(format!("{base}/resources")).bearer_auth(&session_id).send().await.unwrap();
         if resp.status() == 429 {
             let cuerpo: Value = resp.json().await.expect("el 429 es el JSON de error de la API, no texto plano");
             assert_eq!(cuerpo["error"]["code"], "RATE_LIMITED");
@@ -180,5 +168,8 @@ async fn mismo_usuario_supera_el_limite_por_usuario_y_recibe_429() {
             break;
         }
     }
-    assert!(vio_429_ip, "300 pedidos con tokens inventados desde la misma IP deberían disparar el límite por IP (ráfaga 250)");
+    assert!(
+        vio_429_ip,
+        "300 pedidos con tokens inventados desde la misma IP deberían disparar el límite por IP (ráfaga 250)"
+    );
 }

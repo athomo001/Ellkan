@@ -8,14 +8,14 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Como `common::registrar`, pero sin asumir 200 ni auto-verificar
 /// después — necesario acá porque varios tests esperan que el registro
@@ -206,12 +206,11 @@ async fn flujo_completo_de_verificacion_de_email() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    let verificado: bool =
-        sqlx::query_scalar("select email_verified_at is not null from users where email = $1")
-            .bind("pendiente@test.ellkan")
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
+    let verificado: bool = sqlx::query_scalar("select email_verified_at is not null from users where email = $1")
+        .bind("pendiente@test.ellkan")
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(verificado, "el email debería quedar marcado como verificado");
 
     // Y el login real ya funciona (deja de caer en el 401 genérico).
@@ -271,4 +270,35 @@ async fn no_admin_no_puede_leer_ni_cambiar_la_politica() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 403);
+}
+
+/// QA-17: tope de códigos de verificación por cuenta (registro + 5
+/// reenvíos en 24 h). Pasado el tope la respuesta es la misma (200,
+/// anti-enumeración) pero no se emite ningún código nuevo.
+#[tokio::test]
+async fn reenviar_verificacion_tiene_tope_por_cuenta() {
+    let entorno = common::levantar().await;
+    registrar_crudo(&entorno, "tope-reenvio@test.ellkan").await;
+
+    for _ in 0..7 {
+        // Espaciado para medir el tope por cuenta, no el límite por IP.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let resp = entorno
+            .cliente
+            .post(format!("{}/auth/verify-email/resend", entorno.base))
+            .json(&json!({ "email": "tope-reenvio@test.ellkan" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    let emitidos: i64 = sqlx::query_scalar(
+        "select count(*) from email_verification_challenges c join users u on u.id = c.user_id
+         where u.email = 'tope-reenvio@test.ellkan'",
+    )
+    .fetch_one(&entorno.pool)
+    .await
+    .unwrap();
+    assert_eq!(emitidos, 6, "registro + 5 reenvíos, ninguno más");
 }

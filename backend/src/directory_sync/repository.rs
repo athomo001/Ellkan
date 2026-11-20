@@ -53,8 +53,7 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        let mapping: std::collections::BTreeMap<String, String> =
-            serde_json::from_value(fila.attribute_mapping).unwrap_or_default();
+        let mapping: std::collections::BTreeMap<String, String> = serde_json::from_value(fila.attribute_mapping).unwrap_or_default();
 
         Ok(DirectorySyncConfig {
             ldap_url: fila.ldap_url,
@@ -136,11 +135,10 @@ impl DirectorySyncConfigRepository for PgDirectorySyncConfigRepository {
     }
 
     async fn obtener_credencial_bind(&self) -> Result<Option<(Vec<u8>, Vec<u8>)>, RepoError> {
-        let fila = sqlx::query!(
-            r#"select bind_password_encrypted, bind_password_nonce from directory_sync_config where organization_id = 1"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila =
+            sqlx::query!(r#"select bind_password_encrypted, bind_password_nonce from directory_sync_config where organization_id = 1"#,)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(match (fila.bind_password_encrypted, fila.bind_password_nonce) {
             (Some(c), Some(n)) => Some((c, n)),
             _ => None,

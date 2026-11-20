@@ -21,7 +21,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Tope de un pedido de la extensión (los suyos son chicos).
 const MAX_PEDIDO: usize = 16 * 1024 * 1024;
@@ -93,7 +93,9 @@ fn reenviar(pedido: &[u8]) -> Result<Vec<u8>, String> {
   }
   let mut tuberia = tuberia.ok_or("app_ocupada")?;
   escribir_mensaje(&mut tuberia, pedido).map_err(|e| e.to_string())?;
-  leer_mensaje(&mut tuberia).map_err(|e| e.to_string())?.ok_or_else(|| "la app cerró la conexión".into())
+  leer_mensaje(&mut tuberia)
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "la app cerró la conexión".into())
 }
 
 /// Manda la respuesta a la extensión en partes de hasta `TAMANO_PARTE`.
@@ -124,7 +126,10 @@ fn main() {
       Ok(Some(p)) => p,
       Ok(None) | Err(_) => return,
     };
-    let id = serde_json::from_slice::<Value>(&pedido).ok().and_then(|v| v.get("id").cloned()).unwrap_or(Value::Null);
+    let id = serde_json::from_slice::<Value>(&pedido)
+      .ok()
+      .and_then(|v| v.get("id").cloned())
+      .unwrap_or(Value::Null);
     let respuesta = match reenviar(&pedido) {
       Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
       Err(error) => json!({ "id": id, "error": error }).to_string(),

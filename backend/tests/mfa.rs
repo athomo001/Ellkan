@@ -9,10 +9,10 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -92,13 +92,7 @@ async fn codigo_de_verificacion_encolado(pool: &sqlx::PgPool, email: &str) -> St
         .fetch_one(pool)
         .await
         {
-            return fila
-                .0
-                .lines()
-                .find_map(|l| l.strip_prefix("Código de verificación: "))
-                .unwrap()
-                .trim()
-                .to_string();
+            return fila.0.lines().find_map(|l| l.strip_prefix("Código de verificación: ")).unwrap().trim().to_string();
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
@@ -156,8 +150,7 @@ async fn usuario_nuevo_sin_mfa_configurado_debe_configurar_antes_de_operar() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let cuerpo: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, cuerpo["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, cuerpo["secret_base32"].as_str().unwrap()).unwrap();
 
     let resp = entorno
         .cliente
@@ -192,8 +185,7 @@ async fn login_posterior_con_totp_ya_confirmado_queda_pendiente_de_verificar() {
         .await
         .unwrap();
     let setup: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
     entorno
         .cliente
         .post(format!("{}/me/mfa/totp/confirm", entorno.base))
@@ -219,6 +211,142 @@ async fn login_posterior_con_totp_ya_confirmado_queda_pendiente_de_verificar() {
         .unwrap();
     assert_eq!(resp.status(), 200, "el código correcto debería completar la sesión parcial");
     assert!(puede_operar(&entorno, sesion_b).await);
+}
+
+/// QA-01: con un TOTP ya confirmado, la sesión "pendiente de verificar" no
+/// puede reemplazarlo por uno nuevo (setup + confirm) para completarse sin
+/// conocer nunca el segundo factor real, ni cambiar la passphrase.
+#[tokio::test]
+async fn sesion_pendiente_de_mfa_no_puede_reemplazar_el_totp_ni_cambiar_la_passphrase() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-admin-qa01@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    activar_mfa_requerido(&entorno, sesion_admin).await;
+
+    // Primer login: configura el TOTP legítimo.
+    let usuario = common::registrar(&entorno, "mfa-victima-qa01@test.ellkan").await;
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    assert_eq!(cuerpo["estado"], "requiere_configurar_mfa");
+    let sesion_setup: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    let setup: Value = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/setup", entorno.base))
+        .bearer_auth(sesion_setup)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let secreto_legitimo = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/confirm", entorno.base))
+        .bearer_auth(sesion_setup)
+        .json(&json!({ "code": generar_codigo_actual(&secreto_legitimo).to_string() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Atacante con la passphrase pero sin el segundo factor.
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    assert_eq!(cuerpo["estado"], "pendiente_mfa");
+    let sesion_atacante: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/setup", entorno.base))
+        .bearer_auth(sesion_atacante)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "una sesión pendiente de MFA no debe poder iniciar un setup de TOTP");
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/confirm", entorno.base))
+        .bearer_auth(sesion_atacante)
+        .json(&json!({ "code": "123456" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "una sesión pendiente de MFA no debe poder confirmar un TOTP");
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/change-passphrase", entorno.base))
+        .bearer_auth(sesion_atacante)
+        .json(&json!({
+            "encrypted_private_key_blob_b64": B64.encode([0u8; 96]),
+            "private_key_nonce_b64": B64.encode([0u8; 24]),
+            "kdf_salt_b64": B64.encode([0u8; 16]),
+            "challenge_nonce_b64": B64.encode([0u8; 32]),
+            "signature_b64": B64.encode([0u8; 64]),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403, "una sesión pendiente de MFA no debe poder cambiar la passphrase");
+
+    assert!(!puede_operar(&entorno, sesion_atacante).await, "la sesión del atacante debe seguir parcial");
+
+    // El TOTP legítimo sigue siendo el único confirmado y sigue funcionando.
+    let confirmados: (i64,) =
+        sqlx::query_as("select count(*) from user_totp_credentials where user_id = $1 and confirmed_at is not null and deleted_at is null")
+            .bind(usuario.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
+    assert_eq!(confirmados.0, 1);
+
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    let sesion_legitima: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_legitima)
+        .json(&json!({ "code": generar_codigo_actual(&secreto_legitimo).to_string() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el TOTP original debe seguir verificando");
+}
+
+/// QA-01: una sesión completa no se puede usar contra `/auth/mfa/verify`, y
+/// la de "configurá tu MFA" tampoco (cada una sirve sólo para lo suyo).
+#[tokio::test]
+async fn mfa_verify_solo_acepta_sesiones_pendientes_de_verificar() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-admin-qa01b@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "code": "123456" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
+
+    activar_mfa_requerido(&entorno, sesion_admin).await;
+    let usuario = common::registrar(&entorno, "mfa-configurar-qa01b@test.ellkan").await;
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    assert_eq!(cuerpo["estado"], "requiere_configurar_mfa");
+    let sesion_setup: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_setup)
+        .json(&json!({ "code": "123456" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 403);
 }
 
 /// 2026-08-13: hallazgo real de uso — con TOTP ya confirmado, cada login
@@ -247,8 +375,7 @@ async fn login_desde_dispositivo_que_ya_paso_mfa_no_lo_vuelve_a_pedir() {
         .await
         .unwrap();
     let setup: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
     entorno
         .cliente
         .post(format!("{}/me/mfa/totp/confirm", entorno.base))
@@ -370,8 +497,7 @@ async fn codigo_incorrecto_no_completa_la_sesion() {
         .await
         .unwrap();
     let setup: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
     entorno
         .cliente
         .post(format!("{}/me/mfa/totp/confirm", entorno.base))
@@ -419,8 +545,7 @@ async fn verificar_encuentra_su_propio_desafio_entre_varias_sesiones_parciales()
         .await
         .unwrap();
     let setup: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
     entorno
         .cliente
         .post(format!("{}/me/mfa/totp/confirm", entorno.base))
@@ -478,8 +603,7 @@ async fn el_mismo_codigo_totp_no_sirve_dos_veces_aunque_siga_en_la_ventana_de_va
         .await
         .unwrap();
     let setup: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
     entorno
         .cliente
         .post(format!("{}/me/mfa/totp/confirm", entorno.base))
@@ -521,7 +645,11 @@ async fn el_mismo_codigo_totp_no_sirve_dos_veces_aunque_siga_en_la_ventana_de_va
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 401, "un código TOTP ya aceptado no debería servir de nuevo, aunque el desafío sea otro y siga en ventana");
+    assert_eq!(
+        resp.status(),
+        401,
+        "un código TOTP ya aceptado no debería servir de nuevo, aunque el desafío sea otro y siga en ventana"
+    );
     assert!(!puede_operar(&entorno, sesion_b).await);
 }
 
@@ -544,8 +672,7 @@ async fn rate_limit_dedicado_de_mfa_verify() {
         .await
         .unwrap();
     let setup: Value = resp.json().await.unwrap();
-    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap())
-        .unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
     entorno
         .cliente
         .post(format!("{}/me/mfa/totp/confirm", entorno.base))
@@ -687,6 +814,12 @@ async fn no_admin_no_puede_leer_ni_cambiar_la_politica_de_mfa() {
     let usuario = common::registrar(&entorno, "mfa-no-admin@test.ellkan").await;
     let sesion = common::login(&entorno, &usuario).await;
 
-    let resp = entorno.cliente.get(format!("{}/admin/mfa-policy", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/admin/mfa-policy", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 403);
 }

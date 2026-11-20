@@ -46,42 +46,34 @@ pub struct PgScimTokenRepository {
 
 impl ScimTokenRepository for PgScimTokenRepository {
     async fn crear(&self, id: Uuid, token_hash: &[u8]) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"insert into scim_tokens (id, organization_id, token_hash) values ($1, 1, $2)"#,
-            id,
-            token_hash,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"insert into scim_tokens (id, organization_id, token_hash) values ($1, 1, $2)"#, id, token_hash,)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     async fn valido(&self, token_hash: &[u8]) -> Result<bool, RepoError> {
-        let fila = sqlx::query!(
-            r#"select 1 as "existe!" from scim_tokens where token_hash = $1 and revoked_at is null"#,
-            token_hash,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select 1 as "existe!" from scim_tokens where token_hash = $1 and revoked_at is null"#, token_hash,)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.is_some())
     }
 
     async fn listar(&self) -> Result<Vec<ScimTokenRow>, RepoError> {
-        let filas = sqlx::query!(
-            r#"select id, created_at, revoked_at from scim_tokens where organization_id = 1 order by created_at desc"#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(filas.into_iter().map(|f| ScimTokenRow { id: f.id, created_at: f.created_at, revoked_at: f.revoked_at }).collect())
+        let filas =
+            sqlx::query!(r#"select id, created_at, revoked_at from scim_tokens where organization_id = 1 order by created_at desc"#,)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(filas
+            .into_iter()
+            .map(|f| ScimTokenRow { id: f.id, created_at: f.created_at, revoked_at: f.revoked_at })
+            .collect())
     }
 
     async fn revocar(&self, id: Uuid) -> Result<bool, RepoError> {
-        let resultado = sqlx::query!(
-            r#"update scim_tokens set revoked_at = now() where id = $1 and revoked_at is null"#,
-            id,
-        )
-        .execute(&self.pool)
-        .await?;
+        let resultado = sqlx::query!(r#"update scim_tokens set revoked_at = now() where id = $1 and revoked_at is null"#, id,)
+            .execute(&self.pool)
+            .await?;
         Ok(resultado.rows_affected() == 1)
     }
 }
@@ -173,12 +165,10 @@ impl ScimUserRepository for PgScimUserRepository {
     }
 
     async fn listar(&self, start_index: i64, count: i64) -> Result<(Vec<ScimUser>, i64), RepoError> {
-        let total = sqlx::query!(
-            r#"select count(*) as "total!" from users where external_id is not null and deleted_at is null"#,
-        )
-        .fetch_one(&self.pool)
-        .await?
-        .total;
+        let total = sqlx::query!(r#"select count(*) as "total!" from users where external_id is not null and deleted_at is null"#,)
+            .fetch_one(&self.pool)
+            .await?
+            .total;
 
         let filas = sqlx::query!(
             r#"
@@ -194,7 +184,10 @@ impl ScimUserRepository for PgScimUserRepository {
         .await?;
 
         Ok((
-            filas.into_iter().map(|f| fila_a_scim_user(f.id, f.external_id, f.email, f.display_name, f.active)).collect(),
+            filas
+                .into_iter()
+                .map(|f| fila_a_scim_user(f.id, f.external_id, f.email, f.display_name, f.active))
+                .collect(),
             total,
         ))
     }

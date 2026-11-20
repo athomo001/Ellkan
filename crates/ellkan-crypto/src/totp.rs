@@ -11,11 +11,11 @@
 //! Authenticator y similares); SHA-1 está obsoleto para uso propio pero acá
 //! es interoperabilidad, no una decisión de seguridad nueva.
 
-use hmac::{digest::KeyInit, Hmac, Mac};
+use hmac::{Hmac, Mac, digest::KeyInit};
 use secrecy::{ExposeSecret, SecretBox};
 use sha1::Sha1;
 
-use crate::aead::{cifrar, descifrar, Envoltura, ErrorAead};
+use crate::aead::{Envoltura, ErrorAead, cifrar, descifrar};
 use crate::aleatoriedad::bytes_aleatorios;
 use crate::comparacion::secreto_coincide;
 use crate::derivacion::{contexto, derivar_clave_desde_secreto};
@@ -54,8 +54,7 @@ pub fn generar_secreto_totp() -> [u8; SECRETO_LEN] {
 
 /// HOTP (RFC 4226) sobre un contador de pasos dado.
 fn hotp(secreto: &[u8], contador: u64) -> u32 {
-    let mut mac =
-        HmacSha1::new_from_slice(secreto).expect("HMAC-SHA1 acepta claves de cualquier longitud");
+    let mut mac = HmacSha1::new_from_slice(secreto).expect("HMAC-SHA1 acepta claves de cualquier longitud");
     mac.update(&contador.to_be_bytes());
     let hash = mac.finalize().into_bytes();
     let offset = (hash[hash.len() - 1] & 0x0f) as usize;
@@ -104,22 +103,14 @@ pub fn verificar_totp_paso(secreto: &[u8], codigo_recibido: u32, tiempo_unix: u6
 /// Envuelve la passphrase con una clave derivada (HKDF, sin Argon2id) del
 /// secreto TOTP — el envoltorio resultante se guarda cifrado sólo en este
 /// dispositivo, nunca en el servidor.
-pub fn envolver_passphrase(
-    secreto_totp: &[u8],
-    passphrase: &PassphraseSecreta,
-    aad: &[u8],
-) -> Result<Envoltura, ErrorAead> {
+pub fn envolver_passphrase(secreto_totp: &[u8], passphrase: &PassphraseSecreta, aad: &[u8]) -> Result<Envoltura, ErrorAead> {
     let clave = derivar_clave_desde_secreto(secreto_totp, contexto::DESBLOQUEO_TOTP);
     cifrar(&clave, passphrase.expose_secret().as_bytes(), aad)
 }
 
 /// Abre el envoltorio y reconstruye la passphrase — sólo se llama tras un
 /// `ControlDeIntentos::intentar` exitoso.
-pub fn desenvolver_passphrase(
-    secreto_totp: &[u8],
-    envoltura: &Envoltura,
-    aad: &[u8],
-) -> Result<PassphraseSecreta, ErrorDesenvolturaTotp> {
+pub fn desenvolver_passphrase(secreto_totp: &[u8], envoltura: &Envoltura, aad: &[u8]) -> Result<PassphraseSecreta, ErrorDesenvolturaTotp> {
     let clave = derivar_clave_desde_secreto(secreto_totp, contexto::DESBLOQUEO_TOTP);
     let bytes = descifrar(&clave, envoltura, aad)?;
     let texto = String::from_utf8(bytes).map_err(|_| ErrorDesenvolturaTotp::Utf8Invalido)?;
@@ -232,10 +223,7 @@ mod tests {
         assert!(!control.intentar(&secreto, 0, 0).unwrap());
         // Cuarto intento: bloqueado, ni siquiera evalúa el código correcto.
         let codigo_correcto = codigo_totp(&secreto, 0);
-        assert!(matches!(
-            control.intentar(&secreto, codigo_correcto, 0),
-            Err(ErrorTotp::Bloqueado)
-        ));
+        assert!(matches!(control.intentar(&secreto, codigo_correcto, 0), Err(ErrorTotp::Bloqueado)));
     }
 
     #[test]

@@ -18,7 +18,7 @@ use crate::groups::repository::GroupMemberRepository;
 pub struct SqliteGroupMemberRepository;
 
 impl GroupMemberRepository for SqliteGroupMemberRepository {
-    async fn agregar_simple(&self, _group_id: Uuid, _user_id: Uuid, _is_admin: bool) -> Result<(), RepoError> {
+    async fn agregar_simple(&self, _group_id: Uuid, _user_id: Uuid, _is_admin: bool, _added_by: Option<Uuid>) -> Result<(), RepoError> {
         unimplemented!("modo escritorio: sin grupos, no hay UI que llegue acá")
     }
 
@@ -27,6 +27,7 @@ impl GroupMemberRepository for SqliteGroupMemberRepository {
         _group_id: Uuid,
         _user_id: Uuid,
         _is_admin: bool,
+        _added_by: Option<Uuid>,
         _envelopes: &[EnvelopeParaMiembroNuevo],
     ) -> Result<(), RepoError> {
         unimplemented!("modo escritorio: sin grupos, no hay UI que llegue acá")
@@ -66,6 +67,15 @@ impl GroupMemberRepository for SqliteGroupMemberRepository {
 
     async fn grupos_administrados_por(&self, _user_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
         Ok(Vec::new())
+    }
+
+    async fn grupo_administrado_con_membresia_previa(
+        &self,
+        _actor_id: Uuid,
+        _target_id: Uuid,
+        _antes_de: time::OffsetDateTime,
+    ) -> Result<Option<Uuid>, RepoError> {
+        Ok(None)
     }
 
     async fn grupos_gestionados_de(&self, _user_id: Uuid) -> Result<Vec<GrupoDeUsuario>, RepoError> {

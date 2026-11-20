@@ -6,7 +6,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_recurso(entorno: &common::Entorno, sesion: Uuid) -> Uuid {
@@ -51,7 +51,10 @@ async fn sync_completo_devuelve_un_recurso_recien_creado() {
 
     let cuerpo = sync(&entorno, sesion, None).await;
     let recursos = cuerpo["resources"].as_array().unwrap();
-    let item = recursos.iter().find(|r| r["id"] == resource_id.to_string()).expect("el recurso recién creado debe aparecer");
+    let item = recursos
+        .iter()
+        .find(|r| r["id"] == resource_id.to_string())
+        .expect("el recurso recién creado debe aparecer");
     assert_eq!(item["deleted"], false);
     assert!(item["secret"].is_object(), "debe traer el secret_envelope propio para poder descifrar");
     assert!(cuerpo["cursor"].is_string());
@@ -87,12 +90,21 @@ async fn recurso_borrado_aparece_como_tombstone() {
     let resource_id = crear_recurso(&entorno, sesion).await;
     let cursor = sync(&entorno, sesion, None).await["cursor"].as_str().unwrap().to_string();
 
-    let resp = entorno.cliente.delete(format!("{}/resources/{resource_id}", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .delete(format!("{}/resources/{resource_id}", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let cuerpo = sync(&entorno, sesion, Some(&cursor)).await;
     let recursos = cuerpo["resources"].as_array().unwrap();
-    let item = recursos.iter().find(|r| r["id"] == resource_id.to_string()).expect("el borrado debe aparecer como tombstone");
+    let item = recursos
+        .iter()
+        .find(|r| r["id"] == resource_id.to_string())
+        .expect("el borrado debe aparecer como tombstone");
     assert_eq!(item["deleted"], true);
     assert!(item["secret"].is_null());
 }
@@ -130,12 +142,22 @@ async fn carpeta_creada_y_recurso_movido_aparecen_en_el_sync() {
     let cuerpo = sync(&entorno, sesion, Some(&cursor)).await;
 
     let carpetas = cuerpo["folders"].as_array().unwrap();
-    let carpeta = carpetas.iter().find(|f| f["folder_id"] == folder_id.to_string()).expect("la carpeta nueva debe aparecer");
+    let carpeta = carpetas
+        .iter()
+        .find(|f| f["folder_id"] == folder_id.to_string())
+        .expect("la carpeta nueva debe aparecer");
     assert_eq!(carpeta["deleted"], false);
 
     let recursos = cuerpo["resources"].as_array().unwrap();
-    let recurso = recursos.iter().find(|r| r["id"] == resource_id.to_string()).expect("el recurso movido debe aparecer");
-    assert_eq!(recurso["folder_id"], folder_id.to_string(), "debe traer la carpeta actual aunque el CONTENIDO del recurso no haya cambiado");
+    let recurso = recursos
+        .iter()
+        .find(|r| r["id"] == resource_id.to_string())
+        .expect("el recurso movido debe aparecer");
+    assert_eq!(
+        recurso["folder_id"],
+        folder_id.to_string(),
+        "debe traer la carpeta actual aunque el CONTENIDO del recurso no haya cambiado"
+    );
 }
 
 #[tokio::test]
@@ -164,12 +186,21 @@ async fn tag_creado_y_borrado_aparecen_en_el_sync() {
     assert_eq!(tag["name"], "trabajo");
 
     let cursor2 = cuerpo["cursor"].as_str().unwrap().to_string();
-    let resp = entorno.cliente.delete(format!("{}/tags/{tag_id}", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .delete(format!("{}/tags/{tag_id}", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let cuerpo2 = sync(&entorno, sesion, Some(&cursor2)).await;
     let tags2 = cuerpo2["tags"].as_array().unwrap();
-    let tag2 = tags2.iter().find(|t| t["id"] == tag_id.to_string()).expect("el borrado debe aparecer como tombstone");
+    let tag2 = tags2
+        .iter()
+        .find(|t| t["id"] == tag_id.to_string())
+        .expect("el borrado debe aparecer como tombstone");
     assert_eq!(tag2["deleted"], true);
 }
 
@@ -199,7 +230,13 @@ async fn borrar_una_carpeta_no_vacia_se_rechaza() {
         .await
         .unwrap();
 
-    let resp = entorno.cliente.delete(format!("{}/folders/{folder_id}", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .delete(format!("{}/folders/{folder_id}", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 400, "una carpeta con un recurso adentro no debe poder borrarse");
 
     // Vaciarla primero (sacar el recurso a la raíz) sí permite borrarla.
@@ -211,6 +248,12 @@ async fn borrar_una_carpeta_no_vacia_se_rechaza() {
         .send()
         .await
         .unwrap();
-    let resp = entorno.cliente.delete(format!("{}/folders/{folder_id}", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .delete(format!("{}/folders/{folder_id}", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "una carpeta vacía sí debe poder borrarse");
 }

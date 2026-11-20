@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update account_recovery_requests set status = 'completed'\n               where id = $1 and status = 'approved' and expires_at > now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f73bae550e77fe2c834880a840e62388df0d78a90e1d2faab7eba4867b662b18"
+}

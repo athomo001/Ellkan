@@ -45,9 +45,7 @@ pub struct KeypairFirma {
 impl KeypairFirma {
     pub fn generar() -> Self {
         let mut rng = csprng();
-        Self {
-            firma: SigningKey::generate(&mut rng),
-        }
+        Self { firma: SigningKey::generate(&mut rng) }
     }
 
     pub fn firmante(&self) -> &SigningKey {

@@ -28,12 +28,7 @@ where
 
     /// F-13: cambios en roles/permisos son configuración organizacional —
     /// se audita igual que cualquier otro endpoint mutante bajo `/admin/*`.
-    pub async fn crear(
-        &self,
-        actor_id: Uuid,
-        name: &str,
-        permisos: Vec<String>,
-    ) -> Result<Role, DomainError> {
+    pub async fn crear(&self, actor_id: Uuid, name: &str, permisos: Vec<String>) -> Result<Role, DomainError> {
         if name.trim().is_empty() {
             return Err(DomainError::ValidacionInvalida("name no puede estar vacío".into()));
         }
@@ -51,17 +46,8 @@ where
         Ok(rol)
     }
 
-    pub async fn actualizar_permisos(
-        &self,
-        actor_id: Uuid,
-        role_id: Uuid,
-        permisos: Vec<String>,
-    ) -> Result<Role, DomainError> {
-        let rol = self
-            .roles
-            .reemplazar_permisos(role_id, &permisos)
-            .await?
-            .ok_or(DomainError::NotFound)?;
+    pub async fn actualizar_permisos(&self, actor_id: Uuid, role_id: Uuid, permisos: Vec<String>) -> Result<Role, DomainError> {
+        let rol = self.roles.reemplazar_permisos(role_id, &permisos).await?.ok_or(DomainError::NotFound)?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::RolePermissionsUpdated, Some(actor_id))

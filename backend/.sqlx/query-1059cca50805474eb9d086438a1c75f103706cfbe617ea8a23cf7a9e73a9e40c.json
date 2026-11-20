@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update account_recovery_requests set status = 'expired', resolved_at = now()\n            where escrow_id = (select escrow_id from account_recovery_requests where id = $1)\n              and status in ('pending', 'approved')\n              and expires_at <= now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1059cca50805474eb9d086438a1c75f103706cfbe617ea8a23cf7a9e73a9e40c"
+}

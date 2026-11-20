@@ -97,10 +97,9 @@ impl PerfilRepository for PgPreferenciasRepository {
 
 impl AvatarRepository for PgPreferenciasRepository {
     async fn obtener(&self, user_id: Uuid) -> Result<Option<Avatar>, RepoError> {
-        let fila =
-            sqlx::query!(r#"select avatar_bytes, avatar_content_type from users where id = $1"#, user_id)
-                .fetch_one(&self.pool)
-                .await?;
+        let fila = sqlx::query!(r#"select avatar_bytes, avatar_content_type from users where id = $1"#, user_id)
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(match (fila.avatar_bytes, fila.avatar_content_type) {
             (Some(bytes), Some(content_type)) => Some(Avatar { bytes, content_type }),
@@ -121,12 +120,9 @@ impl AvatarRepository for PgPreferenciasRepository {
     }
 
     async fn eliminar(&self, user_id: Uuid) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"update users set avatar_bytes = null, avatar_content_type = null where id = $1"#,
-            user_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"update users set avatar_bytes = null, avatar_content_type = null where id = $1"#, user_id,)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

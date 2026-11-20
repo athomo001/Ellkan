@@ -21,10 +21,13 @@ use uuid::Uuid;
 use crate::desktop::sqlite_util::{fmt_dt, parse_dt, parse_uuid};
 use crate::error::RepoError;
 
-use crate::auth::models::{DeviceChallengeRow, EmailVerificationRow, MaterialDesbloqueo, NuevoUsuario, Session, User, UserKeysRow, UsuarioBusqueda};
+use crate::auth::models::{
+    DeviceChallengeRow, EmailVerificationRow, MaterialDesbloqueo, NuevoUsuario, PropositoSesion, Session, User, UserKeysRow,
+    UsuarioBusqueda,
+};
 use crate::auth::repository::{
-    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository,
-    SessionRepository, UserRepository,
+    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository, SessionRepository,
+    UserRepository,
 };
 
 fn fila_a_user(row: &sqlx::sqlite::SqliteRow) -> Result<User, RepoError> {
@@ -189,13 +192,11 @@ impl SqliteUserRepository {
         ya_verificado: bool,
         id: Uuid,
     ) -> Result<User, RepoError> {
-
         // Mismo criterio de bootstrap que la versión Postgres: el primer
         // usuario de toda la instancia nace ya verificado sin importar
         // `ya_verificado` — en modo escritorio esto en la práctica siempre
         // es el único usuario que va a existir (spec/13 §16).
-        let existe_alguno: bool =
-            sqlx::query_scalar("select exists(select 1 from users)").fetch_one(&mut **tx).await?;
+        let existe_alguno: bool = sqlx::query_scalar("select exists(select 1 from users)").fetch_one(&mut **tx).await?;
         let nace_verificado = !existe_alguno || ya_verificado;
 
         let security_stamp = Uuid::now_v7();
@@ -465,19 +466,21 @@ pub struct SqliteSessionRepository {
 }
 
 impl SqliteSessionRepository {
-    async fn crear_con(&self, user_id: Uuid, security_stamp: Uuid, mfa_verificada: bool) -> Result<Session, RepoError> {
+    async fn crear_con(&self, user_id: Uuid, security_stamp: Uuid, proposito: PropositoSesion) -> Result<Session, RepoError> {
         let id = Uuid::now_v7();
         let ahora = OffsetDateTime::now_utc();
         let expires_at = ahora + time::Duration::hours(12);
+        let mfa_verificada = proposito == PropositoSesion::Completa;
         sqlx::query(
-            r#"insert into sessions (id, user_id, security_stamp, mfa_verified_at, expires_at)
-               values (?1, ?2, ?3, ?4, ?5)"#,
+            r#"insert into sessions (id, user_id, security_stamp, mfa_verified_at, expires_at, proposito)
+               values (?1, ?2, ?3, ?4, ?5, ?6)"#,
         )
         .bind(id.to_string())
         .bind(user_id.to_string())
         .bind(security_stamp.to_string())
         .bind(mfa_verificada.then(|| fmt_dt(ahora)))
         .bind(fmt_dt(expires_at))
+        .bind(proposito.como_str())
         .execute(&self.pool)
         .await?;
         Ok(Session { id, user_id })
@@ -486,11 +489,15 @@ impl SqliteSessionRepository {
 
 impl SessionRepository for SqliteSessionRepository {
     async fn crear(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError> {
-        self.crear_con(user_id, security_stamp, true).await
+        self.crear_con(user_id, security_stamp, PropositoSesion::Completa).await
     }
 
-    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError> {
-        self.crear_con(user_id, security_stamp, false).await
+    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid, proposito: PropositoSesion) -> Result<Session, RepoError> {
+        // Una sesión parcial "completa" sería una sesión completa sin MFA.
+        if proposito == PropositoSesion::Completa {
+            return Err(RepoError::Conflict);
+        }
+        self.crear_con(user_id, security_stamp, proposito).await
     }
 
     async fn validar(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError> {
@@ -499,6 +506,7 @@ impl SessionRepository for SqliteSessionRepository {
                where s.id = ?1 and s.revoked_at is null
                  and s.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                  and s.security_stamp = u.security_stamp and s.mfa_verified_at is not null
+                 and s.proposito = 'completa'
                  and u.active and u.deleted_at is null and u.email_verified_at is not null"#,
         )
         .bind(session_id.to_string())
@@ -507,9 +515,9 @@ impl SessionRepository for SqliteSessionRepository {
         fila.map(|f| parse_uuid(f.try_get::<String, _>("user_id")?.as_str())).transpose()
     }
 
-    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError> {
+    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<(Uuid, PropositoSesion)>, RepoError> {
         let fila = sqlx::query(
-            r#"select s.user_id as user_id from sessions s join users u on u.id = s.user_id
+            r#"select s.user_id as user_id, s.proposito as proposito from sessions s join users u on u.id = s.user_id
                where s.id = ?1 and s.revoked_at is null
                  and s.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                  and s.security_stamp = u.security_stamp
@@ -518,11 +526,16 @@ impl SessionRepository for SqliteSessionRepository {
         .bind(session_id.to_string())
         .fetch_optional(&self.pool)
         .await?;
-        fila.map(|f| parse_uuid(f.try_get::<String, _>("user_id")?.as_str())).transpose()
+        fila.map(|f| -> Result<_, RepoError> {
+            let user_id = parse_uuid(f.try_get::<String, _>("user_id")?.as_str())?;
+            let proposito = PropositoSesion::desde_str(f.try_get::<String, _>("proposito")?.as_str());
+            Ok((user_id, proposito))
+        })
+        .transpose()
     }
 
     async fn marcar_mfa_verificada(&self, session_id: Uuid) -> Result<(), RepoError> {
-        sqlx::query(r#"update sessions set mfa_verified_at = ?2 where id = ?1 and mfa_verified_at is null"#)
+        sqlx::query(r#"update sessions set mfa_verified_at = ?2, proposito = 'completa' where id = ?1 and mfa_verified_at is null"#)
             .bind(session_id.to_string())
             .bind(fmt_dt(OffsetDateTime::now_utc()))
             .execute(&self.pool)

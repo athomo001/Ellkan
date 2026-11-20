@@ -19,18 +19,37 @@ pub enum NivelCheck {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "id", rename_all = "snake_case")]
 pub enum Check {
-    DbPing { nivel: NivelCheck },
-    DbMigraciones { nivel: NivelCheck, aplicadas: i64, fallidas: i64 },
-    SmtpConfigurado { nivel: NivelCheck, configurado: bool },
-    CorreoBacklog { nivel: NivelCheck, pendientes: i64, fallidos: i64 },
-    SsoConfigurado { nivel: NivelCheck, configurado: bool },
+    DbPing {
+        nivel: NivelCheck,
+    },
+    DbMigraciones {
+        nivel: NivelCheck,
+        aplicadas: i64,
+        fallidas: i64,
+    },
+    SmtpConfigurado {
+        nivel: NivelCheck,
+        configurado: bool,
+    },
+    CorreoBacklog {
+        nivel: NivelCheck,
+        pendientes: i64,
+        fallidos: i64,
+    },
+    SsoConfigurado {
+        nivel: NivelCheck,
+        configurado: bool,
+    },
     DirectorySyncConfigurado {
         nivel: NivelCheck,
         configurado: bool,
         #[serde(with = "time::serde::rfc3339::option")]
         ultima_sincronizacion: Option<OffsetDateTime>,
     },
-    MetadataKeyRotacion { nivel: NivelCheck, claves_activas: i64 },
+    MetadataKeyRotacion {
+        nivel: NivelCheck,
+        claves_activas: i64,
+    },
     /// F-03: `ELLKAN_RP_ORIGIN` sigue en el default de desarrollo
     /// (`http://localhost:8080`) o no es `https://` — mismo chequeo que ya
     /// documenta `state.rs::construir_webauthn` como obligatorio en
@@ -43,16 +62,25 @@ pub enum Check {
     /// puntualmente (no lee el cert propio ni sabe si hay un proxy),
     /// `ELLKAN_RP_ORIGIN` en `https://` sigue siendo la señal indirecta más
     /// cercana a "TLS configurado" que el servidor puede verificar solo.
-    OrigenSeguro { nivel: NivelCheck, origen: String },
+    OrigenSeguro {
+        nivel: NivelCheck,
+        origen: String,
+    },
     /// Hallazgo real de uso: la página nunca respondía "¿hay al menos un
     /// admin activo?" — la pregunta más básica de todas.
-    AdminsActivos { nivel: NivelCheck, cantidad: i64 },
+    AdminsActivos {
+        nivel: NivelCheck,
+        cantidad: i64,
+    },
     /// Operativa 1 (spec/11, 2026-08-10): TLS terminado por el propio
     /// binario (`ELLKAN_TLS_CERT_FILE`/`ELLKAN_TLS_KEY_FILE`) — señal
     /// directa, a diferencia de `OrigenSeguro` que sólo infiere por el
     /// origin configurado (también aplica si hay un reverse proxy
     /// delante, que este check no puede ver).
-    TlsInProcess { nivel: NivelCheck, activo: bool },
+    TlsInProcess {
+        nivel: NivelCheck,
+        activo: bool,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

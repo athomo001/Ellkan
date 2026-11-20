@@ -6,6 +6,7 @@
 // `recovery_kit::handlers` en el backend).
 
 import { api } from './client';
+import type { PruebaDePosesion } from '$lib/crypto/accountRecovery';
 
 export interface EstadoRecoveryKit {
 	configured: boolean;
@@ -26,12 +27,20 @@ export const recoveryKitApi = {
 			`/recovery-kit/reset/${encodeURIComponent(token)}`
 		),
 	enviarCodigoEmail: (token: string) => api.post<void>(`/recovery-kit/reset/${encodeURIComponent(token)}/email-code`),
-	completar: (token: string, mfaCode: string, blobB64: string, nonceB64: string, saltB64: string) =>
+	completar: (
+		token: string,
+		mfaCode: string,
+		blobB64: string,
+		nonceB64: string,
+		saltB64: string,
+		prueba: PruebaDePosesion
+	) =>
 		api.post<void>(`/recovery-kit/reset/${encodeURIComponent(token)}/complete`, {
 			mfa_code: mfaCode,
 			encrypted_private_key_blob_b64: blobB64,
 			private_key_nonce_b64: nonceB64,
-			kdf_salt_b64: saltB64
+			kdf_salt_b64: saltB64,
+			...prueba
 		}),
 
 	// Modo escritorio (punto 8): sin SMTP no hay link ni código por correo. El

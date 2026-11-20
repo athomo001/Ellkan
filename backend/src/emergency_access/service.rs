@@ -80,8 +80,8 @@ where
         for acceso in filas {
             let ultima = self.requests.ultima_de(acceso.id).await?;
             let estado_solicitud = ultima.as_ref().map(|r| r.status.clone());
-            let puede_leer_material = acceso.grantee_id == user_id
-                && ultima.as_ref().is_some_and(|r| r.status == "approved" || r.status == "granted_by_timeout");
+            let puede_leer_material =
+                acceso.grantee_id == user_id && ultima.as_ref().is_some_and(|r| r.status == "approved" || r.status == "granted_by_timeout");
             resultado.push((acceso, estado_solicitud, puede_leer_material));
         }
         Ok(resultado)
@@ -98,8 +98,7 @@ where
         self.accesos.marcar_status(id, "accepted").await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessAccepted, Some(actor_id))
-                .con_sujeto("emergency_access", id),
+            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessAccepted, Some(actor_id)).con_sujeto("emergency_access", id),
         ));
         Ok(())
     }
@@ -112,8 +111,7 @@ where
         self.accesos.eliminar(id).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessRevoked, Some(actor_id))
-                .con_sujeto("emergency_access", id),
+            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessRevoked, Some(actor_id)).con_sujeto("emergency_access", id),
         ));
         Ok(())
     }
@@ -124,9 +122,7 @@ where
             return Err(DomainError::PermissionDenied);
         }
         if acceso.status == "invited" {
-            return Err(DomainError::ValidacionInvalida(
-                "el contacto todavía no aceptó esta designación".into(),
-            ));
+            return Err(DomainError::ValidacionInvalida("el contacto todavía no aceptó esta designación".into()));
         }
 
         // H-17 (auditoría 2026-08-12): `crear` ya mapea la violación del
@@ -141,8 +137,7 @@ where
         })?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessRequested, Some(actor_id))
-                .con_sujeto("emergency_access", id),
+            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessRequested, Some(actor_id)).con_sujeto("emergency_access", id),
         ));
         Ok(())
     }

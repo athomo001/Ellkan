@@ -9,18 +9,17 @@ use std::fs;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use ellkan_backend::desktop::repositories::resources::{SqliteMetadataDekRepository, SqliteResourceRepository, SqliteSecretEnvelopeRepository};
+use ellkan_backend::desktop::repositories::resources::{
+    SqliteMetadataDekRepository, SqliteResourceRepository, SqliteSecretEnvelopeRepository,
+};
 use ellkan_backend::desktop::sqlite_util::fmt_dt;
-use ellkan_backend::desktop::{cargar_config, guardar_config, ModoPersistencia};
+use ellkan_backend::desktop::{ModoPersistencia, cargar_config, guardar_config};
 use ellkan_backend::resources::repository::{ResourceRepository, SecretEnvelopeRepository};
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 
 async fn pool_de_prueba() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .expect("conectar sqlite en memoria");
+    let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
     sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
         .run(&pool)
         .await
@@ -75,14 +74,13 @@ async fn test_sincronizacion_diferencial_deltas() {
     assert_eq!(recurso.id, res_id);
 
     // 2. Consultar recursos creados desde t0
-    let filas: Vec<String> = sqlx::query_scalar(
-        "select id from resources where created_by = ?1 and deleted_at is null and updated_at >= ?2",
-    )
-    .bind(user_id.to_string())
-    .bind(&t0)
-    .fetch_all(&pool)
-    .await
-    .expect("query deltas creados");
+    let filas: Vec<String> =
+        sqlx::query_scalar("select id from resources where created_by = ?1 and deleted_at is null and updated_at >= ?2")
+            .bind(user_id.to_string())
+            .bind(&t0)
+            .fetch_all(&pool)
+            .await
+            .expect("query deltas creados");
 
     assert_eq!(filas.len(), 1);
     assert_eq!(filas[0], res_id.to_string());
@@ -94,14 +92,13 @@ async fn test_sincronizacion_diferencial_deltas() {
     assert!(borrado);
 
     // 4. Consultar eliminados desde t0
-    let eliminados: Vec<String> = sqlx::query_scalar(
-        "select id from resources where created_by = ?1 and deleted_at is not null and deleted_at >= ?2",
-    )
-    .bind(user_id.to_string())
-    .bind(&t0)
-    .fetch_all(&pool)
-    .await
-    .expect("query deltas eliminados");
+    let eliminados: Vec<String> =
+        sqlx::query_scalar("select id from resources where created_by = ?1 and deleted_at is not null and deleted_at >= ?2")
+            .bind(user_id.to_string())
+            .bind(&t0)
+            .fetch_all(&pool)
+            .await
+            .expect("query deltas eliminados");
 
     assert_eq!(eliminados.len(), 1);
     assert_eq!(eliminados[0], res_id.to_string());
@@ -127,14 +124,21 @@ async fn crear_metadata_only_no_persiste_secreto_pero_guarda_el_dek() {
     // Mismo camino que usa el handler `crear_recurso_metadata_only`:
     // `ResourceRepository::crear` (genérico, sin secreto) + guardar el DEK
     // aparte — nunca `SecretEnvelopeRepository::insertar`.
-    let recurso = recursos.crear(res_id, tipo_id, b"meta-cifrada", b"nonce-meta", user_id, None).await.expect("crear metadata-only");
+    let recurso = recursos
+        .crear(res_id, tipo_id, b"meta-cifrada", b"nonce-meta", user_id, None)
+        .await
+        .expect("crear metadata-only");
     metadata_deks.guardar(recurso.id, user_id, b"dek-sellada").await.expect("guardar metadata dek");
 
     let envelope = envolturas.buscar(res_id, user_id).await.expect("buscar no debe fallar");
     assert!(envelope.is_none(), "un recurso metadata-only no debe tener fila en secret_envelopes");
 
     let dek = metadata_deks.buscar(res_id, user_id).await.expect("buscar dek no debe fallar");
-    assert_eq!(dek.as_deref(), Some(&b"dek-sellada"[..]), "el DEK sellado debe quedar disponible para descifrar metadata offline");
+    assert_eq!(
+        dek.as_deref(),
+        Some(&b"dek-sellada"[..]),
+        "el DEK sellado debe quedar disponible para descifrar metadata offline"
+    );
 }
 
 /// Misma concurrencia optimista que `ResourceRepository::actualizar` (ver
@@ -149,7 +153,10 @@ async fn actualizar_metadata_solo_respeta_concurrencia_optimista_y_no_toca_secre
 
     let user_id = Uuid::now_v7();
     let tipo_id = Uuid::parse_str("019a0000-0000-7000-8000-000000000001").unwrap();
-    let recurso = recursos.crear(Uuid::now_v7(), tipo_id, b"meta-v1", b"nonce-v1", user_id, None).await.expect("crear recurso");
+    let recurso = recursos
+        .crear(Uuid::now_v7(), tipo_id, b"meta-v1", b"nonce-v1", user_id, None)
+        .await
+        .expect("crear recurso");
     let updated_at_original = recurso.updated_at;
 
     // `fmt_dt` tiene precisión de milisegundos: sin esta pausa la creación y
@@ -162,14 +169,23 @@ async fn actualizar_metadata_solo_respeta_concurrencia_optimista_y_no_toca_secre
         .expect("no debe fallar")
         .expect("el If-Match correcto (el de la creación) debe aplicar la actualización");
     assert_eq!(actualizado.metadata_ciphertext, b"meta-v2");
-    assert!(actualizado.updated_at > updated_at_original, "debe avanzar updated_at, misma concurrencia optimista que actualizar()");
+    assert!(
+        actualizado.updated_at > updated_at_original,
+        "debe avanzar updated_at, misma concurrencia optimista que actualizar()"
+    );
 
     let sigue_sin_secreto = envolturas.buscar(recurso.id, user_id).await.expect("buscar no debe fallar");
-    assert!(sigue_sin_secreto.is_none(), "actualizar_metadata_solo nunca debe crear una fila en secret_envelopes");
+    assert!(
+        sigue_sin_secreto.is_none(),
+        "actualizar_metadata_solo nunca debe crear una fila en secret_envelopes"
+    );
 
     // Reintentar con el `updated_at` ORIGINAL (ya obsoleto tras el update de
     // arriba) debe rechazarse — mismo contrato que `actualizar()`.
-    let reintento = recursos.actualizar_metadata_solo(recurso.id, updated_at_original, b"meta-v3", b"nonce-v3").await.expect("no debe fallar");
+    let reintento = recursos
+        .actualizar_metadata_solo(recurso.id, updated_at_original, b"meta-v3", b"nonce-v3")
+        .await
+        .expect("no debe fallar");
     assert!(reintento.is_none(), "un If-Match desactualizado debe devolver None");
 
     let sigue_v2 = recursos.buscar(recurso.id).await.expect("buscar no debe fallar").expect("debe existir");

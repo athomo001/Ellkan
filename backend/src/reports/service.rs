@@ -45,7 +45,11 @@ where
         let umbral_dias = politica.passphrase_rotation_days.map(i64::from).unwrap_or(DIAS_DEFAULT);
         let limite = self.limite(limit);
         let filas = self.reportes.passwords_expired(umbral_dias, cursor, limite).await?;
-        let next_cursor = if filas.len() as i64 == limite { filas.last().map(|f| f.user_id) } else { None };
+        let next_cursor = if filas.len() as i64 == limite {
+            filas.last().map(|f| f.user_id)
+        } else {
+            None
+        };
         Ok((filas, next_cursor))
     }
 
@@ -56,7 +60,11 @@ where
     ) -> Result<(Vec<FilaMfaCoverage>, Option<Uuid>), DomainError> {
         let limite = self.limite(limit);
         let filas = self.reportes.mfa_coverage(cursor, limite).await?;
-        let next_cursor = if filas.len() as i64 == limite { filas.last().map(|f| f.user_id) } else { None };
+        let next_cursor = if filas.len() as i64 == limite {
+            filas.last().map(|f| f.user_id)
+        } else {
+            None
+        };
         Ok((filas, next_cursor))
     }
 
@@ -69,7 +77,11 @@ where
         let umbral_dias = dias.unwrap_or(DIAS_DEFAULT).max(1);
         let limite = self.limite(limit);
         let filas = self.reportes.inactive_users(umbral_dias, cursor, limite).await?;
-        let next_cursor = if filas.len() as i64 == limite { filas.last().map(|f| f.user_id) } else { None };
+        let next_cursor = if filas.len() as i64 == limite {
+            filas.last().map(|f| f.user_id)
+        } else {
+            None
+        };
         Ok((filas, next_cursor))
     }
 
@@ -82,7 +94,11 @@ where
         let umbral_dias = dias.unwrap_or(DIAS_DEFAULT).max(1);
         let limite = self.limite(limit);
         let filas = self.reportes.resources_never_rotated(umbral_dias, cursor, limite).await?;
-        let next_cursor = if filas.len() as i64 == limite { filas.last().map(|f| f.resource_id) } else { None };
+        let next_cursor = if filas.len() as i64 == limite {
+            filas.last().map(|f| f.resource_id)
+        } else {
+            None
+        };
         Ok((filas, next_cursor))
     }
 }

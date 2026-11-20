@@ -11,6 +11,12 @@
 // gana el más reciente (generar uno nuevo en cualquier lado reemplaza al del
 // otro); si sólo un lado tiene kit, se copia al otro. La privada del kit nunca
 // viaja: sólo está en el archivo que descargó el usuario.
+//
+// `must_rotate` (pendiente #23): usar el kit para recuperar la cuenta en un
+// lado lo marca para rotar sólo en ese lado. Como el kit es el mismo, el otro
+// lado tiene que quedar marcado también — si no, nunca pediría uno nuevo
+// aunque la privada ya se usó. Copiar (`PUT`) limpia la marca en el destino,
+// así que se vuelve a poner si el kit copiado la traía.
 
 import { get } from 'svelte/store';
 import { api, ApiError } from '$lib/api/client';
@@ -22,6 +28,7 @@ interface RegistroKit {
 	kit_public_key_x25519_b64: string;
 	sealed_identity_material_b64: string;
 	created_at: string;
+	must_rotate: boolean;
 }
 
 function cuerpo(r: RegistroKit) {
@@ -52,9 +59,21 @@ export async function sincronizarKit(): Promise<void> {
 	]);
 
 	if (!local && !servidor) return;
-	if (local && servidor && local.kit_public_key_x25519_b64 === servidor.kit_public_key_x25519_b64) return;
+	const marcarLocal = () => api.post('/me/recovery-kit/must-rotate', {});
+	const marcarServidor = () => remoto.post('/me/recovery-kit/must-rotate', {});
+
+	if (local && servidor && local.kit_public_key_x25519_b64 === servidor.kit_public_key_x25519_b64) {
+		if (local.must_rotate && !servidor.must_rotate) await marcarServidor();
+		else if (servidor.must_rotate && !local.must_rotate) await marcarLocal();
+		return;
+	}
 
 	const servidorGana = !local || (servidor !== null && Date.parse(servidor.created_at) > Date.parse(local.created_at));
-	if (servidorGana && servidor) await api.put('/me/recovery-kit', cuerpo(servidor));
-	else if (local) await remoto.put('/me/recovery-kit', cuerpo(local));
+	if (servidorGana && servidor) {
+		await api.put('/me/recovery-kit', cuerpo(servidor));
+		if (servidor.must_rotate) await marcarLocal();
+	} else if (local) {
+		await remoto.put('/me/recovery-kit', cuerpo(local));
+		if (local.must_rotate) await marcarServidor();
+	}
 }

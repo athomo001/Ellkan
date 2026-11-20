@@ -1,9 +1,9 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::Json;
 
 use crate::auth::extractor::AdminUser;
 use crate::auth::models::ResultadoVerify;
@@ -16,19 +16,12 @@ use super::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIden
 use super::service::SsoService;
 use crate::auth::repository::PgUserRepository;
 
-type Servicio<'a> = SsoService<
-    'a,
-    PgSsoConfigRepository,
-    PgSsoIdentityRepository,
-    PgLoginStateRepository,
-    PgUserRepository,
->;
+type Servicio<'a> = SsoService<'a, PgSsoConfigRepository, PgSsoIdentityRepository, PgLoginStateRepository, PgUserRepository>;
 
 /// Mismo criterio que `ELLKAN_RP_ORIGIN` (F-03): default de desarrollo,
 /// producción debe fijar la variable a su origen real.
 fn redirect_url(_state: &AppState) -> String {
-    std::env::var("ELLKAN_SSO_REDIRECT_URL")
-        .unwrap_or_else(|_| "http://localhost:8080/auth/sso/oidc/callback".to_string())
+    std::env::var("ELLKAN_SSO_REDIRECT_URL").unwrap_or_else(|_| "http://localhost:8080/auth/sso/oidc/callback".to_string())
 }
 
 fn servicio(state: &AppState) -> Servicio<'_> {
@@ -75,10 +68,7 @@ fn auth_service(
     }
 }
 
-pub async fn config(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-) -> Result<Json<SsoConfigResponse>, ApiError> {
+pub async fn config(State(state): State<AppState>, _admin: AdminUser) -> Result<Json<SsoConfigResponse>, ApiError> {
     let c = servicio(&state).config().await?;
     Ok(Json(SsoConfigResponse {
         issuer_url: c.issuer_url,
@@ -108,10 +98,7 @@ pub async fn actualizar_config(
 /// `GET /auth/sso/{provider}/redirect` — sólo `oidc` implementado (SAML
 /// pospuesto, F-17). Redirect real (302) para un browser; nuestros tests de
 /// integración lo siguen manualmente para poder inspeccionar la URL.
-pub async fn redirect(
-    State(state): State<AppState>,
-    Path(provider): Path<String>,
-) -> Result<Response, ApiError> {
+pub async fn redirect(State(state): State<AppState>, Path(provider): Path<String>) -> Result<Response, ApiError> {
     if provider != "oidc" {
         return Ok((StatusCode::NOT_FOUND, "proveedor no soportado").into_response());
     }
@@ -137,9 +124,7 @@ pub async fn callback(
     let resultado = auth_service(&state).resolver_tras_f02(user, &[], false).await?;
 
     Ok(Json(match resultado {
-        ResultadoVerify::SesionCompleta(s) => {
-            LoginCompletoResponse { estado: "completo".into(), session_id: Some(s.id) }
-        }
+        ResultadoVerify::SesionCompleta(s) => LoginCompletoResponse { estado: "completo".into(), session_id: Some(s.id) },
         ResultadoVerify::PendienteMfa { session_id } => {
             LoginCompletoResponse { estado: "pendiente_mfa".into(), session_id: Some(session_id) }
         }
@@ -155,4 +140,3 @@ pub async fn callback(
         ResultadoVerify::PendienteDispositivo { .. } => unreachable!("SSO nunca pasa por F-02"),
     }))
 }
-

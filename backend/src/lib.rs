@@ -50,11 +50,11 @@ pub mod users_admin;
 
 use std::time::Duration;
 
+use axum::Router;
 use axum::http::{HeaderName, HeaderValue};
 use axum::routing::{delete, get, post, put};
-use axum::Router;
-use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::GovernorLayer;
+use tower_governor::governor::GovernorConfigBuilder;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -138,11 +138,18 @@ const ORIGENES_ESCRITORIO: [&str; 3] = ["tauri://localhost", "http://tauri.local
 /// las capas para responder el preflight `OPTIONS` antes del ruteo, que si no
 /// devuelve 405.
 fn capa_cors() -> CorsLayer {
-    use axum::http::{header, Method};
+    use axum::http::{Method, header};
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(ORIGENES_ESCRITORIO.map(HeaderValue::from_static)))
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::IF_MATCH, header::IF_NONE_MATCH])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::IF_MATCH,
+            header::IF_NONE_MATCH,
+            // Token del solicitante de Account Recovery (`GET /account-recovery/requests/{id}`).
+            header::HeaderName::from_static("x-ellkan-recovery-token"),
+        ])
         // `ETag` de `GET /me/avatar`: la app lo guarda para no volver a bajar la foto.
         .expose_headers([header::ETAG])
         .max_age(std::time::Duration::from_secs(3600))
@@ -201,10 +208,7 @@ async fn fallback_frontend(req: axum::extract::Request) -> axum::response::Respo
             let headers = respuesta.headers_mut();
             headers.remove(axum::http::header::ETAG);
             headers.remove(axum::http::header::LAST_MODIFIED);
-            headers.insert(
-                axum::http::header::CACHE_CONTROL,
-                HeaderValue::from_static("no-store"),
-            );
+            headers.insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
             respuesta.into_response()
         }
         Err(_) => axum::http::StatusCode::NOT_FOUND.into_response(),
@@ -250,23 +254,42 @@ async fn rescate_spa_en_recarga(req: axum::extract::Request, next: axum::middlew
 /// Carga la identidad Ed25519 propia del servidor (`GET /auth/server-key`) —
 /// se genera una sola vez, en el primer arranque. No es un secreto
 /// zero-knowledge del usuario, es la identidad del propio servidor.
-pub async fn cargar_o_generar_server_key(pool: &sqlx::PgPool) -> anyhow::Result<[u8; 32]> {
-    if let Some(fila) = sqlx::query!("select public_key_ed25519 from server_keys where id = 1")
+///
+/// QA-37: la privada se guarda cifrada con `secrets_key` (AAD
+/// `revocacion::AAD_SERVER_KEY`): con sólo leer la DB ya no se pueden
+/// falsificar avisos de revocación firmados. Una fila de una versión
+/// anterior (privada en claro, 32 bytes) se cifra acá, al arrancar.
+pub async fn cargar_o_generar_server_key(
+    pool: &sqlx::PgPool,
+    secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+) -> anyhow::Result<[u8; 32]> {
+    if let Some(fila) = sqlx::query!("select public_key_ed25519, private_key_ed25519 from server_keys where id = 1")
         .fetch_optional(pool)
         .await?
     {
-        return Ok(fila.public_key_ed25519.try_into().expect("32 bytes"));
+        let publica: [u8; 32] = fila
+            .public_key_ed25519
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("server_keys.public_key_ed25519 no mide 32 bytes"))?;
+        if fila.private_key_ed25519.len() == 32 {
+            let cifrada = revocacion::cifrar_clave_del_servidor(secrets_key, &fila.private_key_ed25519)?;
+            sqlx::query!("update server_keys set private_key_ed25519 = $1 where id = 1", &cifrada[..])
+                .execute(pool)
+                .await?;
+            tracing::info!("clave privada del servidor migrada a almacenamiento cifrado");
+        }
+        return Ok(publica);
     }
 
     let par = ellkan_crypto::claves::KeypairFirma::generar();
     let publica = par.verificadora().to_bytes();
-    let privada = par.firmante().to_bytes();
+    let cifrada = revocacion::cifrar_clave_del_servidor(secrets_key, &par.firmante().to_bytes())?;
 
     sqlx::query!(
         "insert into server_keys (id, public_key_ed25519, private_key_ed25519) values (1, $1, $2)
          on conflict (id) do nothing",
         &publica[..],
-        &privada[..],
+        &cifrada[..],
     )
     .execute(pool)
     .await?;
@@ -276,9 +299,7 @@ pub async fn cargar_o_generar_server_key(pool: &sqlx::PgPool) -> anyhow::Result<
 
 /// Chequeo real contra Postgres, no un 200 fijo: si la DB no responde, el
 /// operador tiene que verlo acá.
-async fn healthz(
-    axum::extract::State(state): axum::extract::State<AppState>,
-) -> Result<&'static str, axum::http::StatusCode> {
+async fn healthz(axum::extract::State(state): axum::extract::State<AppState>) -> Result<&'static str, axum::http::StatusCode> {
     sqlx::query("select 1")
         .execute(&state.pool)
         .await
@@ -345,10 +366,7 @@ async fn reparar_checksums_de_migraciones(pool: &sqlx::PgPool, migrator: &sqlx::
     }
 }
 
-pub async fn construir_estado(
-    database_url: &str,
-    secrets_key: ellkan_crypto::secretos::ClaveSecreta32,
-) -> anyhow::Result<AppState> {
+pub async fn construir_estado(database_url: &str, secrets_key: ellkan_crypto::secretos::ClaveSecreta32) -> anyhow::Result<AppState> {
     instalar_crypto_provider_tls();
     // Antes: el default de sqlx (10 conexiones), el techo real de concurrencia
     // (`manual/instalacion.md`, requisitos de hardware). Con muchas personas
@@ -360,15 +378,14 @@ pub async fn construir_estado(
         .and_then(|v| v.parse::<u32>().ok())
         .filter(|n| *n > 0)
         .unwrap_or(30);
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(max_conexiones)
-        .connect(database_url)
-        .await?;
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(max_conexiones).connect(database_url).await?;
     let migrator = sqlx::migrate!("./migrations");
     reparar_checksums_de_migraciones(&pool, &migrator).await;
     migrator.run(&pool).await?;
-    let server_public_key = cargar_o_generar_server_key(&pool).await?;
-    Ok(AppState::nuevo(pool, server_public_key, secrets_key))
+    let server_public_key = cargar_o_generar_server_key(&pool, &secrets_key).await?;
+    let mut estado = AppState::nuevo(pool, server_public_key, secrets_key);
+    estado.setup_token = config::token_de_instalacion()?.map(std::sync::Arc::new);
+    Ok(estado)
 }
 
 /// Arma el router completo — separado de `main()` para que los tests de
@@ -429,16 +446,11 @@ pub fn construir_router(estado: AppState) -> Router {
     sync::avisos::spawn_consumidor(&estado.eventos, estado.recursos.clone(), estado.avisos_sync.clone());
 
     // Revocación remota: aviso firmado a las apps vinculadas al bloquear o purgar.
-    revocacion::spawn_consumidor(&estado.eventos, estado.pool.clone(), estado.avisos_sync.clone());
+    revocacion::spawn_consumidor(&estado.eventos, estado.pool.clone(), estado.secrets_key.clone(), estado.avisos_sync.clone());
 
     // F-40: purga física de lo soft-deleted vencido — diaria, idempotente,
     // sin cursor propio (cada corrida sólo actúa sobre lo que siga vencido).
-    retention::job::spawn(
-        &estado.eventos,
-        estado.retention_policy.clone(),
-        estado.purge.clone(),
-        Duration::from_secs(86_400),
-    );
+    retention::job::spawn(&estado.eventos, estado.retention_policy.clone(), estado.purge.clone(), Duration::from_secs(86_400));
 
     // F-36: resuelve `granted_by_timeout` cuando una solicitud de emergency
     // access vence sin respuesta del titular — horaria, para no dejar a un
@@ -463,17 +475,14 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let device_approval_router = Router::new()
         .route("/request", post(devices::handlers::solicitar_aprobacion))
-        .route(
-            "/{id}",
-            get(devices::handlers::estado_aprobacion),
-        )
+        .route("/{id}", get(devices::handlers::estado_aprobacion))
         .route("/{id}/approve", post(devices::handlers::aprobar));
 
     // F-14: rate limit dedicado, keyed por sesión parcial — más estricto que
     // el general, ver `rate_limit::limitar_mfa_por_sesion`.
-    let auth_mfa_router = Router::new().route("/verify", post(mfa::handlers::verify)).route_layer(
-        axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_sesion),
-    );
+    let auth_mfa_router = Router::new()
+        .route("/verify", post(mfa::handlers::verify))
+        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_sesion));
 
     let sso_router = Router::new()
         .route("/{provider}/redirect", get(sso::handlers::redirect))
@@ -510,11 +519,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", get(passkeys::handlers::listar))
         .route("/{id}", axum::routing::delete(passkeys::handlers::revocar));
 
-    let admin_device_approval_policy_router = Router::new()
-        .route("/", get(devices::handlers::politica).put(devices::handlers::actualizar_politica));
+    let admin_device_approval_policy_router =
+        Router::new().route("/", get(devices::handlers::politica).put(devices::handlers::actualizar_politica));
 
-    let me_preferences_router =
-        Router::new().route("/", get(me::handlers::obtener).put(me::handlers::actualizar));
+    let me_preferences_router = Router::new().route("/", get(me::handlers::obtener).put(me::handlers::actualizar));
 
     let me_router = Router::new()
         .route("/", get(me::handlers::perfil))
@@ -529,7 +537,9 @@ pub fn construir_router(estado: AppState) -> Router {
     let me_avatar_router = Router::new()
         .route(
             "/",
-            get(me::handlers::avatar_obtener).put(me::handlers::avatar_actualizar).delete(me::handlers::avatar_eliminar),
+            get(me::handlers::avatar_obtener)
+                .put(me::handlers::avatar_actualizar)
+                .delete(me::handlers::avatar_eliminar),
         )
         .layer(axum::extract::DefaultBodyLimit::max(3 * 1024 * 1024));
     let me_change_passphrase_router = Router::new().route("/", post(me::handlers::cambiar_passphrase));
@@ -538,8 +548,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/setup", post(mfa::handlers::setup_totp))
         .route("/confirm", post(mfa::handlers::confirm_totp));
 
-    let admin_mfa_policy_router = Router::new()
-        .route("/", get(mfa::handlers::politica).put(mfa::handlers::actualizar_politica));
+    let admin_mfa_policy_router = Router::new().route("/", get(mfa::handlers::politica).put(mfa::handlers::actualizar_politica));
 
     let admin_smtp_config_router = Router::new()
         .route("/", get(smtp_config::handlers::obtener).put(smtp_config::handlers::actualizar))
@@ -549,7 +558,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", get(resources::handlers::listar).post(resources::handlers::crear))
         .route(
             "/{id}",
-            get(resources::handlers::obtener).put(resources::handlers::actualizar).delete(resources::handlers::eliminar),
+            get(resources::handlers::obtener)
+                .put(resources::handlers::actualizar)
+                .delete(resources::handlers::eliminar),
         )
         .route("/{id}/recipients", get(resources::handlers::recipients))
         .route("/{id}/secret", get(resources::handlers::obtener_secreto))
@@ -560,10 +571,7 @@ pub fn construir_router(estado: AppState) -> Router {
             "/{id}/permissions/{grantee_type}/{grantee_id}",
             put(resources::handlers::cambiar_nivel_permiso).delete(resources::handlers::revocar_permiso),
         )
-        .route(
-            "/{id}/tags/{tag_id}",
-            post(tags::handlers::aplicar).delete(tags::handlers::quitar),
-        )
+        .route("/{id}/tags/{tag_id}", post(tags::handlers::aplicar).delete(tags::handlers::quitar))
         .route("/{id}/rekey-metadata", post(resources::handlers::rekey_metadata))
         .route("/{id}/totp", get(resources::handlers::totp))
         .route("/{id}/move", put(resources::handlers::mover))
@@ -611,24 +619,22 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/move", put(folders::handlers::mover))
         .route("/{id}/share", post(folders::handlers::compartir));
 
-    let admin_password_policy_router = Router::new()
-        .route("/", get(password_policy::handlers::politica).put(password_policy::handlers::actualizar_politica));
+    let admin_password_policy_router =
+        Router::new().route("/", get(password_policy::handlers::politica).put(password_policy::handlers::actualizar_politica));
 
     let admin_self_registration_policy_router = Router::new().route(
         "/",
         get(self_registration::handlers::politica).put(self_registration::handlers::actualizar_politica),
     );
 
-    let admin_sharing_policy_router = Router::new()
-        .route("/", get(sharing_policy::handlers::politica).put(sharing_policy::handlers::actualizar_politica));
+    let admin_sharing_policy_router =
+        Router::new().route("/", get(sharing_policy::handlers::politica).put(sharing_policy::handlers::actualizar_politica));
 
-    let admin_retention_policy_router = Router::new()
-        .route("/", get(retention::handlers::politica).put(retention::handlers::actualizar_politica));
+    let admin_retention_policy_router =
+        Router::new().route("/", get(retention::handlers::politica).put(retention::handlers::actualizar_politica));
 
-    let admin_account_recovery_policy_router = Router::new().route(
-        "/",
-        get(account_recovery::handlers::politica).put(account_recovery::handlers::actualizar_politica),
-    );
+    let admin_account_recovery_policy_router =
+        Router::new().route("/", get(account_recovery::handlers::politica).put(account_recovery::handlers::actualizar_politica));
 
     // H-09 (auditoría 2026-08-12): `/requests`/`/requests/{id}/complete` son
     // sin sesión (identificadas sólo por email/id), antes sólo cubiertas por
@@ -636,7 +642,8 @@ pub fn construir_router(estado: AppState) -> Router {
     // solicitudes pendientes el email de una víctima (mail-bombing a los
     // admins que las revisan). Mismo patrón de dos tiers que
     // `recovery_kit_reset_router`: general para pedir/consultar estado, más
-    // estricto dedicado sobre `complete` (segundo factor en juego).
+    // estricto dedicado sobre `confirm`/`complete` (código del email y
+    // segundo factor en juego).
     let account_recovery_requests_governor_conf = GovernorConfigBuilder::default()
         .per_second(1)
         .burst_size(5)
@@ -677,6 +684,7 @@ pub fn construir_router(estado: AppState) -> Router {
         )
         .merge(
             Router::new()
+                .route("/requests/{id}/confirm", post(account_recovery::handlers::confirmar_solicitud))
                 .route("/requests/{id}/complete", post(account_recovery::handlers::completar))
                 .layer(GovernorLayer::new(account_recovery_complete_governor_conf).error_handler(respuesta_limite_por_ip)),
         );
@@ -688,7 +696,8 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let me_recovery_kit_router = Router::new()
         .route("/", get(recovery_kit::handlers::estado).put(recovery_kit::handlers::generar_o_regenerar))
-        .route("/material", get(recovery_kit::handlers::material_propio));
+        .route("/material", get(recovery_kit::handlers::material_propio))
+        .route("/must-rotate", post(recovery_kit::handlers::marcar_para_rotar));
 
     // Recovery kit: reset por email sin sesión — mismo patrón de rate limit
     // por IP que `external_shares_router` (`GovernorLayer` + `retain_recent()`
@@ -744,13 +753,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/approve", post(emergency_access::handlers::aprobar))
         .route("/{id}/reject", post(emergency_access::handlers::rechazar));
 
-    let admin_emergency_access_policy_router = Router::new().route(
-        "/",
-        get(emergency_access::handlers::politica).put(emergency_access::handlers::actualizar_politica),
-    );
+    let admin_emergency_access_policy_router =
+        Router::new().route("/", get(emergency_access::handlers::politica).put(emergency_access::handlers::actualizar_politica));
 
-    let admin_sso_config_router =
-        Router::new().route("/", get(sso::handlers::config).put(sso::handlers::actualizar_config));
+    let admin_sso_config_router = Router::new().route("/", get(sso::handlers::config).put(sso::handlers::actualizar_config));
 
     // H-08 (auditoría 2026-08-12): antes sólo existía `POST` — no había
     // forma de revocar un token SCIM comprometido vía API.
@@ -760,22 +766,16 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let scim_users_router = Router::new()
         .route("/", get(scim::handlers::listar_usuarios).post(scim::handlers::crear_usuario))
-        .route(
-            "/{id}",
-            get(scim::handlers::obtener_usuario).patch(scim::handlers::patch_usuario),
-        );
+        .route("/{id}", get(scim::handlers::obtener_usuario).patch(scim::handlers::patch_usuario));
 
     let admin_directory_sync_router = Router::new()
-        .route(
-            "/config",
-            get(directory_sync::handlers::config).put(directory_sync::handlers::actualizar_config),
-        )
+        .route("/config", get(directory_sync::handlers::config).put(directory_sync::handlers::actualizar_config))
         .route("/dry-run", post(directory_sync::handlers::dry_run))
         .route("/apply", post(directory_sync::handlers::aplicar));
 
     let export_policy_router = Router::new().route("/", get(export::handlers::politica));
-    let admin_export_policy_router = Router::new()
-        .route("/", get(export::handlers::politica_admin).put(export::handlers::actualizar_politica));
+    let admin_export_policy_router =
+        Router::new().route("/", get(export::handlers::politica_admin).put(export::handlers::actualizar_politica));
     let export_events_router = Router::new().route("/", post(export::handlers::reportar_evento));
     let admin_users_export_router = Router::new().route("/", get(export::handlers::exportar_usuarios));
     let admin_groups_export_router = Router::new().route("/", get(export::handlers::exportar_grupos));
@@ -822,10 +822,7 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let admin_users_router = Router::new()
         .route("/", get(users_admin::handlers::listar).post(auth::handlers::crear_admin))
-        .route(
-            "/{id}",
-            get(users_admin::handlers::obtener).put(users_admin::handlers::actualizar_activo),
-        )
+        .route("/{id}", get(users_admin::handlers::obtener).put(users_admin::handlers::actualizar_activo))
         .route("/{id}/purge/dry-run", get(users_admin::handlers::purge_dry_run))
         .route("/{id}/purge", post(users_admin::handlers::purgar))
         .route("/{id}/avatar", get(users_admin::handlers::avatar));
@@ -920,25 +917,23 @@ pub fn construir_router(estado: AppState) -> Router {
                         actor_id = Empty,
                     )
                 })
-                .on_response(
-                    |res: &axum::http::Response<_>, latencia: std::time::Duration, span: &tracing::Span| {
-                        let status = res.status();
-                        span.record("status", status.as_u16());
-                        let latencia_ms = latencia.as_millis();
-                        // Nivel según el resultado: con el filtro por defecto
-                        // (`observabilidad.rs`) se ve todo lo que sale mal sin
-                        // configurar nada; los exitosos quedan en `debug`.
-                        if status.is_server_error() {
-                            tracing::error!(latencia_ms, "solicitud falló en el servidor");
-                        } else if status == axum::http::StatusCode::TOO_MANY_REQUESTS {
-                            tracing::warn!(latencia_ms, "solicitud rechazada por límite de solicitudes");
-                        } else if status.is_client_error() {
-                            tracing::info!(latencia_ms, "solicitud rechazada");
-                        } else {
-                            tracing::debug!(latencia_ms, "solicitud procesada");
-                        }
-                    },
-                ),
+                .on_response(|res: &axum::http::Response<_>, latencia: std::time::Duration, span: &tracing::Span| {
+                    let status = res.status();
+                    span.record("status", status.as_u16());
+                    let latencia_ms = latencia.as_millis();
+                    // Nivel según el resultado: con el filtro por defecto
+                    // (`observabilidad.rs`) se ve todo lo que sale mal sin
+                    // configurar nada; los exitosos quedan en `debug`.
+                    if status.is_server_error() {
+                        tracing::error!(latencia_ms, "solicitud falló en el servidor");
+                    } else if status == axum::http::StatusCode::TOO_MANY_REQUESTS {
+                        tracing::warn!(latencia_ms, "solicitud rechazada por límite de solicitudes");
+                    } else if status.is_client_error() {
+                        tracing::info!(latencia_ms, "solicitud rechazada");
+                    } else {
+                        tracing::debug!(latencia_ms, "solicitud procesada");
+                    }
+                }),
         )
         .with_state(estado);
 

@@ -10,8 +10,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use ellkan_backend::desktop::extension::{
-    buscar_ejecutable_en, candidatos_ejecutable, carpeta_en, escribir_conexion, esta_al_dia, instalar, nombre_de_carpeta, objetivo_de,
-    pagina_extensiones, url_backend, ARCHIVO_CONEXION, version_de_manifest, version_incluida, version_instalada, ArchivoExtension,
+    ARCHIVO_CONEXION, ArchivoExtension, buscar_ejecutable_en, candidatos_ejecutable, carpeta_en, escribir_conexion, esta_al_dia, instalar,
+    nombre_de_carpeta, objetivo_de, pagina_extensiones, url_backend, version_de_manifest, version_incluida, version_instalada,
 };
 use ellkan_backend::desktop::{cargar_config, guardar_config};
 use uuid::Uuid;
@@ -59,7 +59,10 @@ fn actualizar_pisa_lo_existente_y_borra_lo_que_ya_no_esta_en_el_bundle() {
 
     assert_eq!(fs::read(destino.join("background.js")).unwrap(), b"v2");
     assert!(destino.join("popup").join("assets").join("index-nuevo.js").exists());
-    assert!(!destino.join("popup").join("assets").join("index-viejo.js").exists(), "el asset con hash de la versión anterior debe borrarse");
+    assert!(
+        !destino.join("popup").join("assets").join("index-viejo.js").exists(),
+        "el asset con hash de la versión anterior debe borrarse"
+    );
     assert_eq!(version_instalada(&destino).as_deref(), Some("0.4.0"));
     assert!(esta_al_dia(&destino, &nuevos));
 }
@@ -99,10 +102,16 @@ fn rutas_inseguras_se_rechazan_sin_escribir_nada() {
     {
         let extra: [(&str, &[u8]); 1] = [("C:/Windows/x.txt", b"malo")];
         let archivos = bundle(&m, &extra);
-        assert!(instalar(&destino, &archivos).is_err(), "una ruta con letra de unidad tiene que rechazarse en Windows");
+        assert!(
+            instalar(&destino, &archivos).is_err(),
+            "una ruta con letra de unidad tiene que rechazarse en Windows"
+        );
     }
     assert!(!base.join("fuera.txt").exists(), "nada se puede escribir afuera de la carpeta de la extensión");
-    assert!(!destino.exists(), "se validan todas las rutas ANTES de escribir: no debe haber quedado ni la carpeta");
+    assert!(
+        !destino.exists(),
+        "se validan todas las rutas ANTES de escribir: no debe haber quedado ni la carpeta"
+    );
 }
 
 #[test]
@@ -154,13 +163,24 @@ fn los_candidatos_de_cada_navegador_se_arman_desde_las_variables_de_entorno() {
     assert!(edge.contains(&PathBuf::from("C:/PF86").join("Microsoft").join("Edge").join("Application").join("msedge.exe")));
 
     let opera = candidatos_ejecutable("opera", &entorno_de_prueba);
-    assert!(opera.contains(&PathBuf::from("C:/LA").join("Programs").join("Opera").join("opera.exe")), "Opera se instala por usuario");
+    assert!(
+        opera.contains(&PathBuf::from("C:/LA").join("Programs").join("Opera").join("opera.exe")),
+        "Opera se instala por usuario"
+    );
 
     let firefox = candidatos_ejecutable("firefox", &entorno_de_prueba);
     assert!(firefox.contains(&PathBuf::from("C:/PF").join("Mozilla Firefox").join("firefox.exe")));
 
     let brave = candidatos_ejecutable("brave", &entorno_de_prueba);
-    assert!(brave.contains(&PathBuf::from("C:/PF").join("BraveSoftware").join("Brave-Browser").join("Application").join("brave.exe")));
+    assert!(
+        brave.contains(
+            &PathBuf::from("C:/PF")
+                .join("BraveSoftware")
+                .join("Brave-Browser")
+                .join("Application")
+                .join("brave.exe")
+        )
+    );
 }
 
 #[test]
@@ -191,7 +211,11 @@ fn con_una_carpeta_de_pruebas_solo_se_buscan_los_navegadores_que_hay_ahi() {
 
     assert_eq!(buscar_ejecutable_en("chrome", Some(&carpeta)), Some(carpeta.join(nombre("chrome"))));
     assert_eq!(buscar_ejecutable_en("firefox", Some(&carpeta)), Some(carpeta.join(nombre("firefox"))));
-    assert_eq!(buscar_ejecutable_en("edge", Some(&carpeta)), None, "no hay uno falso de Edge: no se cae a buscar el real");
+    assert_eq!(
+        buscar_ejecutable_en("edge", Some(&carpeta)),
+        None,
+        "no hay uno falso de Edge: no se cae a buscar el real"
+    );
     assert_eq!(buscar_ejecutable_en("brave", Some(&carpeta)), None);
 
     for raro in ["safari", "", "../chrome", "chrome/../x"] {
@@ -231,7 +255,10 @@ fn la_eleccion_de_navegadores_se_persiste_en_la_configuracion() {
     config.extension_navegadores = vec!["chrome".into(), "firefox".into()];
     guardar_config(&dir, &config).unwrap();
 
-    assert_eq!(cargar_config(&dir).unwrap().extension_navegadores, vec!["chrome".to_string(), "firefox".to_string()]);
+    assert_eq!(
+        cargar_config(&dir).unwrap().extension_navegadores,
+        vec!["chrome".to_string(), "firefox".to_string()]
+    );
 }
 
 #[test]

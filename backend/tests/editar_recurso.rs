@@ -6,12 +6,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 fn aad_de(resource_id: Uuid, created_by: Uuid) -> Vec<u8> {
@@ -96,7 +96,11 @@ async fn editar_con_if_match_correcto_actualiza_metadata_y_resella_para_el_desti
     let status = resp.status();
     let cuerpo: Value = resp.json().await.unwrap();
     assert_eq!(status, 200, "{cuerpo:?}");
-    assert_ne!(cuerpo["updated_at"].as_str().unwrap(), recurso.updated_at, "updated_at debe avanzar tras la edición");
+    assert_ne!(
+        cuerpo["updated_at"].as_str().unwrap(),
+        recurso.updated_at,
+        "updated_at debe avanzar tras la edición"
+    );
 
     // El GET posterior devuelve la metadata/secreto nuevos.
     let get = entorno
@@ -260,7 +264,11 @@ async fn compartir_durante_una_edicion_en_vuelo_hace_que_el_put_viejo_choque_en_
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 409, "un PUT con If-Match anterior a una compartición debe chocar, no pisarla en silencio");
+    assert_eq!(
+        resp.status(),
+        409,
+        "un PUT con If-Match anterior a una compartición debe chocar, no pisarla en silencio"
+    );
 
     // Bob sigue teniendo su acceso intacto — nada se pisó.
     let resp = entorno
@@ -339,7 +347,10 @@ async fn cambiar_tipo_entre_tipos_compatibles_actualiza_sin_tocar_metadata() {
         .unwrap();
     let cuerpo_get: Value = get.json().await.unwrap();
     assert_eq!(cuerpo_get["resource_type_slug"], "ssh");
-    assert_eq!(cuerpo_get["metadata_ciphertext_b64"], metadata_antes, "la metadata no debe tocarse al cambiar sólo el tipo");
+    assert_eq!(
+        cuerpo_get["metadata_ciphertext_b64"], metadata_antes,
+        "la metadata no debe tocarse al cambiar sólo el tipo"
+    );
 }
 
 #[tokio::test]
@@ -369,7 +380,10 @@ async fn cambiar_tipo_a_uno_con_json_schema_distinto_se_rechaza() {
         .await
         .unwrap();
     let cuerpo_get: Value = get.json().await.unwrap();
-    assert_eq!(cuerpo_get["resource_type_slug"], "login-password", "el tipo original no debe cambiar tras el rechazo");
+    assert_eq!(
+        cuerpo_get["resource_type_slug"], "login-password",
+        "el tipo original no debe cambiar tras el rechazo"
+    );
 }
 
 #[tokio::test]
@@ -505,4 +519,70 @@ async fn todos_los_tipos_del_frontend_existen_en_el_servidor() {
             .unwrap();
         assert_eq!(get["resource_type_slug"], slug);
     }
+}
+
+/// QA-05: un editor (`update`) con el `If-Match` vigente que manda sólo su
+/// propio envelope no puede borrar el acceso del resto: 409 y nada cambia.
+#[tokio::test]
+async fn editor_que_omite_envelope_del_owner_recibe_409() {
+    let entorno = common::levantar().await;
+    let owner = common::registrar(&entorno, "editar-qa05-owner@test.ellkan").await;
+    let sesion_owner = common::login(&entorno, &owner).await;
+    let recurso = crear_recurso_personal(&entorno, sesion_owner, &owner).await;
+
+    let editor = common::registrar(&entorno, "editar-qa05-editor@test.ellkan").await;
+    let sesion_editor = common::login(&entorno, &editor).await;
+    let dek = SecretBox::new(Box::new([3u8; 32]));
+    let aad = aad_de(recurso.id, owner.user_id);
+    let secreto_env = aead::cifrar(&dek, br#"{"password":"pw"}"#, &aad).unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{}/share", entorno.base, recurso.id))
+        .bearer_auth(sesion_owner)
+        .json(&json!({
+            "recipient_user_id": editor.user_id,
+            "sealed_dek_b64": B64.encode(sellado::sellar_dek(editor.x25519.publica(), &dek)),
+            "secret_ciphertext_b64": B64.encode(&secreto_env.ciphertext),
+            "secret_nonce_b64": B64.encode(secreto_env.nonce),
+            "level": "update",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // `updated_at` vigente (después del share).
+    let actual: Value = entorno
+        .cliente
+        .get(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion_editor)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let if_match = actual["updated_at"].as_str().unwrap().to_string();
+
+    let dek_nueva = SecretBox::new(Box::new([4u8; 32]));
+    let body = armar_put_body(&editor, recurso.id, &dek_nueva);
+    let resp = entorno
+        .cliente
+        .put(format!("{}/resources/{}", entorno.base, recurso.id))
+        .bearer_auth(sesion_editor)
+        .header("If-Match", &if_match)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409, "omitir el envelope de otro destinatario debe rechazarse");
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/secret", entorno.base, recurso.id))
+        .bearer_auth(sesion_owner)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "el owner sigue leyendo su secreto");
 }

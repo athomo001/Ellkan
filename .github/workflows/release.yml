@@ -1,0 +1,350 @@
+# Autor: Athan Espinoza
+#
+# Releases (pendientes #128/#129). Sin tags a mano: la rama decide el canal.
+#   - Merge/push a `main`    → Release oficial `vX.Y.Z`, marcada «Latest»;
+#                              imagen con etiquetas X.Y.Z, X.Y y latest.
+#                              Si `vX.Y.Z` ya existe (no se subió la versión),
+#                              no hace nada.
+#   - Push a `develop`       → pre-release `vX.Y.Z-dev.N` (N = número de
+#                              corrida); imagen con etiquetas X.Y.Z-dev.N y
+#                              dev. Sólo queda la última pre-release -dev.
+# X.Y.Z es la versión de `app-escritorio/src-tauri/tauri.conf.json` (para una
+# versión nueva: `node .github/scripts/fijar-version.mjs X.Y.Z` + CHANGELOG).
+# Se compila y publica:
+#   - Windows: MSI + ZIP portable (`build-windows.ps1`, el mismo script local)
+#   - Linux:   AppImage + .deb (`build-linux.sh`)
+#   - CLI de administración (`ellkan-cli`) para Windows y Linux
+#   - Extensión: .zip para Chrome/Edge/Brave/Opera y .xpi para Firefox
+#   - Servidor: imagen Docker en GHCR (ghcr.io/athomo001/ellkan)
+# El MSI y los navegadores sólo aceptan X.Y.Z numérico: el sufijo -dev.N sólo
+# marca la Release y la imagen.
+#
+# Firefox: si existen los secretos AMO_JWT_ISSUER/AMO_JWT_SECRET, el .xpi de
+# `main` se firma en addons.mozilla.org (canal unlisted; AMO no acepta firmar
+# dos veces la misma versión, por eso no las -dev); si no, se publica sin
+# firmar (sólo instalable en modo desarrollador).
+#
+# Acciones fijadas por SHA (como en ci.yml). Sólo el job final escribe en el
+# repo (crear la Release).
+
+name: Release
+
+on:
+  push:
+    branches: [main, develop]
+    # Un cambio sólo de documentación no genera Release.
+    paths-ignore: ['**.md', 'manual/**', 'assets/**', 'LICENSE*']
+  # Prueba manual: compila todo y deja los artefactos en la corrida, sin
+  # crear ninguna Release ni publicar la imagen.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# En develop un push nuevo cancela la corrida anterior; en main nunca.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/develop' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  version:
+    name: Versión
+    runs-on: ubuntu-24.04
+    outputs:
+      numero: ${{ steps.v.outputs.numero }}
+      tag: ${{ steps.v.outputs.tag }}
+      canal: ${{ steps.v.outputs.canal }}
+      seguir: ${{ steps.v.outputs.seguir }}
+      publicar: ${{ steps.v.outputs.publicar }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # canal: main (oficial), dev (pre-release) o prueba (manual, no publica).
+      - id: v
+        run: |
+          numero=$(node -p "require('./app-escritorio/src-tauri/tauri.conf.json').version")
+          if ! [[ "$numero" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versión inválida en tauri.conf.json: '$numero' (se espera X.Y.Z)"
+            exit 1
+          fi
+          seguir=true; publicar=true
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            canal=prueba; tag="v$numero"; publicar=false
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            canal=main; tag="v$numero"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "::notice::$tag ya está publicada: subí la versión (fijar-version.mjs) para sacar una nueva."
+              seguir=false; publicar=false
+            fi
+          else
+            canal=dev; tag="v$numero-dev.$GITHUB_RUN_NUMBER"
+          fi
+          { echo "numero=$numero"; echo "tag=$tag"; echo "canal=$canal"
+            echo "seguir=$seguir"; echo "publicar=$publicar"; } >> "$GITHUB_OUTPUT"
+          echo "Versión $numero → $tag (canal $canal, publicar=$publicar)"
+
+  windows:
+    if: needs.version.outputs.seguir == 'true'
+    name: Windows (MSI + portable)
+    needs: version
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      # Genera node_modules/$app/tsconfig.json, que la extensión necesita
+      # (importa código del frontend) y prepara antes que el frontend.
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
+      - name: Fijar la versión
+        run: node .github/scripts/fijar-version.mjs $env:VERSION
+      # El script prepara la extensión embebida, compila los auxiliares,
+      # empaqueta el MSI, verifica que traiga los tres ejecutables y arma el
+      # ZIP portable.
+      - name: Compilar y empaquetar
+        run: ./app-escritorio/windows/binarios/build-windows.ps1 -MantenerVersion
+      # La CLI de administración (crear el primer admin, backups…), para no
+      # tener que instalar Rust sólo para eso.
+      - name: CLI
+        run: cargo build --release -p ellkan-cli
+      - name: Juntar artefactos
+        run: |
+          $dir = "app-escritorio/windows/binarios"
+          New-Item -ItemType Directory -Force salida | Out-Null
+          Copy-Item "$dir/Ellkan_$($env:VERSION)_x64_es-ES.msi" salida/ -ErrorAction Stop
+          Copy-Item "$dir/ellkan-desktop-portable.zip" "salida/Ellkan_$($env:VERSION)_x64_portable.zip" -ErrorAction Stop
+          Copy-Item "target/release/ellkan-cli.exe" "salida/ellkan-cli_$($env:VERSION)_windows_x64.exe" -ErrorAction Stop
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: salida/*
+          if-no-files-found: error
+
+  linux:
+    if: needs.version.outputs.seguir == 'true'
+    name: Linux (AppImage + .deb)
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Fijar la versión
+        run: node .github/scripts/fijar-version.mjs "$VERSION"
+      - name: CLI
+        run: cargo build --release -p ellkan-cli
+      # Instala las librerías de Tauri que falten (el runner tiene sudo sin
+      # contraseña), genera los bindings WASM y deja los paquetes en
+      # app-escritorio/linuxOS/binarios/.
+      - name: Compilar y empaquetar
+        run: bash app-escritorio/linuxOS/binarios/build-linux.sh --modo linux --bundles appimage,deb
+      - name: Juntar artefactos
+        run: |
+          mkdir -p salida
+          cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.AppImage" salida/
+          cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.deb" salida/
+          cp -v target/release/ellkan-cli "salida/ellkan-cli_${VERSION}_linux_x64"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux
+          path: salida/*
+          if-no-files-found: error
+
+  extension:
+    if: needs.version.outputs.seguir == 'true'
+    name: Extensión (Chromium + Firefox)
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
+      - name: Empaquetar
+        run: node extension/cli.mjs -b chrome,edge,brave,opera,firefox --version "$VERSION" --no-crx --out salida
+      - name: Nombres con versión
+        run: |
+          cd salida
+          for f in ellkan-*.zip ellkan-*.xpi; do mv -v "$f" "${f%.*}-${VERSION}.${f##*.}"; done
+      - name: Firmar el .xpi en addons.mozilla.org
+        if: needs.version.outputs.canal == 'main' && env.AMO_JWT_ISSUER != '' && env.AMO_JWT_SECRET != ''
+        run: |
+          pnpm -C extension build:firefox
+          npx --yes web-ext@10.8.0 sign --source-dir extension/dist --channel unlisted \
+            --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET" --artifacts-dir firmado
+          firmado=$(ls firmado/*.xpi)
+          mv -v "$firmado" "salida/ellkan-firefox-${VERSION}.xpi"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: extension
+          path: salida/*
+          if-no-files-found: error
+
+  docker:
+    if: needs.version.outputs.seguir == 'true'
+    name: Imagen Docker (GHCR)
+    needs: version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # build-push-action sube el registro del build como artefacto
+      # (*.dockerbuild); sin esto, el job de publicar lo adjuntaba a la Release.
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: needs.version.outputs.publicar == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # main: X.Y.Z, X.Y y latest. dev: X.Y.Z-dev.N y dev (nunca latest).
+      # Las etiquetas OCI (`org.opencontainers.image.source`) enlazan el
+      # paquete con el repo.
+      - id: serie
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          echo "serie=${NUMERO%.*}" >> "$GITHUB_OUTPUT"
+          echo "etiqueta=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/ellkan
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.serie.outputs.etiqueta }}
+            type=raw,value=${{ steps.serie.outputs.serie }},enable=${{ needs.version.outputs.canal == 'main' }}
+            type=raw,value=latest,enable=${{ needs.version.outputs.canal == 'main' }}
+            type=raw,value=dev,enable=${{ needs.version.outputs.canal == 'dev' }}
+      # En la prueba manual (workflow_dispatch) sólo compila: no publica.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: ${{ needs.version.outputs.publicar == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Procedencia de build (SLSA) y SBOM adjuntos a la imagen.
+          provenance: mode=max
+          sbom: true
+
+  publicar:
+    name: Publicar la Release
+    needs: [version, windows, linux, extension, docker]
+    if: needs.version.outputs.publicar == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.version.outputs.tag }}
+      NUMERO: ${{ needs.version.outputs.numero }}
+      CANAL: ${{ needs.version.outputs.canal }}
+      DUENO: ${{ github.repository_owner }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artefactos
+          merge-multiple: true
+      - name: Sumas SHA-256
+        run: cd artefactos && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      # Las notas (.github/release-notas.md) separan lo que trae la Release
+      # (app de escritorio + extensión, uso personal) del servidor para
+      # equipos (imagen Docker, que no incluye la app de escritorio). GitHub
+      # agrega abajo la lista de cambios. El tag lo crea la Release sobre el
+      # commit de esta corrida.
+      - name: Crear la Release
+        run: |
+          if [ "$CANAL" = "main" ]; then
+            extra=(--latest); titulo="Ellkan $TAG"; imagen="$NUMERO"
+          else
+            extra=(--prerelease --latest=false); titulo="Ellkan $TAG (desarrollo)"; imagen=dev
+          fi
+          {
+            if [ "$CANAL" != "main" ]; then
+              echo '> [!WARNING]'
+              echo '> **Versión de desarrollo** (rama `develop`): se reemplaza en cada cambio y no es para producción. La última versión estable es la marcada «Latest».'
+              echo
+            fi
+            sed -e "s|{{VERSION}}|$NUMERO|g" -e "s|{{IMAGEN}}|$imagen|g" \
+                -e "s|{{DUENO}}|$DUENO|g" -e "s|{{REPO}}|$REPO|g" .github/release-notas.md
+          } > notas.md
+          gh release create "$TAG" artefactos/* --target "$GITHUB_SHA" --title "$titulo" --notes-file notas.md --generate-notes "${extra[@]}"
+      # Sólo queda la pre-release -dev más reciente (las imágenes viejas
+      # siguen en GHCR con su etiqueta X.Y.Z-dev.N).
+      - name: Borrar pre-releases -dev anteriores
+        if: needs.version.outputs.canal == 'dev'
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E -- '-dev\.[0-9]+$' | grep -vxF -- "$TAG" \
+            | while read -r viejo; do gh release delete "$viejo" --yes --cleanup-tag; done

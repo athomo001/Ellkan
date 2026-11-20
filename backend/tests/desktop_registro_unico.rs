@@ -11,19 +11,22 @@
 //! Service.
 #![cfg(feature = "desktop")]
 
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use ellkan_backend::desktop::router::construir_router_desktop;
 use ellkan_backend::desktop::state::AppStateDesktop;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
-use sqlx::sqlite::SqlitePoolOptions;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use tower::ServiceExt;
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -31,8 +34,8 @@ fn cuerpo_registro(email: &str) -> Value {
     // Sólo la LONGITUD de las claves públicas importa en este punto
     // (`AuthService::registrar` valida 32 bytes, nunca que sean puntos
     // válidos de la curva) — 32 bytes cualquiera alcanzan para este test.
-    use base64::engine::general_purpose::STANDARD as B64;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as B64;
     json!({
         "email": email,
         "display_name": "Usuario de prueba",
@@ -63,7 +66,11 @@ async fn post(estado: AppStateDesktop, uri: &str, cuerpo: Value) -> (StatusCode,
         .unwrap();
     let status = resp.status();
     let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-    let cuerpo: Value = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
+    let cuerpo: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     (status, cuerpo)
 }
 
@@ -84,7 +91,11 @@ async fn segundo_registro_se_rechaza_explicito_con_el_motivo_real() {
     let estado2 = AppStateDesktop::nuevo(datadir, pool, [9u8; 32], secrets_key2);
     let (status2, cuerpo2) = registrar(estado2, "segundo@local.ellkan").await;
 
-    assert_eq!(status2, StatusCode::BAD_REQUEST, "un segundo registro debe rechazarse, modo escritorio es de 1 solo usuario");
+    assert_eq!(
+        status2,
+        StatusCode::BAD_REQUEST,
+        "un segundo registro debe rechazarse, modo escritorio es de 1 solo usuario"
+    );
     let mensaje = cuerpo2["error"]["message"].as_str().unwrap_or_default();
     assert!(
         mensaje.contains("un solo usuario") || mensaje.contains("ya tiene un usuario"),
@@ -139,7 +150,9 @@ async fn adoptar_identidad_exige_sesion_y_reemplaza_al_usuario_local() {
         .bind(id_local.to_string())
         .bind(stamp)
         .bind(ellkan_backend::desktop::sqlite_util::fmt_dt(time::OffsetDateTime::now_utc()))
-        .bind(ellkan_backend::desktop::sqlite_util::fmt_dt(time::OffsetDateTime::now_utc() + time::Duration::hours(1)))
+        .bind(ellkan_backend::desktop::sqlite_util::fmt_dt(
+            time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        ))
         .execute(&pool)
         .await
         .expect("sesión de prueba (si cambió el esquema de `sessions`, ajustar este insert)");

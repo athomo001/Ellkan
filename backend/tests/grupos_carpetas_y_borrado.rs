@@ -20,7 +20,7 @@
 
 mod common;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_grupo(entorno: &common::Entorno, sesion_admin: Uuid, name: &str) -> Uuid {
@@ -147,14 +147,23 @@ async fn visibilidad_de_usuarios_acotada_por_grupo() {
     let resultados = buscar(&entorno, sesion_carol, "gc-dave").await;
     assert!(contiene_email(&resultados, "gc-dave@test.ellkan"), "carol debería ver a dave, mismo grupo");
     let resultados = buscar(&entorno, sesion_carol, "gc-alice").await;
-    assert!(!contiene_email(&resultados, "gc-alice@test.ellkan"), "carol no debería ver a alice, grupos distintos");
+    assert!(
+        !contiene_email(&resultados, "gc-alice@test.ellkan"),
+        "carol no debería ver a alice, grupos distintos"
+    );
 
     // Dave es admin de grupo: ve a Eve (admin de OTRO grupo) aunque no comparten grupo.
     let resultados = buscar(&entorno, sesion_dave, "gc-eve").await;
-    assert!(contiene_email(&resultados, "gc-eve@test.ellkan"), "un admin de grupo debería ver a admins de otros grupos");
+    assert!(
+        contiene_email(&resultados, "gc-eve@test.ellkan"),
+        "un admin de grupo debería ver a admins de otros grupos"
+    );
     // Pero Dave no ve a Alice (regular, sin grupo, no admin de nada).
     let resultados = buscar(&entorno, sesion_dave, "gc-alice").await;
-    assert!(!contiene_email(&resultados, "gc-alice@test.ellkan"), "un admin de grupo no ve a un regular de otro/ningún grupo");
+    assert!(
+        !contiene_email(&resultados, "gc-alice@test.ellkan"),
+        "un admin de grupo no ve a un regular de otro/ningún grupo"
+    );
 
     // El admin de organización ve a cualquiera.
     let resultados = buscar(&entorno, sesion_admin, "gc-alice").await;
@@ -189,7 +198,10 @@ async fn compartir_recurso_funciona_aunque_la_busqueda_este_restringida_por_grup
     // Confirmado (mismo criterio que `visibilidad_de_usuarios_acotada_por_grupo`):
     // sin grupo, alice no ve a bob en la búsqueda.
     let resultados = buscar(&entorno, sesion_alice, "gc-vis-bob").await;
-    assert!(!contiene_email(&resultados, "gc-vis-bob@test.ellkan"), "sin grupo, alice no debería ver a bob en la búsqueda");
+    assert!(
+        !contiene_email(&resultados, "gc-vis-bob@test.ellkan"),
+        "sin grupo, alice no debería ver a bob en la búsqueda"
+    );
 
     // Pero compartir directo (conociendo el user_id por otro medio) sigue
     // funcionando — comportamiento intencional, no un bug.
@@ -261,7 +273,10 @@ async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
 
     // Ahora alice (miembro de un grupo exento) ve a carol, que ni siquiera tiene grupo.
     let resultados = buscar(&entorno, sesion_alice, "gcx-carol").await;
-    assert!(contiene_email(&resultados, "gcx-carol@test.ellkan"), "miembro de grupo exento debería ver a cualquiera");
+    assert!(
+        contiene_email(&resultados, "gcx-carol@test.ellkan"),
+        "miembro de grupo exento debería ver a cualquiera"
+    );
 
     // Apagar la exención puntual — alice vuelve a no ver a carol.
     let resp = entorno
@@ -277,7 +292,10 @@ async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
     let dave = common::registrar(&entorno, "gcx-dave@test.ellkan").await; // sin grupo, sin exención
     let sesion_dave = common::login(&entorno, &dave).await;
     let resultados = buscar(&entorno, sesion_dave, "gcx-carol").await;
-    assert!(!contiene_email(&resultados, "gcx-carol@test.ellkan"), "sin exención ni política apagada, dave no debería ver a carol");
+    assert!(
+        !contiene_email(&resultados, "gcx-carol@test.ellkan"),
+        "sin exención ni política apagada, dave no debería ver a carol"
+    );
 
     // Apagar la política entera: hasta alguien completamente sin grupo ve a todos.
     let resp = entorno
@@ -291,7 +309,10 @@ async fn grupo_share_exempt_y_apagar_la_politica_dan_visibilidad_total() {
     assert_eq!(resp.status(), 200);
 
     let resultados = buscar(&entorno, sesion_dave, "gcx-carol").await;
-    assert!(contiene_email(&resultados, "gcx-carol@test.ellkan"), "con la política apagada, cualquiera ve a cualquiera");
+    assert!(
+        contiene_email(&resultados, "gcx-carol@test.ellkan"),
+        "con la política apagada, cualquiera ve a cualquiera"
+    );
 }
 
 #[tokio::test]
@@ -346,7 +367,11 @@ async fn mover_carpeta_a_su_propio_descendiente_es_un_ciclo_rechazado() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 400, "mover una carpeta dentro de su propio descendiente debería rechazarse como ciclo");
+    assert_eq!(
+        resp.status(),
+        400,
+        "mover una carpeta dentro de su propio descendiente debería rechazarse como ciclo"
+    );
 }
 
 #[tokio::test]
@@ -404,7 +429,11 @@ async fn cualquier_miembro_agrega_recursos_a_carpeta_de_grupo_pero_no_un_ajeno()
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 403, "agregar a la carpeta nunca comparte el recurso en sí, sigue siendo un paso aparte");
+    assert_eq!(
+        resp.status(),
+        403,
+        "agregar a la carpeta nunca comparte el recurso en sí, sigue siendo un paso aparte"
+    );
 }
 
 /// Regresión de seguridad (auditoría 2026-08-12, H-02): `mover_recurso` sólo
@@ -456,7 +485,11 @@ async fn mover_recurso_ajeno_a_carpeta_de_grupo_propio_es_rechazado() {
     // Mallory intenta "enmarcar" el recurso de Victima en su propia carpeta —
     // sin ningún permiso (ni siquiera `read`) sobre ese recurso.
     let resp = mover_recurso(&entorno, sesion_mallory, recurso_victima, Some(folder_mallory)).await;
-    assert_eq!(resp.status(), 403, "mover un recurso ajeno a una carpeta propia debería rechazarse, sin importar quién administre la carpeta destino");
+    assert_eq!(
+        resp.status(),
+        403,
+        "mover un recurso ajeno a una carpeta propia debería rechazarse, sin importar quién administre la carpeta destino"
+    );
 
     // El recurso de Victima no quedó posicionado en la carpeta de Mallory.
     let resp = entorno
@@ -552,7 +585,10 @@ async fn borrar_recurso_en_carpeta_de_grupo_exige_admin_de_ese_grupo_o_de_organi
         .await
         .unwrap();
     let listado: Value = resp.json().await.unwrap();
-    assert!(listado.as_array().unwrap().iter().all(|r| r["id"] != json!(recurso)), "el recurso borrado no debería seguir listado");
+    assert!(
+        listado.as_array().unwrap().iter().all(|r| r["id"] != json!(recurso)),
+        "el recurso borrado no debería seguir listado"
+    );
 }
 
 #[tokio::test]
@@ -617,7 +653,10 @@ async fn incluir_subcarpetas_trae_tambien_los_recursos_de_las_subcarpetas() {
     let listado: Value = serde_json::from_str(&texto).unwrap();
     let ids: Vec<String> = listado.as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
     assert!(ids.contains(&recurso_a.to_string()));
-    assert!(ids.contains(&recurso_b.to_string()), "con incluir_subcarpetas, debería traer también lo de la subcarpeta");
+    assert!(
+        ids.contains(&recurso_b.to_string()),
+        "con incluir_subcarpetas, debería traer también lo de la subcarpeta"
+    );
 }
 
 /// Regresión H-28 (auditoría 2026-08-12): los dos únicos managers de un
@@ -679,4 +718,327 @@ async fn dos_managers_quitandose_mutuamente_en_simultaneo_nunca_deja_miembros_si
     let grupo_resp: Value = resp.json().await.unwrap();
     let managers = grupo_resp["members"].as_array().unwrap().iter().filter(|m| m["is_admin"] == true).count();
     assert_eq!(managers, 1, "debe quedar exactamente un manager, nunca cero");
+}
+
+/// QA-04: un lector (`read`) que además administra un grupo no puede
+/// convertir el recurso ajeno en "recurso de carpeta de grupo" para
+/// borrarlo — ni moviéndolo directo a la carpeta del grupo, ni moviéndolo
+/// a una carpeta personal que después comparte con su grupo.
+#[tokio::test]
+async fn usuario_con_read_y_admin_de_grupo_no_puede_borrar_recurso_ajeno() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gc-qa04-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let victima = common::registrar(&entorno, "gc-qa04-victima@test.ellkan").await;
+    let mallory = common::registrar(&entorno, "gc-qa04-mallory@test.ellkan").await;
+    let sesion_victima = common::login(&entorno, &victima).await;
+    let sesion_mallory = common::login(&entorno, &mallory).await;
+
+    let g_mallory = crear_grupo(&entorno, sesion_admin, "G-qa04").await;
+    agregar_miembro(&entorno, sesion_admin, g_mallory, mallory.user_id, true).await;
+
+    // La víctima le comparte el recurso a Mallory sólo con `read`.
+    let recurso = crear_recurso(&entorno, sesion_victima).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{recurso}/share", entorno.base))
+        .bearer_auth(sesion_victima)
+        .json(&json!({
+            "recipient_user_id": mallory.user_id,
+            "sealed_dek_b64": "eA==",
+            "secret_ciphertext_b64": "eA==",
+            "secret_nonce_b64": "eA==",
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let compartir_con_grupo = |folder: Uuid| {
+        let entorno = &entorno;
+        async move {
+            let resp = entorno
+                .cliente
+                .post(format!("{}/folders/{folder}/share", entorno.base))
+                .bearer_auth(sesion_mallory)
+                .json(&json!({
+                    "grantee_type": "group",
+                    "grantee_id": g_mallory,
+                    "level": "read",
+                    "member_envelopes": [
+                        { "user_id": mallory.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                    ],
+                }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+        }
+    };
+    let borrar = || {
+        let entorno = &entorno;
+        async move {
+            entorno
+                .cliente
+                .delete(format!("{}/resources/{recurso}", entorno.base))
+                .bearer_auth(sesion_mallory)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    // Camino A: mover directo a la carpeta de su grupo.
+    let carpeta_grupo = crear_carpeta_ok(&entorno, sesion_mallory, None).await;
+    compartir_con_grupo(carpeta_grupo).await;
+    let resp = mover_recurso(&entorno, sesion_mallory, recurso, Some(carpeta_grupo)).await;
+    assert_eq!(resp.status(), 403, "con `read` no se puede mover un recurso a una carpeta compartida");
+    assert_eq!(borrar().await, 403);
+
+    // Camino B: carpeta personal (permitido con `read`), compartida después.
+    let carpeta_personal = crear_carpeta_ok(&entorno, sesion_mallory, None).await;
+    let resp = mover_recurso(&entorno, sesion_mallory, recurso, Some(carpeta_personal)).await;
+    assert_eq!(resp.status(), 200, "reordenar el propio árbol con `read` sigue permitido");
+    compartir_con_grupo(carpeta_personal).await;
+    assert_eq!(
+        borrar().await,
+        403,
+        "una posición hecha por alguien que no es owner no habilita el borrado por grupo"
+    );
+
+    // El recurso sigue intacto para la víctima.
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{recurso}", entorno.base))
+        .bearer_auth(sesion_victima)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+/// QA-12: `GET /resources` calcula `puede_borrar` de todo el listado en un
+/// lote (antes, 3–5 queries por recurso). El resultado tiene que coincidir,
+/// caso por caso, con lo que después responde `DELETE`.
+#[tokio::test]
+async fn puede_borrar_del_listado_coincide_con_delete() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gc-qa12-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+
+    let dave = common::registrar(&entorno, "gc-qa12-dave@test.ellkan").await;
+    let carol = common::registrar(&entorno, "gc-qa12-carol@test.ellkan").await;
+    let sesion_dave = common::login(&entorno, &dave).await;
+    let sesion_carol = common::login(&entorno, &carol).await;
+
+    let g1 = crear_grupo(&entorno, sesion_admin, "G-qa12").await;
+    agregar_miembro(&entorno, sesion_admin, g1, dave.user_id, true).await;
+    agregar_miembro(&entorno, sesion_admin, g1, carol.user_id, false).await;
+
+    let carpeta_grupo = crear_carpeta_ok(&entorno, sesion_dave, None).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/folders/{carpeta_grupo}/share", entorno.base))
+        .bearer_auth(sesion_dave)
+        .json(&json!({
+            "grantee_type": "group",
+            "grantee_id": g1,
+            "level": "read",
+            "member_envelopes": [
+                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+            ],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Carol: uno propio suelto, uno propio en la carpeta del grupo, y uno
+    // ajeno (de Dave) que le compartieron con `read`.
+    let r_libre = crear_recurso(&entorno, sesion_carol).await;
+    let r_grupo = crear_recurso(&entorno, sesion_carol).await;
+    assert_eq!(mover_recurso(&entorno, sesion_carol, r_grupo, Some(carpeta_grupo)).await.status(), 200);
+    let r_ajeno = crear_recurso(&entorno, sesion_dave).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{r_ajeno}/share", entorno.base))
+        .bearer_auth(sesion_dave)
+        .json(&json!({
+            "recipient_user_id": carol.user_id,
+            "sealed_dek_b64": "eA==",
+            "secret_ciphertext_b64": "eA==",
+            "secret_nonce_b64": "eA==",
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let listado: Value = entorno
+        .cliente
+        .get(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion_carol)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let puede = |id: Uuid| {
+        listado
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == json!(id))
+            .map(|r| r["puede_borrar"].clone())
+            .unwrap()
+    };
+    assert_eq!(puede(r_libre), json!(true), "owner fuera de carpeta de grupo");
+    assert_eq!(puede(r_grupo), json!(false), "owner individual dentro de carpeta de grupo");
+    assert_eq!(puede(r_ajeno), json!(false), "sólo `read`");
+
+    let borrar = |id: Uuid| entorno.cliente.delete(format!("{}/resources/{id}", entorno.base)).bearer_auth(sesion_carol).send();
+    assert_eq!(borrar(r_ajeno).await.unwrap().status(), 403);
+    assert_eq!(borrar(r_grupo).await.unwrap().status(), 403);
+    assert_eq!(borrar(r_libre).await.unwrap().status(), 200);
+}
+
+/// QA-19: el detalle de un grupo sólo trae los miembros (con correos) para
+/// un miembro, quien lo administra o un admin de organización.
+#[tokio::test]
+async fn detalle_de_grupo_no_expone_miembros_a_ajenos() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gc-qa19-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    let miembro = common::registrar(&entorno, "gc-qa19-miembro@test.ellkan").await;
+    let ajeno = common::registrar(&entorno, "gc-qa19-ajeno@test.ellkan").await;
+    let sesion_miembro = common::login(&entorno, &miembro).await;
+    let sesion_ajeno = common::login(&entorno, &ajeno).await;
+
+    let grupo = crear_grupo(&entorno, sesion_admin, "G-qa19").await;
+    agregar_miembro(&entorno, sesion_admin, grupo, miembro.user_id, false).await;
+
+    let entorno = &entorno;
+    let detalle = |sesion: Uuid| async move {
+        let resp = entorno
+            .cliente
+            .get(format!("{}/groups/{grupo}", entorno.base))
+            .bearer_auth(sesion)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        resp.json::<Value>().await.unwrap()
+    };
+    let miembros = |v: &Value| v["members"].as_array().map(|a| a.len()).unwrap_or(0);
+
+    assert_eq!(miembros(&detalle(sesion_admin).await), 1);
+    assert_eq!(miembros(&detalle(sesion_miembro).await), 1);
+    let visto_por_ajeno = detalle(sesion_ajeno).await;
+    assert_eq!(visto_por_ajeno["name"], "G-qa19", "los metadatos siguen visibles");
+    assert_eq!(miembros(&visto_por_ajeno), 0, "un ajeno no ve el directorio del grupo");
+}
+
+/// QA-20: el manager de un subgrupo no puede sacarlo a la raíz (y así
+/// sustraerlo de la autoridad de los managers del padre) sin el privilegio
+/// de crear grupos raíz.
+#[tokio::test]
+async fn manager_de_subgrupo_no_puede_convertirlo_en_raiz() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "gc-qa20-admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    let manager = common::registrar(&entorno, "gc-qa20-manager@test.ellkan").await;
+    let sesion_manager = common::login(&entorno, &manager).await;
+
+    let padre = crear_grupo(&entorno, sesion_admin, "G-qa20-padre").await;
+    let hijo = Uuid::now_v7();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/groups", entorno.base))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "id": hijo, "name": "G-qa20-hijo", "parent_group_id": padre }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    agregar_miembro(&entorno, sesion_admin, hijo, manager.user_id, true).await;
+
+    let mover = |sesion: Uuid| {
+        let entorno = &entorno;
+        async move {
+            entorno
+                .cliente
+                .put(format!("{}/groups/{hijo}/move", entorno.base))
+                .bearer_auth(sesion)
+                .json(&json!({ "new_parent_group_id": null }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(mover(sesion_manager).await, 403);
+    assert_eq!(mover(sesion_admin).await, 200, "un admin de organización sí puede");
+}
+
+/// QA-35: un recurso borrado (soft-delete) deja de ser legible por API para
+/// sus destinatarios, aunque las filas de permiso sigan hasta la purga.
+#[tokio::test]
+async fn recurso_borrado_no_sirve_su_secreto_a_los_destinatarios() {
+    let entorno = common::levantar().await;
+    let duena = common::registrar(&entorno, "gc-qa35-duena@test.ellkan").await;
+    let lector = common::registrar(&entorno, "gc-qa35-lector@test.ellkan").await;
+    let sesion_duena = common::login(&entorno, &duena).await;
+    let sesion_lector = common::login(&entorno, &lector).await;
+
+    let recurso = crear_recurso(&entorno, sesion_duena).await;
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources/{recurso}/share", entorno.base))
+        .bearer_auth(sesion_duena)
+        .json(&json!({
+            "recipient_user_id": lector.user_id,
+            "sealed_dek_b64": "eA==",
+            "secret_ciphertext_b64": "eA==",
+            "secret_nonce_b64": "eA==",
+            "level": "read",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let secreto = || {
+        let entorno = &entorno;
+        async move {
+            entorno
+                .cliente
+                .get(format!("{}/resources/{recurso}/secret", entorno.base))
+                .bearer_auth(sesion_lector)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(secreto().await, 200);
+
+    let resp = entorno
+        .cliente
+        .delete(format!("{}/resources/{recurso}", entorno.base))
+        .bearer_auth(sesion_duena)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_ne!(secreto().await, 200, "un recurso borrado no sirve su secreto");
 }

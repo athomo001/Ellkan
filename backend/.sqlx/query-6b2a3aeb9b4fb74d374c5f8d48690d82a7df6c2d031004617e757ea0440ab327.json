@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update smtp_config set host = null where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6b2a3aeb9b4fb74d374c5f8d48690d82a7df6c2d031004617e757ea0440ab327"
+}

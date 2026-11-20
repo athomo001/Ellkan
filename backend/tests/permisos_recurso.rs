@@ -8,13 +8,13 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_metadata_key(entorno: &common::Entorno, sesion_admin: Uuid, admin: &common::Usuario) -> Uuid {
@@ -386,7 +386,10 @@ async fn agregar_destinatario_a_metadata_key_existente_le_da_acceso_real() {
         .unwrap();
     let claves: Value = resp.json().await.unwrap();
     let clave = claves.as_array().unwrap().iter().find(|c| c["id"] == json!(metadata_key_id)).unwrap();
-    assert!(!clave["own_sealed_private_key_b64"].is_null(), "el admin creador sí debería tener su propio envelope");
+    assert!(
+        !clave["own_sealed_private_key_b64"].is_null(),
+        "el admin creador sí debería tener su propio envelope"
+    );
 
     // Admin agrega a Bob como destinatario nuevo de la key ya activa.
     let par_bob: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();

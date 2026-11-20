@@ -12,12 +12,7 @@ use crate::eventos::{DomainEvent, EmisorDeEventos};
 
 use super::repository::{PgPurgeRepository, PgRetentionPolicyRepository, PurgeRepository, RetentionPolicyRepository};
 
-pub fn spawn(
-    eventos: &EmisorDeEventos,
-    policy: PgRetentionPolicyRepository,
-    purga: PgPurgeRepository,
-    intervalo: Duration,
-) {
+pub fn spawn(eventos: &EmisorDeEventos, policy: PgRetentionPolicyRepository, purga: PgPurgeRepository, intervalo: Duration) {
     let eventos = eventos.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(intervalo);
@@ -33,17 +28,15 @@ pub fn spawn(
             match purga.purgar(politica.data_retention_days, politica.audit_log_retention_days).await {
                 Ok(resultado) => {
                     let _ = eventos.send(DomainEvent::Auditoria(
-                        EventoAuditoria::nuevo(AuditEventType::RetentionPurgeRan, None).con_metadata(
-                            serde_json::json!({
-                                "resources": resultado.resources,
-                                "folders": resultado.folders,
-                                "tags": resultado.tags,
-                                "groups": resultado.groups,
-                                "user_totp_credentials": resultado.user_totp_credentials,
-                                "audit_log_entries": resultado.audit_log_entries,
-                                "datos_efimeros": resultado.datos_efimeros,
-                            }),
-                        ),
+                        EventoAuditoria::nuevo(AuditEventType::RetentionPurgeRan, None).con_metadata(serde_json::json!({
+                            "resources": resultado.resources,
+                            "folders": resultado.folders,
+                            "tags": resultado.tags,
+                            "groups": resultado.groups,
+                            "user_totp_credentials": resultado.user_totp_credentials,
+                            "audit_log_entries": resultado.audit_log_entries,
+                            "datos_efimeros": resultado.datos_efimeros,
+                        })),
                     ));
                 }
                 Err(e) => tracing::error!(error = %e, "la corrida del job de purga falló"),

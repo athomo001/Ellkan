@@ -53,7 +53,10 @@ fn otro_proceso_no_recibe_el_secreto() {
 
   // Y el lanzador legítimo lo sigue recibiendo después.
   let salida = lanzar_set(&tuberia);
-  assert!(salida.contains(&format!("PGPASSWORD={secreto}")), "el lanzador no lo recibió tras el intento ajeno: {salida:?}");
+  assert!(
+    salida.contains(&format!("PGPASSWORD={secreto}")),
+    "el lanzador no lo recibió tras el intento ajeno: {salida:?}"
+  );
 }
 
 #[test]

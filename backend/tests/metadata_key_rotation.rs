@@ -6,13 +6,13 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_metadata_key(entorno: &common::Entorno, sesion_admin: Uuid) -> Uuid {
@@ -35,12 +35,7 @@ async fn crear_metadata_key(entorno: &common::Entorno, sesion_admin: Uuid) -> Uu
     cuerpo["id"].as_str().unwrap().parse().unwrap()
 }
 
-async fn crear_recurso_compartible(
-    entorno: &common::Entorno,
-    sesion: Uuid,
-    owner: &common::Usuario,
-    metadata_key_id: Uuid,
-) -> Uuid {
+async fn crear_recurso_compartible(entorno: &common::Entorno, sesion: Uuid, owner: &common::Usuario, metadata_key_id: Uuid) -> Uuid {
     let dek_bytes: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
     let dek_secreta = SecretBox::new(Box::new(dek_bytes));
     let resource_id = Uuid::now_v7();
@@ -320,7 +315,13 @@ async fn dos_rotaciones_concurrentes_nunca_superan_dos_claves_activas() {
     assert_eq!(exitos, 1, "exactamente una de las dos rotaciones concurrentes debería aplicarse");
     assert_eq!(conflictos, 1, "la otra debería rechazarse con 409 (ya hay una rotación en curso)");
 
-    let resp = entorno.cliente.get(format!("{}/metadata-keys", entorno.base)).bearer_auth(sesion).send().await.unwrap();
+    let resp = entorno
+        .cliente
+        .get(format!("{}/metadata-keys", entorno.base))
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let claves: Value = resp.json().await.unwrap();
     assert_eq!(claves.as_array().unwrap().len(), 2, "nunca deberían quedar 3+ claves activas simultáneas");

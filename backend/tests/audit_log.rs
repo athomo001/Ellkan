@@ -10,12 +10,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 struct RecursoDePrueba {
@@ -74,12 +74,7 @@ async fn crear_rol(entorno: &common::Entorno, sesion_admin: Uuid, name: &str) ->
 /// tokio, desacoplado del request HTTP que lo dispara (F-13, mismo criterio
 /// que la cola de emails de F-02) — se reintenta brevemente en vez de
 /// asumir que ya está escrito apenas responde el endpoint que lo originó.
-async fn esperar_items(
-    entorno: &common::Entorno,
-    sesion: Uuid,
-    query: &str,
-    minimo: usize,
-) -> Vec<Value> {
+async fn esperar_items(entorno: &common::Entorno, sesion: Uuid, query: &str, minimo: usize) -> Vec<Value> {
     let mut ultimo = Vec::new();
     for _ in 0..30 {
         let resp = entorno
@@ -111,13 +106,7 @@ async fn accion_administrativa_genera_exactamente_una_entrada() {
     let rol = crear_rol(&entorno, sesion_admin, "rol-de-prueba-audit-1").await;
     let role_id = rol["id"].as_str().unwrap();
 
-    let items = esperar_items(
-        &entorno,
-        sesion_admin,
-        &format!("event_type=role.created&actor_user_id={}", admin.user_id),
-        1,
-    )
-    .await;
+    let items = esperar_items(&entorno, sesion_admin, &format!("event_type=role.created&actor_user_id={}", admin.user_id), 1).await;
 
     assert_eq!(items.len(), 1, "debería haber exactamente una entrada de role.created: {items:?}");
     assert_eq!(items[0]["subject_type"], "role");
@@ -300,13 +289,7 @@ async fn export_soporta_ndjson_y_csv_y_rechaza_formato_desconocido() {
     common::promover_admin(&entorno.pool, admin.user_id).await;
 
     crear_rol(&entorno, sesion_admin, "rol-export").await;
-    esperar_items(
-        &entorno,
-        sesion_admin,
-        &format!("event_type=role.created&actor_user_id={}", admin.user_id),
-        1,
-    )
-    .await;
+    esperar_items(&entorno, sesion_admin, &format!("event_type=role.created&actor_user_id={}", admin.user_id), 1).await;
 
     let resp = entorno
         .cliente

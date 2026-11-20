@@ -57,6 +57,18 @@ where
         if !(1..=65535).contains(&port) {
             return Err(DomainError::ValidacionInvalida("port debe estar entre 1 y 65535".into()));
         }
+        // QA-07: el host se valida acá, al guardarlo, con el mismo criterio
+        // que usa el envío (nombre de servidor TLS válido), en vez de
+        // descubrirlo recién en el poller.
+        if host.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(DomainError::ValidacionInvalida("host no puede contener espacios".into()));
+        }
+        if tls && lettre::transport::smtp::client::TlsParameters::new(host.clone()).is_err() {
+            return Err(DomainError::ValidacionInvalida("host no es un nombre de servidor TLS válido".into()));
+        }
+        if from_address.parse::<lettre::message::Mailbox>().is_err() {
+            return Err(DomainError::ValidacionInvalida("from_address no es una dirección de correo válida".into()));
+        }
 
         let actual = self.repo.obtener().await?;
         let (password_ciphertext, password_nonce) = match password.as_deref() {
@@ -65,8 +77,8 @@ where
             Some(p) => {
                 // XChaCha20-Poly1305 cifrando (no descifrando) no falla —
                 // mismo criterio que `mfa::service::iniciar_setup_totp`.
-                let envoltura = aead::cifrar(self.secrets_key, p.as_bytes(), AAD_SMTP_PASSWORD)
-                    .expect("cifrar con XChaCha20-Poly1305 no falla");
+                let envoltura =
+                    aead::cifrar(self.secrets_key, p.as_bytes(), AAD_SMTP_PASSWORD).expect("cifrar con XChaCha20-Poly1305 no falla");
                 (Some(envoltura.ciphertext), Some(envoltura.nonce.to_vec()))
             }
         };
@@ -109,7 +121,12 @@ where
 
         let id = self
             .emails
-            .encolar(to, "Ellkan — email de prueba", "Generado desde /admin/smtp para verificar la configuración SMTP.", None)
+            .encolar(
+                to,
+                "Ellkan — email de prueba",
+                "Generado desde /admin/smtp para verificar la configuración SMTP.",
+                None,
+            )
             .await?;
 
         for _ in 0..INTENTOS_POLLING {

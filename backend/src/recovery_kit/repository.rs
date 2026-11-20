@@ -13,12 +13,7 @@ pub trait RecoveryKitRepository {
     /// Re-generar reemplaza el kit anterior (`on conflict (user_id)`) y
     /// limpia `must_rotate` — un kit recién generado nunca nace marcado
     /// para rotar, y el servidor nunca conserva el valor anterior.
-    async fn upsert(
-        &self,
-        user_id: Uuid,
-        kit_public_key_x25519: &[u8],
-        sealed_identity_material: &[u8],
-    ) -> Result<RecoveryKit, RepoError>;
+    async fn upsert(&self, user_id: Uuid, kit_public_key_x25519: &[u8], sealed_identity_material: &[u8]) -> Result<RecoveryKit, RepoError>;
 
     async fn buscar_por_usuario(&self, user_id: Uuid) -> Result<Option<RecoveryKit>, RepoError>;
 
@@ -36,16 +31,16 @@ pub trait ResetTokenRepository {
 
     async fn buscar_vigente(&self, id: Uuid) -> Result<Option<ResetToken>, RepoError>;
 
-    async fn guardar_codigo_email(
-        &self,
-        id: Uuid,
-        code_hash: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError>;
+    async fn guardar_codigo_email(&self, id: Uuid, code_hash: &[u8], expires_at: OffsetDateTime) -> Result<(), RepoError>;
 
     /// Update condicional (`where consumed_at is null`) — mismo idiom de
     /// lock optimista que `RecoveryRequestRepository::marcar_completada`.
     async fn marcar_consumido(&self, id: Uuid) -> Result<bool, RepoError>;
+
+    /// QA-23: suma un intento fallido de segundo factor; al llegar a
+    /// `maximo` el token queda consumido (quemado) en el mismo `update`.
+    /// Devuelve `true` si lo quemó.
+    async fn registrar_intento_fallido(&self, id: Uuid, maximo: i32) -> Result<bool, RepoError>;
 }
 
 fn fila_a_kit(
@@ -56,7 +51,14 @@ fn fila_a_kit(
     must_rotate: bool,
     created_at: OffsetDateTime,
 ) -> RecoveryKit {
-    RecoveryKit { id, user_id, kit_public_key_x25519, sealed_identity_material, must_rotate, created_at }
+    RecoveryKit {
+        id,
+        user_id,
+        kit_public_key_x25519,
+        sealed_identity_material,
+        must_rotate,
+        created_at,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -69,7 +71,15 @@ fn fila_a_token(
     email_code_hash: Option<Vec<u8>>,
     email_code_expires_at: Option<OffsetDateTime>,
 ) -> ResetToken {
-    ResetToken { id, user_id, token_hash, expires_at, consumed_at, email_code_hash, email_code_expires_at }
+    ResetToken {
+        id,
+        user_id,
+        token_hash,
+        expires_at,
+        consumed_at,
+        email_code_hash,
+        email_code_expires_at,
+    }
 }
 
 #[derive(Clone)]
@@ -78,12 +88,7 @@ pub struct PgRecoveryKitRepository {
 }
 
 impl RecoveryKitRepository for PgRecoveryKitRepository {
-    async fn upsert(
-        &self,
-        user_id: Uuid,
-        kit_public_key_x25519: &[u8],
-        sealed_identity_material: &[u8],
-    ) -> Result<RecoveryKit, RepoError> {
+    async fn upsert(&self, user_id: Uuid, kit_public_key_x25519: &[u8], sealed_identity_material: &[u8]) -> Result<RecoveryKit, RepoError> {
         let fila = sqlx::query!(
             r#"
             insert into recovery_kits (user_id, kit_public_key_x25519, sealed_identity_material)
@@ -102,7 +107,14 @@ impl RecoveryKitRepository for PgRecoveryKitRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(fila_a_kit(fila.id, fila.user_id, fila.kit_public_key_x25519, fila.sealed_identity_material, fila.must_rotate, fila.created_at))
+        Ok(fila_a_kit(
+            fila.id,
+            fila.user_id,
+            fila.kit_public_key_x25519,
+            fila.sealed_identity_material,
+            fila.must_rotate,
+            fila.created_at,
+        ))
     }
 
     async fn buscar_por_usuario(&self, user_id: Uuid) -> Result<Option<RecoveryKit>, RepoError> {
@@ -114,9 +126,7 @@ impl RecoveryKitRepository for PgRecoveryKitRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| {
-            fila_a_kit(f.id, f.user_id, f.kit_public_key_x25519, f.sealed_identity_material, f.must_rotate, f.created_at)
-        }))
+        Ok(fila.map(|f| fila_a_kit(f.id, f.user_id, f.kit_public_key_x25519, f.sealed_identity_material, f.must_rotate, f.created_at)))
     }
 
     async fn marcar_para_rotar(&self, user_id: Uuid) -> Result<(), RepoError> {
@@ -158,7 +168,15 @@ impl ResetTokenRepository for PgResetTokenRepository {
         .await?;
 
         Ok(fila.map(|f| {
-            fila_a_token(f.id, f.user_id, f.token_hash, f.expires_at, f.consumed_at, f.email_code_hash, f.email_code_expires_at)
+            fila_a_token(
+                f.id,
+                f.user_id,
+                f.token_hash,
+                f.expires_at,
+                f.consumed_at,
+                f.email_code_hash,
+                f.email_code_expires_at,
+            )
         }))
     }
 
@@ -175,16 +193,19 @@ impl ResetTokenRepository for PgResetTokenRepository {
         .await?;
 
         Ok(fila.map(|f| {
-            fila_a_token(f.id, f.user_id, f.token_hash, f.expires_at, f.consumed_at, f.email_code_hash, f.email_code_expires_at)
+            fila_a_token(
+                f.id,
+                f.user_id,
+                f.token_hash,
+                f.expires_at,
+                f.consumed_at,
+                f.email_code_hash,
+                f.email_code_expires_at,
+            )
         }))
     }
 
-    async fn guardar_codigo_email(
-        &self,
-        id: Uuid,
-        code_hash: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError> {
+    async fn guardar_codigo_email(&self, id: Uuid, code_hash: &[u8], expires_at: OffsetDateTime) -> Result<(), RepoError> {
         sqlx::query!(
             r#"update recovery_reset_tokens set email_code_hash = $2, email_code_expires_at = $3 where id = $1"#,
             id,
@@ -197,12 +218,26 @@ impl ResetTokenRepository for PgResetTokenRepository {
     }
 
     async fn marcar_consumido(&self, id: Uuid) -> Result<bool, RepoError> {
-        let resultado = sqlx::query!(
-            r#"update recovery_reset_tokens set consumed_at = now() where id = $1 and consumed_at is null"#,
-            id,
-        )
-        .execute(&self.pool)
-        .await?;
+        let resultado = sqlx::query!(r#"update recovery_reset_tokens set consumed_at = now() where id = $1 and consumed_at is null"#, id,)
+            .execute(&self.pool)
+            .await?;
         Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn registrar_intento_fallido(&self, id: Uuid, maximo: i32) -> Result<bool, RepoError> {
+        let quemado = sqlx::query_scalar!(
+            r#"
+            update recovery_reset_tokens
+            set failed_attempts = failed_attempts + 1,
+                consumed_at = case when failed_attempts + 1 >= $2 then now() else consumed_at end
+            where id = $1 and consumed_at is null
+            returning consumed_at is not null as "quemado!"
+            "#,
+            id,
+            maximo,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(quemado.unwrap_or(false))
     }
 }

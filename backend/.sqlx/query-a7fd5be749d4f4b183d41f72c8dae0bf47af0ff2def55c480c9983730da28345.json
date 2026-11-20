@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into mfa_challenges (user_id, method, session_hash, code_hash, expires_at)\n               values ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a7fd5be749d4f4b183d41f72c8dae0bf47af0ff2def55c480c9983730da28345"
+}

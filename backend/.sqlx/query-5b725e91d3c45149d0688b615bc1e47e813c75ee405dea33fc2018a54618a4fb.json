@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update resources set resource_type_id = $2, updated_at = now() where id = $1 and deleted_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b725e91d3c45149d0688b615bc1e47e813c75ee405dea33fc2018a54618a4fb"
+}

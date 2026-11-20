@@ -35,11 +35,7 @@ pub trait MetadataKeyRepository {
     /// real sin tener que retomar ningún cursor guardado.
     fn contar_recursos_con_clave(&self, metadata_key_id: Uuid) -> impl Future<Output = Result<i64, RepoError>> + Send;
 
-    fn marcar_pendientes_al_iniciar(
-        &self,
-        id: Uuid,
-        total: i64,
-    ) -> impl Future<Output = Result<(), RepoError>> + Send;
+    fn marcar_pendientes_al_iniciar(&self, id: Uuid, total: i64) -> impl Future<Output = Result<(), RepoError>> + Send;
 
     /// H-29 (auditoría 2026-08-12): versión atómica de `contar_activas` +
     /// `crear` — el `Service` antes hacía las dos queries sueltas, con una
@@ -69,18 +65,9 @@ pub trait MetadataKeyRepository {
 }
 
 pub trait MetadataKeyEnvelopeRepository {
-    async fn insertar(
-        &self,
-        metadata_key_id: Uuid,
-        user_id: Uuid,
-        sealed_private_key: &[u8],
-    ) -> Result<(), RepoError>;
+    async fn insertar(&self, metadata_key_id: Uuid, user_id: Uuid, sealed_private_key: &[u8]) -> Result<(), RepoError>;
 
-    async fn buscar(
-        &self,
-        metadata_key_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Option<MetadataKeyEnvelope>, RepoError>;
+    async fn buscar(&self, metadata_key_id: Uuid, user_id: Uuid) -> Result<Option<MetadataKeyEnvelope>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -135,11 +122,9 @@ impl MetadataKeyRepository for PgMetadataKeyRepository {
     }
 
     async fn contar_activas(&self) -> Result<i64, RepoError> {
-        let fila = sqlx::query!(
-            r#"select count(*) as "n!" from metadata_keys where expired_at is null and deleted_at is null"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select count(*) as "n!" from metadata_keys where expired_at is null and deleted_at is null"#,)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(fila.n)
     }
 
@@ -161,13 +146,9 @@ impl MetadataKeyRepository for PgMetadataKeyRepository {
     }
 
     async fn marcar_pendientes_al_iniciar(&self, id: Uuid, total: i64) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"update metadata_keys set resources_pendientes_al_iniciar = $2 where id = $1"#,
-            id,
-            total as i32,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"update metadata_keys set resources_pendientes_al_iniciar = $2 where id = $1"#, id, total as i32,)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -183,11 +164,10 @@ impl MetadataKeyRepository for PgMetadataKeyRepository {
             .fetch_all(&mut *tx)
             .await?;
 
-        let activas: i64 =
-            sqlx::query!(r#"select count(*) as "n!" from metadata_keys where expired_at is null and deleted_at is null"#)
-                .fetch_one(&mut *tx)
-                .await?
-                .n;
+        let activas: i64 = sqlx::query!(r#"select count(*) as "n!" from metadata_keys where expired_at is null and deleted_at is null"#)
+            .fetch_one(&mut *tx)
+            .await?
+            .n;
         if activas >= limite {
             tx.rollback().await?;
             return Ok(None);
@@ -250,11 +230,13 @@ impl MetadataKeyRepository for PgMetadataKeyRepository {
             resources_pendientes_al_iniciar: saliente_fila.resources_pendientes_al_iniciar,
         };
 
-        let total_pendiente: i64 =
-            sqlx::query!(r#"select count(*) as "n!" from resources where metadata_key_id = $1 and deleted_at is null"#, saliente.id)
-                .fetch_one(&mut *tx)
-                .await?
-                .n;
+        let total_pendiente: i64 = sqlx::query!(
+            r#"select count(*) as "n!" from resources where metadata_key_id = $1 and deleted_at is null"#,
+            saliente.id
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .n;
 
         let entrante_fila = sqlx::query!(
             r#"
@@ -295,12 +277,7 @@ pub struct PgMetadataKeyEnvelopeRepository {
 }
 
 impl MetadataKeyEnvelopeRepository for PgMetadataKeyEnvelopeRepository {
-    async fn insertar(
-        &self,
-        metadata_key_id: Uuid,
-        user_id: Uuid,
-        sealed_private_key: &[u8],
-    ) -> Result<(), RepoError> {
+    async fn insertar(&self, metadata_key_id: Uuid, user_id: Uuid, sealed_private_key: &[u8]) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
             insert into metadata_key_envelopes (metadata_key_id, user_id, sealed_private_key)
@@ -319,11 +296,7 @@ impl MetadataKeyEnvelopeRepository for PgMetadataKeyEnvelopeRepository {
         Ok(())
     }
 
-    async fn buscar(
-        &self,
-        metadata_key_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Option<MetadataKeyEnvelope>, RepoError> {
+    async fn buscar(&self, metadata_key_id: Uuid, user_id: Uuid) -> Result<Option<MetadataKeyEnvelope>, RepoError> {
         let fila = sqlx::query!(
             r#"
             select sealed_private_key from metadata_key_envelopes

@@ -6,9 +6,9 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
-use serde_json::{json, Value};
+use base64::engine::general_purpose::STANDARD as B64;
+use serde_json::{Value, json};
 
 #[tokio::test]
 async fn flujo_designar_aceptar_solicitar_aprobar() {
@@ -105,10 +105,7 @@ async fn flujo_designar_aceptar_solicitar_aprobar() {
         .unwrap();
     let lista: Value = resp.json().await.unwrap();
     let fila = lista.as_array().unwrap().iter().find(|f| f["id"] == id).unwrap();
-    assert_eq!(
-        B64.decode(fila["sealed_material_b64"].as_str().unwrap()).unwrap(),
-        b"material-opaco-de-prueba"
-    );
+    assert_eq!(B64.decode(fila["sealed_material_b64"].as_str().unwrap()).unwrap(), b"material-opaco-de-prueba");
 }
 
 #[tokio::test]
@@ -193,8 +190,7 @@ async fn el_titular_puede_revocar_y_desaparece_del_listado() {
 #[tokio::test]
 async fn solicitud_vencida_se_resuelve_por_timeout_via_repositorio() {
     use ellkan_backend::emergency_access::repository::{
-        EmergencyAccessRepository, EmergencyAccessRequestRepository, PgEmergencyAccessRepository,
-        PgEmergencyAccessRequestRepository,
+        EmergencyAccessRepository, EmergencyAccessRequestRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
     };
 
     let entorno = common::levantar().await;
@@ -280,9 +276,7 @@ async fn solicitud_vencida_se_resuelve_por_timeout_via_repositorio() {
 /// de que el titular ya resolvió, y confirma que es un no-op.
 #[tokio::test]
 async fn el_job_de_timeout_no_pisa_una_resolucion_ya_hecha_por_el_titular() {
-    use ellkan_backend::emergency_access::repository::{
-        EmergencyAccessRequestRepository, PgEmergencyAccessRequestRepository,
-    };
+    use ellkan_backend::emergency_access::repository::{EmergencyAccessRequestRepository, PgEmergencyAccessRequestRepository};
 
     let entorno = common::levantar().await;
 

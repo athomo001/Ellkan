@@ -24,20 +24,14 @@ where
         Ok(self.policy.obtener().await?)
     }
 
-    pub async fn actualizar(
-        &self,
-        actor_id: Uuid,
-        nueva: SelfRegistrationPolicy,
-    ) -> Result<SelfRegistrationPolicy, DomainError> {
+    pub async fn actualizar(&self, actor_id: Uuid, nueva: SelfRegistrationPolicy) -> Result<SelfRegistrationPolicy, DomainError> {
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::SelfRegistrationPolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "enabled": nueva.enabled,
-                    "allowed_domains": nueva.allowed_domains,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::SelfRegistrationPolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "enabled": nueva.enabled,
+                "allowed_domains": nueva.allowed_domains,
+            })),
         ));
 
         Ok(nueva)
@@ -85,7 +79,10 @@ mod tests {
     fn rechaza_email_con_doble_arroba_aunque_el_dominio_final_este_permitido() {
         let politica = SelfRegistrationPolicy { enabled: true, allowed_domains: vec!["empresa-permitida.com".into()] };
         let resultado = verificar_dominio_permitido(&politica, "atacante@atacante.com@empresa-permitida.com");
-        assert!(resultado.is_err(), "un email con doble @ nunca debería pasar, sin importar qué dominio quede al final");
+        assert!(
+            resultado.is_err(),
+            "un email con doble @ nunca debería pasar, sin importar qué dominio quede al final"
+        );
     }
 
     #[test]

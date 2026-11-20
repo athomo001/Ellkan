@@ -4,6 +4,40 @@ Autor: Athan Espinoza
 
 Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/), con una salvedad: el número de versión de cada entrada es un contador propio de este archivo, uno por fase de implementación cerrada — **no** corresponde a la versión real del paquete en `Cargo.toml` (que sigue fija en `0.1.0` hasta el primer release etiquetado de v1) ni a la de `frontend/package.json` (fija en `0.0.1`, mismo criterio). **Excepción real: la extensión de navegador** (`extension/package.json`/`manifest.source.json`) sí tiene que moverse — a diferencia del backend/frontend, que nunca se "instalan" como paquete versionado por el usuario, la extensión es un artefacto que el usuario instala y actualiza de verdad (`.crx`/`.xpi`), así que necesita un número de versión real que avance con cada release. No hay una correspondencia 1:1 fija entre ambos contadores — sólo referenciar la fecha/entrada de este archivo si hace falta ubicar qué versión de la extensión trae qué cambios.
 
+## [0.1.70] - 2026-11-20
+
+### Remediación de la auditoría QA/AppSec (Crítico, Alto y parte de Medio)
+
+**Seguridad:**
+- Sesiones parciales con propósito explícito (`sessions.proposito`, migración 0053): una sesión pendiente de MFA ya no puede reemplazar el TOTP ni cambiar la passphrase.
+- Account recovery endurecido (0054): confirmación por código al email, token del solicitante y vencimiento; un manager no puede aprobar la recuperación de alguien que él mismo agregó ni de un admin de organización.
+- Reemplazar la clave privada sellada exige prueba de posesión Ed25519 atada al blob nuevo (cambio de passphrase, reset por kit, account recovery). Nuevo `firmar_reemplazo_clave_privada` en `ellkan-crypto` (WASM).
+- `PUT /resources/{id}` exige el conjunto exacto de destinatarios; mover a una carpeta compartida exige Owner; un recurso borrado ya no concede permisos.
+- Token de instalación opcional `ELLKAN_SETUP_TOKEN[_FILE]` y lock transaccional para el primer admin.
+- `key-material` falso y estable para emails inexistentes; topes por cuenta en la verificación de correo; tope de 5 intentos por token de reset del kit (0055) y vencimiento real del código por email.
+- Los miembros de un grupo sólo se muestran a miembros/administradores; sacar un subgrupo a la raíz exige poder crear grupos raíz.
+- Clave privada del servidor cifrada con `ELLKAN_SECRETS_KEY` (se migra sola al arrancar); cuerpos de email vaciados tras el envío; la CLI pasa la contraseña de Postgres por `PGPASSWORD`.
+- README y UI de enrolamiento documentan que la recuperación aprobada por administradores es una excepción a zero-knowledge.
+
+**Robustez e infraestructura:**
+- Un host SMTP inválido ya no tira el proceso; sin `expect` sobre datos persistidos de passkeys.
+- `GET /resources` calcula `puede_borrar` en lote (antes 3–5 queries por recurso; cierra el pendiente #28).
+- CI nuevo (`.github/workflows/ci.yml`, acciones fijadas por SHA); Dockerfile con imágenes por digest y `wasm-pack` con versión fija; el compose ya no apaga la detección de migraciones alteradas.
+
+**Documentación:** `PRIVACY.md` público (qué guarda una instancia, servicios de terceros, qué queda en el dispositivo; requisito de las tiendas de extensiones; cierra el pendiente #24). Formato del workspace con `rustfmt.toml`.
+
+**Dependencias:** SvelteKit 2 → 3.2.1 (GHSA-3r8g-jcqq-3p5j, DoS en remote functions `form`; no explotable acá porque el frontend es estático, igual se corrige), `adapter-static` 4, override de `cookie` a `^2.0.1`, `@tauri-apps/cli` 2.12.5 (corrige un bug de 2.11.4 que dejaba fuera del MSI todo binario de `src/bin` salvo el primero: por eso faltaba `ellkan_nm_host.exe`). El script de Windows compila los auxiliares antes de empaquetar y corta si el MSI sale sin alguno. Verificado: el MSI vuelve a traer `ellkan_nm_host.exe` (cierra el pendiente #1).
+
+**Kit de recuperación:** usar el kit en un lado (app o servidor vinculado) ahora obliga a rotarlo en los dos: `GET /me/recovery-kit/material` devuelve `must_rotate` y `POST /me/recovery-kit/must-rotate` marca el kit propio; `sincronizarKit` propaga la marca (cierra el pendiente #23).
+
+**Releases:** `.github/workflows/release.yml` — sin tags a mano: un merge a `main` publica la Release oficial `vX.Y.Z` (marcada «Latest», imagen `latest`; la versión es la de `tauri.conf.json` y si ya existe no hace nada) y cada push a `develop` una pre-release `vX.Y.Z-dev.N` (imagen `dev`; sólo queda la última). Compila en GitHub el MSI, el ZIP portable, AppImage, .deb y la extensión para Chrome/Edge/Brave/Opera/Firefox, con sumas SHA-256, y publica la imagen Docker del servidor en GHCR (con SBOM y procedencia). Una sola versión para escritorio y extensión, la del tag (`.github/scripts/fijar-version.mjs`; decide el pendiente #129). También la CLI (`ellkan-cli`) para Windows y Linux.
+
+**Release vs. servidor:** las notas de cada Release se generan desde `.github/release-notas.md` y separan lo que trae la Release (app de escritorio + extensión, uso personal) del servidor para equipos (imagen Docker en GHCR, que no incluye la app de escritorio); los READMEs explican ese flujo con una tabla y un diagrama.
+
+**Documentación de descargas:** `README.md`/`README.en.md` tienen una sección «Descargas» con lo que trae cada Release y la imagen `ghcr.io/athomo001/ellkan`; la instalación rápida ya no compila (`docker-compose.yml` usa la imagen publicada, con la versión en `ELLKAN_VERSION` de `.env`, y compila sólo con `--build` o si no la encuentra) y la CLI se descarga. «Actualizar» separa imagen publicada (`docker compose pull`) de compilar desde el código. `extension/README.md` explica cómo instalar la versión publicada; `manual/instalacion.md`, cómo elegir entre imagen publicada y compilada.
+
+**Compatibilidad:** `/me/change-passphrase`, `/recovery-kit/reset/{token}/complete` y `/account-recovery/requests/{id}/complete` exigen `challenge_nonce_b64` + `signature_b64`; los clientes viejos reciben 422.
+
 ## [0.1.69] - 2026-10-18
 
 ### «Too Many Requests» con 137 claves, borrados del escritorio que no llegaban al servidor, logs útiles

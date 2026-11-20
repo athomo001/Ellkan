@@ -14,6 +14,7 @@ import { deviceTokenHashB64 } from './device';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 import { limpiarStoresEn } from '$lib/state/declarative-store';
 import { olvidarClaveDeCache } from '$lib/cache/metadataCache';
+import { pruebaDePosesion } from './accountRecovery';
 
 /** AAD del blob de clave privada — fijo por usuario, mismo criterio que
  * el AAD de `secret_envelopes` (nunca variar según quién descifra). */
@@ -27,6 +28,17 @@ interface ResultadoRegistro {
 	 * loguear todavía, hay que verificar el email con `verificarEmail`
 	 * antes. `false` sólo en el bootstrap (primer usuario de la instancia). */
 	pendingVerification: boolean;
+}
+
+/** QA-11: token de instalación que el operador pasa en el fragmento de la
+ * URL de registro (`/register#setup=<token>`). El fragmento nunca viaja en
+ * la request ni queda en logs de proxy; el servidor sólo lo mira para el
+ * primer registro de una instancia vacía y si `ELLKAN_SETUP_TOKEN` está
+ * configurado. */
+function tokenDeInstalacionDeLaUrl(): string | undefined {
+	if (typeof location === 'undefined') return undefined;
+	const valor = new URLSearchParams(location.hash.replace(/^#/, '')).get('setup');
+	return valor || undefined;
 }
 
 export async function registrar(email: string, displayName: string, passphrase: string): Promise<ResultadoRegistro> {
@@ -48,7 +60,8 @@ export async function registrar(email: string, displayName: string, passphrase: 
 		public_key_ed25519_b64: bytesABase64(identidad.ed25519_public),
 		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
 		private_key_nonce_b64: bytesABase64(blob.nonce),
-		kdf_salt_b64: bytesABase64(salt)
+		kdf_salt_b64: bytesABase64(salt),
+		setup_token: tokenDeInstalacionDeLaUrl()
 	});
 	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
 }
@@ -269,10 +282,18 @@ export async function cambiarPassphrase(
 		aadClavePrivada(email)
 	);
 
+	const blob = {
+		blobB64: bytesABase64(nuevoBlob.ciphertext),
+		nonceB64: bytesABase64(nuevoBlob.nonce),
+		saltB64: bytesABase64(nuevaSalt)
+	};
+	// QA-06: la sesión sola no alcanza para reemplazar el blob.
+	const prueba = await pruebaDePosesion(api.post, email, abierta.ed25519Private, blob);
 	await api.post('/me/change-passphrase', {
-		encrypted_private_key_blob_b64: bytesABase64(nuevoBlob.ciphertext),
-		private_key_nonce_b64: bytesABase64(nuevoBlob.nonce),
-		kdf_salt_b64: bytesABase64(nuevaSalt)
+		encrypted_private_key_blob_b64: blob.blobB64,
+		private_key_nonce_b64: blob.nonceB64,
+		kdf_salt_b64: blob.saltB64,
+		...prueba
 	});
 }
 

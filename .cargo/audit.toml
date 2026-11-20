@@ -18,4 +18,14 @@ ignore = [
     # versión corregida disponible todavía en `rsa` — revisar esta excepción
     # cuando exista un fix.
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0387 (2026-10-26, `crypto-bigint` 0.5.5: ramas que
+    # dependen del secreto en resta, división y Montgomery) — llega sólo vía
+    # `elliptic-curve` 0.13 → `p256`/`p384`/`p521`, y el fix existe recién en
+    # 0.7.6 (otra serie, sin backport). Usos reales: verificar firmas WebAuthn
+    # (`crypto-glue`) y el `id_token` OIDC (`openidconnect`), ambos con clave
+    # PÚBLICA, y `age` en la CLI sólo con recipientes x25519 (curve25519-dalek,
+    # no `crypto-bigint`). Ninguna operación con secreto pasa por estas
+    # curvas. Revisar cuando `webauthn-rs`/`openidconnect` pasen a
+    # `elliptic-curve` 0.14.
+    "RUSTSEC-2026-0387",
 ]

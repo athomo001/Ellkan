@@ -13,9 +13,7 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
-use super::models::{
-    ExternalSharePolicy, FilaExternalShare, FilaExternalShareResumen, NuevoExternalShare, ResultadoAcceso,
-};
+use super::models::{ExternalSharePolicy, FilaExternalShare, FilaExternalShareResumen, NuevoExternalShare, ResultadoAcceso};
 use super::repository::{ExternalSharePolicyRepository, ExternalShareRepository};
 
 pub struct ExternalShareService<'a, S, P> {
@@ -76,7 +74,14 @@ where
         }
 
         let expires_at = OffsetDateTime::now_utc() + Duration::hours(i64::from(expires_in_hours));
-        let nuevo = NuevoExternalShare { created_by: actor_id, ciphertext, password_protected, password_salt, max_views, expires_at };
+        let nuevo = NuevoExternalShare {
+            created_by: actor_id,
+            ciphertext,
+            password_protected,
+            password_salt,
+            max_views,
+            expires_at,
+        };
         let fila = self.shares.crear(&nuevo).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -111,8 +116,7 @@ where
         }
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::ExternalShareRevoked, Some(actor_id))
-                .con_sujeto("external_share", id),
+            EventoAuditoria::nuevo(AuditEventType::ExternalShareRevoked, Some(actor_id)).con_sujeto("external_share", id),
         ));
 
         Ok(())
@@ -146,9 +150,7 @@ where
                 ));
                 Err(DomainError::NotFound)
             }
-            ResultadoAcceso::NoEncontrado | ResultadoAcceso::Revocado | ResultadoAcceso::Quemado => {
-                Err(DomainError::NotFound)
-            }
+            ResultadoAcceso::NoEncontrado | ResultadoAcceso::Revocado | ResultadoAcceso::Quemado => Err(DomainError::NotFound),
         }
     }
 
@@ -182,15 +184,13 @@ where
         self.policy.actualizar(&nueva).await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::ExternalSharePolicyUpdated, Some(actor_id)).con_metadata(
-                serde_json::json!({
-                    "enabled": nueva.enabled,
-                    "max_expiration_hours": nueva.max_expiration_hours,
-                    "require_password": nueva.require_password,
-                    "allow_link": nueva.allow_link,
-                    "allow_file": nueva.allow_file,
-                }),
-            ),
+            EventoAuditoria::nuevo(AuditEventType::ExternalSharePolicyUpdated, Some(actor_id)).con_metadata(serde_json::json!({
+                "enabled": nueva.enabled,
+                "max_expiration_hours": nueva.max_expiration_hours,
+                "require_password": nueva.require_password,
+                "allow_link": nueva.allow_link,
+                "allow_file": nueva.allow_file,
+            })),
         ));
 
         Ok(nueva)

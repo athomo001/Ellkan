@@ -39,6 +39,18 @@ pub struct RecoveryRequest {
     pub requester_public_key_x25519: Vec<u8>,
     pub sealed_private_key_for_requester: Option<Vec<u8>>,
     pub created_at: OffsetDateTime,
+    /// Hash SHA-256 del código enviado al email de la cuenta (sólo mientras
+    /// la solicitud está `unconfirmed`).
+    pub confirmation_code_hash: Option<Vec<u8>>,
+    /// Hash SHA-256 del token que recibe el solicitante al confirmar.
+    pub requester_token_hash: Option<Vec<u8>>,
+    pub expires_at: OffsetDateTime,
+}
+
+impl RecoveryRequest {
+    pub fn vencida(&self) -> bool {
+        self.expires_at <= OffsetDateTime::now_utc()
+    }
 }
 
 /// Sólo para `GET /admin/account-recovery/requests` — el admin no tiene

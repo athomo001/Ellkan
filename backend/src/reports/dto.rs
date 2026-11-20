@@ -48,8 +48,20 @@ pub struct RecursoSinRotarItem {
 #[derive(Debug, Serialize)]
 #[serde(tag = "report_id", rename_all = "snake_case")]
 pub enum ReportResponse {
-    PasswordsExpired { items: Vec<PasswordExpiradoItem>, next_cursor: Option<Uuid> },
-    MfaCoverage { items: Vec<MfaCoverageItem>, next_cursor: Option<Uuid> },
-    InactiveUsers { items: Vec<UsuarioInactivoItem>, next_cursor: Option<Uuid> },
-    ResourcesNeverRotated { items: Vec<RecursoSinRotarItem>, next_cursor: Option<Uuid> },
+    PasswordsExpired {
+        items: Vec<PasswordExpiradoItem>,
+        next_cursor: Option<Uuid>,
+    },
+    MfaCoverage {
+        items: Vec<MfaCoverageItem>,
+        next_cursor: Option<Uuid>,
+    },
+    InactiveUsers {
+        items: Vec<UsuarioInactivoItem>,
+        next_cursor: Option<Uuid>,
+    },
+    ResourcesNeverRotated {
+        items: Vec<RecursoSinRotarItem>,
+        next_cursor: Option<Uuid>,
+    },
 }

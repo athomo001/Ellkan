@@ -1,0 +1,11 @@
+# Autor: Athan Espinoza
+#
+# QA-13: este crate usa sangría de 2 espacios (convención propia del shell
+# de Tauri). rustfmt toma el rustfmt.toml más cercano sin combinarlo con el
+# de la raíz, por eso se repiten los anchos.
+tab_spaces = 2
+max_width = 140
+fn_call_width = 100
+chain_width = 100
+struct_lit_width = 80
+array_width = 100

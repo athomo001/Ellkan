@@ -17,13 +17,7 @@ pub trait SsoConfigRepository {
 pub trait SsoIdentityRepository {
     async fn buscar_user_id_por_identidad(&self, provider: &str, provider_user_id: &str) -> Result<Option<Uuid>, RepoError>;
 
-    async fn vincular(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        provider_user_id: &str,
-        metadata: serde_json::Value,
-    ) -> Result<(), RepoError>;
+    async fn vincular(&self, user_id: Uuid, provider: &str, provider_user_id: &str, metadata: serde_json::Value) -> Result<(), RepoError>;
 }
 
 pub trait LoginStateRepository {
@@ -42,11 +36,9 @@ pub struct PgSsoConfigRepository {
 
 impl SsoConfigRepository for PgSsoConfigRepository {
     async fn obtener(&self) -> Result<SsoConfig, RepoError> {
-        let fila = sqlx::query!(
-            r#"select issuer_url, client_id, jit_provisioning_enabled from sso_config where organization_id = 1"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select issuer_url, client_id, jit_provisioning_enabled from sso_config where organization_id = 1"#,)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(SsoConfig {
             issuer_url: fila.issuer_url,
             client_id: fila.client_id,
@@ -87,13 +79,7 @@ impl SsoIdentityRepository for PgSsoIdentityRepository {
         Ok(fila.map(|f| f.user_id))
     }
 
-    async fn vincular(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        provider_user_id: &str,
-        metadata: serde_json::Value,
-    ) -> Result<(), RepoError> {
+    async fn vincular(&self, user_id: Uuid, provider: &str, provider_user_id: &str, metadata: serde_json::Value) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
             insert into sso_identities (user_id, provider, provider_user_id, provider_metadata)

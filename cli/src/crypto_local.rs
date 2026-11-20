@@ -11,8 +11,8 @@ use x25519_dalek::StaticSecret;
 use zeroize::Zeroize;
 
 use ellkan_crypto::aead::{self, Envoltura};
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada::{self, EncryptedPrivateKeyBlob};
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::{ClaveSecreta32, PassphraseSecreta};
 use ellkan_crypto::sellado;
 

@@ -9,12 +9,12 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::sellado;
 use secrecy::{ExposeSecret, SecretBox};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// Comparte `resource_id` directamente con el grupo (`grantee_type='group'`)
@@ -243,7 +243,12 @@ async fn miembros_traen_nombre_y_email_y_me_groups_refleja_la_membresia() {
         .json()
         .await
         .unwrap();
-    let miembro = detalle["members"].as_array().unwrap().iter().find(|m| m["user_id"] == manager.user_id.to_string()).unwrap();
+    let miembro = detalle["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["user_id"] == manager.user_id.to_string())
+        .unwrap();
     assert_eq!(miembro["email"], "manager-grp-nombres@test.ellkan");
     assert_eq!(miembro["display_name"], "manager-grp-nombres@test.ellkan");
     assert_eq!(miembro["is_admin"], true);

@@ -29,11 +29,9 @@ pub struct PgRetentionPolicyRepository {
 
 impl RetentionPolicyRepository for PgRetentionPolicyRepository {
     async fn obtener(&self) -> Result<RetentionPolicy, RepoError> {
-        let fila = sqlx::query!(
-            r#"select data_retention_days, audit_log_retention_days from organizations where id = 1"#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select data_retention_days, audit_log_retention_days from organizations where id = 1"#,)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(RetentionPolicy {
             data_retention_days: fila.data_retention_days,
             audit_log_retention_days: fila.audit_log_retention_days,
@@ -96,12 +94,9 @@ impl PurgeRepository for PgPurgeRepository {
         )
         .execute(&mut *tx)
         .await?;
-        let r = sqlx::query!(
-            r#"delete from resources where deleted_at < now() - make_interval(days => $1)"#,
-            data_retention_days,
-        )
-        .execute(&mut *tx)
-        .await?;
+        let r = sqlx::query!(r#"delete from resources where deleted_at < now() - make_interval(days => $1)"#, data_retention_days,)
+            .execute(&mut *tx)
+            .await?;
         resultado.resources = r.rows_affected();
 
         sqlx::query!(
@@ -116,12 +111,9 @@ impl PurgeRepository for PgPurgeRepository {
         )
         .execute(&mut *tx)
         .await?;
-        let r = sqlx::query!(
-            r#"delete from folders where deleted_at < now() - make_interval(days => $1)"#,
-            data_retention_days,
-        )
-        .execute(&mut *tx)
-        .await?;
+        let r = sqlx::query!(r#"delete from folders where deleted_at < now() - make_interval(days => $1)"#, data_retention_days,)
+            .execute(&mut *tx)
+            .await?;
         resultado.folders = r.rows_affected();
 
         sqlx::query!(
@@ -134,12 +126,9 @@ impl PurgeRepository for PgPurgeRepository {
         )
         .execute(&mut *tx)
         .await?;
-        let r = sqlx::query!(
-            r#"delete from tags where deleted_at < now() - make_interval(days => $1)"#,
-            data_retention_days,
-        )
-        .execute(&mut *tx)
-        .await?;
+        let r = sqlx::query!(r#"delete from tags where deleted_at < now() - make_interval(days => $1)"#, data_retention_days,)
+            .execute(&mut *tx)
+            .await?;
         resultado.tags = r.rows_affected();
 
         sqlx::query!(
@@ -152,12 +141,9 @@ impl PurgeRepository for PgPurgeRepository {
         )
         .execute(&mut *tx)
         .await?;
-        let r = sqlx::query!(
-            r#"delete from groups where deleted_at < now() - make_interval(days => $1)"#,
-            data_retention_days,
-        )
-        .execute(&mut *tx)
-        .await?;
+        let r = sqlx::query!(r#"delete from groups where deleted_at < now() - make_interval(days => $1)"#, data_retention_days,)
+            .execute(&mut *tx)
+            .await?;
         resultado.groups = r.rows_affected();
 
         let r = sqlx::query!(

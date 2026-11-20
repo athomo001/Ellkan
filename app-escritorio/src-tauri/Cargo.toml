@@ -66,6 +66,10 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cr
 # desbloqueo con el llavero de Windows (F-50) nunca funcionó.
 keyring = { version = "3", features = ["windows-native"] }
 
+# Memoria baja de WebView2 con la ventana escondida (`memoria_baja`). Misma
+# versión que ya trae Tauri (vía `wry`), no agrega nada al binario.
+webview2-com = "0.38"
+
 # Linux: acceso al WebView de WebKitGTK para bajar su caché (`ajustar_webview_linux`).
 # Misma versión que ya trae Tauri (vía `wry`), no agrega nada al binario.
 [target.'cfg(target_os = "linux")'.dependencies]

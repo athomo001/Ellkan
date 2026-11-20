@@ -39,7 +39,10 @@ where
 {
     pub async fn obtener_todo(&self) -> Vec<GrupoChecks> {
         vec![
-            GrupoChecks { categoria: "base_datos", checks: vec![self.db_ping().await, self.db_migraciones().await] },
+            GrupoChecks {
+                categoria: "base_datos",
+                checks: vec![self.db_ping().await, self.db_migraciones().await],
+            },
             GrupoChecks {
                 categoria: "correo",
                 checks: vec![self.smtp_configurado().await, self.correo_backlog().await],
@@ -66,9 +69,7 @@ where
 
     async fn admins_activos(&self) -> Check {
         match self.system_status.contar_admins().await {
-            Ok(cantidad) => {
-                Check::AdminsActivos { nivel: if cantidad == 0 { NivelCheck::Error } else { NivelCheck::Ok }, cantidad }
-            }
+            Ok(cantidad) => Check::AdminsActivos { nivel: if cantidad == 0 { NivelCheck::Error } else { NivelCheck::Ok }, cantidad },
             Err(e) => {
                 tracing::error!(error = %e, "system-status: falló el conteo de admins activos");
                 Check::AdminsActivos { nivel: NivelCheck::Error, cantidad: 0 }
@@ -82,7 +83,11 @@ where
     /// instancia ya construida de `Webauthn`.
     fn origen_seguro(&self) -> Check {
         let origen = std::env::var("ELLKAN_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:8080".to_string());
-        let nivel = if origen.starts_with("https://") { NivelCheck::Ok } else { NivelCheck::Advertencia };
+        let nivel = if origen.starts_with("https://") {
+            NivelCheck::Ok
+        } else {
+            NivelCheck::Advertencia
+        };
         Check::OrigenSeguro { nivel, origen }
     }
 
@@ -162,16 +167,16 @@ where
         match self.directory_sync_config.obtener().await {
             Ok(cfg) => {
                 let configurado = cfg.ldap_url.is_some();
-                let nivel = if configurado && cfg.last_sync_at.is_none() { NivelCheck::Advertencia } else { NivelCheck::Ok };
+                let nivel = if configurado && cfg.last_sync_at.is_none() {
+                    NivelCheck::Advertencia
+                } else {
+                    NivelCheck::Ok
+                };
                 Check::DirectorySyncConfigurado { nivel, configurado, ultima_sincronizacion: cfg.last_sync_at }
             }
             Err(e) => {
                 tracing::error!(error = %e, "system-status: falló la lectura de directory_sync_config");
-                Check::DirectorySyncConfigurado {
-                    nivel: NivelCheck::Error,
-                    configurado: false,
-                    ultima_sincronizacion: None,
-                }
+                Check::DirectorySyncConfigurado { nivel: NivelCheck::Error, configurado: false, ultima_sincronizacion: None }
             }
         }
     }
@@ -183,7 +188,11 @@ where
                 // bien" — pero `0` significa que ningún recurso puede
                 // nacer compartible todavía (F-06), es una advertencia
                 // real, no el estado normal.
-                nivel: if claves_activas == 1 { NivelCheck::Ok } else { NivelCheck::Advertencia },
+                nivel: if claves_activas == 1 {
+                    NivelCheck::Ok
+                } else {
+                    NivelCheck::Advertencia
+                },
                 claves_activas,
             },
             Err(e) => {

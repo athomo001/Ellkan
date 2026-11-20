@@ -51,12 +51,7 @@ pub struct SqliteRecoveryKitRepository {
 }
 
 impl RecoveryKitRepository for SqliteRecoveryKitRepository {
-    async fn upsert(
-        &self,
-        user_id: Uuid,
-        kit_public_key_x25519: &[u8],
-        sealed_identity_material: &[u8],
-    ) -> Result<RecoveryKit, RepoError> {
+    async fn upsert(&self, user_id: Uuid, kit_public_key_x25519: &[u8], sealed_identity_material: &[u8]) -> Result<RecoveryKit, RepoError> {
         // El id generado acá sólo se usa si la fila es nueva — en el camino
         // de conflicto, `do update` no toca `id`, la fila existente conserva
         // el suyo (mismo comportamiento que `default uuidv7()` en Postgres,
@@ -158,31 +153,43 @@ impl ResetTokenRepository for SqliteResetTokenRepository {
         fila.as_ref().map(fila_a_token).transpose()
     }
 
-    async fn guardar_codigo_email(
-        &self,
-        id: Uuid,
-        code_hash: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError> {
-        sqlx::query(
-            r#"update recovery_reset_tokens set email_code_hash = ?2, email_code_expires_at = ?3 where id = ?1"#,
-        )
-        .bind(id.to_string())
-        .bind(code_hash)
-        .bind(fmt_dt(expires_at))
-        .execute(&self.pool)
-        .await?;
+    async fn guardar_codigo_email(&self, id: Uuid, code_hash: &[u8], expires_at: OffsetDateTime) -> Result<(), RepoError> {
+        sqlx::query(r#"update recovery_reset_tokens set email_code_hash = ?2, email_code_expires_at = ?3 where id = ?1"#)
+            .bind(id.to_string())
+            .bind(code_hash)
+            .bind(fmt_dt(expires_at))
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     async fn marcar_consumido(&self, id: Uuid) -> Result<bool, RepoError> {
-        let resultado = sqlx::query(
-            r#"update recovery_reset_tokens set consumed_at = ?2 where id = ?1 and consumed_at is null"#,
+        let resultado = sqlx::query(r#"update recovery_reset_tokens set consumed_at = ?2 where id = ?1 and consumed_at is null"#)
+            .bind(id.to_string())
+            .bind(fmt_dt(OffsetDateTime::now_utc()))
+            .execute(&self.pool)
+            .await?;
+        Ok(resultado.rows_affected() == 1)
+    }
+
+    async fn registrar_intento_fallido(&self, id: Uuid, maximo: i32) -> Result<bool, RepoError> {
+        let fila = sqlx::query(
+            r#"
+            update recovery_reset_tokens
+            set failed_attempts = failed_attempts + 1,
+                consumed_at = case when failed_attempts + 1 >= ?2 then ?3 else consumed_at end
+            where id = ?1 and consumed_at is null
+            returning consumed_at is not null as quemado
+            "#,
         )
         .bind(id.to_string())
+        .bind(maximo)
         .bind(fmt_dt(OffsetDateTime::now_utc()))
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(resultado.rows_affected() == 1)
+        Ok(match fila {
+            Some(f) => f.try_get::<bool, _>("quemado")?,
+            None => false,
+        })
     }
 }

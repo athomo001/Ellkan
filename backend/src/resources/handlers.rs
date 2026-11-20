@@ -1,8 +1,8 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
-use axum::Json;
 use uuid::Uuid;
 
 use crate::auth::extractor::AuthenticatedUser;
@@ -14,10 +14,9 @@ use crate::state::AppState;
 use crate::tags::service::TagService;
 
 use super::dto::{
-    ActualizarRecursoRequest, CambiarNivelRequest, CambiarTipoRecursoRequest, CompartirLoteItemResultado,
-    CompartirLoteRequest, CompartirLoteResponse, CompartirRequest, CrearRecursoRequest, DestinatarioResponse,
-    ListarQuery, MoverRecursoRequest, PermisoGranteeResponse, RecursoResponse, RekeyMetadataRequest, SecretoResponse,
-    TotpResponse,
+    ActualizarRecursoRequest, CambiarNivelRequest, CambiarTipoRecursoRequest, CompartirLoteItemResultado, CompartirLoteRequest,
+    CompartirLoteResponse, CompartirRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery, MoverRecursoRequest,
+    PermisoGranteeResponse, RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
 };
 use super::models::{EnvelopeInput, NivelPermiso};
 use super::repository::ResourceTypeRepository;
@@ -79,14 +78,13 @@ pub async fn crear(
 
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
-    let sealed_dek = b64::decode(&req.sealed_dek_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-    let secret_ciphertext = b64::decode(&req.secret_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-    let secret_nonce = b64::decode(&req.secret_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+    let secret_ciphertext =
+        b64::decode(&req.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
+    let secret_nonce =
+        b64::decode(&req.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
 
     // El servidor rechaza un blob de metadata cuya envoltura no corresponda
     // a una clave declarada activa (F-06, criterio de aceptación literal) —
@@ -148,11 +146,14 @@ pub async fn listar(
     // se adjunta a recursos que ya pasaron el filtro de visibilidad.
     let deks_propias = state.envolturas.sealed_deks_de(auth.user_id).await.map_err(DomainError::from)?;
 
-    let servicio_recursos = servicio(&state);
+    // QA-12: `puede_borrar` de todo el listado en una cantidad fija de
+    // queries (antes eran 3–5 por recurso).
+    let ids: Vec<Uuid> = recursos.iter().map(|r| r.id).collect();
+    let borrables = servicio(&state).puede_borrar_lote(auth.user_id, &ids).await?;
     let mut respuesta = Vec::with_capacity(recursos.len());
     for r in recursos {
         let slug = slugs.get(&r.resource_type_id).cloned().unwrap_or_default();
-        let puede_borrar = servicio_recursos.puede_borrar(r.id, auth.user_id).await?;
+        let puede_borrar = borrables.contains(&r.id);
         let mut resp = a_response(r, slug, puede_borrar);
         resp.folder_id = posiciones.get(&resp.id).copied();
         resp.own_sealed_dek_b64 = deks_propias.get(&resp.id).map(|d| b64::encode(d));
@@ -176,7 +177,10 @@ pub async fn listar(
             } else {
                 std::iter::once(folder_id).collect()
             };
-            recursos.into_iter().filter(|r| r.folder_id.is_some_and(|f| carpetas_validas.contains(&f))).collect()
+            recursos
+                .into_iter()
+                .filter(|r| r.folder_id.is_some_and(|f| carpetas_validas.contains(&f)))
+                .collect()
         }
     };
 
@@ -230,12 +234,11 @@ pub async fn compartir(
     Path(resource_id): Path<Uuid>,
     Json(req): Json<CompartirRequest>,
 ) -> Result<(), ApiError> {
-    let sealed_dek = b64::decode(&req.sealed_dek_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-    let secret_ciphertext = b64::decode(&req.secret_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-    let secret_nonce = b64::decode(&req.secret_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+    let secret_ciphertext =
+        b64::decode(&req.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
+    let secret_nonce =
+        b64::decode(&req.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
     let nivel = nivel_de(req.level.as_deref())?;
 
     servicio(&state)
@@ -268,12 +271,12 @@ pub async fn compartir_lote(
 
     for item in req.items {
         let decodificado = (|| -> Result<_, DomainError> {
-            let sealed_dek = b64::decode(&item.sealed_dek_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
+            let sealed_dek =
+                b64::decode(&item.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
             let secret_ciphertext = b64::decode(&item.secret_ciphertext_b64)
                 .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-            let secret_nonce = b64::decode(&item.secret_nonce_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+            let secret_nonce =
+                b64::decode(&item.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
             let nivel = nivel_de(item.level.as_deref())?;
             Ok((sealed_dek, secret_ciphertext, secret_nonce, nivel))
         })();
@@ -298,8 +301,10 @@ pub async fn compartir_lote(
     }
 
     let aplicados = servicio(&state).compartir_lote(auth.user_id, validos).await;
-    resultados.extend(aplicados.into_iter().map(|(resource_id, recipient_user_id, error)| {
-        CompartirLoteItemResultado { resource_id, recipient_user_id, error }
+    resultados.extend(aplicados.into_iter().map(|(resource_id, recipient_user_id, error)| CompartirLoteItemResultado {
+        resource_id,
+        recipient_user_id,
+        error,
     }));
 
     Ok(Json(CompartirLoteResponse { resultados }))
@@ -315,7 +320,12 @@ pub async fn listar_permisos(
     Ok(Json(
         grantees
             .into_iter()
-            .map(|g| PermisoGranteeResponse { grantee_type: g.grantee_type, grantee_id: g.grantee_id, level: g.level, label: g.label })
+            .map(|g| PermisoGranteeResponse {
+                grantee_type: g.grantee_type,
+                grantee_id: g.grantee_id,
+                level: g.level,
+                label: g.label,
+            })
             .collect(),
     ))
 }
@@ -365,8 +375,8 @@ pub async fn rekey_metadata(
 ) -> Result<(), ApiError> {
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
 
     servicio(&state)
         .rekey_metadata(
@@ -416,15 +426,14 @@ pub async fn actualizar(
 
     let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
         .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce = b64::decode(&req.metadata_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let metadata_nonce =
+        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
 
     let mut envelopes = Vec::with_capacity(req.envelopes.len());
     for e in req.envelopes {
         envelopes.push(EnvelopeInput {
             user_id: e.recipient_user_id,
-            sealed_dek: b64::decode(&e.sealed_dek_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?,
+            sealed_dek: b64::decode(&e.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?,
             secret_ciphertext: b64::decode(&e.secret_ciphertext_b64)
                 .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?,
             secret_nonce: b64::decode(&e.secret_nonce_b64)
@@ -487,21 +496,13 @@ pub async fn mover(
 /// ninguna forma de borrar un recurso real). Ver
 /// `ResourceService::eliminar` para la regla de autorización (admin del
 /// grupo dueño de la carpeta, u `owner` fuera de una carpeta de grupo).
-pub async fn eliminar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-    Path(resource_id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn eliminar(State(state): State<AppState>, auth: AuthenticatedUser, Path(resource_id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).eliminar(resource_id, auth.user_id).await?;
     Ok(())
 }
 
 /// `POST /resources/{id}/leave` — ver `ResourceService::salir`.
-pub async fn salir(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-    Path(resource_id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn salir(State(state): State<AppState>, auth: AuthenticatedUser, Path(resource_id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).salir(resource_id, auth.user_id).await?;
     Ok(())
 }

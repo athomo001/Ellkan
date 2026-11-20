@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 pub mod borrado_remoto;
 pub mod cambios_extension;
@@ -69,10 +69,7 @@ pub async fn bootstrap_sqlite(datadir: &Path) -> anyhow::Result<SqlitePool> {
 pub async fn cargar_o_generar_server_key(pool: &SqlitePool) -> anyhow::Result<[u8; 32]> {
     use sqlx::Row;
 
-    if let Some(fila) = sqlx::query("select public_key_ed25519 from server_keys where id = 1")
-        .fetch_optional(pool)
-        .await?
-    {
+    if let Some(fila) = sqlx::query("select public_key_ed25519 from server_keys where id = 1").fetch_optional(pool).await? {
         let bytes: Vec<u8> = fila.get("public_key_ed25519");
         return Ok(bytes.try_into().expect("32 bytes"));
     }
@@ -179,7 +176,13 @@ struct DesktopJson {
 /// request — ver `router.rs`.
 pub fn escribir_desktop_json(port: u16, version: &str, pipe: Option<&str>) -> anyhow::Result<()> {
     let token = crate::b64::encode(&ellkan_crypto::aleatoriedad::bytes_aleatorios::<32>());
-    let datos = DesktopJson { port, token, pid: std::process::id(), version: version.to_string(), pipe: pipe.map(str::to_string) };
+    let datos = DesktopJson {
+        port,
+        token,
+        pid: std::process::id(),
+        version: version.to_string(),
+        pipe: pipe.map(str::to_string),
+    };
     let ruta = dir_home_ellkan()?.join("desktop.json");
     escribir_archivo_privado(&ruta, &serde_json::to_vec_pretty(&datos)?)?;
     Ok(())

@@ -8,18 +8,18 @@
 //! correo.
 #![cfg(feature = "desktop")]
 
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::{Signer, SigningKey};
 use ellkan_backend::auth::repository::SessionRepository;
 use ellkan_backend::desktop::router::construir_router_desktop;
 use ellkan_backend::desktop::state::AppStateDesktop;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
-use sqlx::sqlite::SqlitePoolOptions;
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -27,7 +27,10 @@ const EMAIL: &str = "yo@local.ellkan";
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
-    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite").run(&pool).await.expect("correr migraciones sqlite");
+    sqlx::migrate!("../app-escritorio/backend-desktop/migrations_sqlite")
+        .run(&pool)
+        .await
+        .expect("correr migraciones sqlite");
     pool
 }
 
@@ -42,10 +45,17 @@ async fn llamar(pool: &SqlitePool, metodo: &str, uri: &str, bearer: Option<Uuid>
     if let Some(sesion) = bearer {
         req = req.header("authorization", format!("Bearer {sesion}"));
     }
-    let resp = construir_router_desktop(estado(pool)).oneshot(req.body(Body::from(cuerpo.to_string())).unwrap()).await.unwrap();
+    let resp = construir_router_desktop(estado(pool))
+        .oneshot(req.body(Body::from(cuerpo.to_string())).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-    let cuerpo: Value = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).unwrap() };
+    let cuerpo: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     (status, cuerpo)
 }
 
@@ -127,7 +137,33 @@ async fn el_kit_se_puede_generar_y_su_estado_se_ve_sin_exponer_el_contenido() {
     let (_, cuerpo) = llamar(&pool, "GET", "/me/recovery-kit", Some(sesion), Value::Null).await;
     assert_eq!(cuerpo["configured"], true);
     assert_eq!(cuerpo["must_rotate"], false);
-    assert!(cuerpo.get("sealed_identity_material_b64").is_none(), "el estado nunca devuelve el contenido del kit");
+    assert!(
+        cuerpo.get("sealed_identity_material_b64").is_none(),
+        "el estado nunca devuelve el contenido del kit"
+    );
+}
+
+/// Pendiente #23: mismo contrato que el servidor para propagar `must_rotate`.
+#[tokio::test]
+async fn el_kit_se_puede_marcar_para_rotar_y_el_material_lo_refleja() {
+    let pool = pool_de_prueba().await;
+    let (_, sesion) = usuario_con_sesion(&pool, &clave_de_cuenta()).await;
+
+    let (status, _) = llamar(&pool, "POST", "/me/recovery-kit/must-rotate", Some(sesion), json!({})).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "sin kit no hay nada que marcar");
+
+    let (status, _) = llamar(&pool, "PUT", "/me/recovery-kit", Some(sesion), cuerpo_kit()).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, material) = llamar(&pool, "GET", "/me/recovery-kit/material", Some(sesion), Value::Null).await;
+    assert_eq!(material["must_rotate"], false);
+
+    let (status, _) = llamar(&pool, "POST", "/me/recovery-kit/must-rotate", Some(sesion), json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, material) = llamar(&pool, "GET", "/me/recovery-kit/material", Some(sesion), Value::Null).await;
+    assert_eq!(material["must_rotate"], true);
+
+    let (status, _) = llamar(&pool, "POST", "/me/recovery-kit/must-rotate", None, json!({})).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "exige sesión");
 }
 
 #[tokio::test]
@@ -173,10 +209,18 @@ async fn reset_con_firma_valida_reemplaza_el_blob_mata_las_sesiones_y_marca_el_k
     let (status, _) = llamar(&pool, "POST", "/auth/recovery-kit/local/complete", None, cuerpo_recuperar(&nonce, &firma)).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(blob_actual(&pool, user_id).await, vec![21u8; 48], "el blob re-sellado con la passphrase nueva debe quedar guardado");
+    assert_eq!(
+        blob_actual(&pool, user_id).await,
+        vec![21u8; 48],
+        "el blob re-sellado con la passphrase nueva debe quedar guardado"
+    );
 
     let (status, _) = llamar(&pool, "GET", "/me/recovery-kit", Some(sesion), Value::Null).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "la sesión abierta antes del reset debe morir (security_stamp rotado)");
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "la sesión abierta antes del reset debe morir (security_stamp rotado)"
+    );
 
     // El kit usado queda obsoleto — se verifica por la base, la sesión vieja ya no sirve.
     let must_rotate: bool = sqlx::query_scalar("select must_rotate from recovery_kits where user_id = ?1")

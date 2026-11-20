@@ -11,6 +11,7 @@
 use uuid::Uuid;
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
+use crate::auth::repository::{AuthChallengeRepository, UserRepository};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 use crate::password_policy::repository::PasswordPolicyRepository;
@@ -104,9 +105,7 @@ where
 
     pub async fn actualizar(&self, user_id: Uuid, avatar: Avatar) -> Result<(), DomainError> {
         if !CONTENT_TYPES_AVATAR.contains(&avatar.content_type.as_str()) {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "content_type debe ser uno de {CONTENT_TYPES_AVATAR:?}"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("content_type debe ser uno de {CONTENT_TYPES_AVATAR:?}")));
         }
         if avatar.bytes.is_empty() || avatar.bytes.len() > AVATAR_MAX_BYTES {
             return Err(DomainError::ValidacionInvalida(format!(
@@ -131,6 +130,57 @@ const KDF_SALT_LEN: usize = 16;
 const BLOB_LEN_MIN: usize = 16;
 const BLOB_LEN_MAX: usize = 1024;
 
+/// QA-06: lo que el cliente manda para probar que tiene la identidad de la
+/// cuenta al reemplazar el blob sellado.
+pub struct PruebaDePosesion {
+    /// Nonce emitido por `POST /auth/challenge` para esta cuenta.
+    pub challenge: Vec<u8>,
+    /// Firma Ed25519 de `mensaje_reemplazo_clave_privada(challenge, blob…)`.
+    pub firma: Vec<u8>,
+}
+
+/// QA-06: blob nuevo cuya prueba de posesión ya se verificó para `user_id`.
+/// Sólo lo construye `verificar_posesion`, y es lo único que acepta
+/// `CambiarPassphraseService::actualizar`: ningún camino puede reemplazar la
+/// clave privada sellada sin pasar por la verificación.
+pub struct ReemplazoVerificado {
+    user_id: Uuid,
+    nueva: NuevaClavePrivada,
+}
+
+/// QA-06: valida las longitudes, consume el challenge (un solo uso, con TTL)
+/// y verifica la firma con `user_keys.public_key_ed25519`. Cualquier fallo
+/// de la prueba devuelve el mismo 403, sin distinguir cuál fue.
+pub async fn verificar_posesion<U, C>(
+    usuarios: &U,
+    challenges: &C,
+    user_id: Uuid,
+    nueva: NuevaClavePrivada,
+    prueba: &PruebaDePosesion,
+) -> Result<ReemplazoVerificado, DomainError>
+where
+    U: UserRepository,
+    C: AuthChallengeRepository,
+{
+    validar_nueva_clave_privada(&nueva)?;
+    if !challenges.consumir_challenge(user_id, &prueba.challenge).await? {
+        return Err(DomainError::PermissionDenied);
+    }
+    let keys = usuarios.buscar_keys(user_id).await?.ok_or(DomainError::PermissionDenied)?;
+    let valida = ellkan_crypto::clave_privada::verificar_reemplazo_clave_privada(
+        &keys.public_key_ed25519,
+        &prueba.firma,
+        &prueba.challenge,
+        &nueva.encrypted_private_key_blob,
+        &nueva.private_key_nonce,
+        &nueva.kdf_salt,
+    );
+    if !valida {
+        return Err(DomainError::PermissionDenied);
+    }
+    Ok(ReemplazoVerificado { user_id, nueva })
+}
+
 pub struct CambiarPassphraseService<'a, R> {
     pub claves: &'a R,
     pub eventos: EmisorDeEventos,
@@ -140,18 +190,8 @@ impl<'a, R> CambiarPassphraseService<'a, R>
 where
     R: ClavePrivadaRepository,
 {
-    pub async fn actualizar(&self, user_id: Uuid, nueva: NuevaClavePrivada) -> Result<(), DomainError> {
-        if nueva.private_key_nonce.len() != NONCE_LEN {
-            return Err(DomainError::ValidacionInvalida(format!("private_key_nonce debe tener {NONCE_LEN} bytes")));
-        }
-        if nueva.kdf_salt.len() != KDF_SALT_LEN {
-            return Err(DomainError::ValidacionInvalida(format!("kdf_salt debe tener {KDF_SALT_LEN} bytes")));
-        }
-        if !(BLOB_LEN_MIN..=BLOB_LEN_MAX).contains(&nueva.encrypted_private_key_blob.len()) {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "encrypted_private_key_blob debe medir entre {BLOB_LEN_MIN} y {BLOB_LEN_MAX} bytes"
-            )));
-        }
+    pub async fn actualizar(&self, verificado: ReemplazoVerificado) -> Result<(), DomainError> {
+        let ReemplazoVerificado { user_id, nueva } = verificado;
 
         self.claves.actualizar(user_id, &nueva).await?;
 
@@ -161,4 +201,21 @@ where
 
         Ok(())
     }
+}
+
+/// Validación de longitudes del blob nuevo; corre dentro de
+/// `verificar_posesion`, antes de consumir nada.
+fn validar_nueva_clave_privada(nueva: &NuevaClavePrivada) -> Result<(), DomainError> {
+    if nueva.private_key_nonce.len() != NONCE_LEN {
+        return Err(DomainError::ValidacionInvalida(format!("private_key_nonce debe tener {NONCE_LEN} bytes")));
+    }
+    if nueva.kdf_salt.len() != KDF_SALT_LEN {
+        return Err(DomainError::ValidacionInvalida(format!("kdf_salt debe tener {KDF_SALT_LEN} bytes")));
+    }
+    if !(BLOB_LEN_MIN..=BLOB_LEN_MAX).contains(&nueva.encrypted_private_key_blob.len()) {
+        return Err(DomainError::ValidacionInvalida(format!(
+            "encrypted_private_key_blob debe medir entre {BLOB_LEN_MIN} y {BLOB_LEN_MAX} bytes"
+        )));
+    }
+    Ok(())
 }

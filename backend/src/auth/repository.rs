@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{DeviceChallengeRow, EmailVerificationRow, NuevoUsuario, Session, User, UserKeysRow};
+use super::models::{DeviceChallengeRow, EmailVerificationRow, NuevoUsuario, PropositoSesion, Session, User, UserKeysRow};
 
 pub trait UserRepository {
     /// F-24: `ya_verificado` lo decide el caller, nunca esta capa — el
@@ -60,7 +60,12 @@ pub trait UserRepository {
     /// para el buscador en vivo del modal de compartir (módulo 3/UX real).
     /// 2026-08-11: acotado a quién puede ver `actor_id` (F-11 — ver
     /// `visibilidad_de_usuarios` en `service.rs` para el criterio exacto).
-    async fn buscar_por_prefijo(&self, actor_id: Uuid, prefijo: &str, limite: i64) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError>;
+    async fn buscar_por_prefijo(
+        &self,
+        actor_id: Uuid,
+        prefijo: &str,
+        limite: i64,
+    ) -> Result<Vec<super::models::UsuarioBusqueda>, RepoError>;
 
     /// `GET /users/{email}/public-key` — como `buscar_por_email`, pero
     /// acotado a quién puede ver `actor_id` (2026-08-11). A propósito una
@@ -92,15 +97,17 @@ pub trait EmailVerificationRepository {
     async fn registrar_intento_fallido(&self, _id: Uuid) -> Result<(), RepoError> {
         Ok(())
     }
+
+    /// QA-17: `(desafíos emitidos, intentos fallidos sumados)` de `user_id`
+    /// en las últimas 24 h — tope por cuenta, no sólo por desafío. No-op
+    /// por defecto (escritorio no verifica correo).
+    async fn uso_ultimas_24h(&self, _user_id: Uuid) -> Result<(i64, i64), RepoError> {
+        Ok((0, 0))
+    }
 }
 
 pub trait AuthChallengeRepository {
-    async fn guardar_challenge(
-        &self,
-        user_id: Uuid,
-        nonce: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError>;
+    async fn guardar_challenge(&self, user_id: Uuid, nonce: &[u8], expires_at: OffsetDateTime) -> Result<(), RepoError>;
 
     /// Consume un challenge válido (existente, no vencido, no usado) para
     /// `user_id`+`nonce` — devuelve `true` si había uno y se consumió.
@@ -115,7 +122,9 @@ pub trait SessionRepository {
     /// F-14: sesión parcial — `mfa_verified_at` queda `null` hasta que
     /// `mfa::service` la marque completa (verificando un código, o
     /// confirmando un TOTP nuevo en el flujo "configura tu MFA ahora").
-    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError>;
+    /// `proposito` fija la única operación que esta sesión habilita; nunca
+    /// puede ser `Completa` (eso es `crear`).
+    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid, proposito: PropositoSesion) -> Result<Session, RepoError>;
 
     /// Válida para operar sobre el resto de la API: no revocada, no vencida,
     /// `security_stamp` vigente, **y MFA ya verificado**. Rotar el stamp
@@ -123,13 +132,13 @@ pub trait SessionRepository {
     /// iterar ni marcar cada fila.
     async fn validar(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError>;
 
-    /// Igual que `validar` pero sin exigir `mfa_verified_at` — la única
-    /// franja de la API donde una sesión parcial es válida: verificar el
-    /// código MFA o configurar el segundo factor por primera vez (F-14).
-    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError>;
+    /// Igual que `validar` pero sin exigir `mfa_verified_at` — devuelve
+    /// también el propósito, para que cada endpoint que acepta sesiones
+    /// parciales verifique que la sesión se emitió para esa operación puntual.
+    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<(Uuid, PropositoSesion)>, RepoError>;
 
     /// Cierra el estado parcial de una sesión — la deja utilizable por el
-    /// resto de la API (F-14).
+    /// resto de la API (F-14) y pasa su propósito a `completa`.
     async fn marcar_mfa_verificada(&self, session_id: Uuid) -> Result<(), RepoError>;
 
     async fn revocar(&self, session_id: Uuid) -> Result<(), RepoError>;
@@ -147,13 +156,8 @@ pub trait KnownDeviceRepository {
 }
 
 pub trait DeviceChallengeRepository {
-    async fn crear(
-        &self,
-        user_id: Uuid,
-        device_token_hash: &[u8],
-        code_hash: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<Uuid, RepoError>;
+    async fn crear(&self, user_id: Uuid, device_token_hash: &[u8], code_hash: &[u8], expires_at: OffsetDateTime)
+    -> Result<Uuid, RepoError>;
 
     /// Trae un desafío pendiente (no vencido, no consumido) por id — la
     /// comparación del código contra `code_hash` es responsabilidad del
@@ -175,6 +179,10 @@ pub trait DeviceChallengeRepository {
 /// invalidarlo (6 dígitos: 5 intentos dejan 1 en 200.000 de acertar).
 pub const MAX_INTENTOS_DISPOSITIVO: i32 = 5;
 
+/// Clave del `pg_advisory_xact_lock` que serializa las altas de usuario
+/// (QA-11). Constante arbitraria, única en el código.
+const LOCK_ALTA_DE_USUARIOS: i64 = 0x456c_6b61_6e01;
+
 #[derive(Clone)]
 pub struct PgUserRepository {
     pub pool: sqlx::PgPool,
@@ -183,6 +191,13 @@ pub struct PgUserRepository {
 impl UserRepository for PgUserRepository {
     async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError> {
         let mut tx = self.pool.begin().await?;
+        // QA-11: lock transaccional antes del `exists` — dos registros
+        // simultáneos en una instancia vacía ya no pueden nacer admin los
+        // dos. Serializa sólo las altas de usuario, que son poco frecuentes.
+        sqlx::query("select pg_advisory_xact_lock($1)")
+            .bind(LOCK_ALTA_DE_USUARIOS)
+            .execute(&mut *tx)
+            .await?;
         // Bootstrap: si todavía no existe ningún usuario en toda la
         // instancia, el primer auto-registro (`POST /auth/register`) nace
         // como `admin` en vez de `user` — decisión explícita del usuario,
@@ -192,10 +207,10 @@ impl UserRepository for PgUserRepository {
         // Para cualquier registro posterior (ya existe al menos un usuario)
         // sigue naciendo `user` — promover a alguien más sigue siendo una
         // acción deliberada aparte (CLI `admin promote-to-admin`, F-41).
-        // El `exists` corre dentro de la misma transacción que el insert,
-        // no elimina la ventana de carrera bajo concurrencia real pero
-        // alcanza para el caso que importa: nadie más registra en el mismo
-        // instante en que se levanta una instancia nueva.
+        // El `exists` corre dentro de la misma transacción que el insert y
+        // detrás del lock de arriba, así que sólo uno puede verlo vacío. Si
+        // el operador configuró `ELLKAN_SETUP_TOKEN`, el servicio ya exigió
+        // el token antes de llegar acá (QA-11).
         // F-24: el mismo bootstrap nace también con `email_verified_at` ya
         // fijado (nadie más existe todavía para aprobar/enviar un código) —
         // sin importar `ya_verificado`. Para cualquier registro posterior,
@@ -292,17 +307,11 @@ impl UserRepository for PgUserRepository {
     }
 
     async fn buscar_keys(&self, user_id: Uuid) -> Result<Option<UserKeysRow>, RepoError> {
-        let fila = sqlx::query!(
-            r#"select public_key_x25519, public_key_ed25519 from user_keys where user_id = $1"#,
-            user_id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select public_key_x25519, public_key_ed25519 from user_keys where user_id = $1"#, user_id,)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(fila.map(|f| UserKeysRow {
-            public_key_x25519: f.public_key_x25519,
-            public_key_ed25519: f.public_key_ed25519,
-        }))
+        Ok(fila.map(|f| UserKeysRow { public_key_x25519: f.public_key_x25519, public_key_ed25519: f.public_key_ed25519 }))
     }
 
     async fn email_y_nombre(&self, user_id: Uuid) -> Result<Option<(String, String)>, RepoError> {
@@ -316,10 +325,7 @@ impl UserRepository for PgUserRepository {
         Ok(fila.map(|f| (f.email, f.display_name)))
     }
 
-    async fn material_desbloqueo_por_email(
-        &self,
-        email: &str,
-    ) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError> {
+    async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError> {
         let fila = sqlx::query!(
             r#"
             select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
@@ -512,6 +518,19 @@ impl EmailVerificationRepository for PgUserRepository {
         Ok(())
     }
 
+    async fn uso_ultimas_24h(&self, user_id: Uuid) -> Result<(i64, i64), RepoError> {
+        // Los ids son uuidv7: su timestamp es el momento de emisión.
+        let fila: (i64, i64) = sqlx::query_as(
+            r#"select count(*), coalesce(sum(failed_attempts), 0)::bigint
+               from email_verification_challenges
+               where user_id = $1 and uuid_extract_timestamp(id) > now() - interval '24 hours'"#,
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fila)
+    }
+
     async fn invalidar_pendientes_de_usuario(&self, user_id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(
             r#"update email_verification_challenges set consumed_at = now()
@@ -537,12 +556,7 @@ pub struct PgAuthChallengeRepository {
 }
 
 impl AuthChallengeRepository for PgAuthChallengeRepository {
-    async fn guardar_challenge(
-        &self,
-        user_id: Uuid,
-        nonce: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError> {
+    async fn guardar_challenge(&self, user_id: Uuid, nonce: &[u8], expires_at: OffsetDateTime) -> Result<(), RepoError> {
         sqlx::query!(
             r#"insert into auth_challenges (user_id, nonce, expires_at) values ($1, $2, $3)"#,
             user_id,
@@ -592,15 +606,22 @@ impl SessionRepository for PgSessionRepository {
         Ok(Session { id: fila.id, user_id: fila.user_id })
     }
 
-    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError> {
+    async fn crear_parcial(&self, user_id: Uuid, security_stamp: Uuid, proposito: PropositoSesion) -> Result<Session, RepoError> {
+        // Invariante de dominio, no de entrada externa: una sesión parcial
+        // "completa" sería una sesión completa sin MFA. La base también lo
+        // impide (`sessions_proposito_coherente`), esto sólo lo detecta antes.
+        if proposito == PropositoSesion::Completa {
+            return Err(RepoError::Conflict);
+        }
         let fila = sqlx::query!(
             r#"
-            insert into sessions (user_id, security_stamp, mfa_verified_at, expires_at)
-            values ($1, $2, null, now() + interval '12 hours')
+            insert into sessions (user_id, security_stamp, mfa_verified_at, expires_at, proposito)
+            values ($1, $2, null, now() + interval '12 hours', $3)
             returning id, user_id
             "#,
             user_id,
             security_stamp,
+            proposito.como_str(),
         )
         .fetch_one(&self.pool)
         .await?;
@@ -619,6 +640,7 @@ impl SessionRepository for PgSessionRepository {
               and s.expires_at > now()
               and s.security_stamp = u.security_stamp
               and s.mfa_verified_at is not null
+              and s.proposito = 'completa'
               and u.active and u.deleted_at is null and u.email_verified_at is not null
             "#,
             session_id,
@@ -629,10 +651,10 @@ impl SessionRepository for PgSessionRepository {
         Ok(fila.map(|f| f.user_id))
     }
 
-    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<Uuid>, RepoError> {
+    async fn validar_cualquiera(&self, session_id: Uuid) -> Result<Option<(Uuid, PropositoSesion)>, RepoError> {
         let fila = sqlx::query!(
             r#"
-            select s.user_id
+            select s.user_id, s.proposito
             from sessions s
             join users u on u.id = s.user_id
             where s.id = $1
@@ -646,12 +668,12 @@ impl SessionRepository for PgSessionRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| f.user_id))
+        Ok(fila.map(|f| (f.user_id, PropositoSesion::desde_str(&f.proposito))))
     }
 
     async fn marcar_mfa_verificada(&self, session_id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(
-            r#"update sessions set mfa_verified_at = now() where id = $1 and mfa_verified_at is null"#,
+            r#"update sessions set mfa_verified_at = now(), proposito = 'completa' where id = $1 and mfa_verified_at is null"#,
             session_id,
         )
         .execute(&self.pool)
@@ -660,12 +682,9 @@ impl SessionRepository for PgSessionRepository {
     }
 
     async fn revocar(&self, session_id: Uuid) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"update sessions set revoked_at = now() where id = $1 and revoked_at is null"#,
-            session_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"update sessions set revoked_at = now() where id = $1 and revoked_at is null"#, session_id,)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
@@ -795,7 +814,9 @@ impl crate::notificaciones::LocaleRepository for PgUserRepository {
     /// email_verified_at is not null` de `buscar_por_email` — ver el
     /// comentario del trait en `notificaciones.rs`.
     async fn locale_de_email(&self, email: &str) -> Result<Option<String>, RepoError> {
-        let fila = sqlx::query!(r#"select locale from users where email = $1"#, email).fetch_optional(&self.pool).await?;
+        let fila = sqlx::query!(r#"select locale from users where email = $1"#, email)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.map(|f| f.locale))
     }
 }

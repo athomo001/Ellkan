@@ -6,8 +6,8 @@
 //! que fue creado.
 
 use chacha20poly1305::{
-    aead::{Aead, KeyInit, Payload},
     Key, XChaCha20Poly1305, XNonce,
+    aead::{Aead, KeyInit, Payload},
 };
 use secrecy::ExposeSecret;
 
@@ -36,9 +36,7 @@ pub fn cifrar(clave: &ClaveSecreta32, plaintext: &[u8], aad: &[u8]) -> Result<En
     let cipher = XChaCha20Poly1305::new(&Key::from(*clave.expose_secret()));
     let nonce_bytes: [u8; 24] = bytes_aleatorios();
     let nonce = XNonce::from(nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(&nonce, Payload { msg: plaintext, aad })
-        .map_err(|_| ErrorAead::OperacionFallida)?;
+    let ciphertext = cipher.encrypt(&nonce, Payload { msg: plaintext, aad }).map_err(|_| ErrorAead::OperacionFallida)?;
     Ok(Envoltura { nonce: nonce_bytes, ciphertext })
 }
 

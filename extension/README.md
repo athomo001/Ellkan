@@ -4,7 +4,16 @@ Autor: Athan Espinoza
 
 Extensión de navegador (Manifest V3) para Chrome, Edge, Brave, Opera, Firefox y Safari. Comparte el mismo núcleo criptográfico (WebAssembly) que el backend y el frontend web — ningún secreto se descifra fuera del dispositivo del usuario.
 
-## Requisitos
+## Instalar una versión publicada
+
+Si usás la app de escritorio, no hace falta nada de esto: la app trae la extensión y la instala en los navegadores que elijas.
+
+Si no, descargá el archivo de tu navegador desde [Releases](https://github.com/athomo001/Ellkan/releases/latest):
+
+- **Chrome, Edge, Brave u Opera** (`ellkan-<navegador>-X.Y.Z.zip`): descomprimilo en una carpeta que no vayas a borrar, abrí la página de extensiones (`chrome://extensions`, `edge://extensions`, `brave://extensions` u `opera://extensions`), activá el **modo desarrollador**, tocá **Cargar descomprimida** y elegí esa carpeta. No se actualiza sola: con cada versión nueva, reemplazá el contenido de la carpeta y tocá **Recargar** en la tarjeta de la extensión.
+- **Firefox** (`ellkan-firefox-X.Y.Z.xpi`): si la versión viene firmada, arrastrá el `.xpi` a una ventana de Firefox (o `about:addons` → engranaje → **Instalar complemento desde archivo**). Si no está firmada, Firefox sólo la acepta como complemento temporal: `about:debugging#/runtime/this-firefox` → **Cargar complemento temporario** (se quita al cerrar Firefox).
+
+## Requisitos (para compilarla)
 
 - Node.js + [pnpm](https://pnpm.io/)
 - `zip` (CLI, para empaquetar) — ya viene instalado en la mayoría de distros Linux/macOS

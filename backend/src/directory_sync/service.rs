@@ -22,7 +22,7 @@ use crate::scim::repository::ScimUserRepository;
 use ellkan_crypto::aead;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
-use super::models::{CambioGrupoUsuario, DirectorySyncConfig, EntradaLdap, ResultadoSync, ATRIBUTOS_PROHIBIDOS};
+use super::models::{ATRIBUTOS_PROHIBIDOS, CambioGrupoUsuario, DirectorySyncConfig, EntradaLdap, ResultadoSync};
 use super::repository::DirectorySyncConfigRepository;
 
 /// Resuelve el nombre de grupo desde un valor crudo de `memberOf` — si
@@ -146,9 +146,7 @@ where
 
         let (cifrado, nonce) = match bind_password {
             Some(pw) => {
-                let envoltura =
-                    aead::cifrar(self.secrets_key, pw.as_bytes(), b"directory_sync_bind_password")
-                        .expect("cifrar no falla");
+                let envoltura = aead::cifrar(self.secrets_key, pw.as_bytes(), b"directory_sync_bind_password").expect("cifrar no falla");
                 (Some(envoltura.ciphertext), Some(envoltura.nonce.to_vec()))
             }
             None => (None, None),
@@ -171,9 +169,10 @@ where
             )
             .await?;
 
-        let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::DirectorySyncConfigUpdated, Some(actor_id)),
-        ));
+        let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
+            AuditEventType::DirectorySyncConfigUpdated,
+            Some(actor_id),
+        )));
 
         self.config().await
     }
@@ -186,17 +185,12 @@ where
         let base_dn = cfg.base_dn.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
         let bind_dn = cfg.bind_dn.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
 
-        let (cifrado, nonce) = self
-            .config
-            .obtener_credencial_bind()
-            .await?
-            .ok_or(DirectorySyncError::NoConfigurado)?;
+        let (cifrado, nonce) = self.config.obtener_credencial_bind().await?.ok_or(DirectorySyncError::NoConfigurado)?;
         let nonce: [u8; 24] = nonce.try_into().map_err(|_| DirectorySyncError::NoConfigurado)?;
         let envoltura = aead::Envoltura { nonce, ciphertext: cifrado };
         let bind_password_bytes = aead::descifrar(self.secrets_key, &envoltura, b"directory_sync_bind_password")
             .map_err(|_| DirectorySyncError::Ldap("no se pudo descifrar la credencial de bind".into()))?;
-        let bind_password =
-            String::from_utf8(bind_password_bytes).map_err(|_| DirectorySyncError::Ldap("credencial inválida".into()))?;
+        let bind_password = String::from_utf8(bind_password_bytes).map_err(|_| DirectorySyncError::Ldap("credencial inválida".into()))?;
 
         let settings = LdapConnSettings::new()
             .set_starttls(url.starts_with("ldap://"))
@@ -306,8 +300,7 @@ where
         // LDAP — se desactivan, nunca se borran (F-19, mismo criterio que
         // SCIM F-18).
         let (gestionados, _total) = self.usuarios.listar(0, 10_000).await?;
-        let ids_ldap: std::collections::HashSet<&str> =
-            entradas.iter().map(|e| e.external_id.as_str()).collect();
+        let ids_ldap: std::collections::HashSet<&str> = entradas.iter().map(|e| e.external_id.as_str()).collect();
         for u in gestionados {
             if u.active
                 && let Some(ext) = &u.external_id
@@ -328,9 +321,9 @@ where
         let json = serde_json::to_value(&resultado).expect("serializar resultado no falla");
         self.config.guardar_resultado_dry_run(&json).await?;
 
-        let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::DirectorySyncDryRun, Some(actor_id)),
-        ));
+        let _ = self
+            .eventos
+            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::DirectorySyncDryRun, Some(actor_id))));
 
         Ok(resultado)
     }
@@ -348,8 +341,7 @@ where
                 Some(_) => {}
                 None => {
                     let scim = crate::scim::service::ScimService { usuarios: self.usuarios, eventos: self.eventos.clone() };
-                    let resultado_alta =
-                        scim.crear_usuario(&entrada.external_id, &entrada.email, &entrada.display_name).await?;
+                    let resultado_alta = scim.crear_usuario(&entrada.external_id, &entrada.email, &entrada.display_name).await?;
                     // `ConflictoDeEmail` ya quedó contabilizado en
                     // `resultado.conflicts` por `calcular_diff` — no se
                     // toca esa cuenta acá.
@@ -388,7 +380,7 @@ where
 
                 for nombre_grupo in &entrada.grupos {
                     let group_id = self.grupos.buscar_o_crear_raiz_gestionado(nombre_grupo).await?;
-                    if let Err(e) = self.miembros.agregar_simple(group_id, usuario.id, false).await
+                    if let Err(e) = self.miembros.agregar_simple(group_id, usuario.id, false, None).await
                         && !matches!(e, crate::error::RepoError::Conflict)
                     {
                         return Err(e.into());
@@ -407,9 +399,9 @@ where
 
         self.config.marcar_sync_aplicado().await?;
 
-        let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::DirectorySyncApplied, Some(actor_id)),
-        ));
+        let _ = self
+            .eventos
+            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::DirectorySyncApplied, Some(actor_id))));
 
         Ok(resultado)
     }

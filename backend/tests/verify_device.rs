@@ -6,14 +6,14 @@
 //! legítimamente lo necesita), y un dispositivo ya conocido no vuelve a pedir
 //! verificación en el login siguiente.
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ed25519_dalek::Signer;
-use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::clave_privada;
+use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
@@ -25,12 +25,11 @@ use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 /// instante exacto en que el test la busca, así que se reintenta brevemente.
 async fn esperar_email(pool: &sqlx::PgPool, email: &str) -> String {
     for _ in 0..20 {
-        if let Ok((body,)) = sqlx::query_as::<_, (String,)>(
-            "select body from outbound_emails where recipient = $1 order by created_at desc limit 1",
-        )
-        .bind(email)
-        .fetch_one(pool)
-        .await
+        if let Ok((body,)) =
+            sqlx::query_as::<_, (String,)>("select body from outbound_emails where recipient = $1 order by created_at desc limit 1")
+                .bind(email)
+                .fetch_one(pool)
+                .await
         {
             return body;
         }
@@ -61,9 +60,7 @@ async fn levantar() -> Contexto {
     let puerto = contenedor.get_host_port_ipv4(5432).await.unwrap();
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
     let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
-    let estado = ellkan_backend::construir_estado(&database_url, secrets_key)
-        .await
-        .expect("migrar y conectar");
+    let estado = ellkan_backend::construir_estado(&database_url, secrets_key).await.expect("migrar y conectar");
     let pool = estado.pool.clone();
 
     // Parte A/B: sin SMTP configurado, F-02 auto-verifica el dispositivo sin

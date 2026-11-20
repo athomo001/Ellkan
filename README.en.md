@@ -27,6 +27,58 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 | **Desktop (Windows)** | A password manager for **one person**. Everything stays encrypted on your PC: it works offline, with no server and no cloud account, and can optionally connect to an Ellkan server. It ships with an MSI installer, a tray icon with a global shortcut, a «Connect» button (SSH, RDP, PostgreSQL, MySQL, MongoDB, FTP, Telnet, VNC), vault health checks, automatic backups and the browser extension built in. | [Desktop app guide](app-escritorio/GUIA.md) (Spanish) |
 | **Browser extension** | Autofills your credentials in Chrome, Edge, Brave, Opera and Firefox. It works with the server or with the desktop app, which can also install it. | [Browser extension](extension/README.md) (Spanish) |
 
+## Downloads
+
+Ellkan ships as **two independent parts**. Pick by who it is for:
+
+| | **Personal use** | **Team or company** |
+| --- | --- | --- |
+| What it is | Desktop app + browser extension | Ellkan server with its web app |
+| Where to get it | [Releases](https://github.com/athomo001/Ellkan/releases/latest) | Docker image `ghcr.io/athomo001/ellkan` |
+| Needs a server or Docker | No | Yes (Docker) |
+| Users | One person, everything encrypted on your PC | Many: groups, sharing, SSO/LDAP/SCIM, audit log |
+| Includes the desktop app | Yes | **No**: download it separately from Releases |
+
+```mermaid
+flowchart LR
+    subgraph personal["Personal use · Releases"]
+        D["Desktop app"] --- E1["Extension"]
+    end
+    subgraph team["Team or company · Docker image"]
+        S["Ellkan server + web app"]
+    end
+    N["Browser"] --> S
+    E2["Extension"] --> S
+    C["ellkan-cli"] -->|administration| S
+    D -.->|optional| S
+```
+
+### Personal use: desktop app and extension (Releases)
+
+Every version is published on **[Releases](https://github.com/athomo001/Ellkan/releases/latest)** (that link always points to the latest one). No Docker or server needed:
+
+| File | What it is |
+| --- | --- |
+| `Ellkan_X.Y.Z_x64_es-ES.msi` | Desktop app for Windows (installer, includes the extension) |
+| `Ellkan_X.Y.Z_x64_portable.zip` | The same app, no install needed |
+| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` | Desktop app for Linux (experimental: the [guide](app-escritorio/GUIA.md) still covers Windows only) |
+| `ellkan-chrome-X.Y.Z.zip` (also `-edge`, `-brave`, `-opera`) | Extension for Chromium browsers |
+| `ellkan-firefox-X.Y.Z.xpi` | Extension for Firefox |
+
+How to load the extension by hand in each browser: [extension/README.md](extension/README.md) (Spanish).
+
+### Team or company: the server (Docker)
+
+The server is **not among the Release files**: it is published as a Docker image at `ghcr.io/athomo001/ellkan`, tagged `latest` (newest version), `X.Y` and `X.Y.Z`. The [quickstart](#quickstart) pulls it for you. It contains the server and the web app, but **not the desktop app**.
+
+Once it is running, everyone signs in from the browser. The extension and, optionally, the desktop app connect to that server. To administer it (create the first admin, backups) there is the CLI, which is downloaded from Releases: `ellkan-cli_X.Y.Z_windows_x64.exe` · `ellkan-cli_X.Y.Z_linux_x64`.
+
+### Versions and verification
+
+Official versions come from `main` and are the ones marked "Latest". The `vX.Y.Z-dev.N` pre-releases (and the `:dev` image) come from the development branch, are replaced on every change and are not meant for production.
+
+To verify a download: `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or `Get-FileHash <file>` in PowerShell and compare it with its line in `SHA256SUMS.txt`.
+
 ## Screenshots
 
 | Vault | Admin panel | New item |
@@ -85,7 +137,7 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 
 ## Quickstart
 
-Requires Docker and Docker Compose.
+Requires Docker and Docker Compose. Nothing needs to be compiled: the server is pulled ready-made from `ghcr.io` (see [Downloads](#downloads)).
 
 ```bash
 git clone https://github.com/athomo001/Ellkan.git
@@ -101,13 +153,17 @@ openssl rand -hex 24 > secrets/postgres_password.txt
 openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
 echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
 
+# Pulls the image for the version set in ELLKAN_VERSION (.env; the latest
+# by default). If it can't find it, it builds it from this source tree.
 docker compose up -d
 ```
 
-The app is now at `http://localhost:${ELLKAN_PORT:-8080}`. The first admin is created via the CLI (no pre-built binaries yet — build it from source):
+> To build the server from source instead of pulling it: `docker compose up -d --build`. To move to a newer version later, see [Updating / rebuilding after a change](#updating--rebuilding-after-a-change).
+
+The app is now at `http://localhost:${ELLKAN_PORT:-8080}`. The first admin is created with the CLI: download `ellkan-cli_X.Y.Z_linux_x64` (or the `windows_x64.exe`) from [Releases](https://github.com/athomo001/Ellkan/releases/latest) and save it in this folder as `ellkan-cli` (or build it with `cargo build --release -p ellkan-cli` and copy `target/release/ellkan-cli`):
 
 ```bash
-cargo build --release -p ellkan-cli
+chmod +x ellkan-cli
 
 # DATABASE_URL here is DIFFERENT from the one in secrets/database_url.txt:
 # that one uses Docker's internal hostname (ellkan-db), which only
@@ -115,10 +171,10 @@ cargo build --release -p ellkan-cli
 # docker-compose exposes on 127.0.0.1 so the CLI (running on the host)
 # can reach it.
 DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
-  ./target/release/ellkan-cli admin create-user \
+  ./ellkan-cli admin create-user \
   --email you@example.com --display-name "Your name" --role admin
 
-./target/release/ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email you@example.com
+./ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email you@example.com
 ```
 
 `--role admin` promotes directly (over SQL, never through HTTP — no HTTP route lets an account self-assign admin) and marks this device as known, so the `login` above works right away without waiting on any email — no SMTP needed to get started. Once inside, configure a real relay at `/admin/smtp` so device verification for any other login/user arrives by email for real.
@@ -129,15 +185,25 @@ By default the backend serves plain HTTP — for TLS (terminated by Ellkan itsel
 
 ### Updating / rebuilding after a change
 
+**With the published image** (the usual case). If you pinned a version in `ELLKAN_VERSION` (`.env`), change it to the new one first; with `latest` there is nothing to change:
+
 ```bash
-git pull
-docker compose build ellkan
+docker compose pull ellkan
 docker compose up -d ellkan
 ```
 
-Both commands are needed: `build` creates the new image, but `up -d` is the one that actually replaces the running container — forgetting this second step is the most common mistake. If you still don't see the change after this, it's probably the browser serving the old bundle from its own cache (`Ctrl+Shift+R`/`Cmd+Shift+R`, or try a private window); if that's not enough either, see [Reconstruir sin caché](manual/instalacion.md#reconstruir-sin-caché-cuando-un-cambio-no-aparece) in the manual (Spanish only) for the extra step to force a build with no cached layers at all.
+Database migrations run on their own when the new version starts. Take a backup before updating ([manual/instalacion.md](manual/instalacion.md#backup-y-restauración), Spanish).
 
-> **`docker compose build ellkan` can take several minutes, every time** (not just the first) — the build compiles the Rust backend in release mode from scratch (the whole dependency tree, not just what you changed) plus the cryptographic core to WebAssembly, with no build cache between runs. That's expected, it doesn't mean it's stuck.
+**Building from source** (your own changes, or something not released yet):
+
+```bash
+git pull
+docker compose up -d --build ellkan
+```
+
+`--build` builds the image from your local tree and `up -d` replaces the running container. Note: that local image has the same name as the published one, so a later `docker compose pull` replaces it with the official image. If you still don't see the change after this, it's probably the browser serving the old bundle from its own cache (`Ctrl+Shift+R`/`Cmd+Shift+R`, or try a private window); if that's not enough either, see [Reconstruir sin caché](manual/instalacion.md#reconstruir-sin-caché-cuando-un-cambio-no-aparece) in the manual (Spanish only) for the extra step to force a build with no cached layers at all.
+
+> **Building (`--build`) can take several minutes, every time** (not just the first) — the build compiles the Rust backend in release mode from scratch (the whole dependency tree, not just what you changed) plus the cryptographic core to WebAssembly, with no build cache between runs. That's expected, it doesn't mean it's stuck.
 
 ### Hardware requirements (reasoned estimate, not measured under real load — details and assumptions in [manual/instalacion.md](manual/instalacion.md#requisitos-de-hardware--estimación-razonada-no-medida-con-carga-real))
 
@@ -168,6 +234,8 @@ What the server does see is the account data it needs to work: your email, your 
 **What happens if someone steals the server's database?**
 They don't get your passwords — they only get locked safes. Without your master password (which the server never receives), there's no way to open them with what's in the database. The only other ways in are account recovery, which you or your organization turn on: your own recovery kit (a file only you keep) or, if your organization set it up, admin-approved recovery.
 
+**Zero-knowledge exception: admin-approved recovery.** If you enable it on your account, your private key is stored on the server sealed with an organization recovery key, and that key is held by the server itself (encrypted with its deployment secret). Whoever controls the whole server —database **and** configuration— or its operator can open those keys. It is opt-in per user; if that is not acceptable to you, don't enable it and use the personal recovery kit, which has no such exception.
+
 **How do you protect my keys in the computer's memory (RAM) while they're being used?**
 While the vault is **locked**, there are no keys in your device's memory: only encrypted data on disk, and your master password is not stored anywhere (if you turn on quick unlock — with a TOTP code or Windows Hello — it's stored **encrypted** on that device). While it's **unlocked**, your private keys are in memory, because they're needed to decrypt: malware already running in your session, or a memory dump taken at that moment, could read them. Locking (manually, after inactivity or when you lock Windows) discards them. No password manager can protect you from an already compromised machine, so lock it when you step away. Details, with scenarios of what happens if someone tries to extract the data, are in [manual/seguridad.md](manual/seguridad.md) (Spanish).
 
@@ -177,7 +245,7 @@ Actively in development. Backend and web frontend work end to end (registration,
 
 ## Security
 
-Ellkan has not had an independent security audit of its own yet. If you find a vulnerability, please don't open a public issue: follow the steps in [SECURITY.md](SECURITY.md).
+Ellkan has not had an independent security audit of its own yet. If you find a vulnerability, please don't open a public issue: follow the steps in [SECURITY.md](SECURITY.md). What data Ellkan stores and which services it contacts: [PRIVACY.md](PRIVACY.md).
 
 ## No warranty
 

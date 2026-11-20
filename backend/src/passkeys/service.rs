@@ -12,8 +12,8 @@ use std::time::Duration;
 use time::OffsetDateTime;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
-    CreationChallengeResponse, PasskeyAuthentication, PasskeyRegistration,
-    PublicKeyCredential, RegisterPublicKeyCredential, RequestChallengeResponse, Webauthn,
+    CreationChallengeResponse, PasskeyAuthentication, PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
+    RequestChallengeResponse, Webauthn,
 };
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
@@ -48,11 +48,7 @@ where
     /// `POST /auth/webauthn/register/options` — requiere sesión ya activa
     /// (agregar una passkey a la cuenta propia, no un método de alta).
     pub async fn iniciar_registro(&self, user_id: Uuid) -> Result<CreationChallengeResponse, DomainError> {
-        let (email, display_name) = self
-            .usuarios
-            .email_y_nombre(user_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
+        let (email, display_name) = self.usuarios.email_y_nombre(user_id).await?.ok_or(DomainError::NotFound)?;
 
         let existentes = self.passkeys.listar_de(user_id).await?;
         let excluir = existentes.iter().map(|p| p.passkey_data.cred_id().clone()).collect();
@@ -82,11 +78,13 @@ where
             .ceremonias
             .tomar(user_id, TipoCeremonia::Registro.as_db_str())
             .await?
-            .ok_or_else(|| {
-                DomainError::ValidacionInvalida("no hay un registro de passkey en curso (venció o no se inició)".into())
-            })?;
-        let estado: PasskeyRegistration =
-            serde_json::from_value(estado_json).expect("estado persistido siempre es válido");
+            .ok_or_else(|| DomainError::ValidacionInvalida("no hay un registro de passkey en curso (venció o no se inició)".into()))?;
+        // QA-34: nunca `expect` sobre datos persistidos (ver
+        // `repository::decodificar_passkey`).
+        let estado: PasskeyRegistration = serde_json::from_value(estado_json).map_err(|e| {
+            tracing::error!(error = %e, "estado de ceremonia de registro WebAuthn ilegible");
+            DomainError::ValidacionInvalida("la ceremonia de registro de passkey no es válida; volvé a iniciarla".into())
+        })?;
 
         let passkey = self
             .webauthn
@@ -161,8 +159,10 @@ where
             .tomar(user.id, TipoCeremonia::Autenticacion.as_db_str())
             .await?
             .ok_or(DomainError::InvalidCredentials)?;
-        let estado: PasskeyAuthentication =
-            serde_json::from_value(estado_json).expect("estado persistido siempre es válido");
+        let estado: PasskeyAuthentication = serde_json::from_value(estado_json).map_err(|e| {
+            tracing::error!(error = %e, "estado de ceremonia de autenticación WebAuthn ilegible");
+            DomainError::InvalidCredentials
+        })?;
 
         let resultado = self
             .webauthn

@@ -1,0 +1,10 @@
+# Autor: Athan Espinoza
+#
+# QA-13: formato del workspace. Valores elegidos midiendo contra el código
+# existente (los que menos lo reescriben), no el default de rustfmt (100),
+# que no es la convención de este repo.
+max_width = 140
+fn_call_width = 100
+chain_width = 100
+struct_lit_width = 80
+array_width = 100

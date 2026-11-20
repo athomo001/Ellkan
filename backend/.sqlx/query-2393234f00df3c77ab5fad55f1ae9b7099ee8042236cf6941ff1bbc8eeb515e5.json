@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    select 1 as \"existe!\" from users u\n                    join secret_envelopes se on se.user_id = u.id and se.resource_id = $1\n                    where u.id = $2 and u.active and u.deleted_at is null\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2393234f00df3c77ab5fad55f1ae9b7099ee8042236cf6941ff1bbc8eeb515e5"
+}

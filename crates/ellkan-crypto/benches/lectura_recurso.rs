@@ -5,7 +5,7 @@
 //! siguientes una vez que la DEK ya está en `CacheDeSessionKeys` (descifrado
 //! simétrico AEAD directo).
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use secrecy::SecretBox;
 
 use ellkan_crypto::aead::{cifrar, descifrar};

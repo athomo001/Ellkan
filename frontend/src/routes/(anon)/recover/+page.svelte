@@ -19,6 +19,7 @@
 		desellarMaterialDelEscrow,
 		reSellarConNuevaPassphrase,
 		firmarChallengeConMaterial,
+		pruebaDePosesion,
 		type BlobClaveNueva
 	} from '$lib/crypto/accountRecovery';
 	import { base64ABytes } from '$lib/crypto/b64';
@@ -58,6 +59,9 @@
 	);
 
 	let blobListo: { blobB64: string; nonceB64: string; saltB64: string } | undefined;
+	/** Material desellado del kit (x25519 || ed25519): hace falta para la
+	 * prueba de posesión del paso MFA (QA-06); se borra al completar. */
+	let materialListo: Uint8Array | undefined;
 	let codigoMfa = $state('');
 
 	onMount(async () => {
@@ -126,6 +130,7 @@
 			const kitPrivada = base64ABytes(kitPrivadaB64.trim());
 			const material = await desellarMaterialDelEscrow(kitPrivada, selladoMaterialB64);
 			blobListo = await reSellarConNuevaPassphrase(email, passphraseNueva, material);
+			materialListo = material;
 
 			if (local) {
 				await recuperarLocal(material, blobListo);
@@ -153,7 +158,19 @@
 
 		cargando = true;
 		try {
-			await recoveryKitApi.completar(token, codigoMfa, blobListo.blobB64, blobListo.nonceB64, blobListo.saltB64);
+			if (!materialListo) return;
+			// QA-06: firma con la identidad desellada del kit.
+			const prueba = await pruebaDePosesion(api.post, email, materialListo.slice(32, 64), blobListo);
+			await recoveryKitApi.completar(
+				token,
+				codigoMfa,
+				blobListo.blobB64,
+				blobListo.nonceB64,
+				blobListo.saltB64,
+				prueba
+			);
+			materialListo.fill(0);
+			materialListo = undefined;
 			paso = 'lista';
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.recoveryKit.errorGenerico;

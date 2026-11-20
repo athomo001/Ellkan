@@ -45,7 +45,10 @@ pub trait GroupRepository {
 }
 
 pub trait GroupMemberRepository {
-    async fn agregar_simple(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), RepoError>;
+    /// `added_by`: quién hizo el alta (`None` = sistema, p. ej. Directory
+    /// Sync). Account Recovery lo usa para que un manager no pueda aprobar la
+    /// recuperación de alguien que él mismo acaba de meter en su grupo.
+    async fn agregar_simple(&self, group_id: Uuid, user_id: Uuid, is_admin: bool, added_by: Option<Uuid>) -> Result<(), RepoError>;
 
     /// F-12: agregar a alguien a un grupo que ya comparte recursos exige
     /// sellarle la DEK de cada uno — todo en una transacción: si algo falla,
@@ -56,6 +59,7 @@ pub trait GroupMemberRepository {
         group_id: Uuid,
         user_id: Uuid,
         is_admin: bool,
+        added_by: Option<Uuid>,
         envelopes: &[EnvelopeParaMiembroNuevo],
     ) -> Result<(), RepoError>;
 
@@ -97,6 +101,16 @@ pub trait GroupMemberRepository {
     /// /resources/{id}` de un recurso que vive en una carpeta de grupo.
     async fn grupos_administrados_por(&self, user_id: Uuid) -> Result<Vec<Uuid>, RepoError>;
 
+    /// Account Recovery (QA-02): un grupo vigente donde `actor_id` es admin y
+    /// `target_id` es miembro desde antes de `antes_de`, sin que el alta la
+    /// haya hecho el propio `actor_id`. `None` si no hay ninguno.
+    async fn grupo_administrado_con_membresia_previa(
+        &self,
+        actor_id: Uuid,
+        target_id: Uuid,
+        antes_de: time::OffsetDateTime,
+    ) -> Result<Option<Uuid>, RepoError>;
+
     /// F-19: grupos raíz **gestionados por Directory Sync**
     /// (`managed_by_directory_sync`) a los que pertenece `user_id` — usado
     /// sólo para la reconciliación de salida (alguien ya no aparece en el
@@ -133,7 +147,12 @@ impl GroupRepository for PgGroupRepository {
             _ => RepoError::Database(e),
         })?;
 
-        Ok(Group { id: fila.id, name: fila.name, parent_group_id: fila.parent_group_id, share_exempt: fila.share_exempt })
+        Ok(Group {
+            id: fila.id,
+            name: fila.name,
+            parent_group_id: fila.parent_group_id,
+            share_exempt: fila.share_exempt,
+        })
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Group>, RepoError> {
@@ -144,7 +163,12 @@ impl GroupRepository for PgGroupRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id, share_exempt: f.share_exempt }))
+        Ok(fila.map(|f| Group {
+            id: f.id,
+            name: f.name,
+            parent_group_id: f.parent_group_id,
+            share_exempt: f.share_exempt,
+        }))
     }
 
     async fn hijos_directos(&self, group_id: Uuid) -> Result<Vec<Group>, RepoError> {
@@ -161,7 +185,12 @@ impl GroupRepository for PgGroupRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id, share_exempt: f.share_exempt })
+            .map(|f| Group {
+                id: f.id,
+                name: f.name,
+                parent_group_id: f.parent_group_id,
+                share_exempt: f.share_exempt,
+            })
             .collect())
     }
 
@@ -178,7 +207,12 @@ impl GroupRepository for PgGroupRepository {
 
         Ok(filas
             .into_iter()
-            .map(|f| Group { id: f.id, name: f.name, parent_group_id: f.parent_group_id, share_exempt: f.share_exempt })
+            .map(|f| Group {
+                id: f.id,
+                name: f.name,
+                parent_group_id: f.parent_group_id,
+                share_exempt: f.share_exempt,
+            })
             .collect())
     }
 
@@ -216,13 +250,9 @@ impl GroupRepository for PgGroupRepository {
     }
 
     async fn mover(&self, group_id: Uuid, new_parent_group_id: Option<Uuid>) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"update groups set parent_group_id = $2 where id = $1"#,
-            group_id,
-            new_parent_group_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!(r#"update groups set parent_group_id = $2 where id = $1"#, group_id, new_parent_group_id,)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -263,12 +293,13 @@ pub struct PgGroupMemberRepository {
 }
 
 impl GroupMemberRepository for PgGroupMemberRepository {
-    async fn agregar_simple(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), RepoError> {
+    async fn agregar_simple(&self, group_id: Uuid, user_id: Uuid, is_admin: bool, added_by: Option<Uuid>) -> Result<(), RepoError> {
         sqlx::query!(
-            r#"insert into group_members (group_id, user_id, is_admin) values ($1, $2, $3)"#,
+            r#"insert into group_members (group_id, user_id, is_admin, added_by) values ($1, $2, $3, $4)"#,
             group_id,
             user_id,
             is_admin,
+            added_by,
         )
         .execute(&self.pool)
         .await
@@ -284,15 +315,17 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         group_id: Uuid,
         user_id: Uuid,
         is_admin: bool,
+        added_by: Option<Uuid>,
         envelopes: &[EnvelopeParaMiembroNuevo],
     ) -> Result<(), RepoError> {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query!(
-            r#"insert into group_members (group_id, user_id, is_admin) values ($1, $2, $3)"#,
+            r#"insert into group_members (group_id, user_id, is_admin, added_by) values ($1, $2, $3, $4)"#,
             group_id,
             user_id,
             is_admin,
+            added_by,
         )
         .execute(&mut *tx)
         .await
@@ -332,24 +365,19 @@ impl GroupMemberRepository for PgGroupMemberRepository {
             .fetch_all(&mut *tx)
             .await?;
 
-        let miembro = sqlx::query!(
-            r#"select is_admin from group_members where group_id = $1 and user_id = $2"#,
-            group_id,
-            user_id,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+        let miembro = sqlx::query!(r#"select is_admin from group_members where group_id = $1 and user_id = $2"#, group_id, user_id,)
+            .fetch_optional(&mut *tx)
+            .await?;
         let Some(miembro) = miembro else {
             tx.rollback().await?;
             return Ok(false);
         };
 
         if miembro.is_admin {
-            let managers: i64 =
-                sqlx::query!(r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#, group_id)
-                    .fetch_one(&mut *tx)
-                    .await?
-                    .n;
+            let managers: i64 = sqlx::query!(r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#, group_id)
+                .fetch_one(&mut *tx)
+                .await?
+                .n;
             let total: i64 = sqlx::query!(r#"select count(*) as "n!" from group_members where group_id = $1"#, group_id)
                 .fetch_one(&mut *tx)
                 .await?
@@ -360,13 +388,9 @@ impl GroupMemberRepository for PgGroupMemberRepository {
             }
         }
 
-        sqlx::query!(
-            r#"delete from group_members where group_id = $1 and user_id = $2"#,
-            group_id,
-            user_id,
-        )
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query!(r#"delete from group_members where group_id = $1 and user_id = $2"#, group_id, user_id,)
+            .execute(&mut *tx)
+            .await?;
 
         if !resource_ids_a_revocar.is_empty() {
             // Sólo se revoca lo que este grupo era su única vía de acceso: si
@@ -422,7 +446,12 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         )
         .fetch_optional(&self.pool)
         .await?;
-        Ok(fila.map(|f| Miembro { user_id: f.user_id, is_admin: f.is_admin, email: f.email, display_name: f.display_name }))
+        Ok(fila.map(|f| Miembro {
+            user_id: f.user_id,
+            is_admin: f.is_admin,
+            email: f.email,
+            display_name: f.display_name,
+        }))
     }
 
     async fn es_manager_de_alguno(&self, user_id: Uuid, group_ids: &[Uuid]) -> Result<bool, RepoError> {
@@ -440,7 +469,6 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         Ok(fila.is_some())
     }
 
-
     async fn set_admin(&self, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<bool, RepoError> {
         let mut tx = self.pool.begin().await?;
 
@@ -449,25 +477,19 @@ impl GroupMemberRepository for PgGroupMemberRepository {
             .await?;
 
         if !is_admin {
-            let miembro = sqlx::query!(
-                r#"select is_admin from group_members where group_id = $1 and user_id = $2"#,
-                group_id,
-                user_id,
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
+            let miembro = sqlx::query!(r#"select is_admin from group_members where group_id = $1 and user_id = $2"#, group_id, user_id,)
+                .fetch_optional(&mut *tx)
+                .await?;
             let Some(miembro) = miembro else {
                 tx.rollback().await?;
                 return Ok(false);
             };
             if miembro.is_admin {
-                let managers: i64 = sqlx::query!(
-                    r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#,
-                    group_id,
-                )
-                .fetch_one(&mut *tx)
-                .await?
-                .n;
+                let managers: i64 =
+                    sqlx::query!(r#"select count(*) as "n!" from group_members where group_id = $1 and is_admin"#, group_id,)
+                        .fetch_one(&mut *tx)
+                        .await?
+                        .n;
                 if managers == 1 {
                     tx.rollback().await?;
                     return Ok(false);
@@ -498,7 +520,12 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         .await?;
         Ok(filas
             .into_iter()
-            .map(|f| Miembro { user_id: f.user_id, is_admin: f.is_admin, email: f.email, display_name: f.display_name })
+            .map(|f| Miembro {
+                user_id: f.user_id,
+                is_admin: f.is_admin,
+                email: f.email,
+                display_name: f.display_name,
+            })
             .collect())
     }
 
@@ -511,27 +538,52 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(filas.into_iter().map(|f| GrupoDeUsuario { group_id: f.group_id, name: f.name, is_admin: f.is_admin }).collect())
+        Ok(filas
+            .into_iter()
+            .map(|f| GrupoDeUsuario { group_id: f.group_id, name: f.name, is_admin: f.is_admin })
+            .collect())
     }
 
     async fn es_admin_de_algun_grupo(&self, user_id: Uuid) -> Result<bool, RepoError> {
-        let fila = sqlx::query!(
-            r#"select 1 as "existe!" from group_members where user_id = $1 and is_admin limit 1"#,
-            user_id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select 1 as "existe!" from group_members where user_id = $1 and is_admin limit 1"#, user_id,)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.is_some())
     }
 
     async fn grupos_administrados_por(&self, user_id: Uuid) -> Result<Vec<Uuid>, RepoError> {
-        let filas = sqlx::query!(
-            r#"select group_id from group_members where user_id = $1 and is_admin"#,
-            user_id,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let filas = sqlx::query!(r#"select group_id from group_members where user_id = $1 and is_admin"#, user_id,)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(filas.into_iter().map(|f| f.group_id).collect())
+    }
+
+    async fn grupo_administrado_con_membresia_previa(
+        &self,
+        actor_id: Uuid,
+        target_id: Uuid,
+        antes_de: time::OffsetDateTime,
+    ) -> Result<Option<Uuid>, RepoError> {
+        let fila = sqlx::query!(
+            r#"
+            select gm_t.group_id
+            from group_members gm_t
+            join group_members gm_a
+              on gm_a.group_id = gm_t.group_id and gm_a.user_id = $1 and gm_a.is_admin
+            join groups g on g.id = gm_t.group_id and g.deleted_at is null
+            where gm_t.user_id = $2
+              and gm_t.created_at < $3
+              and gm_t.added_by is distinct from $1
+            order by gm_t.group_id
+            limit 1
+            "#,
+            actor_id,
+            target_id,
+            antes_de,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.map(|f| f.group_id))
     }
 
     async fn grupos_gestionados_de(&self, user_id: Uuid) -> Result<Vec<GrupoDeUsuario>, RepoError> {
@@ -547,7 +599,10 @@ impl GroupMemberRepository for PgGroupMemberRepository {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(filas.into_iter().map(|f| GrupoDeUsuario { group_id: f.group_id, name: f.name, is_admin: f.is_admin }).collect())
+        Ok(filas
+            .into_iter()
+            .map(|f| GrupoDeUsuario { group_id: f.group_id, name: f.name, is_admin: f.is_admin })
+            .collect())
     }
 }
 

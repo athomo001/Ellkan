@@ -74,13 +74,7 @@ where
 
     /// `POST /groups` — sin `parent_group_id` exige admin de organización;
     /// con `parent_group_id` sólo exige ser manager de ese padre (o admin).
-    pub async fn crear(
-        &self,
-        actor_id: Uuid,
-        id: Uuid,
-        name: &str,
-        parent_group_id: Option<Uuid>,
-    ) -> Result<Group, DomainError> {
+    pub async fn crear(&self, actor_id: Uuid, id: Uuid, name: &str, parent_group_id: Option<Uuid>) -> Result<Group, DomainError> {
         if name.trim().is_empty() {
             return Err(DomainError::ValidacionInvalida("name no puede estar vacío".into()));
         }
@@ -103,9 +97,7 @@ where
 
         let max = self.organizacion.max_group_depth().await?;
         if profundidad_nueva > max {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "excede la profundidad máxima de grupos ({max})"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("excede la profundidad máxima de grupos ({max})")));
         }
 
         self.grupos.crear(id, name, parent_group_id).await.map_err(|e| match e {
@@ -124,6 +116,18 @@ where
         self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)
     }
 
+    /// QA-19: el listado de miembros (con sus correos) sólo lo ve un
+    /// miembro del grupo, quien lo administra (directo o vía un ancestro) o
+    /// un admin de organización. El resto recibe sólo los metadatos del
+    /// grupo: antes cualquier sesión leía el directorio de cualquier grupo y
+    /// anulaba `restrict_visibility_by_group`.
+    pub async fn puede_ver_miembros(&self, actor_id: Uuid, group_id: Uuid) -> Result<bool, DomainError> {
+        if self.miembros.es_miembro(group_id, actor_id).await? {
+            return Ok(true);
+        }
+        self.autorizado_para_administrar(actor_id, group_id).await
+    }
+
     pub async fn subgrupos(&self, group_id: Uuid) -> Result<Vec<Group>, DomainError> {
         Ok(self.grupos.hijos_directos(group_id).await?)
     }
@@ -133,20 +137,23 @@ where
     }
 
     /// `PUT /groups/{id}/move` — rechaza ciclos y profundidad excedida.
-    pub async fn mover(
-        &self,
-        actor_id: Uuid,
-        group_id: Uuid,
-        new_parent_group_id: Option<Uuid>,
-    ) -> Result<(), DomainError> {
-        self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
+    pub async fn mover(&self, actor_id: Uuid, group_id: Uuid, new_parent_group_id: Option<Uuid>) -> Result<(), DomainError> {
+        let grupo = self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
 
         if !self.autorizado_para_administrar(actor_id, group_id).await? {
             return Err(DomainError::PermissionDenied);
         }
 
         let profundidad_nueva = match new_parent_group_id {
-            None => 1,
+            // QA-20: sacar un subgrupo a la raíz lo saca de la autoridad de
+            // los managers del padre — exige el mismo privilegio que crear un
+            // grupo raíz, no sólo ser manager del subgrupo.
+            None => {
+                if grupo.parent_group_id.is_some() && !self.puede_crear_grupo_raiz(actor_id).await? {
+                    return Err(DomainError::PermissionDenied);
+                }
+                1
+            }
             Some(nuevo_padre) => {
                 if nuevo_padre == group_id {
                     return Err(DomainError::CicloDeGrupo);
@@ -167,9 +174,7 @@ where
 
         let max = self.organizacion.max_group_depth().await?;
         if profundidad_nueva > max {
-            return Err(DomainError::ValidacionInvalida(format!(
-                "excede la profundidad máxima de grupos ({max})"
-            )));
+            return Err(DomainError::ValidacionInvalida(format!("excede la profundidad máxima de grupos ({max})")));
         }
 
         self.grupos.mover(group_id, new_parent_group_id).await?;
@@ -197,8 +202,7 @@ where
 
         if !recursos_compartidos.is_empty() {
             let esperados: std::collections::HashSet<Uuid> = recursos_compartidos.into_iter().collect();
-            let recibidos: std::collections::HashSet<Uuid> =
-                envelopes.iter().map(|e| e.resource_id).collect();
+            let recibidos: std::collections::HashSet<Uuid> = envelopes.iter().map(|e| e.resource_id).collect();
             if esperados != recibidos {
                 return Err(DomainError::ValidacionInvalida(
                     "los envelopes deben cubrir exactamente los recursos ya compartidos con el grupo".into(),
@@ -207,9 +211,9 @@ where
         }
 
         let resultado = if envelopes.is_empty() {
-            self.miembros.agregar_simple(group_id, user_id, is_admin).await
+            self.miembros.agregar_simple(group_id, user_id, is_admin, Some(actor_id)).await
         } else {
-            self.miembros.agregar_con_envelopes(group_id, user_id, is_admin, &envelopes).await
+            self.miembros.agregar_con_envelopes(group_id, user_id, is_admin, Some(actor_id), &envelopes).await
         };
 
         resultado.map_err(|e| match e {
@@ -255,13 +259,7 @@ where
 
     /// `PUT /groups/{id}/members/{userId}` — promueve/degrada `is_admin`,
     /// nunca toca acceso a recursos.
-    pub async fn set_manager(
-        &self,
-        actor_id: Uuid,
-        group_id: Uuid,
-        user_id: Uuid,
-        is_admin: bool,
-    ) -> Result<(), DomainError> {
+    pub async fn set_manager(&self, actor_id: Uuid, group_id: Uuid, user_id: Uuid, is_admin: bool) -> Result<(), DomainError> {
         self.grupos.buscar(group_id).await?.ok_or(DomainError::NotFound)?;
         if !self.autorizado_para_administrar(actor_id, group_id).await? {
             return Err(DomainError::PermissionDenied);
@@ -295,10 +293,7 @@ where
 
         let subjects_owner = self.permisos.subjects_owner_de("group", group_id).await?;
         for (subject_type, subject_id) in subjects_owner {
-            let hay_otro = self
-                .permisos
-                .existe_otro_owner(&subject_type, subject_id, "group", group_id)
-                .await?;
+            let hay_otro = self.permisos.existe_otro_owner(&subject_type, subject_id, "group", group_id).await?;
             if !hay_otro {
                 return Err(DomainError::GrupoEsUnicoOwner);
             }

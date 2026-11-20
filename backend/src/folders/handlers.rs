@@ -1,7 +1,7 @@
 // Autor: Athan Espinoza
 
-use axum::extract::{Path, State};
 use axum::Json;
+use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::AuthenticatedUser;
@@ -36,10 +36,9 @@ pub async fn crear(
     auth: AuthenticatedUser,
     Json(req): Json<CrearCarpetaRequest>,
 ) -> Result<Json<NodoArbolResponse>, ApiError> {
-    let name_ciphertext = b64::decode(&req.name_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-    let name_nonce = b64::decode(&req.name_nonce_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+    let name_ciphertext =
+        b64::decode(&req.name_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
+    let name_nonce = b64::decode(&req.name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
 
     let carpeta = servicio(&state)
         .crear(auth.user_id, req.id, &name_ciphertext, &name_nonce, req.parent_folder_id)
@@ -54,10 +53,7 @@ pub async fn crear(
     }))
 }
 
-pub async fn listar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-) -> Result<Json<Vec<NodoArbolResponse>>, ApiError> {
+pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<Vec<NodoArbolResponse>>, ApiError> {
     use crate::resources::repository::PermissionRepository;
 
     let arbol = servicio(&state).listar_arbol(auth.user_id).await?;
@@ -105,13 +101,15 @@ pub async fn compartir(
                 .map(|m| {
                     let ciphertext = b64::decode(&m.name_ciphertext_b64)
                         .map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-                    let nonce = b64::decode(&m.name_nonce_b64)
-                        .map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+                    let nonce =
+                        b64::decode(&m.name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
                     Ok((m.user_id, ciphertext, nonce))
                 })
                 .collect::<Result<Vec<_>, DomainError>>()?;
 
-            servicio(&state).compartir_a_grupo(auth.user_id, folder_id, req.grantee_id, &req.level, &miembros).await?;
+            servicio(&state)
+                .compartir_a_grupo(auth.user_id, folder_id, req.grantee_id, &req.level, &miembros)
+                .await?;
         }
         "user" => {
             let name_ciphertext_b64 = req
@@ -122,10 +120,9 @@ pub async fn compartir(
                 .name_nonce_b64
                 .as_deref()
                 .ok_or_else(|| DomainError::ValidacionInvalida("falta name_nonce_b64".into()))?;
-            let name_ciphertext = b64::decode(name_ciphertext_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-            let name_nonce = b64::decode(name_nonce_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+            let name_ciphertext =
+                b64::decode(name_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
+            let name_nonce = b64::decode(name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
 
             servicio(&state)
                 .compartir(auth.user_id, folder_id, req.grantee_id, &req.level, &name_ciphertext, &name_nonce)
@@ -138,11 +135,7 @@ pub async fn compartir(
 
 /// `DELETE /folders/{id}` (F-47) — ver `FolderService::eliminar` para la
 /// regla (owner + carpeta vacía).
-pub async fn eliminar(
-    State(state): State<AppState>,
-    auth: AuthenticatedUser,
-    Path(folder_id): Path<Uuid>,
-) -> Result<(), ApiError> {
+pub async fn eliminar(State(state): State<AppState>, auth: AuthenticatedUser, Path(folder_id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).eliminar(auth.user_id, folder_id).await?;
     Ok(())
 }

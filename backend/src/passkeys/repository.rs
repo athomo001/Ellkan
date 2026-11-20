@@ -34,11 +34,7 @@ pub trait PasskeyRepository {
     /// Post-autenticación: nuevo estado del `Passkey` (contador, flags de
     /// backup) + `last_used_at` — buscado por `credential_id`, que
     /// `AuthenticationResult::cred_id()` ya identifica sin ambigüedad.
-    async fn actualizar_tras_auth(
-        &self,
-        credential_id: &[u8],
-        passkey_data: &WebauthnPasskey,
-    ) -> Result<(), RepoError>;
+    async fn actualizar_tras_auth(&self, credential_id: &[u8], passkey_data: &WebauthnPasskey) -> Result<(), RepoError>;
 }
 
 /// Estado efímero de una ceremonia WebAuthn — un solo uso: `tomar` borra la
@@ -46,15 +42,20 @@ pub trait PasskeyRepository {
 /// borra en vez de marcarse, porque no hay ninguna razón para conservar el
 /// estado de una ceremonia ya terminada).
 pub trait CeremonyStateRepository {
-    async fn guardar(
-        &self,
-        user_id: Uuid,
-        kind: &str,
-        state_json: serde_json::Value,
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError>;
+    async fn guardar(&self, user_id: Uuid, kind: &str, state_json: serde_json::Value, expires_at: OffsetDateTime) -> Result<(), RepoError>;
 
     async fn tomar(&self, user_id: Uuid, kind: &str) -> Result<Option<serde_json::Value>, RepoError>;
+}
+
+/// QA-34: `passkey_data` viene de la DB y su formato lo define
+/// `webauthn-rs` (prerelease): un cambio de versión puede dejarlo ilegible.
+/// Se devuelve como error de decodificación (500 logueado), nunca `expect`
+/// — con `panic = "abort"` eso tiraba el proceso entero.
+fn decodificar_passkey(valor: serde_json::Value) -> Result<WebauthnPasskey, RepoError> {
+    serde_json::from_value(valor).map_err(|e| {
+        tracing::error!(error = %e, "passkey_data persistido no se pudo decodificar");
+        RepoError::Database(sqlx::Error::Decode(Box::new(e)))
+    })
 }
 
 #[derive(Clone)]
@@ -105,19 +106,20 @@ impl PasskeyRepository for PgPasskeyRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(filas
+        filas
             .into_iter()
-            .map(|f| PasskeyRow {
-                id: f.id,
-                user_id: f.user_id,
-                passkey_data: serde_json::from_value(f.passkey_data)
-                    .expect("passkey_data persistido siempre es un Passkey válido"),
-                prf_wrapped_private_key: f.prf_wrapped_private_key,
-                label: f.label,
-                created_at: f.created_at,
-                last_used_at: f.last_used_at,
+            .map(|f| -> Result<PasskeyRow, RepoError> {
+                Ok(PasskeyRow {
+                    id: f.id,
+                    user_id: f.user_id,
+                    passkey_data: decodificar_passkey(f.passkey_data)?,
+                    prf_wrapped_private_key: f.prf_wrapped_private_key,
+                    label: f.label,
+                    created_at: f.created_at,
+                    last_used_at: f.last_used_at,
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn buscar(&self, id: Uuid) -> Result<Option<PasskeyRow>, RepoError> {
@@ -131,16 +133,18 @@ impl PasskeyRepository for PgPasskeyRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(fila.map(|f| PasskeyRow {
-            id: f.id,
-            user_id: f.user_id,
-            passkey_data: serde_json::from_value(f.passkey_data)
-                .expect("passkey_data persistido siempre es un Passkey válido"),
-            prf_wrapped_private_key: f.prf_wrapped_private_key,
-            label: f.label,
-            created_at: f.created_at,
-            last_used_at: f.last_used_at,
-        }))
+        fila.map(|f| -> Result<PasskeyRow, RepoError> {
+            Ok(PasskeyRow {
+                id: f.id,
+                user_id: f.user_id,
+                passkey_data: decodificar_passkey(f.passkey_data)?,
+                prf_wrapped_private_key: f.prf_wrapped_private_key,
+                label: f.label,
+                created_at: f.created_at,
+                last_used_at: f.last_used_at,
+            })
+        })
+        .transpose()
     }
 
     async fn eliminar(&self, id: Uuid) -> Result<(), RepoError> {
@@ -148,11 +152,7 @@ impl PasskeyRepository for PgPasskeyRepository {
         Ok(())
     }
 
-    async fn actualizar_tras_auth(
-        &self,
-        credential_id: &[u8],
-        passkey_data: &WebauthnPasskey,
-    ) -> Result<(), RepoError> {
+    async fn actualizar_tras_auth(&self, credential_id: &[u8], passkey_data: &WebauthnPasskey) -> Result<(), RepoError> {
         let data = serde_json::to_value(passkey_data).expect("Passkey siempre serializa a JSON válido");
         sqlx::query!(
             r#"update passkeys set passkey_data = $2, last_used_at = now() where credential_id = $1"#,
@@ -171,13 +171,7 @@ pub struct PgCeremonyStateRepository {
 }
 
 impl CeremonyStateRepository for PgCeremonyStateRepository {
-    async fn guardar(
-        &self,
-        user_id: Uuid,
-        kind: &str,
-        state_json: serde_json::Value,
-        expires_at: OffsetDateTime,
-    ) -> Result<(), RepoError> {
+    async fn guardar(&self, user_id: Uuid, kind: &str, state_json: serde_json::Value, expires_at: OffsetDateTime) -> Result<(), RepoError> {
         sqlx::query!(
             r#"
             insert into webauthn_ceremony_state (user_id, kind, state_json, expires_at)

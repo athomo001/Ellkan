@@ -7,13 +7,13 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead;
 use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::sellado;
 use secrecy::SecretBox;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 async fn crear_metadata_key(entorno: &common::Entorno, sesion_admin: Uuid) -> Value {
@@ -158,11 +158,7 @@ async fn compartir_un_recurso_con_metadata_personal_funciona() {
         .json()
         .await
         .unwrap();
-    let dek_bob = sellado::abrir_dek(
-        bob.x25519.privada(),
-        &B64.decode(secreto_bob["sealed_dek_b64"].as_str().unwrap()).unwrap(),
-    )
-    .unwrap();
+    let dek_bob = sellado::abrir_dek(bob.x25519.privada(), &B64.decode(secreto_bob["sealed_dek_b64"].as_str().unwrap()).unwrap()).unwrap();
     let plano = aead::descifrar(
         &dek_bob,
         &aead::Envoltura {

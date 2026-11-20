@@ -17,6 +17,7 @@ import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { olvidarPendientes } from './pendientes';
 import { registrar } from '$lib/tauri/registro';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { pruebaDePosesion } from '../crypto/accountRecovery';
 
 export interface VinculacionServidor {
 	serverUrl: string;
@@ -206,7 +207,14 @@ export async function resolverFraseTemporal(
 		kdf_salt_b64: bytesABase64(salt)
 	};
 	try {
-		await clienteRemoto(serverUrl, sessionIdParcial).post('/me/change-passphrase', material);
+		const remoto = clienteRemoto(serverUrl, sessionIdParcial);
+		// QA-06: prueba de posesión contra el servidor remoto, no el local.
+		const prueba = await pruebaDePosesion(remoto.post, email, abierta.ed25519Private, {
+			blobB64: material.encrypted_private_key_blob_b64,
+			nonceB64: material.private_key_nonce_b64,
+			saltB64: material.kdf_salt_b64
+		});
+		await remoto.post('/me/change-passphrase', { ...material, ...prueba });
 	} catch (err) {
 		throw new ErrorCuentaRemota({ estado: 'error', mensaje: err instanceof Error ? err.message : String(err) });
 	}

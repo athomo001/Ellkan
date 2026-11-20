@@ -17,8 +17,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use axum::extract::{Query, State};
 use axum::Json;
+use axum::extract::{Query, State};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -80,8 +80,18 @@ pub async fn sync(
     // --- resources: unión de "contenido cambió" + "posición cambió" ---
     let slugs = state.tipos_recurso.mapa_id_a_slug().await.map_err(DomainError::from)?;
     let posiciones_actuales = state.items_de_carpeta.posiciones_de_recursos(user_id).await.map_err(DomainError::from)?;
-    let posiciones_cambiadas = state.items_de_carpeta.posiciones_de_recursos_cambiadas_desde(user_id, desde).await.map_err(DomainError::from)?;
-    let eliminados_ids: HashSet<Uuid> = state.recursos.ids_eliminados_desde(user_id, desde).await.map_err(DomainError::from)?.into_iter().collect();
+    let posiciones_cambiadas = state
+        .items_de_carpeta
+        .posiciones_de_recursos_cambiadas_desde(user_id, desde)
+        .await
+        .map_err(DomainError::from)?;
+    let eliminados_ids: HashSet<Uuid> = state
+        .recursos
+        .ids_eliminados_desde(user_id, desde)
+        .await
+        .map_err(DomainError::from)?
+        .into_iter()
+        .collect();
 
     let mut ids_vistos: HashSet<Uuid> = HashSet::new();
     let mut resources = Vec::new();
@@ -130,13 +140,25 @@ pub async fn sync(
         });
     }
     for id in state.carpetas.ids_eliminadas_desde(desde).await.map_err(DomainError::from)? {
-        folders.push(SyncFolderItem { folder_id: id, deleted: true, parent_folder_id: None, name_ciphertext_b64: None, name_nonce_b64: None });
+        folders.push(SyncFolderItem {
+            folder_id: id,
+            deleted: true,
+            parent_folder_id: None,
+            name_ciphertext_b64: None,
+            name_nonce_b64: None,
+        });
     }
 
     // --- tags ---
     let mut tags = Vec::new();
     for t in state.tags.cambios_desde(user_id, desde).await.map_err(DomainError::from)? {
-        tags.push(SyncTagItem { id: t.id, deleted: false, name: Some(t.name), is_shared: Some(t.is_shared), created_by: t.created_by });
+        tags.push(SyncTagItem {
+            id: t.id,
+            deleted: false,
+            name: Some(t.name),
+            is_shared: Some(t.is_shared),
+            created_by: t.created_by,
+        });
     }
     for id in state.tags.ids_eliminados_desde(user_id, desde).await.map_err(DomainError::from)? {
         tags.push(SyncTagItem { id, deleted: true, name: None, is_shared: None, created_by: None });

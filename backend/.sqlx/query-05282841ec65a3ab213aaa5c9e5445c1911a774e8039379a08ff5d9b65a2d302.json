@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select avatar_bytes, avatar_content_type from users where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avatar_bytes",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "avatar_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "avatar_content_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "avatar_content_type"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "05282841ec65a3ab213aaa5c9e5445c1911a774e8039379a08ff5d9b65a2d302"
+}

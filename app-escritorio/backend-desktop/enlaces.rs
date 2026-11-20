@@ -18,8 +18,7 @@ pub const ESQUEMA: &str = "ellkan";
 
 /// ¿`argumento` de la línea de comandos es un enlace `ellkan://…`?
 pub fn parece_enlace(argumento: &str) -> bool {
-    argumento.len() > ESQUEMA.len() + 3
-        && argumento[..ESQUEMA.len() + 3].eq_ignore_ascii_case(&format!("{ESQUEMA}://"))
+    argumento.len() > ESQUEMA.len() + 3 && argumento[..ESQUEMA.len() + 3].eq_ignore_ascii_case(&format!("{ESQUEMA}://"))
 }
 
 fn es_uuid(texto: &str) -> bool {

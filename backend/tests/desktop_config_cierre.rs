@@ -8,7 +8,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ellkan_backend::desktop::{cargar_config, guardar_config, AlCerrar};
+use ellkan_backend::desktop::{AlCerrar, cargar_config, guardar_config};
 use uuid::Uuid;
 
 fn carpeta_temporal() -> PathBuf {
@@ -43,7 +43,10 @@ fn en_el_archivo_se_guarda_con_los_nombres_que_usa_el_frontend() {
     guardar_config(&dir, &config).unwrap();
 
     let texto = fs::read_to_string(dir.join("config.json")).unwrap();
-    assert!(texto.contains("\"al_cerrar\": \"bandeja\""), "el frontend manda y espera 'preguntar' | 'bandeja' | 'salir': {texto}");
+    assert!(
+        texto.contains("\"al_cerrar\": \"bandeja\""),
+        "el frontend manda y espera 'preguntar' | 'bandeja' | 'salir': {texto}"
+    );
 }
 
 #[test]

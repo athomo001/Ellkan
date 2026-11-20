@@ -1,9 +1,9 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 use uuid::Uuid;
 
 use crate::auth::extractor::AdminUser;
@@ -12,8 +12,7 @@ use crate::me::service::AvatarService;
 use crate::state::AppState;
 
 use super::dto::{
-    ActualizarActivoRequest, DryRunResponse, ListarUsuariosQuery, PurgaResponse, PurgarRequest, UsuarioResponse,
-    UsuariosPageResponse,
+    ActualizarActivoRequest, DryRunResponse, ListarUsuariosQuery, PurgaResponse, PurgarRequest, UsuarioResponse, UsuariosPageResponse,
 };
 use super::models::Transferencia;
 use super::repository::PgUserPurgeRepository;
@@ -25,11 +24,7 @@ fn servicio(state: &AppState) -> Servicio<'_> {
     UsersAdminService { repo: &state.users_purge, eventos: state.eventos.clone() }
 }
 
-pub async fn obtener(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-    Path(id): Path<Uuid>,
-) -> Result<Json<UsuarioResponse>, ApiError> {
+pub async fn obtener(State(state): State<AppState>, _admin: AdminUser, Path(id): Path<Uuid>) -> Result<Json<UsuarioResponse>, ApiError> {
     let u = servicio(&state).obtener(id).await?;
     Ok(Json(u.into()))
 }
@@ -82,17 +77,16 @@ pub async fn listar(
     Query(q): Query<ListarUsuariosQuery>,
 ) -> Result<Json<UsuariosPageResponse>, ApiError> {
     let (usuarios, next_cursor) = servicio(&state).listar(q.active, q.cursor, q.limit).await?;
-    Ok(Json(UsuariosPageResponse { items: usuarios.into_iter().map(UsuarioResponse::from).collect(), next_cursor }))
+    Ok(Json(UsuariosPageResponse {
+        items: usuarios.into_iter().map(UsuarioResponse::from).collect(),
+        next_cursor,
+    }))
 }
 
 /// `GET /admin/users/{id}/avatar` — post-cierre bloque C, mismo servicio
 /// que `GET /me/avatar` (`me::service::AvatarService`, ya genérico en
 /// `user_id`), sólo con `AdminUser` en vez del propio usuario.
-pub async fn avatar(
-    State(state): State<AppState>,
-    _admin: AdminUser,
-    Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn avatar(State(state): State<AppState>, _admin: AdminUser, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
     let avatar = AvatarService { avatar: &state.preferencias_usuario }.obtener(id).await?;
     match avatar {
         Some(a) => Ok(([(header::CONTENT_TYPE, a.content_type)], a.bytes).into_response()),

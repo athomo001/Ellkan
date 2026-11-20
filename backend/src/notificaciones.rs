@@ -24,7 +24,7 @@ use uuid::Uuid;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
 use crate::error::RepoError;
-use crate::eventos::{recibir_tolerando_lag, DomainEvent, EmisorDeEventos};
+use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 use crate::smtp_config::repository::SmtpConfigRepository;
 
 /// Fila lista para enviar — a diferencia del stub original, acá sí hace
@@ -121,14 +121,29 @@ impl OutboundEmailRepository for PgOutboundEmailRepository {
         .await?;
         Ok(filas
             .into_iter()
-            .map(|f| EmailPendiente { id: f.id, recipient: f.recipient, subject: f.subject, body: f.body, html_body: f.html_body })
+            .map(|f| EmailPendiente {
+                id: f.id,
+                recipient: f.recipient,
+                subject: f.subject,
+                body: f.body,
+                html_body: f.html_body,
+            })
             .collect())
     }
 
     async fn marcar_enviada(&self, id: Uuid) -> Result<(), RepoError> {
-        sqlx::query!(r#"update outbound_emails set status = 'enviado', sent_at = now() where id = $1"#, id)
-            .execute(&self.pool)
-            .await?;
+        // QA-33: el cuerpo lleva códigos y links con token; una vez
+        // entregado al servidor SMTP no hace falta conservarlo, y dejarlo en
+        // claro lo expone a quien lea la DB (backup, réplica). Se conservan
+        // destinatario, asunto y estado para diagnóstico ("Estado del
+        // sistema"); la retención borra la fila a los 7 días.
+        sqlx::query!(
+            r#"update outbound_emails set status = 'enviado', sent_at = now(), body = '', html_body = null
+               where id = $1"#,
+            id
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -306,6 +321,20 @@ where
                         Err(e) => tracing::error!(error = %e, "no se pudo renderizar la plantilla de aviso de recuperación"),
                     }
                 }
+                DomainEvent::AccountRecoveryCodigoConfirmacion { email, codigo } => {
+                    let locale = resolver_locale(&locales, &email).await;
+                    let asunto = asunto(&locale, "Ellkan: confirmá la recuperación de tu cuenta", "Ellkan: confirm your account recovery");
+                    let mut ctx = Context::new();
+                    ctx.insert("codigo", &codigo);
+                    match renderizar(&plantillas, &locale, "account_recovery_confirmar", ctx) {
+                        Ok((cuerpo, html)) => {
+                            if let Err(e) = emails.encolar(&email, asunto, &cuerpo, Some(&html)).await {
+                                tracing::error!(error = %e, "no se pudo encolar el código de confirmación de account recovery");
+                            }
+                        }
+                        Err(e) => tracing::error!(error = %e, "no se pudo renderizar la plantilla de confirmación de account recovery"),
+                    }
+                }
                 DomainEvent::AccountRecoveryAdminNotify { target_email, recipient_emails, .. } => {
                     // A diferencia de los demás eventos, acá cada
                     // destinatario puede tener un locale distinto — no hay
@@ -381,27 +410,31 @@ impl SmtpConfig {
     }
 }
 
-fn construir_mailer(cfg: &SmtpConfig) -> AsyncSmtpTransport<Tokio1Executor> {
+/// QA-07: un host inválido (lo escribe un admin en `PUT /admin/smtp-config`)
+/// es un error de configuración, no un estado imposible — antes era un
+/// `expect` que, con `panic = "abort"` en release, tiraba el proceso en
+/// cada tick del poller.
+fn construir_mailer(cfg: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, lettre::transport::smtp::Error> {
     if cfg.tls {
-        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)
-            .expect("host SMTP inválido")
-            .port(cfg.port);
+        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)?.port(cfg.port);
         if let (Some(u), Some(p)) = (&cfg.username, &cfg.password) {
             builder = builder.credentials(Credentials::new(u.clone(), p.clone()));
         }
-        builder.build()
+        Ok(builder.build())
     } else {
         // `builder_dangerous`: sin TLS/auth, sólo para un relay local de
         // confianza (Mailhog de dev/test) — nunca el default implícito, el
         // admin tiene que tildar `tls` a propósito en `PUT /admin/smtp-config`
         // para el camino cifrado (Parte A).
-        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.host).port(cfg.port).build()
+        Ok(AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&cfg.host).port(cfg.port).build())
     }
 }
 
 async fn enviar(mailer: &AsyncSmtpTransport<Tokio1Executor>, from: &str, correo: &EmailPendiente) -> anyhow::Result<()> {
-    let builder =
-        Message::builder().from(from.parse::<Mailbox>()?).to(correo.recipient.parse::<Mailbox>()?).subject(&correo.subject);
+    let builder = Message::builder()
+        .from(from.parse::<Mailbox>()?)
+        .to(correo.recipient.parse::<Mailbox>()?)
+        .subject(&correo.subject);
     let mensaje = match &correo.html_body {
         Some(html) => builder.multipart(
             MultiPart::alternative()
@@ -438,7 +471,15 @@ where
 
             match SmtpConfig::desde_db(&cfg_db, &secrets_key) {
                 Some(cfg) => {
-                    let mailer = construir_mailer(&cfg);
+                    let mailer = match construir_mailer(&cfg) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            // Los correos quedan encolados: se envían en
+                            // cuanto el admin corrija la configuración.
+                            tracing::error!(error = %e, host = %cfg.host, "configuración SMTP inválida, no se envían correos");
+                            continue;
+                        }
+                    };
                     let pendientes = match emails.tomar_pendientes(50).await {
                         Ok(p) => p,
                         Err(e) => {

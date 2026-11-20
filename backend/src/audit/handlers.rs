@@ -1,9 +1,9 @@
 // Autor: Athan Espinoza
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 
 use crate::auth::extractor::AuditorUser;
 use crate::error::{ApiError, DomainError};
@@ -109,8 +109,7 @@ pub async fn exportar(
         None | Some("ndjson") => {
             let mut cuerpo = String::new();
             for e in &entradas {
-                let linea = serde_json::to_string(&a_response(e.clone()))
-                    .expect("AuditLogEntryResponse siempre serializa");
+                let linea = serde_json::to_string(&a_response(e.clone())).expect("AuditLogEntryResponse siempre serializa");
                 cuerpo.push_str(&linea);
                 cuerpo.push('\n');
             }

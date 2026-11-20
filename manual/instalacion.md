@@ -6,6 +6,22 @@
 
 Ver [README.md](../README.md#instalación-rápida) para el paso a paso completo. Un solo comando (`docker compose up -d`) levanta `ellkan` (backend + frontend servidos del mismo binario) y `ellkan-db` (Postgres 18). Las migraciones corren automáticamente al arrancar — no hay paso manual de `migrate`.
 
+#### Imagen publicada o compilada
+
+Cada versión publica la imagen del servidor en `ghcr.io/athomo001/ellkan` con tres etiquetas: `X.Y.Z` (fija), `X.Y` (recibe los parches de esa serie) y `latest` (la última; las betas nunca la mueven). `docker-compose.yml` usa `ghcr.io/athomo001/ellkan:${ELLKAN_VERSION:-latest}`:
+
+| Quiero… | Cómo |
+| --- | --- |
+| Usar la última versión publicada | `ELLKAN_VERSION=latest` en `.env` (el default) y `docker compose up -d` |
+| Fijar una versión (recomendado en producción) | `ELLKAN_VERSION=0.2.0` en `.env`; para actualizar, cambiarla y `docker compose pull ellkan && docker compose up -d ellkan` |
+| Recibir sólo parches de una serie | `ELLKAN_VERSION=0.2` |
+| Compilar desde el código (cambios propios) | `docker compose up -d --build` |
+| Ver qué versión está corriendo | `docker inspect ellkan --format '{{index .Config.Labels "org.opencontainers.image.version"}}'` |
+
+Con `image` y `build` juntos en el compose, `docker compose up` intenta primero descargar la imagen y sólo compila si no la encuentra. Una imagen compilada localmente queda con el mismo nombre que la publicada: el siguiente `docker compose pull` la reemplaza por la oficial.
+
+Antes de pasar a una versión nueva, hacé un [backup](#backup-y-restauración): las migraciones corren solas al arrancar y son sólo hacia adelante (volver a una versión anterior no deshace el esquema).
+
 Por defecto el backend sirve HTTP plano en `${ELLKAN_PORT:-8080}` — Ellkan nunca termina TLS él mismo salvo que se lo configures explícitamente (ver abajo). Sin nada delante, ese tráfico va sin cifrar en la red — aceptable sólo en `localhost`/una red ya confiable; para cualquier otro caso, elegí una de las dos opciones siguientes.
 
 ### TLS: dos formas de cerrar el canal, sin depender de un reverse proxy aparte
@@ -34,6 +50,21 @@ Las dos variables tienen que estar juntas — con sólo una, el binario falla al
 **Opción B — reverse proxy delante** (Caddy, nginx, Traefik) si preferís separar responsabilidades (WAF, renovación automática de Let's Encrypt sin gestionarla vos, etc.) — cualquiera de los tres sirve, no hay una integración especial de Ellkan con ninguno en particular; apuntalo al puerto HTTP interno de `ellkan` como backend.
 
 No hay una tercera opción real: el canal tiene que cerrarse en algún punto entre el navegador/extensión y el servidor. La Opción A es la más liviana porque no agrega contenedor ni proceso nuevo.
+
+## Primer administrador: token de instalación (recomendado)
+
+En una instancia vacía, el primer usuario que se registra nace **admin**. Si la instancia queda expuesta antes de que vos te registres, cualquiera que llegue primero se queda con ese rol. Para cerrar esa ventana, configurá un token de instalación (mínimo 24 caracteres) en el `environment:` del servicio `ellkan`:
+
+```yaml
+environment:
+  ELLKAN_SETUP_TOKEN_FILE: /run/secrets/ellkan_setup_token   # o ELLKAN_SETUP_TOKEN: <valor>
+```
+
+```bash
+openssl rand -base64 32   # genera un valor adecuado
+```
+
+Con el token configurado, el primer registro sólo se acepta si la URL de registro lo trae en el fragmento: `https://tu-ellkan/register#setup=<token>` (el fragmento no viaja al servidor como parte de la URL ni queda en logs de proxy). Sin el token, o con uno incorrecto, el servidor responde 403. Los registros posteriores no lo usan. Si la variable no está configurada, el comportamiento es el histórico y el binario lo advierte en el log al registrarse el primer usuario.
 
 ## Compartir externo (F-26): el link no sirve de nada si nadie de afuera puede alcanzarlo
 
@@ -80,6 +111,7 @@ En la web y en la app de escritorio, el error real de una pantalla que no carga 
 
 | Síntoma | Causa | Reparación |
 | --- | --- | --- |
+| El contenedor `ellkan` no arranca: "migration … was previously applied but has been modified" | El checksum de una migración ya aplicada no coincide con el archivo. Puede ser un archivo alterado (revisalo antes que nada) o un disco que reescribió el archivo (visto en NTFS/FUSE) | Si confirmaste que el contenido es el correcto, arrancá **una sola vez** con `ELLKAN_MIGRATE_REPAIR_CHECKSUMS=true`, verificá en el log que reparó el checksum y quitá la variable. No la dejes fija en el compose: mientras está prendida, una migración alterada pasa sin aviso |
 | El contenedor `ellkan` no arranca, log menciona una migración | Migraciones corren automáticamente al boot (forward-only, sin rollback) — una migración que falla a mitad de camino puede dejar el schema en un estado intermedio | Revisá el log completo del contenedor (`docker logs ellkan`) para identificar cuál migración falló; si es un `CHECK`/`UNIQUE` violado por datos preexistentes de una versión vieja, hace falta limpiar esos datos a mano antes de reintentar — no hay downgrade automático |
 | `ellkan-cli` no puede conectar a Postgres aunque el contenedor esté sano | `DATABASE_URL` de la CLI (host) usa `localhost:${POSTGRES_PORT}`, **no** el mismo valor que `secrets/database_url.txt` (que usa el hostname interno `ellkan-db`, sólo resuelve dentro de la red de Docker) | Usar el `DATABASE_URL` armado con `localhost`, ver el snippet en [manual/cli.md](cli.md#administración-ellkan-cli-admin-subcomando) |
 | `ellkan-cli`/`docker` no ven el daemon aunque Docker Desktop esté corriendo (Linux con Docker Desktop instalado) | El contexto de Docker activo puede seguir apuntando al socket de Docker Desktop en vez del daemon real del sistema — nos pasó en desarrollo | `docker context ls` para confirmar, `docker context use default` para volver al daemon real |
@@ -92,6 +124,8 @@ En la web y en la app de escritorio, el error real de una pantalla que no carga 
 | Reconstruiste la imagen pero no ves ningún cambio en la app | Casi siempre es el **navegador** sirviendo el bundle JS/CSS viejo desde su propia caché HTTP, no Docker | Ver los comandos paso a paso en [Reconstruir sin caché](#reconstruir-sin-caché-cuando-un-cambio-no-aparece) más abajo |
 
 ### Reconstruir sin caché (cuando un cambio no aparece)
+
+Los pasos 2 y 3 son para cuando compilás desde el código. Con la imagen publicada, el equivalente del paso 2 es `docker compose pull ellkan && docker compose up -d ellkan` (y el 3 no aplica).
 
 Para copiar y pegar, en orden — parar apenas uno de estos resuelva el problema, no hace falta llegar al 3:
 

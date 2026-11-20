@@ -13,6 +13,7 @@ use crate::admin::repository::RoleRepository;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
+use super::models::PropositoSesion;
 use super::repository::SessionRepository;
 
 fn extraer_session_id(parts: &Parts) -> Result<Uuid, ApiError> {
@@ -35,10 +36,7 @@ pub struct AuthenticatedUser {
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         // Ya validada por `rate_limit::limitar_solicitudes` en este mismo
         // request: se reusa en vez de ir de nuevo a la base. Las extensiones
         // sólo las escribe el servidor, un cliente no puede inyectar esto.
@@ -67,25 +65,35 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 /// F-14: sesión válida (no revocada, no vencida, `security_stamp` vigente)
 /// **sin exigir `mfa_verified_at`** — a diferencia de `AuthenticatedUser`,
 /// que sí lo exige y por eso es el único extractor que usa el resto de la
-/// API. Sólo tres endpoints necesitan aceptar una sesión todavía parcial:
-/// verificar el código MFA y configurar un segundo factor por primera vez
-/// (`mfa::handlers`) — ahí es exactamente donde una sesión sin MFA
-/// verificado tiene que poder operar, no en ningún otro lado.
+/// API. Sólo los endpoints que completan un login a medias la aceptan
+/// (verificar MFA, configurar el primer segundo factor, cambiar una
+/// passphrase provisoria), y cada uno debe llamar a `exigir` con los
+/// propósitos que admite: una sesión parcial nunca sirve para otra cosa
+/// que aquello por lo que se emitió.
 pub struct SesionValida {
     pub session_id: Uuid,
     pub user_id: Uuid,
+    pub proposito: PropositoSesion,
+}
+
+impl SesionValida {
+    /// 403 si el propósito de la sesión no está entre los `permitidos`.
+    pub fn exigir(&self, permitidos: &[PropositoSesion]) -> Result<(), ApiError> {
+        if permitidos.contains(&self.proposito) {
+            Ok(())
+        } else {
+            Err(DomainError::PermissionDenied.into())
+        }
+    }
 }
 
 impl FromRequestParts<AppState> for SesionValida {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let session_id = extraer_session_id(parts)?;
 
-        let user_id = state
+        let (user_id, proposito) = state
             .sesiones
             .validar_cualquiera(session_id)
             .await
@@ -94,7 +102,7 @@ impl FromRequestParts<AppState> for SesionValida {
 
         tracing::Span::current().record("actor_id", user_id.to_string());
 
-        Ok(SesionValida { session_id, user_id })
+        Ok(SesionValida { session_id, user_id, proposito })
     }
 }
 
@@ -111,17 +119,10 @@ pub struct AdminUser {
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let autenticado = AuthenticatedUser::from_request_parts(parts, state).await?;
 
-        let es_admin = state
-            .roles
-            .usuario_tiene_permiso(autenticado.user_id, "*")
-            .await
-            .map_err(DomainError::from)?;
+        let es_admin = state.roles.usuario_tiene_permiso(autenticado.user_id, "*").await.map_err(DomainError::from)?;
 
         if !es_admin {
             return Err(DomainError::PermissionDenied.into());
@@ -144,10 +145,7 @@ pub struct AuditorUser {
 impl FromRequestParts<AppState> for AuditorUser {
     type Rejection = ApiError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let autenticado = AuthenticatedUser::from_request_parts(parts, state).await?;
 
         let autorizado = state

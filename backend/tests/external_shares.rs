@@ -11,8 +11,8 @@
 
 mod common;
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use serde_json::json;
 
 fn ciphertext_de_prueba() -> String {
@@ -72,16 +72,22 @@ async fn max_views_uno_hace_inaccesible_el_segundo_intento() {
     assert_eq!(primero.status(), 200, "la primera vista debe poder leer el contenido");
 
     let segundo = entorno.cliente.get(format!("{}/external-shares/{id}", entorno.base)).send().await.unwrap();
-    assert_eq!(segundo.status(), 404, "quemado tras max_views=1, el segundo intento debe ser inaccesible aun con el id correcto");
+    assert_eq!(
+        segundo.status(),
+        404,
+        "quemado tras max_views=1, el segundo intento debe ser inaccesible aun con el id correcto"
+    );
 
     // Borrado efectivo, no sólo un flag: el ciphertext ya no está en la fila.
-    let ciphertext_en_db: (Option<Vec<u8>>,) =
-        sqlx::query_as("select ciphertext from external_shares where id = $1")
-            .bind(id.parse::<uuid::Uuid>().unwrap())
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
-    assert!(ciphertext_en_db.0.is_none(), "el ciphertext debe pisarse con NULL al quemarse, no sólo marcarse inactivo");
+    let ciphertext_en_db: (Option<Vec<u8>>,) = sqlx::query_as("select ciphertext from external_shares where id = $1")
+        .bind(id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert!(
+        ciphertext_en_db.0.is_none(),
+        "el ciphertext debe pisarse con NULL al quemarse, no sólo marcarse inactivo"
+    );
 }
 
 #[tokio::test]

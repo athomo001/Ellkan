@@ -9,8 +9,8 @@ use uuid::Uuid;
 use crate::error::RepoError;
 
 use super::models::{
-    sugerir_destino, Bloqueos, DestinoPropiedad, GrupoBloqueado, GrupoConAcceso, PersonaConAcceso, RecursoBloqueado,
-    RecursoTransferido, ResultadoPurgaUsuario, ResumenUsuario, Transferencia, UsuarioConAcceso,
+    Bloqueos, DestinoPropiedad, GrupoBloqueado, GrupoConAcceso, PersonaConAcceso, RecursoBloqueado, RecursoTransferido,
+    ResultadoPurgaUsuario, ResumenUsuario, Transferencia, UsuarioConAcceso, sugerir_destino,
 };
 
 /// Alcance documentado: la detección de "único Owner" resuelve sólo
@@ -66,7 +66,6 @@ pub trait UserPurgeRepository {
 pub struct PgUserPurgeRepository {
     pub pool: sqlx::PgPool,
 }
-
 
 /// Grupos donde el saliente es el único manager y queda alguien más, con el
 /// miembro activo más antiguo como candidato sugerido a manager.
@@ -227,14 +226,21 @@ async fn detalle_de(user_id: Uuid, ids: &[Uuid], con: &mut sqlx::PgConnection) -
     let mut por_recurso: HashMap<Uuid, RecursoBloqueado> = creados
         .into_iter()
         .map(|c| {
-            let recurso =
-                RecursoBloqueado { resource_id: c.id, created_at: c.created_at, grupos: Vec::new(), usuarios: Vec::new(), sugerencia: None };
+            let recurso = RecursoBloqueado {
+                resource_id: c.id,
+                created_at: c.created_at,
+                grupos: Vec::new(),
+                usuarios: Vec::new(),
+                sugerencia: None,
+            };
             (c.id, recurso)
         })
         .collect();
 
     for g in grupos {
-        let Some(recurso) = por_recurso.get_mut(&g.resource_id) else { continue };
+        let Some(recurso) = por_recurso.get_mut(&g.resource_id) else {
+            continue;
+        };
         let admins_del_grupo = admins
             .iter()
             .filter(|a| a.resource_id == g.resource_id && a.group_id == g.group_id)
@@ -249,7 +255,9 @@ async fn detalle_de(user_id: Uuid, ids: &[Uuid], con: &mut sqlx::PgConnection) -
         });
     }
     for u in usuarios {
-        let Some(recurso) = por_recurso.get_mut(&u.resource_id) else { continue };
+        let Some(recurso) = por_recurso.get_mut(&u.resource_id) else {
+            continue;
+        };
         recurso.usuarios.push(UsuarioConAcceso {
             persona: PersonaConAcceso { user_id: u.user_id, email: u.email, display_name: u.display_name },
             level: u.level,
@@ -437,12 +445,8 @@ impl UserPurgeRepository for PgUserPurgeRepository {
         let bloqueos_grupos = grupos_bloqueados_en(user_id, &mut tx).await?;
         let bloqueos_recursos = recursos_bloqueados_en(user_id, &mut tx).await?;
 
-        let cubre_grupos = bloqueos_grupos
-            .iter()
-            .all(|b| transferencia.managers.iter().any(|(g, _)| *g == b.group_id));
-        let cubre_recursos = bloqueos_recursos
-            .iter()
-            .all(|r| transferencia.owners.iter().any(|(res, _)| res == r));
+        let cubre_grupos = bloqueos_grupos.iter().all(|b| transferencia.managers.iter().any(|(g, _)| *g == b.group_id));
+        let cubre_recursos = bloqueos_recursos.iter().all(|r| transferencia.owners.iter().any(|(res, _)| res == r));
         if !cubre_grupos || !cubre_recursos {
             return Err(RepoError::Conflict);
         }
@@ -474,12 +478,9 @@ impl UserPurgeRepository for PgUserPurgeRepository {
         .await?;
         let huerfanos: Vec<Uuid> = huerfanos.into_iter().map(|f| f.resource_id).collect();
 
-        sqlx::query!(
-            r#"delete from permissions where grantee_type = 'user' and grantee_id = $1"#,
-            user_id,
-        )
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query!(r#"delete from permissions where grantee_type = 'user' and grantee_id = $1"#, user_id,)
+            .execute(&mut *tx)
+            .await?;
 
         // Revocación remota: la clave pública de la cuenta queda registrada
         // ANTES de borrarla (después la cascada se lleva `user_keys`). Es lo
@@ -586,12 +587,9 @@ impl UserPurgeRepository for PgUserPurgeRepository {
     }
 
     async fn activar(&self, user_id: Uuid) -> Result<bool, RepoError> {
-        let resultado = sqlx::query!(
-            r#"update users set active = true where id = $1 and deleted_at is null and not active"#,
-            user_id,
-        )
-        .execute(&self.pool)
-        .await?;
+        let resultado = sqlx::query!(r#"update users set active = true where id = $1 and deleted_at is null and not active"#, user_id,)
+            .execute(&self.pool)
+            .await?;
         Ok(resultado.rows_affected() == 1)
     }
 

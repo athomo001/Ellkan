@@ -73,11 +73,15 @@ pub fn validar_host(host: &str) -> Result<(), String> {
     let ok = !host.is_empty()
         && host.len() <= 253
         && !host.starts_with('-')
-        && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '[' | ']' | '%'));
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '[' | ']' | '%'));
     if ok {
         Ok(())
     } else {
-        Err(format!("el host {host:?} no es válido para conectar (sólo letras, números, punto, guion y dos puntos)"))
+        Err(format!(
+            "el host {host:?} no es válido para conectar (sólo letras, números, punto, guion y dos puntos)"
+        ))
     }
 }
 

@@ -138,11 +138,7 @@ pub trait SecretEnvelopeRepository {
         secret_nonce: &[u8],
     ) -> Result<(), RepoError>;
 
-    async fn buscar(
-        &self,
-        resource_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Option<SecretEnvelope>, RepoError>;
+    async fn buscar(&self, resource_id: Uuid, user_id: Uuid) -> Result<Option<SecretEnvelope>, RepoError>;
 }
 
 pub trait PermissionRepository {
@@ -164,13 +160,7 @@ pub trait PermissionRepository {
     /// (`owner` > `update` > `read`) sobre `subject_type`/`subject_id` —
     /// directo (`grantee_type = 'user'`) o vía membresía de un grupo con
     /// acceso (F-12: `grantee_type = 'group'`, resuelto contra `group_members`).
-    async fn tiene_permiso(
-        &self,
-        subject_type: &str,
-        subject_id: Uuid,
-        user_id: Uuid,
-        nivel_minimo: &str,
-    ) -> Result<bool, RepoError>;
+    async fn tiene_permiso(&self, subject_type: &str, subject_id: Uuid, user_id: Uuid, nivel_minimo: &str) -> Result<bool, RepoError>;
 
     /// `subject_id` de tipo `resource` donde `grantee_type`/`grantee_id`
     /// tiene acceso — F-12 lo usa para saber qué recursos ya comparte un
@@ -192,11 +182,7 @@ pub trait PermissionRepository {
     /// `(subject_type, subject_id)` donde `grantee_type`/`grantee_id` tiene
     /// exactamente nivel `owner` — F-12 recorre esto al intentar borrar un
     /// grupo.
-    async fn subjects_owner_de(
-        &self,
-        grantee_type: &str,
-        grantee_id: Uuid,
-    ) -> Result<Vec<(String, Uuid)>, RepoError>;
+    async fn subjects_owner_de(&self, grantee_type: &str, grantee_id: Uuid) -> Result<Vec<(String, Uuid)>, RepoError>;
 
     /// `true` si `subject_type`/`subject_id` tiene AL MENOS una fila en
     /// `permissions` (de cualquier grantee) — F-11 lo usa para distinguir
@@ -214,6 +200,11 @@ pub trait PermissionRepository {
     /// devuelve cualquiera.
     async fn grupo_grantee_de(&self, subject_type: &str, subject_id: Uuid) -> Result<Option<Uuid>, RepoError>;
 
+    /// QA-12: de `resource_ids`, los que `user_id` tiene con nivel `owner`
+    /// (directo o vía grupo) — mismo criterio que `tiene_permiso(..,
+    /// "owner")`, en una sola query para todo el listado.
+    async fn recursos_owner_de(&self, user_id: Uuid, resource_ids: &[Uuid]) -> Result<std::collections::HashSet<Uuid>, RepoError>;
+
     /// Todos los grantees (usuario o grupo) con acceso a `subject`, con su
     /// nivel — `GET /resources/{id}/permissions`, panel de "compartir".
     async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<super::models::PermisoGrantee>, RepoError>;
@@ -221,13 +212,7 @@ pub trait PermissionRepository {
     /// Revoca el acceso de un grantee puntual — a diferencia de `otorgar`
     /// (sólo usuario, por ahora), genérico sobre `grantee_type` porque acá
     /// no hay crypto que resolver, sólo borrar la fila de autorización.
-    async fn revocar(
-        &self,
-        subject_type: &str,
-        subject_id: Uuid,
-        grantee_type: &str,
-        grantee_id: Uuid,
-    ) -> Result<(), RepoError>;
+    async fn revocar(&self, subject_type: &str, subject_id: Uuid, grantee_type: &str, grantee_id: Uuid) -> Result<(), RepoError>;
 
     /// H-26 (auditoría 2026-08-12): versión atómica de `existe_otro_owner`
     /// y `revocar` — el patrón *check-then-act* original tenía una ventana
@@ -257,6 +242,16 @@ pub trait PermissionRepository {
         grantee_id: Uuid,
         nuevo_nivel: &str,
     ) -> Result<bool, RepoError>;
+}
+
+/// QA-05: `true` si `recibidos` trae exactamente un envelope por cada
+/// destinatario `actual` (ni de más, ni de menos, ni repetidos). Compartida
+/// por las implementaciones Postgres y SQLite de `actualizar`.
+pub fn mismo_conjunto_de_destinatarios(actuales: &[Uuid], recibidos: &[EnvelopeInput]) -> bool {
+    use std::collections::HashSet;
+    let esperados: HashSet<Uuid> = actuales.iter().copied().collect();
+    let recibidos_set: HashSet<Uuid> = recibidos.iter().map(|e| e.user_id).collect();
+    recibidos_set.len() == recibidos.len() && esperados == recibidos_set
 }
 
 #[derive(Clone)]
@@ -342,12 +337,9 @@ impl ResourceRepository for PgResourceRepository {
     }
 
     async fn marcar_eliminado(&self, id: Uuid) -> Result<bool, RepoError> {
-        let resultado = sqlx::query!(
-            r#"update resources set deleted_at = now() where id = $1 and deleted_at is null"#,
-            id,
-        )
-        .execute(&self.pool)
-        .await?;
+        let resultado = sqlx::query!(r#"update resources set deleted_at = now() where id = $1 and deleted_at is null"#, id,)
+            .execute(&self.pool)
+            .await?;
         Ok(resultado.rows_affected() > 0)
     }
 
@@ -501,6 +493,20 @@ impl ResourceRepository for PgResourceRepository {
             return Ok(None);
         };
 
+        // QA-05: el conjunto de envelopes recibido tiene que ser EXACTAMENTE
+        // el de los destinatarios vigentes (bloqueados para que no cambien
+        // entre la comparación y el reemplazo). Sin esto, un editor podía
+        // mandar sólo el suyo y borrar el acceso de todos los demás.
+        let actuales = sqlx::query_scalar!(
+            r#"select user_id as "user_id!" from secret_envelopes where resource_id = $1 for update"#,
+            resource_id,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !mismo_conjunto_de_destinatarios(&actuales, envelopes) {
+            return Err(RepoError::Conflict);
+        }
+
         // Reemplazo completo de `secret_envelopes`: el cliente ya resolvió
         // la lista completa de destinatarios actuales (`listar_destinatarios`)
         // y las re-selló con la DEK nueva — nunca un merge parcial, porque
@@ -553,7 +559,10 @@ impl ResourceRepository for PgResourceRepository {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(filas.into_iter().map(|f| Destinatario { user_id: f.user_id, public_key_x25519: f.public_key_x25519 }).collect())
+        Ok(filas
+            .into_iter()
+            .map(|f| Destinatario { user_id: f.user_id, public_key_x25519: f.public_key_x25519 })
+            .collect())
     }
 
     async fn tocar_updated_at(&self, resource_id: Uuid) -> Result<(), RepoError> {
@@ -571,12 +580,9 @@ pub struct PgResourceTypeRepository {
 
 impl ResourceTypeRepository for PgResourceTypeRepository {
     async fn id_por_slug(&self, slug: &str) -> Result<Option<Uuid>, RepoError> {
-        let fila = sqlx::query!(
-            r#"select id from resource_types where slug = $1 and deleted_at is null"#,
-            slug,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select id from resource_types where slug = $1 and deleted_at is null"#, slug,)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.map(|f| f.id))
     }
 
@@ -588,12 +594,9 @@ impl ResourceTypeRepository for PgResourceTypeRepository {
     }
 
     async fn json_schema_por_id(&self, id: Uuid) -> Result<Option<serde_json::Value>, RepoError> {
-        let fila = sqlx::query!(
-            r#"select json_schema from resource_types where id = $1 and deleted_at is null"#,
-            id,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let fila = sqlx::query!(r#"select json_schema from resource_types where id = $1 and deleted_at is null"#, id,)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(fila.map(|f| f.json_schema))
     }
 }
@@ -632,11 +635,7 @@ impl SecretEnvelopeRepository for PgSecretEnvelopeRepository {
         Ok(())
     }
 
-    async fn buscar(
-        &self,
-        resource_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<Option<SecretEnvelope>, RepoError> {
+    async fn buscar(&self, resource_id: Uuid, user_id: Uuid) -> Result<Option<SecretEnvelope>, RepoError> {
         let fila = sqlx::query!(
             r#"
             select sealed_dek, secret_ciphertext, secret_nonce
@@ -664,11 +663,10 @@ impl PgSecretEnvelopeRepository {
     /// Sólo la DEK sellada, nunca el ciphertext del secreto: revelar el
     /// secreto sigue siendo un pedido explícito.
     pub async fn sealed_deks_de(&self, user_id: Uuid) -> Result<std::collections::HashMap<Uuid, Vec<u8>>, RepoError> {
-        let filas: Vec<(Uuid, Vec<u8>)> =
-            sqlx::query_as("select resource_id, sealed_dek from secret_envelopes where user_id = $1")
-                .bind(user_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let filas: Vec<(Uuid, Vec<u8>)> = sqlx::query_as("select resource_id, sealed_dek from secret_envelopes where user_id = $1")
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(filas.into_iter().collect())
     }
 }
@@ -705,13 +703,7 @@ impl PermissionRepository for PgPermissionRepository {
         Ok(())
     }
 
-    async fn tiene_permiso(
-        &self,
-        subject_type: &str,
-        subject_id: Uuid,
-        user_id: Uuid,
-        nivel_minimo: &str,
-    ) -> Result<bool, RepoError> {
+    async fn tiene_permiso(&self, subject_type: &str, subject_id: Uuid, user_id: Uuid, nivel_minimo: &str) -> Result<bool, RepoError> {
         let filas = sqlx::query!(
             r#"
             select level from permissions
@@ -722,6 +714,11 @@ impl PermissionRepository for PgPermissionRepository {
                     select group_id from group_members where user_id = $3
                 ))
               )
+              -- QA-35: un recurso borrado (soft-delete) no concede nada
+              -- aunque sus filas de permiso sigan hasta la purga física.
+              and ($1 <> 'resource' or exists (
+                select 1 from resources r where r.id = $2 and r.deleted_at is null
+              ))
             "#,
             subject_type,
             subject_id,
@@ -778,11 +775,7 @@ impl PermissionRepository for PgPermissionRepository {
         Ok(fila.is_some())
     }
 
-    async fn subjects_owner_de(
-        &self,
-        grantee_type: &str,
-        grantee_id: Uuid,
-    ) -> Result<Vec<(String, Uuid)>, RepoError> {
+    async fn subjects_owner_de(&self, grantee_type: &str, grantee_id: Uuid) -> Result<Vec<(String, Uuid)>, RepoError> {
         let filas = sqlx::query!(
             r#"
             select subject_type, subject_id from permissions
@@ -805,6 +798,26 @@ impl PermissionRepository for PgPermissionRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.is_some())
+    }
+
+    async fn recursos_owner_de(&self, user_id: Uuid, resource_ids: &[Uuid]) -> Result<std::collections::HashSet<Uuid>, RepoError> {
+        let filas = sqlx::query_scalar!(
+            r#"
+            select distinct subject_id from permissions
+            where subject_type = 'resource' and subject_id = any($2) and level = 'owner'
+              and (
+                (grantee_type = 'user' and grantee_id = $1)
+                or (grantee_type = 'group' and grantee_id in (
+                    select group_id from group_members where user_id = $1
+                ))
+              )
+            "#,
+            user_id,
+            resource_ids,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas.into_iter().collect())
     }
 
     async fn grupo_grantee_de(&self, subject_type: &str, subject_id: Uuid) -> Result<Option<Uuid>, RepoError> {

@@ -115,14 +115,12 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn cambiar_tipo(&self, id: Uuid, nuevo_resource_type_id: Uuid) -> Result<bool, RepoError> {
-        let resultado = sqlx::query(
-            "update resources set resource_type_id = ?2, updated_at = ?3 where id = ?1 and deleted_at is null",
-        )
-        .bind(id.to_string())
-        .bind(nuevo_resource_type_id.to_string())
-        .bind(fmt_dt(OffsetDateTime::now_utc()))
-        .execute(&self.pool)
-        .await?;
+        let resultado = sqlx::query("update resources set resource_type_id = ?2, updated_at = ?3 where id = ?1 and deleted_at is null")
+            .bind(id.to_string())
+            .bind(nuevo_resource_type_id.to_string())
+            .bind(fmt_dt(OffsetDateTime::now_utc()))
+            .execute(&self.pool)
+            .await?;
         Ok(resultado.rows_affected() > 0)
     }
 
@@ -213,6 +211,19 @@ impl ResourceRepository for SqliteResourceRepository {
 
         if resultado.rows_affected() != 1 {
             return Ok(None);
+        }
+
+        // QA-05: mismo criterio que la implementación Postgres (la
+        // transacción de SQLite ya es exclusiva para escritura).
+        let actuales = sqlx::query("select user_id from secret_envelopes where resource_id = ?1")
+            .bind(resource_id.to_string())
+            .fetch_all(&mut *tx)
+            .await?
+            .iter()
+            .map(|f| parse_uuid(f.try_get::<String, _>("user_id")?.as_str()))
+            .collect::<Result<Vec<Uuid>, RepoError>>()?;
+        if !crate::resources::repository::mismo_conjunto_de_destinatarios(&actuales, envelopes) {
+            return Err(RepoError::Conflict);
         }
 
         sqlx::query("delete from secret_envelopes where resource_id = ?1")
@@ -461,7 +472,14 @@ impl SqlitePermissionRepository {
 }
 
 impl PermissionRepository for SqlitePermissionRepository {
-    async fn otorgar(&self, _subject_type: &str, _subject_id: Uuid, _grantee_type: &str, _grantee_id: Uuid, _nivel: &str) -> Result<(), RepoError> {
+    async fn otorgar(
+        &self,
+        _subject_type: &str,
+        _subject_id: Uuid,
+        _grantee_type: &str,
+        _grantee_id: Uuid,
+        _nivel: &str,
+    ) -> Result<(), RepoError> {
         // No-op: la propiedad ya está implícita en `resources.created_by`,
         // sin tabla `permissions` en este modo (spec/13 §5).
         Ok(())
@@ -479,7 +497,13 @@ impl PermissionRepository for SqlitePermissionRepository {
         Ok(Vec::new())
     }
 
-    async fn existe_otro_owner(&self, _subject_type: &str, _subject_id: Uuid, _excluir_grantee_type: &str, _excluir_grantee_id: Uuid) -> Result<bool, RepoError> {
+    async fn existe_otro_owner(
+        &self,
+        _subject_type: &str,
+        _subject_id: Uuid,
+        _excluir_grantee_type: &str,
+        _excluir_grantee_id: Uuid,
+    ) -> Result<bool, RepoError> {
         Ok(false)
     }
 
@@ -493,6 +517,23 @@ impl PermissionRepository for SqlitePermissionRepository {
 
     async fn grupo_grantee_de(&self, _subject_type: &str, _subject_id: Uuid) -> Result<Option<Uuid>, RepoError> {
         Ok(None)
+    }
+
+    /// Mismo criterio que `tiene_permiso` en este modo: owner = creador.
+    async fn recursos_owner_de(&self, user_id: Uuid, resource_ids: &[Uuid]) -> Result<std::collections::HashSet<Uuid>, RepoError> {
+        let pedidos: std::collections::HashSet<Uuid> = resource_ids.iter().copied().collect();
+        let filas = sqlx::query("select id from resources where created_by = ?1 and deleted_at is null")
+            .bind(user_id.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        let mut propios = std::collections::HashSet::new();
+        for fila in &filas {
+            let id = parse_uuid(fila.try_get::<String, _>("id")?.as_str())?;
+            if pedidos.contains(&id) {
+                propios.insert(id);
+            }
+        }
+        Ok(propios)
     }
 
     async fn listar(&self, subject_type: &str, subject_id: Uuid) -> Result<Vec<PermisoGrantee>, RepoError> {
@@ -518,14 +559,27 @@ impl PermissionRepository for SqlitePermissionRepository {
         Ok(())
     }
 
-    async fn revocar_si_queda_otro_owner(&self, _subject_type: &str, _subject_id: Uuid, _grantee_type: &str, _grantee_id: Uuid) -> Result<bool, RepoError> {
+    async fn revocar_si_queda_otro_owner(
+        &self,
+        _subject_type: &str,
+        _subject_id: Uuid,
+        _grantee_type: &str,
+        _grantee_id: Uuid,
+    ) -> Result<bool, RepoError> {
         // Único owner posible en este modo (el dueño) — revocarlo siempre
         // dejaría el recurso sin ninguno, se rechaza (mismo criterio que la
         // versión Postgres, H-26).
         Ok(false)
     }
 
-    async fn cambiar_nivel_si_queda_otro_owner(&self, _subject_type: &str, _subject_id: Uuid, _grantee_type: &str, _grantee_id: Uuid, _nuevo_nivel: &str) -> Result<bool, RepoError> {
+    async fn cambiar_nivel_si_queda_otro_owner(
+        &self,
+        _subject_type: &str,
+        _subject_id: Uuid,
+        _grantee_type: &str,
+        _grantee_id: Uuid,
+        _nuevo_nivel: &str,
+    ) -> Result<bool, RepoError> {
         Ok(false)
     }
 }

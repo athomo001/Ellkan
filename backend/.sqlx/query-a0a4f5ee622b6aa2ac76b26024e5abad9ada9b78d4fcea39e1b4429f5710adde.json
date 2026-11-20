@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                delete from secret_envelopes se\n                where se.user_id = $1 and se.resource_id = any($2)\n                  and not exists (\n                      select 1 from permissions p\n                      where p.subject_type = 'resource' and p.subject_id = se.resource_id\n                        and p.grantee_type = 'user' and p.grantee_id = $1\n                  )\n                  and not exists (\n                      select 1 from permissions p\n                      join group_members gm on gm.group_id = p.grantee_id and gm.user_id = $1\n                      where p.subject_type = 'resource' and p.subject_id = se.resource_id and p.grantee_type = 'group'\n                  )\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a0a4f5ee622b6aa2ac76b26024e5abad9ada9b78d4fcea39e1b4429f5710adde"
+}

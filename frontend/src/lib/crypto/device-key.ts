@@ -5,8 +5,14 @@
 // structured clone desde hace años — no hace falta serializarla a bytes, lo
 // que además sería imposible para una clave no-extraíble). Usada para
 // envolver secretos que necesitan sobrevivir entre sesiones en este
-// dispositivo sin quedar legibles por un simple volcado de storage — ver
-// `totp-local.ts` (H-01, auditoría 2026-08-12).
+// dispositivo — ver `totp-local.ts` (H-01, auditoría 2026-08-12).
+//
+// QA-08 (límite real): `extractable:false` sólo impide exportar la clave
+// desde JavaScript. Chromium y Firefox persisten el material de la
+// `CryptoKey` en disco, dentro de la base IndexedDB del perfil: quien copie
+// el perfil completo (backup, infostealer) se lleva también la clave. Esto
+// protege contra lectura de `localStorage` aislado, NO contra robo de los
+// archivos del perfil.
 
 const DB_NAME = 'ellkan-device-keys';
 const STORE_NAME = 'claves';

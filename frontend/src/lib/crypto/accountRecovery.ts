@@ -63,6 +63,35 @@ export interface BlobClaveNueva {
 	saltB64: string;
 }
 
+/** QA-06: campos que el servidor exige para aceptar un blob nuevo. */
+export interface PruebaDePosesion {
+	challenge_nonce_b64: string;
+	signature_b64: string;
+}
+
+/** QA-06: pide un challenge (`POST /auth/challenge`) y firma, con la Ed25519
+ * de la cuenta, el mensaje que ata ese challenge al blob nuevo
+ * (`ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada`, en
+ * WASM: nunca se arma acá). `post` es el cliente contra el que se va a
+ * subir el blob (el local o uno remoto). */
+export async function pruebaDePosesion(
+	post: <T>(path: string, body?: unknown) => Promise<T>,
+	email: string,
+	ed25519Private: Uint8Array,
+	blob: BlobClaveNueva
+): Promise<PruebaDePosesion> {
+	const wasm = await cargarCrypto();
+	const desafio = await post<{ nonce_b64: string }>('/auth/challenge', { email });
+	const firma = wasm.firmar_reemplazo_clave_privada(
+		ed25519Private,
+		base64ABytes(desafio.nonce_b64),
+		base64ABytes(blob.blobB64),
+		base64ABytes(blob.nonceB64),
+		base64ABytes(blob.saltB64)
+	);
+	return { challenge_nonce_b64: desafio.nonce_b64, signature_b64: bytesABase64(firma) };
+}
+
 /** Fija una passphrase nueva sobre el material recuperado — mismo wrapper
  * que `identity.ts::cambiarPassphrase` usa para el cambio voluntario. */
 export async function reSellarConNuevaPassphrase(

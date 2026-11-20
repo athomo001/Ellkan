@@ -257,9 +257,11 @@ if ($Msi) {
 # ---------------------------------------------------------------------------
 Agregar-Paso "Cerrar Ellkan si está abierto" 2
 if ($Msi) {
+    Agregar-Paso "Compilar el frontend" 45
     if (-not $SkipExtension) { Agregar-Paso "Preparar la extensión de navegador" 20 }
+    Agregar-Paso "Compilar los auxiliares" 60
     Agregar-Paso "Compilar la app y empaquetar el MSI" 420
-    Agregar-Paso "Compilar los auxiliares" 5
+    Agregar-Paso "Revisar el contenido del MSI" 2
     Agregar-Paso "Traducir los accesos directos del MSI" 6
     Agregar-Paso "Copiar el MSI" 2
     Agregar-Paso "Copiar los binarios" 3
@@ -303,32 +305,35 @@ try {
         # "Desinstalar Ellkan" en el menú Inicio). Tauri arma el MSI con WiX (la
         # primera vez descarga WiX 3, hace falta conexión) y, antes de compilar,
         # construye el frontend (`beforeBuildCommand` de tauri.conf.json).
+        #
+        # El frontend se compila también acá, antes de los auxiliares: esos
+        # binarios compilan la librería de la app, cuyo `generate_context!`
+        # exige que `frontend/build` exista. En un checkout limpio (Actions)
+        # todavía no existe y la compilación fallaba.
+        Iniciar-Paso "Compilar el frontend"
+        Invocar-Nativo "cmd.exe" @("/c", "pnpm build") $DirFrontend "Error: falló la compilación del frontend"
+        Terminar-Paso
+
         if (-not $SkipExtension) {
             Iniciar-Paso "Preparar la extensión de navegador"
             Invocar-Nativo "node" @((Join-Path $DirRaiz "app-escritorio\scripts\preparar-extension.mjs")) $DirRaiz "Error: no se pudo preparar la extensión de navegador"
             Terminar-Paso
         }
 
-        Iniciar-Paso "Compilar la app y empaquetar el MSI"
-        $InicioCompilacion = Get-Date
-        $TauriCli = Join-Path $DirFrontend "node_modules\@tauri-apps\cli\tauri.js"
-        Invocar-Nativo "node" @($TauriCli, "build", "--config", "tauri.msi.conf.json", "--bundles", "msi") $DirTauri "Error: falló el empaquetado del MSI"
-        Terminar-Paso
-
-        # `tauri build` compila el .exe principal (el mismo que va dentro del
-        # MSI, y el que se usa para el ZIP). Si no dejó al día los auxiliares
-        # (askpass y host de native messaging), se compilan sólo esos dos: no
-        # tocan ellkan-desktop.exe.
+        # Pendiente #1: los auxiliares (askpass y host de native messaging) se
+        # compilan ANTES de `tauri build`. Compilarlos después dejaba el MSI
+        # sin `ellkan_nm_host.exe` (o con un askpass de una compilación
+        # anterior). La verificación de abajo ("Revisar el contenido del MSI")
+        # corta el script si igual faltara alguno.
         Iniciar-Paso "Compilar los auxiliares"
         $Auxiliares = @("ellkan_askpass", "ellkan_nm_host")
-        $Atrasados = $Auxiliares | Where-Object {
-            $Ruta = Join-Path $DirRaiz "target\release\$_.exe"
-            -not (Test-Path $Ruta) -or (Get-Item $Ruta).LastWriteTime -lt $InicioCompilacion
-        }
-        if ($Atrasados) {
-            $ArgsCargo = @("build", "--release") + ($Atrasados | ForEach-Object { @("--bin", $_) })
-            Invocar-Nativo "cargo" $ArgsCargo $DirTauri "Error: falló la compilación de los auxiliares"
-        }
+        $ArgsCargo = @("build", "--release") + ($Auxiliares | ForEach-Object { @("--bin", $_) })
+        Invocar-Nativo "cargo" $ArgsCargo $DirTauri "Error: falló la compilación de los auxiliares"
+        Terminar-Paso
+
+        Iniciar-Paso "Compilar la app y empaquetar el MSI"
+        $TauriCli = Join-Path $DirFrontend "node_modules\@tauri-apps\cli\tauri.js"
+        Invocar-Nativo "node" @($TauriCli, "build", "--config", "tauri.msi.conf.json", "--bundles", "msi") $DirTauri "Error: falló el empaquetado del MSI"
         Terminar-Paso
 
         $Paquete = Get-ChildItem (Join-Path $DirRaiz "target\release\bundle\msi") -Filter "*_$($VersionNueva)_*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -338,8 +343,25 @@ try {
         # Ellkan", "Runs Ellkan"): se traducen dentro del MSI ya armado. El nombre
         # del acceso directo de desinstalación es "<nombre corto>|<nombre largo>",
         # y el corto lo genera Tauri, así que se conserva.
-        Iniciar-Paso "Traducir los accesos directos del MSI"
+        # Pendiente #1: sin estos ejecutables la extensión no habla con la app
+        # (native messaging) y "Conectar" por SSH no puede pasar la contraseña.
+        # Mejor cortar acá que entregar un instalador incompleto.
+        Iniciar-Paso "Revisar el contenido del MSI"
         $Instalador = New-Object -ComObject WindowsInstaller.Installer
+        $Base = $Instalador.OpenDatabase($Paquete.FullName, 0)
+        $Archivos = @()
+        $VistaArchivos = $Base.OpenView("SELECT FileName FROM File")
+        $VistaArchivos.Execute()
+        while ($FilaArchivo = $VistaArchivos.Fetch()) { $Archivos += (($FilaArchivo.StringData(1) -split '\|')[-1]) }
+        $VistaArchivos.Close()
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($VistaArchivos)
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($Base)
+        foreach ($Requerido in @("ellkan-desktop.exe", "ellkan_askpass.exe", "ellkan_nm_host.exe")) {
+            if ($Archivos -notcontains $Requerido) { throw "Error: el MSI no incluye $Requerido (trae: $($Archivos -join ', '))." }
+        }
+        Terminar-Paso
+
+        Iniciar-Paso "Traducir los accesos directos del MSI"
         $Base = $Instalador.OpenDatabase($Paquete.FullName, 1)
         $Textos = @(
             @{ Atajo = 'UninstallShortcut';           Nombre = 'Desinstalar Ellkan'; Descripcion = 'Quita Ellkan de este equipo (tus datos se conservan salvo que pidas borrarlos)' },

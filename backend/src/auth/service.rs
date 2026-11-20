@@ -18,10 +18,10 @@ use crate::smtp_config::repository::SmtpConfigRepository;
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
 
-use super::models::{DeviceChallengeRow, NuevoUsuario, ResultadoRegistro, ResultadoVerify, User};
+use super::models::{DeviceChallengeRow, NuevoUsuario, PropositoSesion, ResultadoRegistro, ResultadoVerify, User};
 use super::repository::{
-    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository,
-    SessionRepository, UserRepository,
+    AuthChallengeRepository, DeviceChallengeRepository, EmailVerificationRepository, KnownDeviceRepository, SessionRepository,
+    UserRepository,
 };
 
 const TTL_CHALLENGE_SEGUNDOS: i64 = 120;
@@ -31,8 +31,39 @@ const TTL_DEVICE_CHALLENGE_SEGUNDOS: i64 = 600;
 /// que no revisa el correo de inmediato.
 const TTL_EMAIL_VERIFICATION_SEGUNDOS: i64 = 24 * 3600;
 
+/// QA-17: por cuenta, en 24 h: códigos de verificación emitidos (el del
+/// registro + 5 reenvíos) e intentos fallidos sumados entre todos ellos.
+const MAX_CODIGOS_VERIFICACION_24H: i64 = 6;
+const MAX_INTENTOS_VERIFICACION_24H: i64 = 20;
+
 fn hash_de_codigo(codigo: &str) -> Vec<u8> {
     Sha256::digest(codigo.as_bytes()).to_vec()
+}
+
+/// Material de desbloqueo con la forma del real (blob 80, nonce 24, salt 16
+/// bytes) para un email sin cuenta: HKDF-SHA256 sobre la clave de servidor,
+/// con el email normalizado en el `info`. Estable entre llamadas e
+/// indistinguible de bytes aleatorios para quien no tiene la clave.
+fn material_desbloqueo_falso(
+    secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+    email: &str,
+) -> crate::auth::models::MaterialDesbloqueo {
+    use secrecy::ExposeSecret;
+    let email = email.trim().to_lowercase();
+    let mut bytes = Vec::with_capacity(128);
+    for parte in [b"a", b"b", b"c", b"d"] {
+        let mut info = b"ellkan:v1:key-material-falso:".to_vec();
+        info.extend_from_slice(parte);
+        info.push(b':');
+        info.extend_from_slice(email.as_bytes());
+        let bloque = ellkan_crypto::derivacion::derivar_clave_desde_secreto(secrets_key.expose_secret(), &info);
+        bytes.extend_from_slice(bloque.expose_secret());
+    }
+    crate::auth::models::MaterialDesbloqueo {
+        encrypted_private_key_blob: bytes[..80].to_vec(),
+        private_key_nonce: bytes[80..104].to_vec(),
+        kdf_salt: bytes[104..120].to_vec(),
+    }
 }
 
 /// Código de un solo uso de 6 dígitos — CSPRNG, nunca `thread_rng`.
@@ -87,24 +118,42 @@ where
     /// política habilitada + dominio permitido + SMTP configurado (el
     /// código de verificación tiene que poder llegar), y queda
     /// `pending_verification` hasta confirmar el email.
-    pub async fn registrar(&self, nuevo: NuevoUsuario<'_>) -> Result<ResultadoRegistro, DomainError> {
+    /// `setup_token_presentado`/`setup_token_esperado` (QA-11): si el
+    /// operador configuró un token de instalación, el registro que nacería
+    /// admin en una instancia vacía tiene que presentarlo (comparación en
+    /// tiempo constante); cualquier otro registro lo ignora.
+    pub async fn registrar(
+        &self,
+        nuevo: NuevoUsuario<'_>,
+        setup_token_presentado: Option<&str>,
+        setup_token_esperado: Option<&secrecy::SecretBox<String>>,
+    ) -> Result<ResultadoRegistro, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
-            return Err(DomainError::ValidacionInvalida(
-                "las claves públicas deben ser de 32 bytes".to_string(),
-            ));
+            return Err(DomainError::ValidacionInvalida("las claves públicas deben ser de 32 bytes".to_string()));
         }
 
         let bootstrap = !self.usuarios.existe_alguno().await?;
-        if !bootstrap {
+        if bootstrap {
+            match setup_token_esperado {
+                Some(esperado) => {
+                    use secrecy::ExposeSecret;
+                    let presentado = setup_token_presentado.unwrap_or_default();
+                    if !secreto_coincide(esperado.expose_secret().as_bytes(), presentado.as_bytes()) {
+                        return Err(DomainError::PermissionDenied);
+                    }
+                }
+                None => tracing::warn!(
+                    "ELLKAN_SETUP_TOKEN no configurado: el primer registro de esta instancia nace admin sin token de instalación"
+                ),
+            }
+        } else {
             let politica = self.self_registration.obtener().await?;
             if !politica.enabled {
                 return Err(DomainError::ValidacionInvalida("auto-registro desactivado".into()));
             }
             crate::self_registration::service::verificar_dominio_permitido(&politica, nuevo.email)?;
             if !self.smtp_config.obtener().await?.esta_configurado() {
-                return Err(DomainError::ValidacionInvalida(
-                    "auto-registro no disponible: SMTP no configurado".into(),
-                ));
+                return Err(DomainError::ValidacionInvalida("auto-registro no disponible: SMTP no configurado".into()));
             }
         }
 
@@ -121,8 +170,7 @@ where
         let codigo = generar_codigo_device();
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_EMAIL_VERIFICATION_SEGUNDOS);
         self.email_verification.crear(user.id, &hash_de_codigo(&codigo), expires_at).await?;
-        let _ =
-            self.eventos.send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email, codigo });
+        let _ = self.eventos.send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email, codigo });
 
         Ok(ResultadoRegistro::PendienteVerificacion { user_id: user.id })
     }
@@ -141,9 +189,7 @@ where
     /// recomendación de la UI.
     pub async fn crear_por_admin(&self, nuevo: NuevoUsuario<'_>) -> Result<crate::auth::models::User, DomainError> {
         if nuevo.public_key_x25519.len() != 32 || nuevo.public_key_ed25519.len() != 32 {
-            return Err(DomainError::ValidacionInvalida(
-                "las claves públicas deben ser de 32 bytes".to_string(),
-            ));
+            return Err(DomainError::ValidacionInvalida("las claves públicas deben ser de 32 bytes".to_string()));
         }
         let user = self.usuarios.crear(nuevo, true).await.map_err(|e| match e {
             crate::error::RepoError::Conflict => DomainError::Conflict,
@@ -159,8 +205,17 @@ where
     /// mismo `InvalidCredentials` genérico que una inexistente.
     pub async fn verificar_email(&self, email: &str, codigo: &str) -> Result<(), DomainError> {
         let user = self.usuarios.buscar_no_verificado_por_email(email).await?.ok_or(DomainError::InvalidCredentials)?;
-        let desafio =
-            self.email_verification.buscar_pendiente_por_usuario(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
+        // QA-17: tope de intentos por cuenta (no sólo por desafío): sin él,
+        // reenviar el código reiniciaba los intentos indefinidamente.
+        let (_, fallidos) = self.email_verification.uso_ultimas_24h(user.id).await?;
+        if fallidos >= MAX_INTENTOS_VERIFICACION_24H {
+            return Err(DomainError::InvalidCredentials);
+        }
+        let desafio = self
+            .email_verification
+            .buscar_pendiente_por_usuario(user.id)
+            .await?
+            .ok_or(DomainError::InvalidCredentials)?;
 
         if !secreto_coincide(&desafio.code_hash, &hash_de_codigo(codigo)) {
             // Tope por desafío (migración 0052), mismo criterio que F-02.
@@ -186,16 +241,21 @@ where
             return Ok(());
         };
 
+        // QA-17: tope de códigos por cuenta; misma respuesta (anti-enumeration).
+        let (emitidos, _) = self.email_verification.uso_ultimas_24h(user.id).await?;
+        if emitidos >= MAX_CODIGOS_VERIFICACION_24H {
+            tracing::warn!(user_id = %user.id, "tope de reenvíos de verificación de correo alcanzado");
+            return Ok(());
+        }
+
         self.email_verification.invalidar_pendientes_de_usuario(user.id).await?;
 
         let codigo = generar_codigo_device();
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_EMAIL_VERIFICATION_SEGUNDOS);
         self.email_verification.crear(user.id, &hash_de_codigo(&codigo), expires_at).await?;
-        let _ = self.eventos.send(DomainEvent::RegistroPendienteVerificacion {
-            user_id: user.id,
-            email: email.to_string(),
-            codigo,
-        });
+        let _ = self
+            .eventos
+            .send(DomainEvent::RegistroPendienteVerificacion { user_id: user.id, email: email.to_string(), codigo });
 
         Ok(())
     }
@@ -207,9 +267,7 @@ where
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_CHALLENGE_SEGUNDOS);
 
         if let Some(user) = self.usuarios.buscar_por_email(email).await? {
-            self.challenges
-                .guardar_challenge(user.id, &nonce, expires_at)
-                .await?;
+            self.challenges.guardar_challenge(user.id, &nonce, expires_at).await?;
         }
 
         Ok(nonce.to_vec())
@@ -217,20 +275,23 @@ where
 
     /// F-01 (frontend web): material de desbloqueo por email — mismo
     /// criterio anti-enumeración que `challenge()`: si el email no existe,
-    /// devuelve bytes aleatorios con exactamente el mismo largo que el
-    /// material real (80/24/16 bytes), para que la forma de la respuesta
-    /// nunca distinga "no existe" de "existe" — el intento de desbloqueo
-    /// va a fallar en los dos casos de la misma manera (passphrase
-    /// "incorrecta").
-    pub async fn material_desbloqueo(&self, email: &str) -> Result<crate::auth::models::MaterialDesbloqueo, DomainError> {
+    /// devuelve material con exactamente el mismo largo que el real
+    /// (80/24/16 bytes); el intento de desbloqueo falla igual en los dos
+    /// casos (passphrase "incorrecta").
+    ///
+    /// QA-03/QA-15: el material falso es determinístico por email (HKDF con
+    /// la clave de servidor), igual que el real: antes eran bytes aleatorios
+    /// distintos en cada llamada, y comparar dos respuestas alcanzaba para
+    /// saber si la cuenta existía.
+    pub async fn material_desbloqueo(
+        &self,
+        email: &str,
+        secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+    ) -> Result<crate::auth::models::MaterialDesbloqueo, DomainError> {
         if let Some(material) = self.usuarios.material_desbloqueo_por_email(email).await? {
             return Ok(material);
         }
-        Ok(crate::auth::models::MaterialDesbloqueo {
-            encrypted_private_key_blob: bytes_aleatorios::<80>().to_vec(),
-            private_key_nonce: bytes_aleatorios::<24>().to_vec(),
-            kdf_salt: bytes_aleatorios::<16>().to_vec(),
-        })
+        Ok(material_desbloqueo_falso(secrets_key, email))
     }
 
     /// F-13: envuelve `verify_con_usuario` para poder auditar exactamente una
@@ -256,8 +317,7 @@ where
         match &resultado {
             Ok(ResultadoVerify::SesionCompleta(sesion)) => {
                 let _ = self.eventos.send(DomainEvent::Auditoria(
-                    EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(sesion.user_id))
-                        .con_sujeto("user", sesion.user_id),
+                    EventoAuditoria::nuevo(AuditEventType::AuthLoginSucceeded, Some(sesion.user_id)).con_sujeto("user", sesion.user_id),
                 ));
             }
             // El caso "dispositivo no reconocido" ya se audita en el punto
@@ -270,10 +330,9 @@ where
             | Ok(ResultadoVerify::RequiereConfigurarMfa { .. })
             | Ok(ResultadoVerify::RequiereCambiarPassphrase { .. }) => {}
             Err(_) => {
-                let _ = self.eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(
-                    AuditEventType::AuthLoginFailed,
-                    actor_conocido,
-                )));
+                let _ = self
+                    .eventos
+                    .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthLoginFailed, actor_conocido)));
             }
         }
 
@@ -296,27 +355,15 @@ where
             return Err(DomainError::InvalidCredentials);
         }
 
-        let keys = self
-            .usuarios
-            .buscar_keys(user.id)
-            .await?
-            .ok_or(DomainError::InvalidCredentials)?;
+        let keys = self.usuarios.buscar_keys(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
 
-        let clave_publica_bytes: [u8; 32] = keys
-            .public_key_ed25519
-            .try_into()
-            .map_err(|_| DomainError::InvalidCredentials)?;
-        let firma_bytes: [u8; 64] = signature
-            .try_into()
-            .map_err(|_| DomainError::InvalidCredentials)?;
+        let clave_publica_bytes: [u8; 32] = keys.public_key_ed25519.try_into().map_err(|_| DomainError::InvalidCredentials)?;
+        let firma_bytes: [u8; 64] = signature.try_into().map_err(|_| DomainError::InvalidCredentials)?;
 
-        let verificadora =
-            VerifyingKey::from_bytes(&clave_publica_bytes).map_err(|_| DomainError::InvalidCredentials)?;
+        let verificadora = VerifyingKey::from_bytes(&clave_publica_bytes).map_err(|_| DomainError::InvalidCredentials)?;
         let firma = Signature::from_bytes(&firma_bytes);
 
-        verificadora
-            .verify(nonce, &firma)
-            .map_err(|_| DomainError::InvalidCredentials)?;
+        verificadora.verify(nonce, &firma).map_err(|_| DomainError::InvalidCredentials)?;
 
         // F-02: dispositivo no reconocido -> sesión parcial + código por email,
         // salvo que ya haya MFA/SSO activo — ninguno de los dos existe todavía
@@ -340,8 +387,7 @@ where
                 );
                 self.dispositivos.marcar_conocido(user.id, device_token_hash).await?;
                 let _ = self.eventos.send(DomainEvent::Auditoria(
-                    EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id))
-                        .con_sujeto("user", user.id),
+                    EventoAuditoria::nuevo(AuditEventType::AuthDeviceAutoVerifiedNoSmtp, Some(user.id)).con_sujeto("user", user.id),
                 ));
                 return self.resolver_tras_f02(user, device_token_hash, force_mfa).await;
             }
@@ -355,14 +401,11 @@ where
 
             // Nunca síncrono dentro del request — el consumidor real corre en
             // su propia tarea, suscripto al broadcast.
-            let _ = self.eventos.send(DomainEvent::DispositivoNoReconocido {
-                user_id: user.id,
-                email: email.to_string(),
-                codigo,
-            });
+            let _ = self
+                .eventos
+                .send(DomainEvent::DispositivoNoReconocido { user_id: user.id, email: email.to_string(), codigo });
             let _ = self.eventos.send(DomainEvent::Auditoria(
-                EventoAuditoria::nuevo(AuditEventType::AuthDeviceUnrecognized, Some(user.id))
-                    .con_sujeto("user", user.id),
+                EventoAuditoria::nuevo(AuditEventType::AuthDeviceUnrecognized, Some(user.id)).con_sujeto("user", user.id),
             ));
 
             return Ok(ResultadoVerify::PendienteDispositivo { device_challenge_id });
@@ -387,10 +430,13 @@ where
         // Passphrase provisoria (creada por un admin): se resuelve ANTES que
         // MFA, a propósito — nunca tiene sentido dejar que alguien configure
         // un segundo factor atado a una passphrase que todavía conoce otra
-        // persona. Sesión parcial, sólo `/me/change-passphrase` la acepta
-        // (`SesionValida`) hasta que se limpie la marca.
+        // persona. Sesión parcial con propósito `cambiar_passphrase`: sólo
+        // `/me/change-passphrase` la acepta hasta que se limpie la marca.
         if user.must_change_passphrase {
-            let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+            let parcial = self
+                .sesiones
+                .crear_parcial(user.id, user.security_stamp, PropositoSesion::CambiarPassphrase)
+                .await?;
             return Ok(ResultadoVerify::RequiereCambiarPassphrase { session_id: parcial.id });
         }
 
@@ -408,20 +454,22 @@ where
         // exige un código real de nuevo. Sin `require_mfa` activo, `decidir`
         // sigue devolviendo `NoRequerido` igual: no hay nada que forzar.
         let decision = crate::mfa::service::decidir(&politica, tiene_confirmado, user.created_at);
-        let ya_confirmado_en_este_dispositivo = !force_mfa
-            && decision == DecisionMfa::DebeVerificar
-            && self.dispositivos.mfa_confirmado(user.id, device_token_hash).await?;
+        let ya_confirmado_en_este_dispositivo =
+            !force_mfa && decision == DecisionMfa::DebeVerificar && self.dispositivos.mfa_confirmado(user.id, device_token_hash).await?;
 
-        match if ya_confirmado_en_este_dispositivo { DecisionMfa::NoRequerido } else { decision } {
+        match if ya_confirmado_en_este_dispositivo {
+            DecisionMfa::NoRequerido
+        } else {
+            decision
+        } {
             DecisionMfa::NoRequerido => {
                 let sesion = self.sesiones.crear(user.id, user.security_stamp).await?;
                 Ok(ResultadoVerify::SesionCompleta(sesion))
             }
             DecisionMfa::DebeVerificar => {
-                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaPendiente).await?;
                 let hash = crate::mfa::service::hash_de_sesion(parcial.id);
-                let expires_at = OffsetDateTime::now_utc()
-                    + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
+                let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);
 
                 // Método `email` (2026-08-11): a diferencia de `totp` (el
                 // código vive en la app del usuario, nada que mandar acá),
@@ -429,11 +477,7 @@ where
                 // hay ningún otro momento en el que este código pueda
                 // originarse.
                 if politica.allowed_methods.first().map(String::as_str) == Some("email") {
-                    let (email, _nombre) = self
-                        .usuarios
-                        .email_y_nombre(user.id)
-                        .await?
-                        .ok_or(DomainError::InvalidCredentials)?;
+                    let (email, _nombre) = self.usuarios.email_y_nombre(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
                     let codigo = generar_codigo_device();
                     self.mfa_challenges.crear(user.id, &hash, Some(&hash_de_codigo(&codigo)), expires_at).await?;
                     let _ = self.eventos.send(DomainEvent::MfaCodigoPorCorreo { user_id: user.id, email, codigo });
@@ -444,7 +488,7 @@ where
                 Ok(ResultadoVerify::PendienteMfa { session_id: parcial.id })
             }
             DecisionMfa::DebeConfigurar => {
-                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp).await?;
+                let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaConfigurar).await?;
                 Ok(ResultadoVerify::RequiereConfigurarMfa { session_id: parcial.id })
             }
         }
@@ -454,11 +498,7 @@ where
     /// el dispositivo y emite la sesión completa que `verify` no pudo emitir.
     /// F-13: mismo criterio que `verify` — se audita exactamente una vez por
     /// intento, con el `actor_user_id` que ya se conoce en cada punto.
-    pub async fn verify_device(
-        &self,
-        device_challenge_id: Uuid,
-        codigo: &str,
-    ) -> Result<ResultadoVerify, DomainError> {
+    pub async fn verify_device(&self, device_challenge_id: Uuid, codigo: &str) -> Result<ResultadoVerify, DomainError> {
         let desafio = self.desafios_dispositivo.buscar_pendiente(device_challenge_id).await?;
         let actor_conocido = desafio.as_ref().map(|d| d.user_id);
 
@@ -471,8 +511,7 @@ where
             Ok(_) => {
                 if let Some(user_id) = actor_conocido {
                     let _ = self.eventos.send(DomainEvent::Auditoria(
-                        EventoAuditoria::nuevo(AuditEventType::AuthDeviceVerified, Some(user_id))
-                            .con_sujeto("user", user_id),
+                        EventoAuditoria::nuevo(AuditEventType::AuthDeviceVerified, Some(user_id)).con_sujeto("user", user_id),
                     ));
                 }
             }
@@ -487,11 +526,7 @@ where
         resultado
     }
 
-    async fn verify_device_con_desafio(
-        &self,
-        desafio: Option<DeviceChallengeRow>,
-        codigo: &str,
-    ) -> Result<ResultadoVerify, DomainError> {
+    async fn verify_device_con_desafio(&self, desafio: Option<DeviceChallengeRow>, codigo: &str) -> Result<ResultadoVerify, DomainError> {
         let desafio = desafio.ok_or(DomainError::InvalidCredentials)?;
 
         // Comparación en tiempo constante — nunca en SQL.
@@ -504,11 +539,7 @@ where
         self.desafios_dispositivo.consumir(desafio.id).await?;
         self.dispositivos.marcar_conocido(desafio.user_id, &desafio.device_token_hash).await?;
 
-        let user = self
-            .usuarios
-            .buscar_por_id(desafio.user_id)
-            .await?
-            .ok_or(DomainError::InvalidCredentials)?;
+        let user = self.usuarios.buscar_por_id(desafio.user_id).await?.ok_or(DomainError::InvalidCredentials)?;
         // Dispositivo recién verificado por F-02 — `force_mfa` no aplica acá,
         // sólo tiene sentido en un re-login sobre un dispositivo ya conocido.
         self.resolver_tras_f02(user, &desafio.device_token_hash, false).await

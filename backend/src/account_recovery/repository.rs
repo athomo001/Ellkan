@@ -16,10 +16,7 @@ pub trait AccountRecoveryPolicyRepository {
 pub trait OrgRecoveryKeyRepository {
     /// Genera (una sola vez, lazy) el keypair X25519 de recuperación
     /// organizacional si todavía no existe, y lo devuelve.
-    async fn obtener_o_crear(
-        &self,
-        generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>),
-    ) -> Result<OrgRecoveryKey, RepoError>;
+    async fn obtener_o_crear(&self, generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>)) -> Result<OrgRecoveryKey, RepoError>;
 }
 
 pub trait EscrowRepository {
@@ -38,30 +35,43 @@ pub trait EscrowRepository {
 }
 
 pub trait RecoveryRequestRepository {
+    /// Crea la solicitud `unconfirmed`, con el hash del código enviado al
+    /// email de la cuenta y vencimiento corto (`expires_at`). Vence antes
+    /// cualquier otra `unconfirmed` del mismo escrow: sólo vale el último
+    /// código pedido.
     async fn crear(
         &self,
         escrow_id: Uuid,
-        requested_by: Option<Uuid>,
         requester_public_key_x25519: &[u8],
+        confirmation_code_hash: &[u8],
+        expires_at: time::OffsetDateTime,
     ) -> Result<RecoveryRequest, RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<RecoveryRequest>, RepoError>;
 
+    /// Suma un intento fallido de confirmación; al llegar a `max_intentos`
+    /// la solicitud queda `expired` y hay que pedir una nueva.
+    async fn registrar_intento_fallido(&self, id: Uuid, max_intentos: i32) -> Result<(), RepoError>;
+
+    /// `unconfirmed -> pending`: guarda el hash del token del solicitante y
+    /// el vencimiento definitivo. Antes vence las solicitudes `pending`/
+    /// `approved` de ese escrow que ya pasaron su `expires_at`, para que no
+    /// bloqueen el índice de "una sola pendiente". `Ok(false)` si ya no
+    /// estaba `unconfirmed` o venció; `Conflict` si el escrow ya tiene otra
+    /// solicitud pendiente vigente.
+    async fn confirmar(&self, id: Uuid, requester_token_hash: &[u8], expires_at: time::OffsetDateTime) -> Result<bool, RepoError>;
+
     /// Bloquea la fila (`FOR UPDATE`) y la devuelve junto al umbral de su
     /// escrow — el Service decide en Rust si ya alcanzó el umbral, nunca en
-    /// SQL, para no duplicar la lógica de negocio en dos lenguajes.
+    /// SQL, para no duplicar la lógica de negocio en dos lenguajes. Sólo
+    /// solicitudes `pending` y no vencidas.
     async fn bloquear_pendiente_con_umbral(
         &self,
         id: Uuid,
         tx: &mut sqlx::PgConnection,
     ) -> Result<Option<(RecoveryRequest, i32)>, RepoError>;
 
-    async fn guardar_aprobaciones(
-        &self,
-        id: Uuid,
-        approvals: serde_json::Value,
-        tx: &mut sqlx::PgConnection,
-    ) -> Result<(), RepoError>;
+    async fn guardar_aprobaciones(&self, id: Uuid, approvals: serde_json::Value, tx: &mut sqlx::PgConnection) -> Result<(), RepoError>;
 
     /// Marca `approved` + guarda el material re-sellado para el solicitante
     /// — sólo se llama una vez alcanzado el umbral.
@@ -72,6 +82,7 @@ pub trait RecoveryRequestRepository {
         tx: &mut sqlx::PgConnection,
     ) -> Result<(), RepoError>;
 
+    /// `approved -> completed`, sólo si no venció.
     async fn marcar_completada(&self, id: Uuid) -> Result<bool, RepoError>;
 
     /// 2026-08-11: mismo lock optimista que `marcar_completada` — sólo
@@ -83,6 +94,7 @@ pub trait RecoveryRequestRepository {
     /// quien la creó). 2026-08-11: acotado por visibilidad — un admin de
     /// organización (`es_admin_org`) ve todas; un admin de grupo sólo ve las
     /// de usuarios que comparten alguno de `grupos_administrados` con él.
+    /// Sólo `pending` confirmadas y no vencidas.
     async fn listar_pendientes_visibles(
         &self,
         es_admin_org: bool,
@@ -90,6 +102,8 @@ pub trait RecoveryRequestRepository {
     ) -> Result<Vec<SolicitudPendiente>, RepoError>;
 }
 
+/// Las queries repiten la lista de columnas literalmente porque `query!`
+/// necesita el SQL completo en compilación.
 #[allow(clippy::too_many_arguments)]
 fn fila_a_request(
     id: Uuid,
@@ -100,6 +114,9 @@ fn fila_a_request(
     requester_public_key_x25519: Vec<u8>,
     sealed_private_key_for_requester: Option<Vec<u8>>,
     created_at: time::OffsetDateTime,
+    confirmation_code_hash: Option<Vec<u8>>,
+    requester_token_hash: Option<Vec<u8>>,
+    expires_at: time::OffsetDateTime,
 ) -> RecoveryRequest {
     RecoveryRequest {
         id,
@@ -110,6 +127,9 @@ fn fila_a_request(
         requester_public_key_x25519,
         sealed_private_key_for_requester,
         created_at,
+        confirmation_code_hash,
+        requester_token_hash,
+        expires_at,
     }
 }
 
@@ -156,10 +176,7 @@ pub struct PgOrgRecoveryKeyRepository {
 }
 
 impl OrgRecoveryKeyRepository for PgOrgRecoveryKeyRepository {
-    async fn obtener_o_crear(
-        &self,
-        generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>),
-    ) -> Result<OrgRecoveryKey, RepoError> {
+    async fn obtener_o_crear(&self, generar: impl FnOnce() -> (Vec<u8>, Vec<u8>, Vec<u8>)) -> Result<OrgRecoveryKey, RepoError> {
         if let Some(fila) = sqlx::query!(
             r#"select id, public_key_x25519, encrypted_private_key, private_key_nonce
                from org_recovery_keys where id = 1"#,
@@ -289,39 +306,51 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
     async fn crear(
         &self,
         escrow_id: Uuid,
-        requested_by: Option<Uuid>,
         requester_public_key_x25519: &[u8],
+        confirmation_code_hash: &[u8],
+        expires_at: time::OffsetDateTime,
     ) -> Result<RecoveryRequest, RepoError> {
-        let fila = sqlx::query!(
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query!(
+            r#"update account_recovery_requests set status = 'expired', resolved_at = now()
+               where escrow_id = $1 and status = 'unconfirmed'"#,
+            escrow_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let f = sqlx::query!(
             r#"
-            insert into account_recovery_requests (escrow_id, requested_by, requester_public_key_x25519)
-            values ($1, $2, $3)
+            insert into account_recovery_requests
+                (escrow_id, requester_public_key_x25519, status, confirmation_code_hash, expires_at)
+            values ($1, $2, 'unconfirmed', $3, $4)
             returning id, escrow_id, requested_by, status, approvals,
-                      requester_public_key_x25519, sealed_private_key_for_requester, created_at
+                      requester_public_key_x25519, sealed_private_key_for_requester, created_at,
+                      confirmation_code_hash, requester_token_hash, expires_at
             "#,
             escrow_id,
-            requested_by,
             requester_public_key_x25519,
+            confirmation_code_hash,
+            expires_at,
         )
-        .fetch_one(&self.pool)
-        .await
-        // H-27: `account_recovery_requests_pendiente_unica_idx` (migración
-        // 0044) rechaza una segunda solicitud pendiente para el mismo
-        // escrow — mismo criterio ya usado en `emergency_access`.
-        .map_err(|e| match &e {
-            sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
-            _ => RepoError::Database(e),
-        })?;
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
 
         Ok(fila_a_request(
-            fila.id,
-            fila.escrow_id,
-            fila.requested_by,
-            fila.status,
-            fila.approvals,
-            fila.requester_public_key_x25519,
-            fila.sealed_private_key_for_requester,
-            fila.created_at,
+            f.id,
+            f.escrow_id,
+            f.requested_by,
+            f.status,
+            f.approvals,
+            f.requester_public_key_x25519,
+            f.sealed_private_key_for_requester,
+            f.created_at,
+            f.confirmation_code_hash,
+            f.requester_token_hash,
+            f.expires_at,
         ))
     }
 
@@ -329,7 +358,8 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
         let fila = sqlx::query!(
             r#"
             select id, escrow_id, requested_by, status, approvals,
-                   requester_public_key_x25519, sealed_private_key_for_requester, created_at
+                   requester_public_key_x25519, sealed_private_key_for_requester, created_at,
+                   confirmation_code_hash, requester_token_hash, expires_at
             from account_recovery_requests where id = $1
             "#,
             id,
@@ -347,8 +377,67 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
                 f.requester_public_key_x25519,
                 f.sealed_private_key_for_requester,
                 f.created_at,
+                f.confirmation_code_hash,
+                f.requester_token_hash,
+                f.expires_at,
             )
         }))
+    }
+
+    async fn registrar_intento_fallido(&self, id: Uuid, max_intentos: i32) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"
+            update account_recovery_requests
+            set confirmation_failed_attempts = confirmation_failed_attempts + 1,
+                status = case when confirmation_failed_attempts + 1 >= $2 then 'expired' else status end,
+                resolved_at = case when confirmation_failed_attempts + 1 >= $2 then now() else resolved_at end
+            where id = $1 and status = 'unconfirmed'
+            "#,
+            id,
+            max_intentos,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn confirmar(&self, id: Uuid, requester_token_hash: &[u8], expires_at: time::OffsetDateTime) -> Result<bool, RepoError> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query!(
+            r#"
+            update account_recovery_requests set status = 'expired', resolved_at = now()
+            where escrow_id = (select escrow_id from account_recovery_requests where id = $1)
+              and status in ('pending', 'approved')
+              and expires_at <= now()
+            "#,
+            id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let resultado = sqlx::query!(
+            r#"
+            update account_recovery_requests
+            set status = 'pending', requester_token_hash = $2, confirmation_code_hash = null, expires_at = $3
+            where id = $1 and status = 'unconfirmed' and expires_at > now()
+            "#,
+            id,
+            requester_token_hash,
+            expires_at,
+        )
+        .execute(&mut *tx)
+        .await
+        // H-27: `account_recovery_requests_pendiente_unica_idx` (migración
+        // 0044) rechaza una segunda solicitud pendiente para el mismo
+        // escrow — mismo criterio ya usado en `emergency_access`.
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+            _ => RepoError::Database(e),
+        })?;
+
+        tx.commit().await?;
+        Ok(resultado.rows_affected() == 1)
     }
 
     async fn bloquear_pendiente_con_umbral(
@@ -360,11 +449,12 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
             r#"
             select r.id, r.escrow_id, r.requested_by, r.status, r.approvals,
                    r.requester_public_key_x25519, r.sealed_private_key_for_requester, r.created_at,
+                   r.confirmation_code_hash, r.requester_token_hash, r.expires_at,
                    e.approval_threshold
             from account_recovery_requests r
             join account_recovery_escrow e on e.id = r.escrow_id
-            where r.id = $1 and r.status = 'pending'
-            for update
+            where r.id = $1 and r.status = 'pending' and r.expires_at > now()
+            for update of r
             "#,
             id,
         )
@@ -382,25 +472,19 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
                     f.requester_public_key_x25519,
                     f.sealed_private_key_for_requester,
                     f.created_at,
+                    f.confirmation_code_hash,
+                    f.requester_token_hash,
+                    f.expires_at,
                 ),
                 f.approval_threshold,
             )
         }))
     }
 
-    async fn guardar_aprobaciones(
-        &self,
-        id: Uuid,
-        approvals: serde_json::Value,
-        tx: &mut sqlx::PgConnection,
-    ) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"update account_recovery_requests set approvals = $2 where id = $1"#,
-            id,
-            approvals,
-        )
-        .execute(&mut *tx)
-        .await?;
+    async fn guardar_aprobaciones(&self, id: Uuid, approvals: serde_json::Value, tx: &mut sqlx::PgConnection) -> Result<(), RepoError> {
+        sqlx::query!(r#"update account_recovery_requests set approvals = $2 where id = $1"#, id, approvals,)
+            .execute(&mut *tx)
+            .await?;
         Ok(())
     }
 
@@ -427,7 +511,7 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
     async fn marcar_completada(&self, id: Uuid) -> Result<bool, RepoError> {
         let resultado = sqlx::query!(
             r#"update account_recovery_requests set status = 'completed'
-               where id = $1 and status = 'approved'"#,
+               where id = $1 and status = 'approved' and expires_at > now()"#,
             id,
         )
         .execute(&self.pool)
@@ -458,7 +542,7 @@ impl RecoveryRequestRepository for PgRecoveryRequestRepository {
             from account_recovery_requests r
             join account_recovery_escrow e on e.id = r.escrow_id
             join users u on u.id = e.user_id
-            where r.status = 'pending'
+            where r.status = 'pending' and r.expires_at > now()
               and ($1 or exists (
                   select 1 from group_members gm
                   where gm.user_id = e.user_id and gm.group_id = any($2)

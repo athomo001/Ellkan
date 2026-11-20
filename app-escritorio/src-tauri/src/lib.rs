@@ -76,11 +76,7 @@ const LOG_MAX_MENSAJE_WEB: usize = 2_000;
 /// que nadie pueda falsear líneas del log.
 #[tauri::command]
 fn registrar_desde_web(nivel: String, mensaje: String) {
-  let limpio: String = mensaje
-    .chars()
-    .map(|c| if c.is_control() { ' ' } else { c })
-    .take(LOG_MAX_MENSAJE_WEB)
-    .collect();
+  let limpio: String = mensaje.chars().map(|c| if c.is_control() { ' ' } else { c }).take(LOG_MAX_MENSAJE_WEB).collect();
   match nivel.as_str() {
     "error" => log::error!(target: TARGET_WEB, "{limpio}"),
     "warn" => log::warn!(target: TARGET_WEB, "{limpio}"),
@@ -264,8 +260,8 @@ async fn configurar_puerto_fijo(puerto: u16) -> Result<ResultadoConfigurarPuerto
 /// evento de "backend listo" que inventar. Devuelve el listener YA
 /// bindeado (se mueve tal cual al `spawn` de `axum::serve`, sin re-bindear)
 /// y el puerto, para poblar el estado gestionado de Tauri.
-async fn preparar_backend_local(
-) -> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<ellkan_backend::desktop::FalloPuertoFijo>)> {
+async fn preparar_backend_local()
+-> anyhow::Result<(tokio::net::TcpListener, u16, axum::Router, Option<ellkan_backend::desktop::FalloPuertoFijo>)> {
   let dir = datadir();
   std::fs::create_dir_all(&dir)?;
 
@@ -378,7 +374,9 @@ fn buscar_en_sistema(nombre_exe: &str) -> Option<PathBuf> {
 #[cfg(target_os = "windows")]
 fn ruta_askpass_helper() -> anyhow::Result<PathBuf> {
   let exe_actual = std::env::current_exe()?;
-  let dir = exe_actual.parent().ok_or_else(|| anyhow::anyhow!("no se pudo resolver el directorio del ejecutable"))?;
+  let dir = exe_actual
+    .parent()
+    .ok_or_else(|| anyhow::anyhow!("no se pudo resolver el directorio del ejecutable"))?;
   let candidato = dir.join("ellkan_askpass.exe");
   if !candidato.is_file() {
     anyhow::bail!("no se encontró ellkan_askpass.exe junto a {}", exe_actual.display());
@@ -498,11 +496,15 @@ fn conectar_recurso(
   titulo: Option<String>,
   en_pestanas: Option<bool>,
 ) -> Result<(), String> {
-  use ellkan_backend::desktop::conectar::{planificar, Inyeccion, Ventana};
+  use ellkan_backend::desktop::conectar::{Inyeccion, Ventana, planificar};
 
   let secreto = Zeroizing::new(secreto);
   let plan = planificar(&tipo, usuario.as_deref(), &host, puerto)?;
-  let programa = plan.programas.iter().find_map(|nombre| buscar_en_path(nombre)).ok_or_else(|| plan.falta.to_string())?;
+  let programa = plan
+    .programas
+    .iter()
+    .find_map(|nombre| buscar_en_path(nombre))
+    .ok_or_else(|| plan.falta.to_string())?;
 
   let mut comando = match plan.ventana {
     Ventana::Terminal => {
@@ -588,8 +590,8 @@ fn conectar_recurso(
 /// Nunca almacena la contraseña ni la clave privada en claro (criterio de seguridad H-01).
 #[tauri::command]
 fn guardar_envoltura_llavero(vault_id: String, envoltura_b64: String) -> Result<(), String> {
-  let entry = keyring::Entry::new("Ellkan", &format!("vault_{vault_id}"))
-    .map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
+  let entry =
+    keyring::Entry::new("Ellkan", &format!("vault_{vault_id}")).map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
   entry
     .set_password(&envoltura_b64)
     .map_err(|e| format!("Error guardando en el llavero del SO: {e}"))?;
@@ -599,8 +601,8 @@ fn guardar_envoltura_llavero(vault_id: String, envoltura_b64: String) -> Result<
 /// F-50: Recupera la clave de envoltura cifrada desde el almacén de credenciales del SO.
 #[tauri::command]
 fn recuperar_envoltura_llavero(vault_id: String) -> Result<Option<String>, String> {
-  let entry = keyring::Entry::new("Ellkan", &format!("vault_{vault_id}"))
-    .map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
+  let entry =
+    keyring::Entry::new("Ellkan", &format!("vault_{vault_id}")).map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
   match entry.get_password() {
     Ok(pwd) => Ok(Some(pwd)),
     Err(keyring::Error::NoEntry) => Ok(None),
@@ -611,8 +613,8 @@ fn recuperar_envoltura_llavero(vault_id: String) -> Result<Option<String>, Strin
 /// F-50: Elimina la clave de envoltura del almacén de credenciales del SO al desactivar biometría o cerrar sesión.
 #[tauri::command]
 fn eliminar_envoltura_llavero(vault_id: String) -> Result<(), String> {
-  let entry = keyring::Entry::new("Ellkan", &format!("vault_{vault_id}"))
-    .map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
+  let entry =
+    keyring::Entry::new("Ellkan", &format!("vault_{vault_id}")).map_err(|e| format!("Error inicializando llavero del SO: {e}"))?;
   match entry.delete_credential() {
     Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
     Err(e) => Err(format!("Error eliminando del llavero del SO: {e}")),
@@ -685,10 +687,16 @@ fn navegador_extension(id: &str, objetivo: &str, elegidos: &[String]) -> Navegad
 #[tauri::command]
 fn extension_estado() -> Result<EstadoExtension, String> {
   let config = ellkan_backend::desktop::cargar_config(&datadir()).map_err(|e| format!("no se pudo leer la configuración: {e:#}"))?;
-  let navegadores =
-    ext::NAVEGADORES.iter().map(|(id, objetivo)| navegador_extension(id, objetivo, &config.extension_navegadores)).collect();
+  let navegadores = ext::NAVEGADORES
+    .iter()
+    .map(|(id, objetivo)| navegador_extension(id, objetivo, &config.extension_navegadores))
+    .collect();
   let chromium = archivos_de("chromium");
-  Ok(EstadoExtension { incluida: !chromium.is_empty(), version_incluida: ext::version_incluida(&chromium), navegadores })
+  Ok(EstadoExtension {
+    incluida: !chromium.is_empty(),
+    version_incluida: ext::version_incluida(&chromium),
+    navegadores,
+  })
 }
 
 /// Extrae (o actualiza) la extensión para `navegador` y lo recuerda: desde
@@ -738,7 +746,7 @@ fn cerrar_aplicacion(app: tauri::AppHandle) {
 /// Oculta la ventana y deja la app corriendo en la bandeja del sistema.
 #[tauri::command]
 fn ocultar_a_bandeja(ventana: tauri::WebviewWindow) {
-  let _ = ventana.hide();
+  esconder_ventana(&ventana);
   avisar_en_bandeja(ventana.app_handle());
 }
 
@@ -873,7 +881,9 @@ fn extension_dejar_de_actualizar(navegador: String) -> Result<(), String> {
 /// puede cambiar entre arranques si el puerto elegido estaba ocupado.
 /// Nunca falla el arranque: sólo deja un aviso en el log.
 fn refrescar_extensiones_elegidas(puerto: u16) {
-  let Ok(config) = ellkan_backend::desktop::cargar_config(&datadir()) else { return };
+  let Ok(config) = ellkan_backend::desktop::cargar_config(&datadir()) else {
+    return;
+  };
   let mut ya_hechos: Vec<&str> = Vec::new();
   for navegador in &config.extension_navegadores {
     let Some(objetivo) = ext::objetivo_de(navegador) else { continue };
@@ -989,7 +999,9 @@ fn vigilar_bloqueo_de_pantalla(app: &tauri::AppHandle) {
   let Ok(hwnd) = ventana.hwnd() else { return };
   let app = app.clone();
   let resultado = sistema::vigilar_bloqueo(hwnd, move || {
-    let activo = ellkan_backend::desktop::cargar_config(&datadir()).map(|c| c.bloquear_con_pantalla_efectivo()).unwrap_or(true);
+    let activo = ellkan_backend::desktop::cargar_config(&datadir())
+      .map(|c| c.bloquear_con_pantalla_efectivo())
+      .unwrap_or(true);
     if activo && let Some(ventana) = app.get_webview_window("main") {
       let _ = ventana.emit("bloquear-boveda", ());
     }
@@ -1021,6 +1033,62 @@ fn ajustar_webview_linux(app: &tauri::AppHandle) {
 
 #[cfg(not(target_os = "linux"))]
 fn ajustar_webview_linux(_app: &tauri::AppHandle) {}
+
+/// Esconde la ventana (queda la bandeja) y le pide a WebView2 que suelte memoria.
+fn esconder_ventana(ventana: &tauri::WebviewWindow) {
+  let _ = ventana.hide();
+  memoria_baja(ventana, true);
+}
+
+/// Trae la ventana al frente, también si estaba minimizada, con la memoria normal.
+fn mostrar_ventana(ventana: &tauri::WebviewWindow) {
+  memoria_baja(ventana, false);
+  let _ = ventana.show();
+  let _ = ventana.unminimize();
+  let _ = ventana.set_focus();
+}
+
+/// Mientras nadie ve la ventana (en la bandeja o minimizada), WebView2 puede
+/// soltar cachés y memoria de la página. No la suspende: el bloqueo por
+/// inactividad y los eventos desde Rust siguen funcionando.
+#[cfg(windows)]
+fn memoria_baja(ventana: &tauri::WebviewWindow, baja: bool) {
+  use std::sync::atomic::{AtomicBool, Ordering};
+  // Sólo la ventana principal pasa por acá; evita repetir la llamada en cada `Resized`.
+  static ACTUAL: AtomicBool = AtomicBool::new(false);
+  if ACTUAL.swap(baja, Ordering::Relaxed) == baja {
+    return;
+  }
+  let resultado = ventana.with_webview(move |webview| {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+      COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL, ICoreWebView2_19,
+    };
+    use windows::core::Interface;
+    let nivel = if baja {
+      COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+    } else {
+      COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+    };
+    // SAFETY: COM sobre el controlador vivo de esta ventana, en el hilo de la
+    // interfaz (donde `with_webview` corre el callback).
+    let r = unsafe {
+      webview
+        .controller()
+        .CoreWebView2()
+        .and_then(|w| w.cast::<ICoreWebView2_19>())
+        .and_then(|w| w.SetMemoryUsageTargetLevel(nivel))
+    };
+    if let Err(e) = r {
+      log::warn!("no se pudo ajustar la memoria de WebView2: {e}");
+    }
+  });
+  if let Err(e) = resultado {
+    log::warn!("no se pudo ajustar la memoria de WebView2: {e}");
+  }
+}
+
+#[cfg(not(windows))]
+fn memoria_baja(_ventana: &tauri::WebviewWindow, _baja: bool) {}
 
 /// Simula el aviso de "la pantalla se bloqueó" de Windows, para probar de
 /// punta a punta que la bóveda se bloquea sin bloquear la sesión del usuario.
@@ -1068,9 +1136,9 @@ fn vaciar_portapapeles() -> Result<(), String> {
   Err("no soportado en esta plataforma".to_string())
 }
 
+use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Emitter;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1101,6 +1169,29 @@ pub fn run() {
     unsafe { std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1") };
   }
 
+  // Windows: WebView2 arranca como un navegador completo (proceso de GPU,
+  // telemetría, actualizador de componentes, informes de fallos). Ellkan es
+  // una sola página local de formularios: sin GPU (dibuja por CPU dentro del
+  // proceso principal, un proceso menos) y sin tráfico de fondo hacia
+  // Microsoft. La variable de entorno vale para todas las ventanas (la
+  // principal y el aviso): WebView2 rechaza crear una segunda ventana con
+  // argumentos distintos a la primera. Se repiten los `--disable-features`
+  // que Tauri pone por defecto, porque esta variable los reemplaza.
+  // `ELLKAN_WEBVIEW_GPU=1` deja la GPU activa por si en algún equipo se ve peor.
+  #[cfg(windows)]
+  if std::env::var_os("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").is_none() {
+    let mut args = String::from(
+      "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,SpareRendererForSitePerProcess,BackForwardCache \
+       --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-domain-reliability \
+       --disable-breakpad --disable-sync --no-pings",
+    );
+    if std::env::var_os("ELLKAN_WEBVIEW_GPU").is_none() {
+      args.push_str(" --disable-gpu --in-process-gpu");
+    }
+    // SAFETY: igual que arriba, todavía no hay otros hilos.
+    unsafe { std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args) };
+  }
+
   tauri::Builder::default()
     .manage(EnlacePendiente::default())
     // F-45/F-54 (instancia única) — DEBE ser el primer plugin registrado,
@@ -1112,9 +1203,7 @@ pub fn run() {
     // 2026-09-17 (ver comentario en `Cargo.toml`).
     .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
       if let Some(ventana) = app.get_webview_window("main") {
-        let _ = ventana.show();
-        let _ = ventana.unminimize();
-        let _ = ventana.set_focus();
+        mostrar_ventana(&ventana);
       }
       // Un enlace `ellkan://…` abierto desde afuera llega como argumento de
       // esta segunda instancia.
@@ -1162,6 +1251,15 @@ pub fn run() {
     // instancia única) volvía a ver la ventana vieja. Ahora, por defecto, se
     // le pregunta.
     .on_window_event(|window, event| {
+      // Minimizada desde la barra de título o la barra de tareas: misma
+      // memoria baja que en la bandeja; al restaurarla, vuelve a la normal.
+      if let tauri::WindowEvent::Resized(_) = event
+        && window.label() == "main"
+        && window.is_visible().unwrap_or(false)
+        && let Some(ventana) = window.app_handle().get_webview_window("main")
+      {
+        memoria_baja(&ventana, window.is_minimized().unwrap_or(false));
+      }
       if let tauri::WindowEvent::CloseRequested { api, .. } = event {
         // Sólo la ventana principal: el aviso de la bandeja es otra ventana.
         if window.label() != "main" {
@@ -1178,7 +1276,9 @@ pub fn run() {
           ellkan_backend::desktop::AlCerrar::Salir => {}
           ellkan_backend::desktop::AlCerrar::Bandeja => {
             api.prevent_close();
-            let _ = window.hide();
+            if let Some(ventana) = window.app_handle().get_webview_window("main") {
+              esconder_ventana(&ventana);
+            }
             avisar_en_bandeja(window.app_handle());
           }
           ellkan_backend::desktop::AlCerrar::Preguntar => {
@@ -1232,11 +1332,9 @@ pub fn run() {
               && let Some(ventana) = app.get_webview_window("main")
             {
               if ventana.is_visible().unwrap_or(false) && ventana.is_focused().unwrap_or(false) {
-                let _ = ventana.hide();
+                esconder_ventana(&ventana);
               } else {
-                let _ = ventana.show();
-                let _ = ventana.unminimize();
-                let _ = ventana.set_focus();
+                mostrar_ventana(&ventana);
                 let _ = ventana.emit("atajo-global-activado", ());
               }
             }
@@ -1257,43 +1355,31 @@ pub fn run() {
           .tooltip("Ellkan Password Manager")
           .menu(&menu_tray)
           .show_menu_on_left_click(false)
-          .on_menu_event(|app, event| {
-            match event.id.as_ref() {
-              "abrir" => {
-                if let Some(ventana) = app.get_webview_window("main") {
-                  let _ = ventana.show();
-                  let _ = ventana.unminimize();
-                  let _ = ventana.set_focus();
-                }
+          .on_menu_event(|app, event| match event.id.as_ref() {
+            "abrir" => {
+              if let Some(ventana) = app.get_webview_window("main") {
+                mostrar_ventana(&ventana);
               }
-              "bloquear" => {
-                if let Some(ventana) = app.get_webview_window("main") {
-                  let _ = ventana.emit("bloquear-boveda", ());
-                  let _ = ventana.show();
-                  let _ = ventana.set_focus();
-                }
-              }
-              "salir" => {
-                app.exit(0);
-              }
-              _ => {}
             }
+            "bloquear" => {
+              if let Some(ventana) = app.get_webview_window("main") {
+                let _ = ventana.emit("bloquear-boveda", ());
+                mostrar_ventana(&ventana);
+              }
+            }
+            "salir" => {
+              app.exit(0);
+            }
+            _ => {}
           })
           .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-              button: MouseButton::Left,
-              button_state: MouseButtonState::Up,
-              ..
-            } = event
-            {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
               let app = tray.app_handle();
               if let Some(ventana) = app.get_webview_window("main") {
                 if ventana.is_visible().unwrap_or(false) {
-                  let _ = ventana.hide();
+                  esconder_ventana(&ventana);
                 } else {
-                  let _ = ventana.show();
-                  let _ = ventana.unminimize();
-                  let _ = ventana.set_focus();
+                  mostrar_ventana(&ventana);
                 }
               }
             }
@@ -1357,7 +1443,7 @@ pub fn run() {
         && args.iter().any(|a| a == sistema::ARG_MINIMIZADO)
         && let Some(ventana) = app.get_webview_window("main")
       {
-        let _ = ventana.hide();
+        esconder_ventana(&ventana);
       }
 
       vigilar_bloqueo_de_pantalla(app.handle());

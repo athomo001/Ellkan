@@ -111,6 +111,10 @@ pub struct CambiarPassphraseRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-06: challenge nuevo y firma de
+    /// `clave_privada::mensaje_reemplazo_clave_privada` sobre el blob nuevo.
+    pub challenge_nonce_b64: String,
+    pub signature_b64: String,
 }
 
 #[derive(Deserialize)]
@@ -226,15 +230,13 @@ impl Cliente {
             let mut clave = std::fs::read(&opciones.client_key_path)
                 .map_err(|e| anyhow::anyhow!("no se pudo leer --client-key ({}): {e}", opciones.client_key_path))?;
             pem.append(&mut clave);
-            let identidad = reqwest::Identity::from_pem(&pem)
-                .map_err(|e| anyhow::anyhow!("certificado/clave de cliente inválidos: {e}"))?;
+            let identidad =
+                reqwest::Identity::from_pem(&pem).map_err(|e| anyhow::anyhow!("certificado/clave de cliente inválidos: {e}"))?;
             builder = builder.identity(identidad);
 
             if let Some(ca_ruta) = &opciones.ca_bundle_path {
-                let ca_pem = std::fs::read(ca_ruta)
-                    .map_err(|e| anyhow::anyhow!("no se pudo leer --ca-bundle ({ca_ruta}): {e}"))?;
-                let ca = reqwest::Certificate::from_pem(&ca_pem)
-                    .map_err(|e| anyhow::anyhow!("CA bundle inválido: {e}"))?;
+                let ca_pem = std::fs::read(ca_ruta).map_err(|e| anyhow::anyhow!("no se pudo leer --ca-bundle ({ca_ruta}): {e}"))?;
+                let ca = reqwest::Certificate::from_pem(&ca_pem).map_err(|e| anyhow::anyhow!("CA bundle inválido: {e}"))?;
                 builder = builder.add_root_certificate(ca);
             }
         }
@@ -278,13 +280,7 @@ impl Cliente {
         a_resultado(resp)
     }
 
-    pub fn verify(
-        &self,
-        email: &str,
-        nonce_b64: &str,
-        signature_b64: &str,
-        device_token_hash_b64: &str,
-    ) -> anyhow::Result<VerifyResponse> {
+    pub fn verify(&self, email: &str, nonce_b64: &str, signature_b64: &str, device_token_hash_b64: &str) -> anyhow::Result<VerifyResponse> {
         let resp = self
             .http
             .post(format!("{}/auth/verify", self.base_url))
@@ -347,39 +343,22 @@ impl Cliente {
     }
 
     pub fn listar_recursos(&self, session_id: Uuid) -> anyhow::Result<Vec<RecursoResponse>> {
-        let resp = self
-            .http
-            .get(format!("{}/resources", self.base_url))
-            .bearer_auth(session_id)
-            .send()?;
+        let resp = self.http.get(format!("{}/resources", self.base_url)).bearer_auth(session_id).send()?;
         a_resultado(resp)
     }
 
     pub fn crear_recurso(&self, session_id: Uuid, req: &CrearRecursoRequest) -> anyhow::Result<RecursoResponse> {
-        let resp = self
-            .http
-            .post(format!("{}/resources", self.base_url))
-            .bearer_auth(session_id)
-            .json(req)
-            .send()?;
+        let resp = self.http.post(format!("{}/resources", self.base_url)).bearer_auth(session_id).json(req).send()?;
         a_resultado(resp)
     }
 
     pub fn obtener_recurso(&self, session_id: Uuid, id: Uuid) -> anyhow::Result<RecursoResponse> {
-        let resp = self
-            .http
-            .get(format!("{}/resources/{}", self.base_url, id))
-            .bearer_auth(session_id)
-            .send()?;
+        let resp = self.http.get(format!("{}/resources/{}", self.base_url, id)).bearer_auth(session_id).send()?;
         a_resultado(resp)
     }
 
     pub fn obtener_secreto(&self, session_id: Uuid, id: Uuid) -> anyhow::Result<SecretoResponse> {
-        let resp = self
-            .http
-            .get(format!("{}/resources/{}/secret", self.base_url, id))
-            .bearer_auth(session_id)
-            .send()?;
+        let resp = self.http.get(format!("{}/resources/{}/secret", self.base_url, id)).bearer_auth(session_id).send()?;
         a_resultado(resp)
     }
 
@@ -405,12 +384,7 @@ impl Cliente {
     }
 
     pub fn crear_grupo(&self, session_id: Uuid, req: &CrearGrupoRequest) -> anyhow::Result<GrupoResponse> {
-        let resp = self
-            .http
-            .post(format!("{}/groups", self.base_url))
-            .bearer_auth(session_id)
-            .json(req)
-            .send()?;
+        let resp = self.http.post(format!("{}/groups", self.base_url)).bearer_auth(session_id).json(req).send()?;
         a_resultado(resp)
     }
 
@@ -420,11 +394,7 @@ impl Cliente {
     }
 
     pub fn obtener_grupo(&self, session_id: Uuid, group_id: Uuid) -> anyhow::Result<GrupoResponse> {
-        let resp = self
-            .http
-            .get(format!("{}/groups/{}", self.base_url, group_id))
-            .bearer_auth(session_id)
-            .send()?;
+        let resp = self.http.get(format!("{}/groups/{}", self.base_url, group_id)).bearer_auth(session_id).send()?;
         a_resultado(resp)
     }
 
@@ -476,8 +446,7 @@ mod tests {
             if let Ok((mut stream, _)) = listener.accept() {
                 let mut buf = [0u8; 1024];
                 let _ = stream.read(&mut buf);
-                let respuesta =
-                    "HTTP/1.1 302 Found\r\nLocation: http://otro-host.invalid/robado\r\nContent-Length: 0\r\n\r\n";
+                let respuesta = "HTTP/1.1 302 Found\r\nLocation: http://otro-host.invalid/robado\r\nContent-Length: 0\r\n\r\n";
                 let _ = stream.write_all(respuesta.as_bytes());
             }
         });
@@ -507,8 +476,7 @@ mod tests {
                 // conexión, si el cliente reusara la conexión el segundo
                 // `accept()` de abajo se quedaría esperando una conexión que
                 // nunca llega.
-                let respuesta =
-                    "HTTP/1.1 302 Found\r\nLocation: /destino\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let respuesta = "HTTP/1.1 302 Found\r\nLocation: /destino\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 let _ = stream.write_all(respuesta.as_bytes());
             }
             if let Ok((mut stream, _)) = listener.accept() {

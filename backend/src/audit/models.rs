@@ -361,7 +361,13 @@ pub struct EventoAuditoria {
 
 impl EventoAuditoria {
     pub fn nuevo(event_type: AuditEventType, actor_user_id: Option<Uuid>) -> Self {
-        Self { event_type, actor_user_id, subject_type: None, subject_id: None, metadata: Value::Null }
+        Self {
+            event_type,
+            actor_user_id,
+            subject_type: None,
+            subject_id: None,
+            metadata: Value::Null,
+        }
     }
 
     pub fn con_sujeto(mut self, subject_type: &'static str, subject_id: Uuid) -> Self {

@@ -5,8 +5,8 @@
 
 pub mod aead;
 pub mod aleatoriedad;
-pub mod claves;
 pub mod clave_privada;
+pub mod claves;
 pub mod comparacion;
 pub mod derivacion;
 pub mod prf;

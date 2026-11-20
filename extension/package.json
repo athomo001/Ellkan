@@ -1,7 +1,7 @@
 {
 	"name": "ellkan-extension",
 	"private": true,
-	"version": "0.3.4",
+	"version": "0.1.70",
 	"type": "module",
 	"bin": {
 		"ellkan-ext": "cli.mjs"
@@ -26,6 +26,6 @@
 		"@types/zxcvbn": "^4.4.5",
 		"cross-env": "^10.1.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.3.0"
+		"vite": "^8.3.4"
 	}
 }
