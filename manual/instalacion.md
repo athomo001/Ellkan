@@ -22,6 +22,16 @@ Con `image` y `build` juntos en el compose, `docker compose up` intenta primero 
 
 Antes de pasar a una versión nueva, hacé un [backup](#backup-y-restauración): las migraciones corren solas al arrancar y son sólo hacia adelante (volver a una versión anterior no deshace el esquema).
 
+#### Dirección pública (`ELLKAN_RP_ID` / `ELLKAN_RP_ORIGIN`)
+
+El servidor necesita saber con qué dirección se entra a él: las passkeys quedan atadas a ese dominio y los links de los emails (verificación, recuperación, invitaciones) se arman con él. **Sin las dos variables el servidor no arranca** — antes usaba `localhost` en silencio y las passkeys registradas en un servidor real dejaban de servir.
+
+- Con `docker-compose.yml` no hace falta nada para probar en la misma máquina: si no las definís, usa `localhost` y `http://localhost:${ELLKAN_PORT}`.
+- En un servidor, ponelas en `.env` con la dirección real: `ELLKAN_RP_ID=ellkan.tuempresa.com` y `ELLKAN_RP_ORIGIN=https://ellkan.tuempresa.com` (el ID es sólo el dominio; el origen lleva esquema y, si no es el estándar, puerto).
+- Con `docker run` sin compose, pasalas con `-e ELLKAN_RP_ID=... -e ELLKAN_RP_ORIGIN=...`.
+
+Cambiarlas después invalida las passkeys ya registradas (quedan atadas al dominio anterior): elegí la dirección definitiva antes de que la gente empiece a usarlo.
+
 Por defecto el backend sirve HTTP plano en `${ELLKAN_PORT:-8080}` — Ellkan nunca termina TLS él mismo salvo que se lo configures explícitamente (ver abajo). Sin nada delante, ese tráfico va sin cifrar en la red — aceptable sólo en `localhost`/una red ya confiable; para cualquier otro caso, elegí una de las dos opciones siguientes.
 
 ### TLS: dos formas de cerrar el canal, sin depender de un reverse proxy aparte
@@ -126,6 +136,7 @@ En la web y en la app de escritorio, el error real de una pantalla que no carga 
 | `docker compose up` falla con el password de Postgres / la URL no parsea bien el puerto | `postgres_password.txt` generado con caracteres que rompen una URL (`+`, `/` — típico si se generó con `base64` en vez de `hex`) | Regenerar con `openssl rand -hex 24` (nunca `base64`) para ese archivo puntual — ver [secrets/README.md](../secrets/README.md) |
 | `docker compose up` falla en Windows con `invalid mount config for type "bind": bind source path does not exist: /run/desktop/mnt/host/e/.../secrets/postgres_password.txt`, aunque el archivo existe | Docker Desktop quedó con una vista vieja del disco (típico si el disco se montó o cambió después de que Docker arrancó): ve la carpeta `secrets/` **vacía**. Para confirmarlo: `docker run --rm -v "E:/ruta/a/Ellkan/secrets:/s" alpine ls /s` no lista nada | Reiniciar Docker Desktop (ícono de la bandeja → Restart). Si no alcanza, `wsl --shutdown` y volver a abrir Docker Desktop. Repetir el `docker run ... ls /s`: tiene que listar los tres archivos. Si sigue vacío, revisar que el disco esté habilitado en Docker Desktop → **Settings → Resources → File sharing / WSL integration** |
 | Login nuevo pide un código por email y nunca llega | SMTP no configurado todavía — el poller de envío es un stub hasta que se configure un relay real | Configurar SMTP en `/admin/smtp` (necesita un admin ya existente — para el primer admin, usar `ellkan-cli admin create-user --role admin`, que marca el dispositivo como conocido y no depende de email) |
+| El contenedor `ellkan` no arranca: "falta ELLKAN_RP_ID" (o `ELLKAN_RP_ORIGIN`) | El servidor no sabe con qué dirección se entra a él (típico con `docker run` sin el compose) | Definir las dos variables con la dirección real, ver [Dirección pública](#dirección-pública-ellkan_rp_id--ellkan_rp_origin) |
 | El puerto 8080 (u otro elegido) ya está ocupado al levantar | Otro proceso/contenedor usando el mismo puerto en el host | Cambiar `ELLKAN_PORT` en `.env` antes de `docker compose up`, o liberar el puerto |
 | TLS in-process no arranca, error menciona `ELLKAN_TLS_CERT_FILE`/`KEY_FILE` | Sólo una de las dos variables está seteada, o la ruta no es legible dentro del contenedor (volumen no montado) | Confirmar que las dos estén presentes y que el `volumes:` del compose realmente monte el directorio con los PEM — ver la Opción A de arriba |
 | Cliente de navegador rechaza el cert TLS in-process | Cert self-signed sin que el navegador/SO lo tenga como confiable | Esperado con self-signed — para producción real, usar un cert de una CA pública (certbot/Let's Encrypt es el camino más simple), o instalar el cert self-signed como confiable en cada cliente sólo para pruebas |

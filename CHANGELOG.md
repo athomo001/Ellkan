@@ -14,6 +14,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Visibilidad por grupo (QA-18, pendiente #106):** se mantiene como regla de búsqueda (decisión del usuario); el texto de ayuda del panel de grupos ahora lo dice sin prometer un bloqueo.
 
 - **Comandos de conexión sin inyección:** el comando que se copia para pegar en una terminal (SSH, psql, mysql…) ya no se ofrece si el usuario o el host de un recurso tienen caracteres de shell (`;`, `|`, `$`, espacios…) o empiezan con `-` (`-oProxyCommand=…`). Un recurso compartido o importado podía armar uno que ejecutara otra cosa. En la web y en la extensión.
+- **Dirección pública obligatoria (QA-30, pendiente #115):** el servidor ya no arranca sin `ELLKAN_RP_ID` y `ELLKAN_RP_ORIGIN` (antes usaba `localhost` en silencio: passkeys inservibles y links de email apuntando a localhost). `docker-compose.yml` los define con `localhost` por defecto; en un servidor van en `.env` con el dominio real.
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
 
 ### CI
