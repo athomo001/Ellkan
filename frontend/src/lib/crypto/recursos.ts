@@ -414,6 +414,29 @@ export function infoConexion(
 	return { protocolo: slug.toUpperCase(), puerto: puerto ?? PUERTOS_DEFAULT[slug] };
 }
 
+/** URL para un `<a href>` a partir del `uri` de un recurso, o `null` si no es
+ * http(s): un recurso compartido o importado con `javascript:…` o `data:…`
+ * no tiene que poder volverse un link clickeable (la CSP lo bloquearía,
+ * pero no es la única barrera). Sin esquema se asume `https://`. */
+export function urlSegura(uri: string): string | null {
+	const valor = uri.trim();
+	if (!valor) return null;
+	if (/^https?:\/\//i.test(valor)) return valor;
+	if (/^[a-z][a-z0-9+.-]*:/i.test(valor) && !/^[^:/]+:\d+(\/|$)/.test(valor)) return null;
+	return `https://${valor}`;
+}
+
+/** El comando se copia para pegarlo en una terminal, y el recurso puede venir
+ * compartido o importado: usuario y host sólo pueden tener caracteres que no
+ * cambien su significado (sin `;`, `&`, `|`, `$`, comillas, espacios…) ni
+ * empezar con `-`, que se leería como una opción (`-oProxyCommand=…`). Si no
+ * cumplen, no se ofrece comando. */
+const HOST_SEGURO = /^[A-Za-z0-9._%\-[\]:]+$/;
+const USUARIO_SEGURO = /^[A-Za-z0-9._%+@\-]+$/;
+function seguroParaComando(valor: string, patron: RegExp): boolean {
+	return patron.test(valor) && !valor.startsWith('-');
+}
+
 /** Comando/URI listo para copiar y pegar en una terminal o cliente real —
  * pedido explícito de uso real (2026-08-11): "cuando agrego un ssh o un
  * telnet, ftp debería aparecerme el comando". `null` si el tipo de recurso
@@ -422,6 +445,9 @@ export function comandoDeConexion(recurso: Pick<Recurso, 'resourceTypeSlug' | 'u
 	const slug = recurso.resourceTypeSlug;
 	if (!recurso.uri || !(slug in PUERTOS_DEFAULT)) return null;
 	const { host, puerto } = parsearHostPuerto(recurso.uri);
+	if (!seguroParaComando(host, HOST_SEGURO) || (recurso.usuario && !seguroParaComando(recurso.usuario, USUARIO_SEGURO))) {
+		return null;
+	}
 	const puertoDefault = PUERTOS_DEFAULT[slug];
 	const puertoNoDefault = puerto !== undefined && puerto !== puertoDefault ? puerto : undefined;
 	const arroba = recurso.usuario ? `${recurso.usuario}@` : '';

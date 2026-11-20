@@ -104,6 +104,9 @@ jobs:
         run: pnpm -C frontend install --frozen-lockfile
       - name: Frontend — check
         run: pnpm -C frontend check
+      # QA-14 (pendiente #103): tests unitarios (vitest, con el WASM real).
+      - name: Frontend — tests
+        run: pnpm -C frontend test
       - name: Frontend — build
         run: pnpm -C frontend build
       - name: Frontend — audit
@@ -112,6 +115,8 @@ jobs:
         run: pnpm -C extension install --frozen-lockfile
       - name: Extensión — check
         run: pnpm -C extension check
+      - name: Extensión — tests
+        run: pnpm -C extension test
       - name: Extensión — audit
         run: pnpm -C extension audit --audit-level high
 

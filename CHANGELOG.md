@@ -13,8 +13,12 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Favicons opcionales en la extensión (pendiente #126):** el popup ya no pide los íconos a Google por defecto; muestra la inicial del sitio. Se activa en «Mi cuenta → Íconos de los sitios».
 - **Visibilidad por grupo (QA-18, pendiente #106):** se mantiene como regla de búsqueda (decisión del usuario); el texto de ayuda del panel de grupos ahora lo dice sin prometer un bloqueo.
 
+- **Comandos de conexión sin inyección:** el comando que se copia para pegar en una terminal (SSH, psql, mysql…) ya no se ofrece si el usuario o el host de un recurso tienen caracteres de shell (`;`, `|`, `$`, espacios…) o empiezan con `-` (`-oProxyCommand=…`). Un recurso compartido o importado podía armar uno que ejecutara otra cosa. En la web y en la extensión.
+- **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
+
 ### CI
 
+- **Tests unitarios (QA-14):** vitest en el frontend y la extensión, y en el CI. Incluyen un ida y vuelta de cifrado con el WASM real.
 - **Tests de LDAP y SSO en el CI (pendiente #127):** `.github/scripts/levantar-fixtures.sh` levanta OpenLDAP y Keycloak con los datos de `backend/tests/fixtures/` antes de `cargo test`.
 
 ## [0.1.70] - 2026-11-20

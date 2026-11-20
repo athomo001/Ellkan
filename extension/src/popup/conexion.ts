@@ -28,11 +28,23 @@ function parsearHostPuerto(uri: string): { host: string; puerto?: number } {
 	return { host: sinEsquema.slice(0, idx), puerto };
 }
 
+/** El comando se copia para pegarlo en una terminal, y el recurso puede venir
+ * compartido o importado: usuario y host sólo pueden tener caracteres que no
+ * cambien su significado (sin `;`, `&`, `|`, `$`, comillas, espacios…) ni
+ * empezar con `-`, que se leería como una opción (`-oProxyCommand=…`). Si no
+ * cumplen, no se ofrece comando. Mismo criterio que el frontend. */
+const HOST_SEGURO = /^[A-Za-z0-9._%\-[\]:]+$/;
+const USUARIO_SEGURO = /^[A-Za-z0-9._%+@\-]+$/;
+function seguroParaComando(valor: string, patron: RegExp): boolean {
+	return patron.test(valor) && !valor.startsWith('-');
+}
+
 /** `null` si el tipo de recurso no tiene un comando de conexión asociado
  * (ej. `login-password`, que en cambio se muestra como link clickable). */
 export function comandoDeConexion(resourceTypeSlug: string, usuario: string, uri: string): string | null {
 	if (!uri || !(resourceTypeSlug in PUERTOS_DEFAULT)) return null;
 	const { host, puerto } = parsearHostPuerto(uri);
+	if (!seguroParaComando(host, HOST_SEGURO) || (usuario && !seguroParaComando(usuario, USUARIO_SEGURO))) return null;
 	const puertoDefault = PUERTOS_DEFAULT[resourceTypeSlug];
 	const puertoNoDefault = puerto !== undefined && puerto !== puertoDefault ? puerto : undefined;
 	const arroba = usuario ? `${usuario}@` : '';
@@ -64,7 +76,11 @@ export function comandoDeConexion(resourceTypeSlug: string, usuario: string, uri
  * campo libre de la URI no trae esquema. */
 export function urlAbrible(resourceTypeSlug: string, uri: string): string | null {
 	if (!uri || resourceTypeSlug in PUERTOS_DEFAULT) return null;
-	return /^[a-z]+:\/\//i.test(uri) ? uri : `https://${uri}`;
+	// Sólo http(s): una URI guardada como `javascript://…` o `data:…` no se
+	// abre nunca, aunque la CSP de la extensión ya la bloquearía.
+	// `host:puerto` (ej. `localhost:8080`) no es un esquema.
+	if (/^[a-z][a-z0-9+.-]*:/i.test(uri) && !/^https?:\/\//i.test(uri) && !/^[^:/]+:\d+(\/|$)/.test(uri)) return null;
+	return /^https?:\/\//i.test(uri) ? uri : `https://${uri}`;
 }
 
 /** Hostname limpio para pedir el favicon real del sitio (spec 06 §5bis, tras

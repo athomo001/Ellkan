@@ -44,6 +44,7 @@
 		comandoDeConexion,
 		infoConexion,
 		resolverHostPuerto,
+		urlSegura,
 		eliminarRecurso,
 		salirDeRecurso,
 		type Recurso,
@@ -1990,7 +1991,11 @@
 							{#if seleccionado.uri}
 								<dt>{$t.vault.uri}</dt>
 								<dd>
-									<a href={seleccionado.uri} target="_blank" rel="noreferrer">{seleccionado.uri}</a>
+									{#if urlSegura(seleccionado.uri)}
+										<a href={urlSegura(seleccionado.uri)} target="_blank" rel="noreferrer">{seleccionado.uri}</a>
+									{:else}
+										<span>{seleccionado.uri}</span>
+									{/if}
 									<button
 										type="button"
 										class="icono-copiar"

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
@@ -45,6 +46,12 @@ export default defineConfig({
 	// `ellkan_crypto.wasm` se sirve como asset — nunca reinterpretado como
 	// módulo JS por el dev server.
 	assetsInclude: ['**/*.wasm'],
+	// QA-14 (pendiente #103): tests unitarios con vitest, en Node. El WASM de
+	// `ellkan-crypto` se carga desde disco (`src/lib/test/wasm-node.ts`).
+	test: {
+		include: ['src/**/*.test.ts'],
+		environment: 'node'
+	},
 	// Sólo desarrollo: en producción Axum sirve el build compilado y las
 	// rutas de API desde el mismo origen (ver comentario arriba), así que
 	// `api/client.ts::baseUrl()` puede seguir devolviendo `''`. El proxy
