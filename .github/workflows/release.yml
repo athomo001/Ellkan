@@ -1,19 +1,28 @@
 # Autor: Athan Espinoza
 #
-# Releases (pendientes #128/#129): al pushear un tag `vX.Y.Z` (o
-# `vX.Y.Z-beta.N`, que sale como pre-release) GitHub compila y publica:
+# Releases (pendientes #128/#129). Sin tags a mano: la rama decide el canal.
+#   - Merge/push a `main`    → Release oficial `vX.Y.Z`, marcada «Latest»;
+#                              imagen con etiquetas X.Y.Z, X.Y y latest.
+#                              Si `vX.Y.Z` ya existe (no se subió la versión),
+#                              no hace nada.
+#   - Push a `develop`       → pre-release `vX.Y.Z-dev.N` (N = número de
+#                              corrida); imagen con etiquetas X.Y.Z-dev.N y
+#                              dev. Sólo queda la última pre-release -dev.
+# X.Y.Z es la versión de `app-escritorio/src-tauri/tauri.conf.json` (para una
+# versión nueva: `node .github/scripts/fijar-version.mjs X.Y.Z` + CHANGELOG).
+# Se compila y publica:
 #   - Windows: MSI + ZIP portable (`build-windows.ps1`, el mismo script local)
 #   - Linux:   AppImage + .deb (`build-linux.sh`)
 #   - CLI de administración (`ellkan-cli`) para Windows y Linux
 #   - Extensión: .zip para Chrome/Edge/Brave/Opera y .xpi para Firefox
-#   - Servidor: imagen Docker en GHCR (ghcr.io/athomo001/ellkan), con
-#     etiquetas X.Y.Z, X.Y y latest (latest sólo si no es pre-release)
-# Una sola versión para todo, la del tag: el MSI y los navegadores sólo
-# aceptan X.Y.Z numérico, así que el sufijo -beta.N sólo marca la Release.
+#   - Servidor: imagen Docker en GHCR (ghcr.io/athomo001/ellkan)
+# El MSI y los navegadores sólo aceptan X.Y.Z numérico: el sufijo -dev.N sólo
+# marca la Release y la imagen.
 #
-# Firefox: si existen los secretos AMO_JWT_ISSUER/AMO_JWT_SECRET, el .xpi se
-# firma en addons.mozilla.org (canal unlisted) y se publica firmado; si no,
-# se publica sin firmar (sólo instalable en modo desarrollador).
+# Firefox: si existen los secretos AMO_JWT_ISSUER/AMO_JWT_SECRET, el .xpi de
+# `main` se firma en addons.mozilla.org (canal unlisted; AMO no acepta firmar
+# dos veces la misma versión, por eso no las -dev); si no, se publica sin
+# firmar (sólo instalable en modo desarrollador).
 #
 # Acciones fijadas por SHA (como en ci.yml). Sólo el job final escribe en el
 # repo (crear la Release).
@@ -22,21 +31,20 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main, develop]
+    # Un cambio sólo de documentación no genera Release.
+    paths-ignore: ['**.md', 'manual/**', 'assets/**', 'LICENSE*']
   # Prueba manual: compila todo y deja los artefactos en la corrida, sin
-  # crear ninguna Release.
+  # crear ninguna Release ni publicar la imagen.
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Versión X.Y.Z a compilar (no publica)'
-        required: true
 
 permissions:
   contents: read
 
+# En develop un push nuevo cancela la corrida anterior; en main nunca.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref == 'refs/heads/develop' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -48,26 +56,38 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       numero: ${{ steps.v.outputs.numero }}
-      prerelease: ${{ steps.v.outputs.prerelease }}
+      tag: ${{ steps.v.outputs.tag }}
+      canal: ${{ steps.v.outputs.canal }}
+      seguir: ${{ steps.v.outputs.seguir }}
+      publicar: ${{ steps.v.outputs.publicar }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # canal: main (oficial), dev (pre-release) o prueba (manual, no publica).
       - id: v
-        # Valores del evento por variables de entorno, nunca interpolados en
-        # el script (inyección de comandos vía nombre de tag).
-        env:
-          NOMBRE_REF: ${{ github.ref_name }}
-          ENTRADA: ${{ inputs.version }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then crudo="$ENTRADA"; else crudo="${NOMBRE_REF#v}"; fi
-          numero="${crudo%%-*}"
+          numero=$(node -p "require('./app-escritorio/src-tauri/tauri.conf.json').version")
           if ! [[ "$numero" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::versión inválida: '$crudo' (se espera vX.Y.Z o vX.Y.Z-beta.N)"
+            echo "::error::versión inválida en tauri.conf.json: '$numero' (se espera X.Y.Z)"
             exit 1
           fi
-          if [ "$crudo" != "$numero" ]; then pre=true; else pre=false; fi
-          echo "numero=$numero" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          seguir=true; publicar=true
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            canal=prueba; tag="v$numero"; publicar=false
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            canal=main; tag="v$numero"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "::notice::$tag ya está publicada: subí la versión (fijar-version.mjs) para sacar una nueva."
+              seguir=false; publicar=false
+            fi
+          else
+            canal=dev; tag="v$numero-dev.$GITHUB_RUN_NUMBER"
+          fi
+          { echo "numero=$numero"; echo "tag=$tag"; echo "canal=$canal"
+            echo "seguir=$seguir"; echo "publicar=$publicar"; } >> "$GITHUB_OUTPUT"
+          echo "Versión $numero → $tag (canal $canal, publicar=$publicar)"
 
   windows:
+    if: needs.version.outputs.seguir == 'true'
     name: Windows (MSI + portable)
     needs: version
     runs-on: windows-2025
@@ -97,6 +117,10 @@ jobs:
         run: |
           pnpm -C frontend install --frozen-lockfile
           pnpm -C extension install --frozen-lockfile
+      # Genera node_modules/$app/tsconfig.json, que la extensión necesita
+      # (importa código del frontend) y prepara antes que el frontend.
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
       - name: Fijar la versión
         run: node .github/scripts/fijar-version.mjs $env:VERSION
       # El script prepara la extensión embebida, compila los auxiliares,
@@ -122,6 +146,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    if: needs.version.outputs.seguir == 'true'
     name: Linux (AppImage + .deb)
     needs: version
     runs-on: ubuntu-24.04
@@ -163,6 +188,7 @@ jobs:
           if-no-files-found: error
 
   extension:
+    if: needs.version.outputs.seguir == 'true'
     name: Extensión (Chromium + Firefox)
     needs: version
     runs-on: ubuntu-24.04
@@ -194,6 +220,8 @@ jobs:
         run: |
           pnpm -C frontend install --frozen-lockfile
           pnpm -C extension install --frozen-lockfile
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
       - name: Empaquetar
         run: node extension/cli.mjs -b chrome,edge,brave,opera,firefox --version "$VERSION" --no-crx --out salida
       - name: Nombres con versión
@@ -201,7 +229,7 @@ jobs:
           cd salida
           for f in ellkan-*.zip ellkan-*.xpi; do mv -v "$f" "${f%.*}-${VERSION}.${f##*.}"; done
       - name: Firmar el .xpi en addons.mozilla.org
-        if: env.AMO_JWT_ISSUER != '' && env.AMO_JWT_SECRET != ''
+        if: needs.version.outputs.canal == 'main' && env.AMO_JWT_ISSUER != '' && env.AMO_JWT_SECRET != ''
         run: |
           pnpm -C extension build:firefox
           npx --yes web-ext@10.8.0 sign --source-dir extension/dist --channel unlisted \
@@ -215,6 +243,7 @@ jobs:
           if-no-files-found: error
 
   docker:
+    if: needs.version.outputs.seguir == 'true'
     name: Imagen Docker (GHCR)
     needs: version
     runs-on: ubuntu-24.04
@@ -225,29 +254,38 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        if: github.event_name == 'push'
+        if: needs.version.outputs.publicar == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      # Etiquetas a partir del tag: X.Y.Z y X.Y; `latest` lo agrega solo
-      # cuando la versión no es pre-release. Las etiquetas OCI
-      # (`org.opencontainers.image.source`) enlazan el paquete con el repo.
+      # main: X.Y.Z, X.Y y latest. dev: X.Y.Z-dev.N y dev (nunca latest).
+      # Las etiquetas OCI (`org.opencontainers.image.source`) enlazan el
+      # paquete con el repo.
+      - id: serie
+        env:
+          NUMERO: ${{ needs.version.outputs.numero }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          echo "serie=${NUMERO%.*}" >> "$GITHUB_OUTPUT"
+          echo "etiqueta=${TAG#v}" >> "$GITHUB_OUTPUT"
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/ellkan
+          flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=${{ needs.version.outputs.numero }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ steps.serie.outputs.etiqueta }}
+            type=raw,value=${{ steps.serie.outputs.serie }},enable=${{ needs.version.outputs.canal == 'main' }}
+            type=raw,value=latest,enable=${{ needs.version.outputs.canal == 'main' }}
+            type=raw,value=dev,enable=${{ needs.version.outputs.canal == 'dev' }}
       # En la prueba manual (workflow_dispatch) sólo compila: no publica.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: backend/Dockerfile
           platforms: linux/amd64
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ needs.version.outputs.publicar == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Procedencia de build (SLSA) y SBOM adjuntos a la imagen.
@@ -257,14 +295,14 @@ jobs:
   publicar:
     name: Publicar la Release
     needs: [version, windows, linux, extension, docker]
-    if: github.event_name == 'push'
+    if: needs.version.outputs.publicar == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.ref_name }}
-      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      TAG: ${{ needs.version.outputs.tag }}
+      CANAL: ${{ needs.version.outputs.canal }}
       DUENO: ${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -274,9 +312,22 @@ jobs:
           merge-multiple: true
       - name: Sumas SHA-256
         run: cd artefactos && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      # El tag lo crea la Release sobre el commit de esta corrida.
       - name: Crear la Release
         run: |
-          extra=()
-          if [ "$PRERELEASE" = "true" ]; then extra+=(--prerelease); fi
-          notas="Servidor (Docker): \`docker pull ghcr.io/${DUENO}/ellkan:${TAG#v}\`"
-          gh release create "$TAG" artefactos/* --verify-tag --title "Ellkan $TAG" --notes "$notas" --generate-notes "${extra[@]}"
+          if [ "$CANAL" = "main" ]; then
+            extra=(--latest); titulo="Ellkan $TAG"
+            notas="Servidor (Docker): \`docker pull ghcr.io/${DUENO}/ellkan:${TAG#v}\` (o \`:latest\`)"
+          else
+            extra=(--prerelease --latest=false); titulo="Ellkan $TAG (desarrollo)"
+            notas="Versión de desarrollo (rama develop), no recomendada para producción. Servidor (Docker): \`docker pull ghcr.io/${DUENO}/ellkan:dev\`"
+          fi
+          gh release create "$TAG" artefactos/* --target "$GITHUB_SHA" --title "$titulo" --notes "$notas" --generate-notes "${extra[@]}"
+      # Sólo queda la pre-release -dev más reciente (las imágenes viejas
+      # siguen en GHCR con su etiqueta X.Y.Z-dev.N).
+      - name: Borrar pre-releases -dev anteriores
+        if: needs.version.outputs.canal == 'dev'
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep -E -- '-dev\.[0-9]+$' | grep -vxF -- "$TAG" \
+            | while read -r viejo; do gh release delete "$viejo" --yes --cleanup-tag; done

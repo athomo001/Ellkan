@@ -43,6 +43,8 @@ Cada versión se publica en **[Releases](https://github.com/athomo001/Ellkan/rel
 
 **El servidor** se publica como imagen Docker en `ghcr.io/athomo001/ellkan`, con las etiquetas `latest` (la última versión), `X.Y` y `X.Y.Z`. La [instalación rápida](#instalación-rápida) la descarga sola.
 
+Las versiones oficiales salen de `main` y son las marcadas «Latest». Las pre-releases `vX.Y.Z-dev.N` (y la imagen `:dev`) salen de la rama de desarrollo, se reemplazan en cada cambio y no son para producción.
+
 Para verificar una descarga: `sha256sum -c SHA256SUMS.txt --ignore-missing` en Linux, o `Get-FileHash <archivo>` en PowerShell y comparar con su línea de `SHA256SUMS.txt`. Cómo cargar la extensión a mano en cada navegador: [extension/README.md](extension/README.md).
 
 ## Capturas
