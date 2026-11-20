@@ -29,23 +29,55 @@ Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servid
 
 ## Descargas
 
-Cada versión se publica en **[Releases](https://github.com/athomo001/Ellkan/releases/latest)** (ese enlace lleva siempre a la última):
+Ellkan se distribuye en **dos partes independientes**. Elegí según para quién es:
+
+| | **Uso personal** | **Equipo o empresa** |
+| --- | --- | --- |
+| Qué es | App de escritorio + extensión de navegador | Servidor Ellkan con su app web |
+| Dónde se descarga | [Releases](https://github.com/athomo001/Ellkan/releases/latest) | Imagen Docker `ghcr.io/athomo001/ellkan` |
+| Necesita servidor o Docker | No | Sí (Docker) |
+| Usuarios | Una persona, todo cifrado en tu PC | Muchos: grupos, compartir, SSO/LDAP/SCIM, auditoría |
+| Trae la app de escritorio | Sí | **No**: se descarga aparte, en Releases |
+
+```mermaid
+flowchart LR
+    subgraph personal["Uso personal · Releases"]
+        D["App de escritorio"] --- E1["Extensión"]
+    end
+    subgraph equipo["Equipo o empresa · imagen Docker"]
+        S["Servidor Ellkan + app web"]
+    end
+    N["Navegador"] --> S
+    E2["Extensión"] --> S
+    C["ellkan-cli"] -->|administración| S
+    D -.->|opcional| S
+```
+
+### Uso personal: app de escritorio y extensión (Releases)
+
+Cada versión se publica en **[Releases](https://github.com/athomo001/Ellkan/releases/latest)** (ese enlace lleva siempre a la última). No hace falta Docker ni servidor:
 
 | Archivo | Qué es |
 | --- | --- |
-| `Ellkan_X.Y.Z_x64_es-ES.msi` | App de escritorio para Windows (instalador) |
+| `Ellkan_X.Y.Z_x64_es-ES.msi` | App de escritorio para Windows (instalador, trae la extensión) |
 | `Ellkan_X.Y.Z_x64_portable.zip` | La misma app, sin instalar |
-| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` | App de escritorio para Linux |
+| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` | App de escritorio para Linux (experimental: la [guía](app-escritorio/GUIA.md) todavía la da sólo para Windows) |
 | `ellkan-chrome-X.Y.Z.zip` (también `-edge`, `-brave`, `-opera`) | Extensión para navegadores Chromium |
 | `ellkan-firefox-X.Y.Z.xpi` | Extensión para Firefox |
-| `ellkan-cli_X.Y.Z_windows_x64.exe` · `ellkan-cli_X.Y.Z_linux_x64` | CLI de administración del servidor |
-| `SHA256SUMS.txt` | Sumas para verificar las descargas |
 
-**El servidor** se publica como imagen Docker en `ghcr.io/athomo001/ellkan`, con las etiquetas `latest` (la última versión), `X.Y` y `X.Y.Z`. La [instalación rápida](#instalación-rápida) la descarga sola.
+Cómo cargar la extensión a mano en cada navegador: [extension/README.md](extension/README.md).
+
+### Equipo o empresa: el servidor (Docker)
+
+El servidor **no está en los archivos de Releases**: se publica como imagen Docker en `ghcr.io/athomo001/ellkan`, con las etiquetas `latest` (la última versión), `X.Y` y `X.Y.Z`. La [instalación rápida](#instalación-rápida) la descarga sola. Trae el servidor y la app web, pero **no la app de escritorio**.
+
+Una vez levantado, cada persona entra desde el navegador. La extensión y, si quiere, la app de escritorio se conectan a ese servidor. Para administrarlo (crear el primer admin, backups) está la CLI, que sí se descarga de Releases: `ellkan-cli_X.Y.Z_windows_x64.exe` · `ellkan-cli_X.Y.Z_linux_x64`.
+
+### Versiones y verificación
 
 Las versiones oficiales salen de `main` y son las marcadas «Latest». Las pre-releases `vX.Y.Z-dev.N` (y la imagen `:dev`) salen de la rama de desarrollo, se reemplazan en cada cambio y no son para producción.
 
-Para verificar una descarga: `sha256sum -c SHA256SUMS.txt --ignore-missing` en Linux, o `Get-FileHash <archivo>` en PowerShell y comparar con su línea de `SHA256SUMS.txt`. Cómo cargar la extensión a mano en cada navegador: [extension/README.md](extension/README.md).
+Para verificar una descarga: `sha256sum -c SHA256SUMS.txt --ignore-missing` en Linux, o `Get-FileHash <archivo>` en PowerShell y comparar con su línea de `SHA256SUMS.txt`.
 
 ## Capturas
 
