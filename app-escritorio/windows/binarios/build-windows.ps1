@@ -257,6 +257,7 @@ if ($Msi) {
 # ---------------------------------------------------------------------------
 Agregar-Paso "Cerrar Ellkan si está abierto" 2
 if ($Msi) {
+    Agregar-Paso "Compilar el frontend" 45
     if (-not $SkipExtension) { Agregar-Paso "Preparar la extensión de navegador" 20 }
     Agregar-Paso "Compilar los auxiliares" 60
     Agregar-Paso "Compilar la app y empaquetar el MSI" 420
@@ -304,6 +305,15 @@ try {
         # "Desinstalar Ellkan" en el menú Inicio). Tauri arma el MSI con WiX (la
         # primera vez descarga WiX 3, hace falta conexión) y, antes de compilar,
         # construye el frontend (`beforeBuildCommand` de tauri.conf.json).
+        #
+        # El frontend se compila también acá, antes de los auxiliares: esos
+        # binarios compilan la librería de la app, cuyo `generate_context!`
+        # exige que `frontend/build` exista. En un checkout limpio (Actions)
+        # todavía no existe y la compilación fallaba.
+        Iniciar-Paso "Compilar el frontend"
+        Invocar-Nativo "cmd.exe" @("/c", "pnpm build") $DirFrontend "Error: falló la compilación del frontend"
+        Terminar-Paso
+
         if (-not $SkipExtension) {
             Iniciar-Paso "Preparar la extensión de navegador"
             Invocar-Nativo "node" @((Join-Path $DirRaiz "app-escritorio\scripts\preparar-extension.mjs")) $DirRaiz "Error: no se pudo preparar la extensión de navegador"
