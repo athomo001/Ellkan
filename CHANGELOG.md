@@ -18,6 +18,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### CI
 
+- **Accesibilidad en el CI (QA-13):** Playwright + axe (WCAG 2.2 AA) sobre las pantallas sin sesión, en los dos temas, incluido el registro con token de instalación. Encontró y se corrigió una región con scroll no alcanzable con el teclado.
 - **Tests unitarios (QA-14):** vitest en el frontend y la extensión, y en el CI. Incluyen un ida y vuelta de cifrado con el WASM real.
 - **Tests de LDAP y SSO en el CI (pendiente #127):** `.github/scripts/levantar-fixtures.sh` levanta OpenLDAP y Keycloak con los datos de `backend/tests/fixtures/` antes de `cargo test`.
 

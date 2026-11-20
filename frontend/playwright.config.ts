@@ -1,9 +1,10 @@
 // Autor: Athan Espinoza
 
 // spec/14 punto 6.12: auditoría automática de accesibilidad (axe) sobre las
-// pantallas reales. Usa el Chrome ya instalado en la máquina (`channel:
-// 'chrome'`), sin descargar navegadores aparte; en CI, cambiar a
-// `npx playwright install chromium` y quitar `channel`.
+// pantallas reales. En local usa el Chrome ya instalado en la máquina
+// (`channel: 'chrome'`), sin descargar navegadores aparte; en el CI
+// (`CI=true`, QA-13 / pendiente #102) usa el Chromium de Playwright
+// (`playwright install --with-deps chromium`).
 //
 // Uso: `pnpm test:a11y` (levanta `vite dev` solo).
 
@@ -17,7 +18,7 @@ export default defineConfig({
 	reporter: 'list',
 	use: {
 		baseURL: `http://localhost:${PUERTO}`,
-		channel: 'chrome',
+		...(process.env.CI ? {} : { channel: 'chrome' }),
 		headless: true
 	},
 	webServer: {

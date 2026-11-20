@@ -109,6 +109,12 @@ jobs:
         run: pnpm -C frontend test
       - name: Frontend — build
         run: pnpm -C frontend build
+      # QA-13 (pendiente #102): auditoría de accesibilidad (axe, WCAG 2.2 AA)
+      # de las pantallas sin sesión con Playwright, en los dos temas.
+      - name: Frontend — navegador para Playwright
+        run: pnpm -C frontend exec playwright install --with-deps chromium
+      - name: Frontend — accesibilidad (Playwright + axe)
+        run: pnpm -C frontend test:a11y
       - name: Frontend — audit
         run: pnpm -C frontend audit --audit-level high
       - name: Extensión — dependencias

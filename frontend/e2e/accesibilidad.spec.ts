@@ -41,3 +41,20 @@ for (const tema of TEMAS) {
 		});
 	}
 }
+
+// Pendiente #109: el registro de la primera cuenta muestra el aviso y el campo
+// del token de instalación. Se simula la respuesta del servidor.
+for (const tema of TEMAS) {
+	test(`registro con token de instalación (${tema}) sin violaciones WCAG 2.2 AA`, async ({ page }) => {
+		await page.addInitScript((t) => {
+			localStorage.setItem(
+				'ellkan:preferencias',
+				JSON.stringify({ locale: 'es', theme: t, clipboardClearMinutes: 1, autoLockMinutes: 15 })
+			);
+		}, tema);
+		await page.route('**/auth/setup-status', (ruta) => ruta.fulfill({ json: { setup_token_required: true } }));
+		await page.goto('/register');
+		await expect(page.getByRole('note')).toBeVisible();
+		expect(await auditar(page)).toEqual([]);
+	});
+}

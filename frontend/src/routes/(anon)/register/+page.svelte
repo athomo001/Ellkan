@@ -301,8 +301,9 @@
 	}
 	.aviso-instalacion code {
 		display: block;
-		overflow-x: auto;
-		white-space: nowrap;
+		/* Salto de línea, no scroll: una región con scroll tendría que poder
+		   alcanzarse con el teclado (axe: scrollable-region-focusable). */
+		overflow-wrap: anywhere;
 		padding: var(--space-2);
 		margin-bottom: var(--space-2);
 		background: var(--bg-base);
