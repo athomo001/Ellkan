@@ -59,6 +59,8 @@ Las dos variables tienen que estar juntas — con sólo una, el binario falla al
 
 **Opción B — reverse proxy delante** (Caddy, nginx, Traefik) si preferís separar responsabilidades (WAF, renovación automática de Let's Encrypt sin gestionarla vos, etc.) — cualquiera de los tres sirve, no hay una integración especial de Ellkan con ninguno en particular; apuntalo al puerto HTTP interno de `ellkan` como backend.
 
+Con un reverse proxy delante, decile a Ellkan cuál es con `ELLKAN_TRUSTED_PROXIES` en `.env` (IPs o rangos CIDR separados por coma; por ejemplo, la red de Docker del proxy: `ELLKAN_TRUSTED_PROXIES=172.16.0.0/12`). Sin esto, los límites de solicitudes sin sesión (recuperación de cuenta, enlaces externos, login) ven a todos los usuarios con la IP del proxy y los cuentan como uno solo: alguien que abusa bloquea a todos. Con la variable, Ellkan toma la IP real de `X-Forwarded-For` sólo cuando la conexión viene de ese proxy (el proxy tiene que agregar esa cabecera; Caddy, nginx y Traefik lo hacen por defecto o con `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` en nginx). Un valor inválido hace que el servidor no arranque.
+
 No hay una tercera opción real: el canal tiene que cerrarse en algún punto entre el navegador/extensión y el servidor. La Opción A es la más liviana porque no agrega contenedor ni proceso nuevo.
 
 ## Primer administrador: token de instalación

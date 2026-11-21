@@ -28,6 +28,9 @@ services:
       # producción, definilas en `.env` con tu dominio.
       ELLKAN_RP_ID: "${ELLKAN_RP_ID:-localhost}"
       ELLKAN_RP_ORIGIN: "${ELLKAN_RP_ORIGIN:-http://localhost:${ELLKAN_PORT:-8080}}"
+      # QA-26: IPs o rangos de tu reverse proxy, para que los límites por IP
+      # vean al cliente real (X-Forwarded-For). Vacío = no hay proxy delante.
+      ELLKAN_TRUSTED_PROXIES: "${ELLKAN_TRUSTED_PROXIES:-}"
       # `ELLKAN_MIGRATE_REPAIR_CHECKSUMS` NO va acá: apaga la detección de
       # migraciones alteradas. Es una bandera de emergencia de un solo uso
       # (ver manual/instalacion.md, troubleshooting).

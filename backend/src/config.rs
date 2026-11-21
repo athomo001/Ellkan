@@ -41,6 +41,10 @@ pub struct Config {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ErrorConfig {
+    /// QA-26: lista de proxies confiables ilegible — mejor no arrancar que
+    /// arrancar ignorándola (todos compartiendo un mismo límite).
+    #[error("{0}")]
+    ProxiesConfiables(String),
     #[error("falta la variable de entorno {0} (o {0}_FILE apuntando a un archivo legible)")]
     Faltante(&'static str),
     #[error("no se pudo leer el archivo de {0}_FILE: {1}")]
@@ -109,6 +113,8 @@ impl Config {
                 return Err(ErrorConfig::DireccionPublicaFaltante(variable));
             }
         }
+
+        crate::ip_cliente::ProxiesConfiables::desde_entorno().map_err(ErrorConfig::ProxiesConfiables)?;
 
         Ok(Self {
             database_url: resolver_secreto("DATABASE_URL")?,

@@ -24,6 +24,7 @@ pub mod export;
 pub mod external_shares;
 pub mod folders;
 pub mod groups;
+pub mod ip_cliente;
 pub mod me;
 pub mod metadata;
 pub mod mfa;
@@ -427,6 +428,8 @@ pub async fn asegurar_token_de_instalacion(estado: &mut AppState) -> anyhow::Res
 /// Arma el router completo — separado de `main()` para que los tests de
 /// integración puedan levantar el mismo árbol de rutas sin duplicar nada.
 pub fn construir_router(estado: AppState) -> Router {
+    // QA-26: `Config::desde_entorno` ya rechazó un valor inválido al arrancar.
+    let proxies = ip_cliente::ProxiesConfiables::desde_entorno().unwrap_or_default();
     // Hallazgo real de uso: `/vault` sólo en el mount ya dispara ~9-10
     // llamadas reales (layout: permisos/perfil/avatar/preferencias; vault:
     // recursos, metadata-keys, carpetas, tags, password-policy) — con
@@ -971,6 +974,8 @@ pub fn construir_router(estado: AppState) -> Router {
                     }
                 }),
         )
+        // QA-26: la capa más externa, antes de cualquier límite por IP.
+        .layer(axum::middleware::from_fn_with_state(proxies, ip_cliente::reemplazar_peer_por_cliente))
         .with_state(estado);
 
     capa_headers_seguridad(router).layer(capa_cors())
