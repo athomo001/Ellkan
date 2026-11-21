@@ -19,6 +19,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Aviso de acceso de emergencia (QA-22, pendiente #111):** cuando un contacto pide acceso de emergencia, el titular recibe un email con quién lo pidió y cuándo se concede solo, y un recordatorio a mitad del plazo. Antes se concedía en silencio al vencer el plazo.
 - **Crear y compartir recursos son atómicos (QA-25, pendiente #112):** el recurso, el sobre y el permiso se guardan en una sola transacción; antes un fallo a mitad podía dejar un recurso sin dueño o un sobre sin permiso que bloqueaba el reintento.
 - **Límites por IP detrás de un reverse proxy (QA-26, pendiente #113):** nueva variable `ELLKAN_TRUSTED_PROXIES`. Con ella, los límites de solicitudes sin sesión usan la IP real del cliente (`X-Forwarded-For`, sólo si la conexión viene de ese proxy) en vez de contar a todos como la IP del proxy.
+- **Dependencias:** `lettre` 0.11.24 (seis avisos de seguridad del envío de correo: inyección de comandos SMTP, respuestas STARTTLS falsificadas, entre otros) y `quinn-udp` 0.5.16. La alerta de SQLite en `libsqlite3-sys` (sólo escritorio) queda como excepción documentada hasta que `sqlx` permita actualizarlo.
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
 
 ### CI
