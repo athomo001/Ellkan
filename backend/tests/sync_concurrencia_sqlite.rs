@@ -23,11 +23,21 @@ use ellkan_backend::desktop::{ConfigSyncRemoto, cargar_config, guardar_config};
 use ellkan_backend::error::DomainError;
 use ellkan_backend::eventos;
 use ellkan_backend::resources::models::EnvelopeInput;
-use ellkan_backend::resources::repository::{ResourceRepository, SecretEnvelopeRepository};
+use ellkan_backend::resources::repository::ResourceRepository;
 use ellkan_backend::resources::service::ResourceService;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
+
+/// Sobre del dueño: `crear` lo guarda en la misma transacción (QA-25).
+fn sobre(user_id: Uuid) -> EnvelopeInput {
+    EnvelopeInput {
+        user_id,
+        sealed_dek: b"dek".to_vec(),
+        secret_ciphertext: b"secreto".to_vec(),
+        secret_nonce: b"nonce".to_vec(),
+    }
+}
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -129,12 +139,17 @@ async fn dos_ediciones_a_la_vez_del_mismo_recurso_gana_una_y_la_otra_recibe_conf
     for vuelta in 0..25 {
         let recurso = repos
             .recursos
-            .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-base", b"nonce-base", user_id, None)
+            .crear(
+                Uuid::now_v7(),
+                Uuid::now_v7(),
+                b"metadata-base",
+                b"nonce-base",
+                user_id,
+                None,
+                Some(&sobre(user_id)),
+            )
             .await
             .unwrap();
-        // Como el alta real: el creador queda con su sobre (QA-05 exige que
-        // la edición re-selle exactamente para los destinatarios vigentes).
-        repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
         let base = recurso.updated_at;
 
         // Dos "clientes" que partieron de la MISMA versión y guardan a la vez.
@@ -164,10 +179,11 @@ async fn el_cliente_que_perdio_la_carrera_reintenta_con_la_version_nueva_y_no_pi
     let servicio = repos.servicio();
     let user_id = Uuid::now_v7();
 
-    let recurso = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"v0", b"n0", user_id, None).await.unwrap();
-    // Como el alta real: el creador queda con su sobre (QA-05 exige que
-    // la edición re-selle exactamente para los destinatarios vigentes).
-    repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
+    let recurso = repos
+        .recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"v0", b"n0", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
     let base = recurso.updated_at;
 
     // El cliente A guarda primero.
@@ -201,10 +217,11 @@ async fn muchos_clientes_a_la_vez_nunca_pierden_un_cambio_en_silencio() {
     let pool = pool_de_prueba().await;
     let repos = Repos::nuevos(&pool);
     let user_id = Uuid::now_v7();
-    let recurso = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"base", b"n", user_id, None).await.unwrap();
-    // Como el alta real: el creador queda con su sobre (QA-05 exige que
-    // la edición re-selle exactamente para los destinatarios vigentes).
-    repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
+    let recurso = repos
+        .recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"base", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
 
     let tareas: Vec<_> = (0..6)
         .map(|i| editar_como_cliente(pool.clone(), recurso.id, user_id, recurso.updated_at, format!("cliente-{i}")))
@@ -238,10 +255,11 @@ async fn desvincular_el_servidor_deja_la_boveda_funcionando_en_local() {
         last_sync_at: Some("2026-09-20T12:00:00Z".into()),
     };
     guardar_config(&datadir, &config).unwrap();
-    let recurso = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"antes", b"n", user_id, None).await.unwrap();
-    // Como el alta real: el creador queda con su sobre (QA-05 exige que
-    // la edición re-selle exactamente para los destinatarios vigentes).
-    repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
+    let recurso = repos
+        .recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"antes", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
 
     // Desvincular: se olvida el servidor (lo mismo que hace la app).
     let mut config = cargar_config(&datadir).unwrap();
@@ -256,7 +274,10 @@ async fn desvincular_el_servidor_deja_la_boveda_funcionando_en_local() {
         .editar(recurso.id, user_id, recurso.updated_at, b"despues", b"n2", vec![envelope(user_id, "local")])
         .await;
     assert!(editado.is_ok(), "se puede editar sin servidor");
-    let nuevo = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"nuevo", b"n", user_id, None).await;
+    let nuevo = repos
+        .recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"nuevo", b"n", user_id, None, Some(&sobre(user_id)))
+        .await;
     assert!(nuevo.is_ok(), "y crear recursos nuevos");
     assert_eq!(servicio.listar_visibles(user_id).await.unwrap().len(), 2);
 }

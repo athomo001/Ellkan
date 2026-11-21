@@ -148,15 +148,23 @@ where
         secret_nonce: &[u8],
         metadata_key_id: Option<Uuid>,
     ) -> Result<Resource, DomainError> {
+        let envelope = EnvelopeInput {
+            user_id: owner_id,
+            sealed_dek: sealed_dek.to_vec(),
+            secret_ciphertext: secret_ciphertext.to_vec(),
+            secret_nonce: secret_nonce.to_vec(),
+        };
         let recurso = self
             .recursos
-            .crear(id, resource_type_id, metadata_ciphertext, metadata_nonce, owner_id, metadata_key_id)
-            .await?;
-
-        self.envolturas.insertar(recurso.id, owner_id, sealed_dek, secret_ciphertext, secret_nonce).await?;
-
-        self.permisos
-            .otorgar("resource", recurso.id, "user", owner_id, NivelPermiso::Owner.as_db_str())
+            .crear(
+                id,
+                resource_type_id,
+                metadata_ciphertext,
+                metadata_nonce,
+                owner_id,
+                metadata_key_id,
+                Some(&envelope),
+            )
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
@@ -231,23 +239,22 @@ where
         // user_id)`). Se mantiene el `buscar` sólo para el 404 explícito.
         self.recursos.buscar(resource_id).await?.ok_or(DomainError::NotFound)?;
 
-        self.envolturas
-            .insertar(resource_id, recipient_id, sealed_dek, secret_ciphertext, secret_nonce)
-            .await
-            .map_err(|e| match e {
-                // Hallazgo real de uso 2026-08-11: `DomainError::Conflict`
-                // generico ("conflicto de estado") no le decía nada al
-                // usuario sobre POR QUÉ falló — acá el único conflicto
-                // posible es `unique(resource_id, user_id)` de
-                // `secret_envelopes`, o sea que ese destinatario ya tiene
-                // acceso. Mensaje explícito en vez del genérico.
-                crate::error::RepoError::Conflict => DomainError::ValidacionInvalida("esta persona ya tiene acceso a este recurso".into()),
-                otro => DomainError::Interno(otro),
-            })?;
-
-        self.permisos.otorgar("resource", resource_id, "user", recipient_id, nivel.as_db_str()).await?;
-        // H-31: ver comentario en `ResourceRepository::tocar_updated_at`.
-        self.recursos.tocar_updated_at(resource_id).await?;
+        let envelope = EnvelopeInput {
+            user_id: recipient_id,
+            sealed_dek: sealed_dek.to_vec(),
+            secret_ciphertext: secret_ciphertext.to_vec(),
+            secret_nonce: secret_nonce.to_vec(),
+        };
+        self.recursos.compartir_con(resource_id, &envelope, nivel.as_db_str()).await.map_err(|e| match e {
+            // Hallazgo real de uso 2026-08-11: `DomainError::Conflict`
+            // generico ("conflicto de estado") no le decía nada al
+            // usuario sobre POR QUÉ falló — acá el único conflicto
+            // posible es `unique(resource_id, user_id)` de
+            // `secret_envelopes`, o sea que ese destinatario ya tiene
+            // acceso. Mensaje explícito en vez del genérico.
+            crate::error::RepoError::Conflict => DomainError::ValidacionInvalida("esta persona ya tiene acceso a este recurso".into()),
+            otro => DomainError::Interno(otro),
+        })?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::PermissionGranted, Some(owner_id))
@@ -261,11 +268,9 @@ where
         Ok(())
     }
 
-    /// Módulo 3 (compartir en lote) — loop de `compartir()` ítem por ítem,
-    /// sin transacción envolvente: el share individual tampoco es atómico
-    /// entre el insert de envelope y el otorgamiento de permiso, así que
-    /// prometer atomicidad recién acá sería inconsistente con lo que ya
-    /// existe. Un ítem inválido no aborta el resto — mismo criterio
+    /// Módulo 3 (compartir en lote) — loop de `compartir()` ítem por ítem:
+    /// cada ítem es su propia transacción (QA-25), sin una envolvente. Un
+    /// ítem inválido no aborta el resto — mismo criterio
     /// tolerante-a-fallos-parciales que la carga CSV de grupos (Bloque C).
     pub async fn compartir_lote(&self, owner_id: Uuid, items: Vec<ItemCompartirLote>) -> Vec<(Uuid, Uuid, Option<String>)> {
         let mut resultados = Vec::with_capacity(items.len());

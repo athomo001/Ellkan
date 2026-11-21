@@ -1182,7 +1182,15 @@ async fn crear_recurso_metadata_only(
 
     let recurso = state
         .recursos
-        .crear(req.id, resource_type_id, &metadata_ciphertext, &metadata_nonce, auth.user_id, req.metadata_key_id)
+        .crear(
+            req.id,
+            resource_type_id,
+            &metadata_ciphertext,
+            &metadata_nonce,
+            auth.user_id,
+            req.metadata_key_id,
+            None,
+        )
         .await
         .map_err(DomainError::from)?;
 

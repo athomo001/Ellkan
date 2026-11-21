@@ -21,11 +21,22 @@ use ellkan_backend::desktop::repositories::tags::SqliteTagRepository;
 use ellkan_backend::error::DomainError;
 use ellkan_backend::folders::repository::FolderItemRepository;
 use ellkan_backend::folders::service::FolderService;
+use ellkan_backend::resources::models::EnvelopeInput;
 use ellkan_backend::resources::repository::ResourceRepository;
 use ellkan_backend::tags::service::TagService;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
+
+/// Sobre del dueño: `crear` lo guarda en la misma transacción (QA-25).
+fn sobre(user_id: Uuid) -> EnvelopeInput {
+    EnvelopeInput {
+        user_id,
+        sealed_dek: b"dek".to_vec(),
+        secret_ciphertext: b"secreto".to_vec(),
+        secret_nonce: b"nonce".to_vec(),
+    }
+}
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
@@ -156,7 +167,7 @@ async fn mover_un_recurso_a_una_carpeta_exige_ser_el_dueno() {
     let dueno = Uuid::now_v7();
     let otro = Uuid::now_v7();
     let recurso = recursos
-        .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata", b"nonce", dueno, None)
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata", b"nonce", dueno, None, Some(&sobre(dueno)))
         .await
         .expect("crear recurso de prueba");
     let carpeta = servicio.crear(dueno, Uuid::now_v7(), b"carpeta", b"n", None).await.unwrap();
@@ -186,7 +197,10 @@ async fn tags_crear_aplicar_listar_y_quitar() {
     let servicio = TagService { tags: &tags, permisos: &permisos };
 
     let user_id = Uuid::now_v7();
-    let recurso = recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", user_id, None).await.unwrap();
+    let recurso = recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
 
     let tag = servicio.crear(user_id, true, Uuid::now_v7(), "trabajo", false).await.unwrap();
     assert_eq!(tag.name, "trabajo");
@@ -218,7 +232,10 @@ async fn un_tag_personal_ajeno_no_se_puede_aplicar() {
     let dueno_tag = Uuid::now_v7();
     let otro = Uuid::now_v7();
     let tag = servicio.crear(dueno_tag, true, Uuid::now_v7(), "personal-de-dueno_tag", false).await.unwrap();
-    let recurso_de_otro = recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", otro, None).await.unwrap();
+    let recurso_de_otro = recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", otro, None, Some(&sobre(otro)))
+        .await
+        .unwrap();
 
     let resultado = servicio.aplicar(otro, recurso_de_otro.id, tag.id).await;
     assert!(

@@ -13,6 +13,10 @@ use crate::error::RepoError;
 use super::models::{Destinatario, EnvelopeInput, Resource, SecretEnvelope};
 
 pub trait ResourceRepository {
+    /// QA-25: el recurso, el envelope del dueño y su permiso `owner` en una
+    /// sola transacción — antes eran tres escrituras sueltas y un fallo a
+    /// mitad dejaba un recurso sin dueño o sin envelope. `None` sólo en el
+    /// alta "sólo metadata" del escritorio, que no guarda secreto.
     #[allow(clippy::too_many_arguments)]
     async fn crear(
         &self,
@@ -22,7 +26,14 @@ pub trait ResourceRepository {
         metadata_nonce: &[u8],
         created_by: Uuid,
         metadata_key_id: Option<Uuid>,
+        envelope_dueno: Option<&EnvelopeInput>,
     ) -> Result<Resource, RepoError>;
+
+    /// QA-25: envelope + permiso del destinatario + `updated_at` (H-31) en
+    /// una sola transacción. Antes, un envelope que quedaba sin permiso
+    /// bloqueaba el reintento con "ya tiene acceso". `Conflict` si el
+    /// destinatario ya tiene envelope.
+    async fn compartir_con(&self, resource_id: Uuid, envelope: &EnvelopeInput, nivel: &str) -> Result<(), RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Resource>, RepoError>;
 
@@ -268,8 +279,10 @@ impl ResourceRepository for PgResourceRepository {
         metadata_nonce: &[u8],
         created_by: Uuid,
         metadata_key_id: Option<Uuid>,
+        envelope_dueno: Option<&EnvelopeInput>,
     ) -> Result<Resource, RepoError> {
         let metadata_key_type = if metadata_key_id.is_some() { "shared_key" } else { "user_key" };
+        let mut tx = self.pool.begin().await?;
         let fila = sqlx::query!(
             r#"
             insert into resources (
@@ -288,7 +301,7 @@ impl ResourceRepository for PgResourceRepository {
             metadata_key_id,
             metadata_key_type,
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         // El id ya existe (típicamente un recurso borrado, soft-delete, que la
         // app de escritorio intenta volver a subir): conflicto, no 500.
@@ -297,6 +310,12 @@ impl ResourceRepository for PgResourceRepository {
             sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
             _ => RepoError::Database(e),
         })?;
+
+        if let Some(envelope) = envelope_dueno {
+            insertar_envelope(&mut tx, fila.id, envelope).await?;
+        }
+        otorgar_permiso(&mut tx, fila.id, created_by, "owner").await?;
+        tx.commit().await?;
 
         Ok(Resource {
             id: fila.id,
@@ -565,6 +584,18 @@ impl ResourceRepository for PgResourceRepository {
             .collect())
     }
 
+    async fn compartir_con(&self, resource_id: Uuid, envelope: &EnvelopeInput, nivel: &str) -> Result<(), RepoError> {
+        let mut tx = self.pool.begin().await?;
+        insertar_envelope(&mut tx, resource_id, envelope).await?;
+        otorgar_permiso(&mut tx, resource_id, envelope.user_id, nivel).await?;
+        sqlx::query("update resources set updated_at = now() where id = $1")
+            .bind(resource_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn tocar_updated_at(&self, resource_id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(r#"update resources set updated_at = now() where id = $1"#, resource_id)
             .execute(&self.pool)
@@ -599,6 +630,42 @@ impl ResourceTypeRepository for PgResourceTypeRepository {
             .await?;
         Ok(fila.map(|f| f.json_schema))
     }
+}
+
+/// QA-25: mismo insert que `SecretEnvelopeRepository::insertar`, dentro de
+/// una transacción ajena (`crear`, `compartir_con`).
+async fn insertar_envelope(tx: &mut sqlx::PgConnection, resource_id: Uuid, env: &EnvelopeInput) -> Result<(), RepoError> {
+    sqlx::query(
+        "insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce) values ($1, $2, $3, $4, $5)",
+    )
+    .bind(resource_id)
+    .bind(env.user_id)
+    .bind(&env.sealed_dek)
+    .bind(&env.secret_ciphertext)
+    .bind(&env.secret_nonce)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+        _ => RepoError::Database(e),
+    })?;
+    Ok(())
+}
+
+/// QA-25: mismo upsert que `PermissionRepository::otorgar` para un usuario
+/// sobre un recurso, dentro de una transacción ajena.
+async fn otorgar_permiso(tx: &mut sqlx::PgConnection, resource_id: Uuid, user_id: Uuid, nivel: &str) -> Result<(), RepoError> {
+    sqlx::query(
+        "insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)
+         values ('resource', $1, 'user', $2, $3)
+         on conflict (subject_type, subject_id, grantee_type, grantee_id) do update set level = excluded.level",
+    )
+    .bind(resource_id)
+    .bind(user_id)
+    .bind(nivel)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
 }
 
 #[derive(Clone)]

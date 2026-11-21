@@ -17,6 +17,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Dirección pública obligatoria (QA-30, pendiente #115):** el servidor ya no arranca sin `ELLKAN_RP_ID` y `ELLKAN_RP_ORIGIN` (antes usaba `localhost` en silencio: passkeys inservibles y links de email apuntando a localhost). `docker-compose.yml` los define con `localhost` por defecto; en un servidor van en `.env` con el dominio real.
 - **Sin enumeración de cuentas (QA-15, pendiente #104):** pedir el reset con kit de recuperación o la aprobación de un dispositivo responde lo mismo exista o no la cuenta (antes 404/401 contra 200).
 - **Aviso de acceso de emergencia (QA-22, pendiente #111):** cuando un contacto pide acceso de emergencia, el titular recibe un email con quién lo pidió y cuándo se concede solo, y un recordatorio a mitad del plazo. Antes se concedía en silencio al vencer el plazo.
+- **Crear y compartir recursos son atómicos (QA-25, pendiente #112):** el recurso, el sobre y el permiso se guardan en una sola transacción; antes un fallo a mitad podía dejar un recurso sin dueño o un sobre sin permiso que bloqueaba el reintento.
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
 
 ### CI
