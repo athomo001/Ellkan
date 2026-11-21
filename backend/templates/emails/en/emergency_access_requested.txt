@@ -1,0 +1,7 @@
+{% if recordatorio %}Reminder: you haven't responded yet.
+
+{% endif %}{{ grantee_nombre }} ({{ grantee_email }}), your emergency contact, requested emergency access to your Ellkan vault.
+
+If you don't respond, access is granted automatically on {{ fecha }}.
+
+If you weren't expecting this, reject the request or remove that contact before then.

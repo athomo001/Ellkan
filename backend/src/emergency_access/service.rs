@@ -136,6 +136,14 @@ where
             otro => DomainError::Interno(otro),
         })?;
 
+        // QA-22: el titular se entera ahora, no cuando el job ya lo concedió.
+        match self.requests.aviso_de(id).await {
+            Ok(Some(aviso)) => {
+                let _ = self.eventos.send(aviso.evento(false));
+            }
+            Ok(None) => {}
+            Err(e) => tracing::error!(error = %e, emergency_access_id = %id, "no se pudo armar el aviso al titular"),
+        }
         let _ = self.eventos.send(DomainEvent::Auditoria(
             EventoAuditoria::nuevo(AuditEventType::EmergencyAccessRequested, Some(actor_id)).con_sujeto("emergency_access", id),
         ));

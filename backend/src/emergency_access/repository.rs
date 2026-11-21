@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{EmergencyAccess, EmergencyAccessRequest};
+use super::models::{AvisoEmergencia, EmergencyAccess, EmergencyAccessRequest};
 
 pub trait EmergencyAccessPolicyRepository {
     async fn habilitado(&self) -> Result<bool, RepoError>;
@@ -49,6 +49,14 @@ pub trait EmergencyAccessRequestRepository {
     /// Solicitudes pendientes cuyo plazo (`requested_at + wait_time_days`)
     /// ya venció — consumido por el job programado (F-36).
     async fn listar_vencidas(&self) -> Result<Vec<(EmergencyAccessRequest, Uuid)>, RepoError>;
+
+    /// QA-22: datos para el email al titular de la solicitud pendiente.
+    async fn aviso_de(&self, emergency_access_id: Uuid) -> Result<Option<AvisoEmergencia>, RepoError>;
+
+    /// QA-22: marca y devuelve, en un solo paso, las pendientes que pasaron la
+    /// mitad del plazo sin recordatorio — dos vueltas del job (o dos réplicas)
+    /// nunca mandan el mismo dos veces.
+    async fn tomar_para_recordatorio(&self) -> Result<Vec<AvisoEmergencia>, RepoError>;
 }
 
 #[derive(Clone)]
@@ -309,5 +317,46 @@ impl EmergencyAccessRequestRepository for PgEmergencyAccessRequestRepository {
                 )
             })
             .collect())
+    }
+
+    async fn aviso_de(&self, emergency_access_id: Uuid) -> Result<Option<AvisoEmergencia>, RepoError> {
+        Ok(sqlx::query_as::<_, AvisoEmergencia>(
+            r#"
+            select g.email as granter_email, c.email as grantee_email, c.display_name as grantee_nombre,
+                   r.requested_at, e.wait_time_days
+            from emergency_access_requests r
+            join emergency_access e on e.id = r.emergency_access_id
+            join users g on g.id = e.granter_id
+            join users c on c.id = e.grantee_id
+            where r.emergency_access_id = $1 and r.status = 'pending'
+            "#,
+        )
+        .bind(emergency_access_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    async fn tomar_para_recordatorio(&self) -> Result<Vec<AvisoEmergencia>, RepoError> {
+        Ok(sqlx::query_as::<_, AvisoEmergencia>(
+            r#"
+            with marcadas as (
+                update emergency_access_requests r set reminder_sent_at = now()
+                from emergency_access e
+                where e.id = r.emergency_access_id
+                  and r.status = 'pending'
+                  and r.reminder_sent_at is null
+                  and r.requested_at + e.wait_time_days * interval '12 hours' <= now()
+                  and r.requested_at + e.wait_time_days * interval '1 day' > now()
+                returning r.requested_at, e.wait_time_days, e.granter_id, e.grantee_id
+            )
+            select g.email as granter_email, c.email as grantee_email, c.display_name as grantee_nombre,
+                   m.requested_at, m.wait_time_days
+            from marcadas m
+            join users g on g.id = m.granter_id
+            join users c on c.id = m.grantee_id
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 }

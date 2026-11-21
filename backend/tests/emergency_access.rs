@@ -349,3 +349,77 @@ async fn el_job_de_timeout_no_pisa_una_resolucion_ya_hecha_por_el_titular() {
         .unwrap();
     assert_eq!(status, "rejected", "el rechazo real del titular no debería haber sido pisado por el job");
 }
+
+/// QA-22: el titular recibe un email apenas el contacto pide acceso (con la
+/// fecha en que se concede solo), y un recordatorio a mitad del plazo que
+/// sale una sola vez.
+#[tokio::test]
+async fn el_titular_recibe_aviso_y_un_solo_recordatorio() {
+    use ellkan_backend::emergency_access::repository::{EmergencyAccessRequestRepository, PgEmergencyAccessRequestRepository};
+
+    let entorno = common::levantar().await;
+    let titular = common::registrar(&entorno, "titular@test.ellkan").await;
+    let sesion_titular = common::login(&entorno, &titular).await;
+    let contacto = common::registrar(&entorno, "contacto@test.ellkan").await;
+    let sesion_contacto = common::login(&entorno, &contacto).await;
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/emergency-access", entorno.base))
+        .bearer_auth(sesion_titular)
+        .json(&json!({
+            "grantee_id": contacto.user_id,
+            "access_level": "view",
+            "sealed_material_b64": B64.encode(b"x"),
+            "wait_time_days": 4,
+        }))
+        .send()
+        .await
+        .unwrap();
+    let cuerpo: Value = resp.json().await.unwrap();
+    let id: uuid::Uuid = cuerpo["id"].as_str().unwrap().parse().unwrap();
+    for paso in ["accept", "request"] {
+        let resp = entorno
+            .cliente
+            .post(format!("{}/me/emergency-access/{id}/{paso}", entorno.base))
+            .bearer_auth(sesion_contacto)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "{paso}");
+    }
+
+    // El email lo encola un consumidor de eventos, después de la respuesta.
+    let mut aviso: Option<(String,)> = None;
+    for _ in 0..50 {
+        aviso = sqlx::query_as("select body from outbound_emails where recipient = $1 and subject ilike '%acceso de emergencia%'")
+            .bind(&titular.email)
+            .fetch_optional(&entorno.pool)
+            .await
+            .unwrap();
+        if aviso.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let (cuerpo,) = aviso.expect("el titular debería recibir el aviso al crearse la solicitud");
+    assert!(cuerpo.contains(&contacto.email), "el aviso dice quién lo pidió");
+    assert!(cuerpo.contains("UTC"), "el aviso dice cuándo se concede solo");
+
+    let requests = PgEmergencyAccessRequestRepository { pool: entorno.pool.clone() };
+    assert!(
+        requests.tomar_para_recordatorio().await.unwrap().is_empty(),
+        "antes de la mitad del plazo no hay recordatorio"
+    );
+
+    // Pasaron 3 de los 4 días sin respuesta.
+    sqlx::query("update emergency_access_requests set requested_at = now() - interval '3 days' where emergency_access_id = $1")
+        .bind(id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+    let recordatorios = requests.tomar_para_recordatorio().await.unwrap();
+    assert_eq!(recordatorios.len(), 1);
+    assert_eq!(recordatorios[0].granter_email, titular.email);
+    assert!(requests.tomar_para_recordatorio().await.unwrap().is_empty(), "el recordatorio sale una sola vez");
+}

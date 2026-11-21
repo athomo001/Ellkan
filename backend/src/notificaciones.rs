@@ -210,6 +210,12 @@ fn renderizar(plantillas: &Tera, locale: &str, nombre: &str, mut ctx: Context) -
     Ok((texto, html))
 }
 
+/// Fecha y hora en UTC, sin depender del locale: `2026-11-20 18:30 UTC`.
+fn fecha_utc(t: time::OffsetDateTime) -> String {
+    let t = t.to_offset(time::UtcOffset::UTC);
+    format!("{:04}-{:02}-{:02} {:02}:{:02} UTC", t.year(), u8::from(t.month()), t.day(), t.hour(), t.minute())
+}
+
 fn asunto(locale: &str, es: &'static str, en: &'static str) -> &'static str {
     if locale == "en" { en } else { es }
 }
@@ -357,6 +363,35 @@ where
                             }
                             Err(e) => tracing::error!(error = %e, "no se pudo renderizar la plantilla de aviso de account recovery"),
                         }
+                    }
+                }
+                DomainEvent::EmergencyAccessRequested { granter_email, grantee_nombre, grantee_email, concede_el, recordatorio } => {
+                    let locale = resolver_locale(&locales, &granter_email).await;
+                    let asunto = if recordatorio {
+                        asunto(
+                            &locale,
+                            "Ellkan: recordatorio — piden acceso de emergencia a tu bóveda",
+                            "Ellkan: reminder — emergency access to your vault was requested",
+                        )
+                    } else {
+                        asunto(
+                            &locale,
+                            "Ellkan: piden acceso de emergencia a tu bóveda",
+                            "Ellkan: emergency access to your vault was requested",
+                        )
+                    };
+                    let mut ctx = Context::new();
+                    ctx.insert("grantee_nombre", &grantee_nombre);
+                    ctx.insert("grantee_email", &grantee_email);
+                    ctx.insert("fecha", &fecha_utc(concede_el));
+                    ctx.insert("recordatorio", &recordatorio);
+                    match renderizar(&plantillas, &locale, "emergency_access_requested", ctx) {
+                        Ok((cuerpo, html)) => {
+                            if let Err(e) = emails.encolar(&granter_email, asunto, &cuerpo, Some(&html)).await {
+                                tracing::error!(error = %e, "no se pudo encolar el aviso de acceso de emergencia");
+                            }
+                        }
+                        Err(e) => tracing::error!(error = %e, "no se pudo renderizar la plantilla de acceso de emergencia"),
                     }
                 }
                 // F-13: consumidor dedicado en `audit::consumidor`, no

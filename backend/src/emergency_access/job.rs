@@ -30,6 +30,15 @@ pub fn spawn(
         let mut ticker = tokio::time::interval(intervalo);
         loop {
             ticker.tick().await;
+            // QA-22: recordatorio a mitad del plazo a quien todavía no respondió.
+            match requests.tomar_para_recordatorio().await {
+                Ok(avisos) => {
+                    for aviso in avisos {
+                        let _ = eventos.send(aviso.evento(true));
+                    }
+                }
+                Err(e) => tracing::error!(error = %e, "no se pudieron tomar los recordatorios de emergency access"),
+            }
             let vencidas = match requests.listar_vencidas().await {
                 Ok(v) => v,
                 Err(e) => {
