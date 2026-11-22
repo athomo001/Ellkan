@@ -34,7 +34,7 @@ export function attachPagemod(port: chrome.runtime.Port): void {
 			return;
 		}
 
-		registrarEventos(port);
+		registrarEventos(port, mensaje.payload.name);
 		port.postMessage(['ellkan.port.ready']);
 	}
 

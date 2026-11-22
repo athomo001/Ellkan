@@ -192,7 +192,10 @@ async function rellenar(coincidencia: CoincidenciaAutofill, par: ParLogin, orige
 
 	try {
 		const secreto = await cliente.request<{ password: string; totpSecret?: string }>('VAULT_REVELAR_SECRETO', {
-			resourceId: coincidencia.id
+			resourceId: coincidencia.id,
+			// QA-32: el background sólo entrega el secreto si el recurso coincide
+			// con esta página (mismo origen que el frame, verificado allá).
+			href: window.location.href
 		});
 		const script = scriptParaLogin({
 			usuario: par.usuario,
