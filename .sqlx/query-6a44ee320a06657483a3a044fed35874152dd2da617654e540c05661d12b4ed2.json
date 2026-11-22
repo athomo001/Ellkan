@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            insert into sessions (user_id, security_stamp, mfa_verified_at, expires_at)\n            values ($1, $2, null, now() + interval '12 hours')\n            returning id, user_id\n            ",
+  "query": "\n            insert into sessions (user_id, security_stamp, mfa_verified_at, expires_at, proposito)\n            values ($1, $2, null, now() + interval '12 hours', $3)\n            returning id, user_id\n            ",
   "describe": {
     "columns": [
       {
@@ -29,7 +29,8 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
@@ -37,5 +38,5 @@
       false
     ]
   },
-  "hash": "03a88f54b031793edb1415f621034c9fb75268b10d5aa2178f9fc3350dd8e025"
+  "hash": "6a44ee320a06657483a3a044fed35874152dd2da617654e540c05661d12b4ed2"
 }

@@ -60,6 +60,7 @@ fn material_desbloqueo_falso(
         bytes.extend_from_slice(bloque.expose_secret());
     }
     crate::auth::models::MaterialDesbloqueo {
+        email,
         encrypted_private_key_blob: bytes[..80].to_vec(),
         private_key_nonce: bytes[80..104].to_vec(),
         kdf_salt: bytes[104..120].to_vec(),

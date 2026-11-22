@@ -18,6 +18,7 @@ import { olvidarPendientes } from './pendientes';
 import { registrar } from '$lib/tauri/registro';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 import { pruebaDePosesion } from '../crypto/accountRecovery';
+import { emailDelMaterial, type MaterialClave } from '../crypto/identity';
 
 export interface VinculacionServidor {
 	serverUrl: string;
@@ -174,12 +175,6 @@ export class ErrorRequiereNuevaFrase extends Error {
 	constructor() {
 		super('El servidor pide cambiar la frase temporal de esta cuenta.');
 	}
-}
-
-interface MaterialClave {
-	encrypted_private_key_blob_b64: string;
-	private_key_nonce_b64: string;
-	kdf_salt_b64: string;
 }
 
 /**
@@ -395,12 +390,15 @@ export async function conectarDesdeServidor(
 	const wasm = await cargarCrypto();
 	const remoto = clienteRemoto(serverUrl, null);
 
-	let material: { encrypted_private_key_blob_b64: string; private_key_nonce_b64: string; kdf_salt_b64: string };
+	let material: MaterialClave;
 	try {
 		material = await remoto.post('/auth/key-material', { email });
 	} catch (err) {
 		throw new ErrorCuentaRemota(diagnosticoDeError(err, 'challenge'));
 	}
+	// QA-16: la cuenta local nace con el email tal como está en el servidor
+	// (es el AAD del blob que se copia).
+	email = emailDelMaterial(material, email);
 
 	let abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array };
 	try {

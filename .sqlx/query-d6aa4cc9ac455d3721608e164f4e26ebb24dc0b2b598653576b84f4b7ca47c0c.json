@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select distinct on (fi.resource_id) fi.resource_id as \"resource_id!\", pf.grantee_id as group_id\n            from folder_items fi\n            join permissions pf\n              on pf.subject_type = 'folder' and pf.subject_id = fi.folder_id and pf.grantee_type = 'group'\n            where fi.resource_id = any($1) and fi.folder_id is not null\n              and exists (\n                select 1 from permissions po\n                where po.subject_type = 'resource' and po.subject_id = fi.resource_id and po.level = 'owner'\n                  and (\n                    (po.grantee_type = 'user' and po.grantee_id = fi.user_id)\n                    or (po.grantee_type = 'group' and po.grantee_id in (\n                        select gm.group_id from group_members gm where gm.user_id = fi.user_id\n                    ))\n                  )\n              )\n            order by fi.resource_id, pf.grantee_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "folder_items",
+            "name": "resource_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "grantee_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "d6aa4cc9ac455d3721608e164f4e26ebb24dc0b2b598653576b84f4b7ca47c0c"
+}

@@ -96,10 +96,16 @@ export const AuthService = {
 		const wasm = await cargarCrypto();
 
 		const material = await post<{
+			email?: string;
 			encrypted_private_key_blob_b64: string;
 			private_key_nonce_b64: string;
 			kdf_salt_b64: string;
 		}>(serverUrl, '/auth/key-material', { email });
+		// QA-16: el servidor busca el email sin distinguir mayúsculas y
+		// devuelve el guardado, que es el AAD del blob — de acá en adelante
+		// (apertura, claves y cuenta guardadas) va ése, no el tipeado. Un
+		// servidor anterior no lo manda.
+		email = material.email ?? email.trim();
 
 		const abierta = wasm.abrir_clave_privada(
 			passphrase,

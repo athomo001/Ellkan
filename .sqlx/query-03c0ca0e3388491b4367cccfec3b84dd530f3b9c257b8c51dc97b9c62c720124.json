@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, security_stamp, created_at, must_change_passphrase from users\n               where email = $1 and active and deleted_at is null and email_verified_at is not null",
+  "query": "select id, external_id, email, display_name, active from users\n               where lower(email) = lower(trim($1)) and deleted_at is null",
   "describe": {
     "columns": [
       {
@@ -16,34 +16,45 @@
       },
       {
         "ordinal": 1,
-        "name": "security_stamp",
-        "type_info": "Uuid",
+        "name": "external_id",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "users",
-            "name": "security_stamp"
+            "name": "external_id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "created_at",
-        "type_info": "Timestamptz",
+        "name": "email",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "users",
-            "name": "created_at"
+            "name": "email"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "must_change_passphrase",
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "active",
         "type_info": "Bool",
         "origin": {
           "Table": {
             "table": "users",
-            "name": "must_change_passphrase"
+            "name": "active"
           }
         }
       }
@@ -55,10 +66,11 @@
     },
     "nullable": [
       false,
+      true,
       false,
       false,
       false
     ]
   },
-  "hash": "546f96309e3ad8106460ce34db11ecf1c1b1981c30574b9b78d60d2c2c6456c1"
+  "hash": "03c0ca0e3388491b4367cccfec3b84dd530f3b9c257b8c51dc97b9c62c720124"
 }

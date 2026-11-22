@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select id, escrow_id, requested_by, status, approvals,\n                   requester_public_key_x25519, sealed_private_key_for_requester, created_at\n            from account_recovery_requests where id = $1\n            ",
+  "query": "\n            insert into account_recovery_requests\n                (escrow_id, requester_public_key_x25519, status, confirmation_code_hash, expires_at)\n            values ($1, $2, 'unconfirmed', $3, $4)\n            returning id, escrow_id, requested_by, status, approvals,\n                      requester_public_key_x25519, sealed_private_key_for_requester, created_at,\n                      confirmation_code_hash, requester_token_hash, expires_at\n            ",
   "describe": {
     "columns": [
       {
@@ -90,11 +90,47 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "confirmation_code_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "confirmation_code_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "requester_token_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "requester_token_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "expires_at"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -105,8 +141,11 @@
       false,
       false,
       true,
+      false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "b28f7c71d4812ced30bddf837f4fc97458960864813fd5d6fc24a55fb5c20343"
+  "hash": "2ffa54aefe0d1761b07248d3bdd4999255ab19e02b86088e2e55b021ae6fd7dc"
 }

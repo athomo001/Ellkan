@@ -268,7 +268,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = $1 and active and deleted_at is null and email_verified_at is not null"#,
+               where lower(email) = lower(trim($1)) and active and deleted_at is null and email_verified_at is not null"#,
             email,
         )
         .fetch_optional(&self.pool)
@@ -328,16 +328,17 @@ impl UserRepository for PgUserRepository {
     async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError> {
         let fila = sqlx::query!(
             r#"
-            select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
+            select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
             from user_keys uk
             join users u on u.id = uk.user_id
-            where u.email = $1 and u.active and u.deleted_at is null and u.email_verified_at is not null
+            where lower(u.email) = lower(trim($1)) and u.active and u.deleted_at is null and u.email_verified_at is not null
             "#,
             email,
         )
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.map(|f| super::models::MaterialDesbloqueo {
+            email: f.email,
             encrypted_private_key_blob: f.encrypted_private_key_blob,
             private_key_nonce: f.private_key_nonce,
             kdf_salt: f.kdf_salt,
@@ -352,7 +353,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = $1 and active and deleted_at is null and email_verified_at is null"#,
+               where lower(email) = lower(trim($1)) and active and deleted_at is null and email_verified_at is null"#,
             email,
         )
         .fetch_optional(&self.pool)
@@ -433,7 +434,7 @@ impl UserRepository for PgUserRepository {
         let fila = sqlx::query!(
             r#"
             select u.id, u.security_stamp, u.created_at, u.must_change_passphrase from users u
-            where u.email = $2 and u.active and u.deleted_at is null and u.email_verified_at is not null
+            where lower(u.email) = lower(trim($2)) and u.active and u.deleted_at is null and u.email_verified_at is not null
               and (
                     u.id = $1
                     or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id
@@ -814,7 +815,7 @@ impl crate::notificaciones::LocaleRepository for PgUserRepository {
     /// email_verified_at is not null` de `buscar_por_email` — ver el
     /// comentario del trait en `notificaciones.rs`.
     async fn locale_de_email(&self, email: &str) -> Result<Option<String>, RepoError> {
-        let fila = sqlx::query!(r#"select locale from users where email = $1"#, email)
+        let fila = sqlx::query!(r#"select locale from users where lower(email) = lower(trim($1))"#, email)
             .fetch_optional(&self.pool)
             .await?;
         Ok(fila.map(|f| f.locale))

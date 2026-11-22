@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update account_recovery_requests\n            set status = 'pending', requester_token_hash = $2, confirmation_code_hash = null, expires_at = $3\n            where id = $1 and status = 'unconfirmed' and expires_at > now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a6cf1b7be84af06e4083f2c06882f743cbe8527ffb6473eb7a1eb233e80aaa2"
+}

@@ -250,7 +250,7 @@ impl UserRepository for SqliteUserRepository {
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = ?1 and active and deleted_at is null and email_verified_at is not null"#,
+               where lower(email) = lower(trim(?1)) and active and deleted_at is null and email_verified_at is not null"#,
         )
         .bind(email)
         .fetch_optional(&self.pool)
@@ -301,14 +301,15 @@ impl UserRepository for SqliteUserRepository {
 
     async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<MaterialDesbloqueo>, RepoError> {
         let fila = sqlx::query(
-            r#"select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
+            r#"select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
                from user_keys uk join users u on u.id = uk.user_id
-               where u.email = ?1 and u.active and u.deleted_at is null and u.email_verified_at is not null"#,
+               where lower(u.email) = lower(trim(?1)) and u.active and u.deleted_at is null and u.email_verified_at is not null"#,
         )
         .bind(email)
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.map(|f| MaterialDesbloqueo {
+            email: f.get("email"),
             encrypted_private_key_blob: f.get("encrypted_private_key_blob"),
             private_key_nonce: f.get("private_key_nonce"),
             kdf_salt: f.get("kdf_salt"),
@@ -322,7 +323,7 @@ impl UserRepository for SqliteUserRepository {
     async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = ?1 and active and deleted_at is null and email_verified_at is null"#,
+               where lower(email) = lower(trim(?1)) and active and deleted_at is null and email_verified_at is null"#,
         )
         .bind(email)
         .fetch_optional(&self.pool)
@@ -342,7 +343,7 @@ impl UserRepository for SqliteUserRepository {
     async fn buscar_por_email_visible(&self, actor_id: Uuid, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = ?1 and id = ?2 and active and deleted_at is null and email_verified_at is not null"#,
+               where lower(email) = lower(trim(?1)) and id = ?2 and active and deleted_at is null and email_verified_at is not null"#,
         )
         .bind(email)
         .bind(actor_id.to_string())
@@ -420,7 +421,7 @@ impl EmailVerificationRepository for SqliteUserRepository {
 
 impl crate::notificaciones::LocaleRepository for SqliteUserRepository {
     async fn locale_de_email(&self, email: &str) -> Result<Option<String>, RepoError> {
-        let fila = sqlx::query(r#"select locale from users where email = ?1"#)
+        let fila = sqlx::query(r#"select locale from users where lower(email) = lower(trim(?1))"#)
             .bind(email)
             .fetch_optional(&self.pool)
             .await?;

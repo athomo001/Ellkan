@@ -22,7 +22,7 @@ import { cargarCrypto } from '$lib/crypto/wasm';
 import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
 import { uuidABytes } from '$lib/crypto/uuid';
 import { abrirClavePrivadaEnWorker } from '$lib/crypto/argon2WorkerClient';
-import { iniciarSesion } from '$lib/crypto/identity';
+import { emailDelMaterial, iniciarSesion, type MaterialClave } from '$lib/crypto/identity';
 import { listarArbolCarpetas } from '$lib/crypto/carpetas';
 import { desactivar as desactivarLlavero } from '$lib/crypto/llavero-local';
 import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
@@ -77,12 +77,16 @@ export async function unirConCuentaDelServidor(
 	// 1. Identidad del servidor.
 	alAvanzar('servidor');
 	const remotoAnonimo = clienteRemoto(serverUrl, null);
-	let material: { encrypted_private_key_blob_b64: string; private_key_nonce_b64: string; kdf_salt_b64: string };
+	let material: MaterialClave;
 	try {
 		material = await remotoAnonimo.post('/auth/key-material', { email });
 	} catch (err) {
 		throw new ErrorCuentaRemota(err instanceof TypeError ? { estado: 'sin_conexion' } : { estado: 'servidor_invalido' });
 	}
+	// QA-16: el email de la cuenta en el servidor (AAD de su blob) puede
+	// diferir en mayúsculas del local; la identidad adoptada usa el del servidor.
+	const emailServidor = emailDelMaterial(material, email);
+
 	let abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array };
 	try {
 		abierta = await abrirClavePrivadaEnWorker(
@@ -90,7 +94,7 @@ export async function unirConCuentaDelServidor(
 			base64ABytes(material.kdf_salt_b64),
 			base64ABytes(material.private_key_nonce_b64),
 			base64ABytes(material.encrypted_private_key_blob_b64),
-			new TextEncoder().encode(email)
+			new TextEncoder().encode(emailServidor)
 		);
 	} catch {
 		throw new ErrorCuentaRemota({ estado: 'error', mensaje: 'La frase no corresponde a la cuenta de ese servidor.' });
@@ -101,15 +105,15 @@ export async function unirConCuentaDelServidor(
 		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
 		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
 	};
-	let diagnostico = await diagnosticarCuentaRemota(serverUrl, email, clavesServidor);
+	let diagnostico = await diagnosticarCuentaRemota(serverUrl, emailServidor, clavesServidor);
 
 	// Cuenta creada por un admin con frase temporal: el servidor exige
 	// cambiarla antes de dejar entrar. Se hace acá mismo con la sesión parcial
 	// (igual que el login web), y desde ahí todo sigue con la frase nueva.
 	if (esFraseTemporal(diagnostico)) {
-		material = await resolverFraseTemporal(serverUrl, email, abierta, diagnostico.sessionId, passphraseNueva);
+		material = await resolverFraseTemporal(serverUrl, emailServidor, abierta, diagnostico.sessionId, passphraseNueva);
 		passphraseServidor = passphraseNueva!;
-		diagnostico = await diagnosticarCuentaRemota(serverUrl, email, clavesServidor);
+		diagnostico = await diagnosticarCuentaRemota(serverUrl, emailServidor, clavesServidor);
 	}
 	if (diagnostico.estado !== 'ok') throw new ErrorCuentaRemota(diagnostico);
 	if (!diagnostico.userId) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
@@ -196,7 +200,7 @@ export async function unirConCuentaDelServidor(
 		// cosmético
 	}
 	await api.post('/auth/adoptar-identidad', {
-		email,
+		email: emailServidor,
 		display_name: displayName,
 		public_key_x25519_b64: bytesABase64(clavesServidor.x25519Public),
 		public_key_ed25519_b64: bytesABase64(clavesServidor.ed25519Public),
@@ -205,18 +209,18 @@ export async function unirConCuentaDelServidor(
 		kdf_salt_b64: material.kdf_salt_b64,
 		user_id: userIdServidor
 	});
-	registrarVinculacion(serverUrl, email);
-	reiniciarCursor(email);
+	registrarVinculacion(serverUrl, emailServidor);
+	reiniciarCursor(emailServidor);
 	// El desbloqueo guardado en el llavero tenía la frase vieja.
 	await desactivarLlavero(email).catch(() => {});
 
 	// 5. Entrar con la frase del servidor y traer todo.
 	alAvanzar('sincronizando');
-	const login = await iniciarSesion(email, passphraseServidor);
+	const login = await iniciarSesion(emailServidor, passphraseServidor);
 	if (login.estado !== 'completo' || !login.claves) {
 		throw new Error('La cuenta se unió, pero no se pudo volver a entrar. Cerrá sesión y entrá con la frase del servidor.');
 	}
-	sesion.set({ sessionId: login.sessionId ?? null, userId: login.userId ?? null, email });
+	sesion.set({ sessionId: login.sessionId ?? null, userId: login.userId ?? null, email: login.email });
 	clavesDesbloqueadas.set(login.claves);
 	try {
 		await sincronizarAhora();

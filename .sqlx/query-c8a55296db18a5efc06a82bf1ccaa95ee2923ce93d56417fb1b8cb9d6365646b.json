@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select r.id, r.escrow_id, r.requested_by, r.status, r.approvals,\n                   r.requester_public_key_x25519, r.sealed_private_key_for_requester, r.created_at,\n                   e.approval_threshold\n            from account_recovery_requests r\n            join account_recovery_escrow e on e.id = r.escrow_id\n            where r.id = $1 and r.status = 'pending'\n            for update\n            ",
+  "query": "\n            select id, escrow_id, requested_by, status, approvals,\n                   requester_public_key_x25519, sealed_private_key_for_requester, created_at,\n                   confirmation_code_hash, requester_token_hash, expires_at\n            from account_recovery_requests where id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -93,12 +93,34 @@
       },
       {
         "ordinal": 8,
-        "name": "approval_threshold",
-        "type_info": "Int4",
+        "name": "confirmation_code_hash",
+        "type_info": "Bytea",
         "origin": {
           "Table": {
-            "table": "account_recovery_escrow",
-            "name": "approval_threshold"
+            "table": "account_recovery_requests",
+            "name": "confirmation_code_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "requester_token_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "requester_token_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "expires_at"
           }
         }
       }
@@ -117,8 +139,10 @@
       false,
       true,
       false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "7bf7b9cfd55219efeef514e7156a5649a8daa1e4ae684c9a4635074234ce69f6"
+  "hash": "c8a55296db18a5efc06a82bf1ccaa95ee2923ce93d56417fb1b8cb9d6365646b"
 }

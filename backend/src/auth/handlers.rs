@@ -186,6 +186,7 @@ pub async fn key_material(
 ) -> Result<Json<KeyMaterialResponse>, ApiError> {
     let material = servicio(&state).material_desbloqueo(&req.email, &state.secrets_key).await?;
     Ok(Json(KeyMaterialResponse {
+        email: material.email,
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),
         kdf_salt_b64: b64::encode(&material.kdf_salt),

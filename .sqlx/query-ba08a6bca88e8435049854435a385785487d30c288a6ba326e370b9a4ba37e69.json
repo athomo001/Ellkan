@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select locale from users where email = $1",
+  "query": "select locale from users where lower(email) = lower(trim($1))",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       false
     ]
   },
-  "hash": "5e551b90d7b3aef0d0f09a737b3fe124fffd68ff22ee15e65cf74953542944c5"
+  "hash": "ba08a6bca88e8435049854435a385785487d30c288a6ba326e370b9a4ba37e69"
 }

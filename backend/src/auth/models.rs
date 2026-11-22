@@ -44,6 +44,10 @@ pub struct UsuarioBusqueda {
 /// `user_keys`, nunca la clave privada en claro.
 #[derive(Debug, Clone)]
 pub struct MaterialDesbloqueo {
+    /// QA-16: el email tal como quedó guardado, que es el AAD del blob. La
+    /// búsqueda no distingue mayúsculas: el cliente tiene que abrir el blob
+    /// con éste, no con lo que tipeó.
+    pub email: String,
     pub encrypted_private_key_blob: Vec<u8>,
     pub private_key_nonce: Vec<u8>,
     pub kdf_salt: Vec<u8>,

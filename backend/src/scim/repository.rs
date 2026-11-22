@@ -102,7 +102,7 @@ impl ScimUserRepository for PgScimUserRepository {
     async fn buscar_por_email(&self, email: &str) -> Result<Option<ScimUser>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, external_id, email, display_name, active from users
-               where email = $1 and deleted_at is null"#,
+               where lower(email) = lower(trim($1)) and deleted_at is null"#,
             email,
         )
         .fetch_optional(&self.pool)

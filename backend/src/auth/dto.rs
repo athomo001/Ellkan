@@ -69,6 +69,9 @@ pub struct KeyMaterialRequest {
 
 #[derive(Debug, Serialize)]
 pub struct KeyMaterialResponse {
+    /// QA-16: email guardado (AAD del blob). Sin cuenta, el pedido en
+    /// minúsculas y sin espacios, igual que el material falso.
+    pub email: String,
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,

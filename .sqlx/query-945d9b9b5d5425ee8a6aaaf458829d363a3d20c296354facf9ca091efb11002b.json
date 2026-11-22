@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            insert into account_recovery_requests (escrow_id, requested_by, requester_public_key_x25519)\n            values ($1, $2, $3)\n            returning id, escrow_id, requested_by, status, approvals,\n                      requester_public_key_x25519, sealed_private_key_for_requester, created_at\n            ",
+  "query": "\n            select r.id, r.escrow_id, r.requested_by, r.status, r.approvals,\n                   r.requester_public_key_x25519, r.sealed_private_key_for_requester, r.created_at,\n                   r.confirmation_code_hash, r.requester_token_hash, r.expires_at,\n                   e.approval_threshold\n            from account_recovery_requests r\n            join account_recovery_escrow e on e.id = r.escrow_id\n            where r.id = $1 and r.status = 'pending' and r.expires_at > now()\n            for update of r\n            ",
   "describe": {
     "columns": [
       {
@@ -90,13 +90,55 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "confirmation_code_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "confirmation_code_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "requester_token_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "requester_token_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_requests",
+            "name": "expires_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "approval_threshold",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "account_recovery_escrow",
+            "name": "approval_threshold"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Uuid",
-        "Bytea"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -107,8 +149,12 @@
       false,
       false,
       true,
+      false,
+      true,
+      true,
+      false,
       false
     ]
   },
-  "hash": "1580fe77bccff6692bc914d720d21340330a7ddbc1fc729294a4edb662775606"
+  "hash": "945d9b9b5d5425ee8a6aaaf458829d363a3d20c296354facf9ca091efb11002b"
 }

@@ -130,6 +130,9 @@
 	}
 
 	async function procesarResultadoLogin(resultado: Awaited<ReturnType<typeof iniciarSesion>>) {
+		// QA-16: de acá en adelante (sesión, cambio de passphrase) va el email
+		// tal como está guardado, no como se tipeó.
+		email = resultado.email;
 		switch (resultado.estado) {
 			case 'completo':
 				if (resultado.claves) clavesDesbloqueadas.set(resultado.claves);

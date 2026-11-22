@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select gm_t.group_id\n            from group_members gm_t\n            join group_members gm_a\n              on gm_a.group_id = gm_t.group_id and gm_a.user_id = $1 and gm_a.is_admin\n            join groups g on g.id = gm_t.group_id and g.deleted_at is null\n            where gm_t.user_id = $2\n              and gm_t.created_at < $3\n              and gm_t.added_by is distinct from $1\n            order by gm_t.group_id\n            limit 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "group_members",
+            "name": "group_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "afc37215c2744e574e90c1aa9997910738f141b9e7c90995f6966a9fb146660c"
+}

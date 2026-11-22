@@ -22,6 +22,22 @@ function aadClavePrivada(email: string): Uint8Array {
 	return new TextEncoder().encode(email);
 }
 
+/** Lo que devuelve `/auth/key-material`. QA-16: el servidor busca el email
+ * sin distinguir mayúsculas y devuelve el que tiene guardado, que es el AAD
+ * del blob: se abre con ése, no con lo que se tipeó. Un servidor anterior no
+ * lo manda. */
+export interface MaterialClave {
+	email?: string;
+	encrypted_private_key_blob_b64: string;
+	private_key_nonce_b64: string;
+	kdf_salt_b64: string;
+}
+
+/** El email con el que se selló el blob (ver `MaterialClave`). */
+export function emailDelMaterial(material: MaterialClave, tipeado: string): string {
+	return material.email ?? tipeado.trim();
+}
+
 interface ResultadoRegistro {
 	userId: string;
 	/** F-24: `true` en cualquier auto-registro normal — la cuenta no puede
@@ -132,6 +148,8 @@ interface ResultadoLogin {
 	userId?: string;
 	deviceChallengeId?: string;
 	claves?: ClavesDesbloqueadas;
+	/** QA-16: el email tal como está guardado — es el que va a la sesión. */
+	email: string;
 }
 
 /**
@@ -144,18 +162,15 @@ interface ResultadoLogin {
 export async function iniciarSesion(email: string, passphrase: string): Promise<ResultadoLogin> {
 	const wasm = await cargarCrypto();
 
-	const material = await api.post<{
-		encrypted_private_key_blob_b64: string;
-		private_key_nonce_b64: string;
-		kdf_salt_b64: string;
-	}>('/auth/key-material', { email });
+	const material = await api.post<MaterialClave>('/auth/key-material', { email });
+	const emailGuardado = emailDelMaterial(material, email);
 
 	const abierta = await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
 		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(email)
+		aadClavePrivada(emailGuardado)
 	);
 
 	const challenge = await api.post<{ nonce_b64: string }>('/auth/challenge', { email });
@@ -187,7 +202,8 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 		sessionId: verify.session_id,
 		userId: verify.user_id,
 		deviceChallengeId: verify.device_challenge_id,
-		claves
+		claves,
+		email: emailGuardado
 	};
 }
 
@@ -217,18 +233,15 @@ export async function cerrarSesion(): Promise<void> {
  * nunca llega a `/auth/challenge`/`/auth/verify`. Tira si es incorrecta.
  */
 export async function verificarPassphrase(email: string, passphrase: string): Promise<void> {
-	const material = await api.post<{
-		encrypted_private_key_blob_b64: string;
-		private_key_nonce_b64: string;
-		kdf_salt_b64: string;
-	}>('/auth/key-material', { email });
+	const material = await api.post<MaterialClave>('/auth/key-material', { email });
+	const emailGuardado = emailDelMaterial(material, email);
 
 	await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
 		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(email)
+		aadClavePrivada(emailGuardado)
 	);
 }
 
@@ -240,18 +253,15 @@ export async function verificarPassphrase(email: string, passphrase: string): Pr
  */
 export async function desbloquearConPassphrase(email: string, passphrase: string): Promise<ClavesDesbloqueadas> {
 	const wasm = await cargarCrypto();
-	const material = await api.post<{
-		encrypted_private_key_blob_b64: string;
-		private_key_nonce_b64: string;
-		kdf_salt_b64: string;
-	}>('/auth/key-material', { email });
+	const material = await api.post<MaterialClave>('/auth/key-material', { email });
+	const emailGuardado = emailDelMaterial(material, email);
 
 	const abierta = await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
 		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(email)
+		aadClavePrivada(emailGuardado)
 	);
 
 	return {
@@ -276,18 +286,15 @@ export async function cambiarPassphrase(
 	passphraseNueva: string
 ): Promise<void> {
 	const wasm = await cargarCrypto();
-	const material = await api.post<{
-		encrypted_private_key_blob_b64: string;
-		private_key_nonce_b64: string;
-		kdf_salt_b64: string;
-	}>('/auth/key-material', { email });
+	const material = await api.post<MaterialClave>('/auth/key-material', { email });
+	const emailGuardado = emailDelMaterial(material, email);
 
 	const abierta = await abrirClavePrivadaEnWorker(
 		passphraseActual,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
 		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(email)
+		aadClavePrivada(emailGuardado)
 	);
 
 	const nuevaSalt = wasm.generar_salt_kdf();
@@ -296,7 +303,7 @@ export async function cambiarPassphrase(
 		nuevaSalt,
 		abierta.x25519Private,
 		abierta.ed25519Private,
-		aadClavePrivada(email)
+		aadClavePrivada(emailGuardado)
 	);
 
 	const blob = {
@@ -329,18 +336,15 @@ export async function cambiarPassphrase(
  */
 export async function cambiarEmailDeCuenta(emailActual: string, emailNuevo: string, passphrase: string): Promise<string> {
 	const wasm = await cargarCrypto();
-	const material = await api.post<{
-		encrypted_private_key_blob_b64: string;
-		private_key_nonce_b64: string;
-		kdf_salt_b64: string;
-	}>('/auth/key-material', { email: emailActual });
+	const material = await api.post<MaterialClave>('/auth/key-material', { email: emailActual });
+	const emailGuardado = emailDelMaterial(material, emailActual);
 
 	const abierta = await abrirClavePrivadaEnWorker(
 		passphrase,
 		base64ABytes(material.kdf_salt_b64),
 		base64ABytes(material.private_key_nonce_b64),
 		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(emailActual)
+		aadClavePrivada(emailGuardado)
 	);
 
 	const nuevoEmail = emailNuevo.trim();

@@ -329,6 +329,14 @@ fn registrar(
 
 fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
     let mut perfil = config::cargar_perfil()?;
+    // QA-16: el servidor no distingue mayúsculas en el email, pero el blob
+    // local se selló con el email tal como se registró (es su AAD): se usa el
+    // del perfil, no el tipeado.
+    if perfil.email.to_lowercase() != email.trim().to_lowercase() {
+        anyhow::bail!("el perfil local es de {}, no de {email}", perfil.email);
+    }
+    let email_perfil = perfil.email.clone();
+    let email = email_perfil.as_str();
     let passphrase = leer_passphrase("Passphrase: ")?;
 
     let blob = blob_desde_perfil(&perfil)?;
