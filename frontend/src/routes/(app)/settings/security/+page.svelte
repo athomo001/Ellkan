@@ -19,7 +19,7 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import { registrarPasskey, listarPasskeys, revocarPasskey, type Passkey } from '$lib/crypto/passkeys';
 	import { verificarPassphrase } from '$lib/crypto/identity';
-	import { generarSetup, confirmarYActivar, estaActivo, desactivar } from '$lib/crypto/totp-local';
+	import { generarSetup, confirmarYActivar, estaActivo, desactivar, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
 	import {
 		estaActivo as llaveroEstaActivo,
 		activar as activarLlavero,
@@ -372,6 +372,8 @@
 	{/if}
 </Card>
 
+<!-- QA-08: F-38 sólo en el escritorio (la clave vive en el llavero del SO). -->
+{#if totpLocalDisponible()}
 <Card>
 	<h2>{$t.settingsSecurity.desbloqueoTitulo}</h2>
 	<p class="hint">{$t.settingsSecurity.desbloqueoHint}</p>
@@ -414,6 +416,7 @@
 		</form>
 	{/if}
 </Card>
+{/if}
 
 {#if enModoEscritorio()}
 <Card>

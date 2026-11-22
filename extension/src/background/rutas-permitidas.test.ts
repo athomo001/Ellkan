@@ -8,12 +8,12 @@ import { RUTAS_CONTENT, hrefDelRemitente, revelarSiCorrespondeALaPagina, rutaPer
 
 describe('rutaPermitida', () => {
 	it('el popup tiene todas las rutas', () => {
-		for (const tipo of ['VAULT_LISTAR', 'AUTH_LOGOUT', 'F38_DESACTIVAR', 'AUTOFILL_BUSCAR']) {
+		for (const tipo of ['VAULT_LISTAR', 'AUTH_LOGOUT', 'AUTOFILL_BUSCAR']) {
 			expect(rutaPermitida('QuickAccess', tipo)).toBe(true);
 		}
 	});
 
-	it.each(['VAULT_LISTAR', 'VAULT_EDITAR', 'AUTH_LOGIN', 'AUTH_LOGOUT', 'F38_DESACTIVAR', 'F38_DESBLOQUEAR', 'PING'])(
+	it.each(['VAULT_LISTAR', 'VAULT_EDITAR', 'AUTH_LOGIN', 'AUTH_LOGOUT', 'PING'])(
 		'un content script no puede pedir %s',
 		(tipo) => {
 			for (const worker of ['WebIntegration', 'InFormMenu', 'NotificationBar'] as const) {

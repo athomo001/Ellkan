@@ -320,15 +320,16 @@ jobs:
         run: cd artefactos && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       # Las notas (.github/release-notas.md) separan lo que trae la Release
       # (app de escritorio + extensión, uso personal) del servidor para
-      # equipos (imagen Docker, que no incluye la app de escritorio). GitHub
-      # agrega abajo la lista de cambios. El tag lo crea la Release sobre el
-      # commit de esta corrida.
+      # equipos (imagen Docker, que no incluye la app de escritorio). Abajo
+      # va la lista de cambios, sacada de CHANGELOG.md (pendiente #91: la
+      # sección X.Y.Z en main, «Sin publicar» en develop), no de los títulos
+      # de los PR. El tag lo crea la Release sobre el commit de esta corrida.
       - name: Crear la Release
         run: |
           if [ "$CANAL" = "main" ]; then
-            extra=(--latest); titulo="Ellkan $TAG"; imagen="$NUMERO"
+            extra=(--latest); titulo="Ellkan $TAG"; imagen="$NUMERO"; seccion="$NUMERO"
           else
-            extra=(--prerelease --latest=false); titulo="Ellkan $TAG (desarrollo)"; imagen=dev
+            extra=(--prerelease --latest=false); titulo="Ellkan $TAG (desarrollo)"; imagen=dev; seccion="Sin publicar"
           fi
           {
             if [ "$CANAL" != "main" ]; then
@@ -338,8 +339,12 @@ jobs:
             fi
             sed -e "s|{{VERSION}}|$NUMERO|g" -e "s|{{IMAGEN}}|$imagen|g" \
                 -e "s|{{DUENO}}|$DUENO|g" -e "s|{{REPO}}|$REPO|g" .github/release-notas.md
+            echo
+            echo '## Cambios'
+            echo
+            bash .github/scripts/notas-del-changelog.sh "$seccion"
           } > notas.md
-          gh release create "$TAG" artefactos/* --target "$GITHUB_SHA" --title "$titulo" --notes-file notas.md --generate-notes "${extra[@]}"
+          gh release create "$TAG" artefactos/* --target "$GITHUB_SHA" --title "$titulo" --notes-file notas.md "${extra[@]}"
       # Sólo queda la pre-release -dev más reciente (las imágenes viejas
       # siguen en GHCR con su etiqueta X.Y.Z-dev.N).
       - name: Borrar pre-releases -dev anteriores

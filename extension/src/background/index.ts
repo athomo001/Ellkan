@@ -6,6 +6,8 @@
 import { BrowserApi } from '../browser-api';
 import { attachPagemod } from './pagemod';
 import { LockService } from './services/lock-service';
+import { borrarRestosF38 } from './services/restos-f38';
 
 BrowserApi.onConnect((port) => attachPagemod(port));
 LockService.instalarListener();
+void borrarRestosF38();

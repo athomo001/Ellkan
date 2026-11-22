@@ -8,6 +8,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Seguridad y privacidad
 
+- **Desbloqueo rápido con código sólo en el escritorio (QA-08, pendiente #100):** en la web y en la extensión se quitó: la clave que protegía el secreto TOTP quedaba dentro del perfil del navegador, y quien copiara el perfil (backup, infostealer) podía llegar a la contraseña maestra. Lo guardado de antes se borra solo. En la app de escritorio esa clave pasa al llavero del sistema (como Windows Hello); quien ya lo tenía activo no tiene que hacer nada, se migra en el próximo desbloqueo.
 - **Acceso de emergencia en la web (pendiente #131):** «Mi cuenta → Acceso de emergencia» permite designar contactos (muestra la huella de su clave para compararla antes de sellar), aceptar, pedir acceso, aprobar, rechazar y quitar.
 - **Entrar con tu organización (pendiente #133):** botón en el login cuando la instancia tiene SSO; la vuelta del proveedor (`/sso/callback`) recibe la sesión por `fetch`, nunca en la URL. Una cuenta nueva por SSO elige su contraseña y genera sus claves en el navegador. «Vincular» en «Mi cuenta → Seguridad».
 - **Código fuente en la extensión (pendiente #77):** link «Código fuente (AGPL-3.0)» en el login y en «Mi cuenta» del popup.
@@ -49,6 +50,8 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### CI
 
+- **Notas de cada Release desde este CHANGELOG (pendiente #91):** la Release oficial lleva la sección de su versión y la de desarrollo la de «Sin publicar», en vez de la lista automática de GitHub (que salía vacía porque los PR se llaman «Develop»).
+- **Self-check de la extensión al día:** el PING de prueba sale del popup; desde un content script ahora se espera el rechazo (QA-32).
 - **Cadena de suministro (pendiente #80):** `cargo deny` (licencias compatibles con AGPL-3.0, crates sólo de crates.io, sin `*`) y un control que falla si el build de la web o de la extensión menciona un dominio de analítica o CDN externo. Los crates del workspace se marcan `publish = false`.
 - **Tests del motor de sync (pendiente #103):** `motor.test.ts` con dobles de la API local y remota (altas, eco de cambios propios, conflictos, borrados pendientes, 409, sesión remota vencida, carpetas).
 

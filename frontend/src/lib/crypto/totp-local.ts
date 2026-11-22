@@ -19,26 +19,29 @@
 // recuperar la passphrase maestra sin el código real. El backoff de intentos
 // nunca protegía nada porque no era parte de la operación criptográfica.
 //
-// Fix: el secreto ya no se guarda en claro en `localStorage`. Se envuelve
-// con una `CryptoKey` AES-GCM `extractable:false` generada por dispositivo y
-// guardada en IndexedDB. Eso frena a quien sólo lee `localStorage` (o una
-// API JS que no puede exportar la clave), pero NO a quien copia los archivos
-// del perfil: QA-08 — Chromium y Firefox guardan el
-// material de la `CryptoKey` en disco dentro de la base IndexedDB del
-// perfil, así que un backup del perfil o un infostealer que lee archivos
-// recupera la clave, el secreto TOTP y con ellos la passphrase maestra.
-// Tampoco protege contra ejecución de JS activa en la página (XSS), mismo
-// límite ya aceptado para el bearer token de sesión (ver `session.ts`).
-// Cerrarlo de verdad exige que la operación dependa de algo fuera del perfil
-// (PRF de WebAuthn en web, llavero del SO en escritorio): pendiente, QA-08.
+// Primer arreglo: envolver el secreto con una `CryptoKey` `extractable:false`
+// en IndexedDB. No alcanzó (QA-08): Chromium y Firefox guardan el material
+// de esa clave en los archivos del perfil, así que un backup o un
+// infostealer se la lleva junto con el secreto y la passphrase.
+//
+// QA-08 (2026-11-22, pendiente #100): la clave que envuelve el secreto vive
+// en el llavero del SO (Credential Manager / Secret Service, mismo almacén
+// que F-50), fuera del perfil. Por eso F-38 existe sólo en el escritorio: en
+// la web no hay nada fuera del perfil donde guardarla y se desactivó (lo que
+// hubiera quedado de antes se borra al cargar). Sigue sin proteger contra JS
+// activo en la página (XSS), mismo límite que el token de sesión.
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { base32Codificar } from './base32';
 import { obtenerClaveDeDispositivo, borrarClaveDeDispositivo } from './device-key';
+import { guardarEnvolturaLlavero, recuperarEnvolturaLlavero, eliminarEnvolturaLlavero } from '$lib/tauri/llavero';
+import { enModoEscritorio } from '$lib/tauri/conectar';
 
 interface EstadoLocalTotp {
-	/** Secreto TOTP cifrado con la clave de dispositivo, nunca en claro. */
+	/** 2 = clave en el llavero del SO; sin campo = clave vieja en IndexedDB. */
+	version?: 2;
+	/** Secreto TOTP cifrado con la clave del llavero, nunca en claro. */
 	secretoCifradoB64: string;
 	secretoIvB64: string;
 	cipherB64: string;
@@ -76,18 +79,76 @@ function leerEstado(email: string): EstadoLocalTotp | null {
 	}
 }
 
+/** F-38 sólo existe en el escritorio (QA-08). */
+export function disponible(): boolean {
+	return enModoEscritorio();
+}
+
 export function estaActivo(email: string): boolean {
-	return leerEstado(email) !== null;
+	return disponible() && leerEstado(email) !== null;
 }
 
 export async function desactivar(email: string): Promise<void> {
 	localStorage.removeItem(claveStorage(email));
 	localStorage.removeItem(claveBackoff(email));
-	await borrarClaveDeDispositivo(claveDispositivo(email));
+	await borrarClaveDeDispositivo(claveDispositivo(email)).catch(() => {});
+	await eliminarEnvolturaLlavero(claveDispositivo(email));
+}
+
+/**
+ * Web (QA-08): borra lo que haya quedado de F-38 de cuando existía en la
+ * web — el secreto envuelto en `localStorage` y la base de IndexedDB con la
+ * clave que lo abría. Se llama una vez al arrancar.
+ */
+export async function limpiarRestosWeb(): Promise<void> {
+	if (disponible()) return;
+	const claves: string[] = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const k = localStorage.key(i);
+		if (k?.startsWith('ellkan:totp-local')) claves.push(k);
+	}
+	claves.forEach((k) => localStorage.removeItem(k));
+	if (typeof indexedDB !== 'undefined') indexedDB.deleteDatabase('ellkan-device-keys');
+}
+
+/**
+ * Clave AES-GCM que envuelve el secreto TOTP. Sus bytes viven sólo en el
+ * llavero del SO; acá se importa como `CryptoKey` no exportable y nunca se
+ * persiste en el perfil. `crear` genera una nueva si no hay.
+ */
+async function claveDelLlavero(email: string, crear: boolean): Promise<CryptoKey | null> {
+	let b64 = await recuperarEnvolturaLlavero(claveDispositivo(email));
+	if (!b64 && crear) {
+		const bytes = crypto.getRandomValues(new Uint8Array(32));
+		b64 = bytesABase64(bytes);
+		bytes.fill(0);
+		await guardarEnvolturaLlavero(claveDispositivo(email), b64);
+	}
+	if (!b64) return null;
+	const crudo = base64ABytes(b64);
+	try {
+		return await crypto.subtle.importKey('raw', crudo as BufferSource, 'AES-GCM', false, ['encrypt', 'decrypt']);
+	} finally {
+		crudo.fill(0);
+	}
+}
+
+async function guardarEstado(email: string, clave: CryptoKey, secreto: Uint8Array, cipher: string, nonce: string) {
+	const secretoIv = crypto.getRandomValues(new Uint8Array(12));
+	const secretoCifrado = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: secretoIv }, clave, secreto as BufferSource);
+	const estado: EstadoLocalTotp = {
+		version: 2,
+		secretoCifradoB64: bytesABase64(new Uint8Array(secretoCifrado)),
+		secretoIvB64: bytesABase64(secretoIv),
+		cipherB64: cipher,
+		nonceB64: nonce
+	};
+	localStorage.setItem(claveStorage(email), JSON.stringify(estado));
 }
 
 /** Genera un secreto nuevo (nunca reusa el de F-14) y la URI para el QR de setup. */
 export async function generarSetup(email: string): Promise<{ secreto: Uint8Array; otpauthUri: string }> {
+	if (!disponible()) throw new Error('El desbloqueo rápido existe sólo en la app de escritorio.');
 	const wasm = await cargarCrypto();
 	const secreto = wasm.totp_generar_secreto();
 	const secretoBase32 = base32Codificar(secreto);
@@ -112,19 +173,13 @@ export async function confirmarYActivar(
 	if (!wasm.totp_verificar(secreto, Number(codigo), BigInt(ahora))) {
 		throw new Error('Código incorrecto.');
 	}
+	if (!disponible()) throw new Error('El desbloqueo rápido existe sólo en la app de escritorio.');
 	const cifrado = wasm.totp_envolver_passphrase(secreto, passphrase, aad(email));
 
-	const claveDisp = await obtenerClaveDeDispositivo(claveDispositivo(email));
-	const secretoIv = crypto.getRandomValues(new Uint8Array(12));
-	const secretoCifrado = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: secretoIv }, claveDisp, secreto as BufferSource);
-
-	const estado: EstadoLocalTotp = {
-		secretoCifradoB64: bytesABase64(new Uint8Array(secretoCifrado)),
-		secretoIvB64: bytesABase64(secretoIv),
-		cipherB64: bytesABase64(cifrado.ciphertext),
-		nonceB64: bytesABase64(cifrado.nonce)
-	};
-	localStorage.setItem(claveStorage(email), JSON.stringify(estado));
+	const clave = await claveDelLlavero(email, true);
+	if (!clave) throw new Error('No se pudo guardar la clave en el llavero del sistema.');
+	await guardarEstado(email, clave, secreto, bytesABase64(cifrado.ciphertext), bytesABase64(cifrado.nonce));
+	secreto.fill(0);
 }
 
 function leerBackoff(email: string): EstadoBackoff {
@@ -159,7 +214,7 @@ const BLOQUEO_MS = 30_000;
  * del login real, sólo evita que el usuario tenga que escribirla).
  */
 export async function desbloquear(email: string, codigo: string): Promise<string> {
-	const estado = leerEstado(email);
+	const estado = disponible() ? leerEstado(email) : null;
 	if (!estado) throw new Error('Desbloqueo rápido no está activo en este dispositivo.');
 
 	const backoff = leerBackoff(email);
@@ -170,10 +225,19 @@ export async function desbloquear(email: string, codigo: string): Promise<string
 	}
 
 	const wasm = await cargarCrypto();
-	const claveDisp = await obtenerClaveDeDispositivo(claveDispositivo(email));
+	// Estado de antes de QA-08: la clave está en IndexedDB. Se abre una vez
+	// con ella y, si el código es válido, se pasa al llavero (abajo).
+	const viejo = estado.version !== 2;
+	const clave = viejo ? await obtenerClaveDeDispositivo(claveDispositivo(email)) : await claveDelLlavero(email, false);
+	if (!clave) {
+		// El llavero ya no tiene la clave (borrada fuera de la app): sin ella
+		// no hay forma de abrir el secreto; se desactiva y se usa la passphrase.
+		await desactivar(email);
+		throw new Error('El desbloqueo rápido se perdió en este equipo. Entrá con tu contraseña y activalo de nuevo.');
+	}
 	const secretoBuf = await crypto.subtle.decrypt(
 		{ name: 'AES-GCM', iv: base64ABytes(estado.secretoIvB64) as BufferSource },
-		claveDisp,
+		clave,
 		base64ABytes(estado.secretoCifradoB64) as BufferSource
 	);
 	const secreto = new Uint8Array(secretoBuf);
@@ -190,10 +254,19 @@ export async function desbloquear(email: string, codigo: string): Promise<string
 	}
 	guardarBackoff(email, { fallosConsecutivos: 0, bloqueadoHastaMs: null });
 
-	return wasm.totp_desenvolver_passphrase(
+	const passphrase = wasm.totp_desenvolver_passphrase(
 		secreto,
 		base64ABytes(estado.nonceB64),
 		base64ABytes(estado.cipherB64),
 		aad(email)
 	);
+	if (viejo) {
+		const nueva = await claveDelLlavero(email, true);
+		if (nueva) {
+			await guardarEstado(email, nueva, secreto, estado.cipherB64, estado.nonceB64);
+			await borrarClaveDeDispositivo(claveDispositivo(email));
+		}
+	}
+	secreto.fill(0);
+	return passphrase;
 }

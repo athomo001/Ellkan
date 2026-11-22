@@ -10,7 +10,6 @@ import { SesionController } from './controllers/sesion-controller';
 import { AuthController } from './controllers/auth-controller';
 import { VaultController } from './controllers/vault-controller';
 import { AutofillController } from './controllers/autofill-controller';
-import { TotpLocalController } from './controllers/totp-local-controller';
 import { LockService } from './services/lock-service';
 import { appEscritorioDisponible } from './transporte';
 import { hrefDelRemitente, revelarSiCorrespondeALaPagina, rutaPermitida } from './rutas-permitidas';
@@ -36,13 +35,8 @@ const rutas: Record<string, Handler> = {
 	VAULT_REVELAR_SECRETO: (payload) => VaultController.revelarSecreto(payload),
 	VAULT_CREAR: (payload) => VaultController.crear(payload),
 	VAULT_EDITAR: (payload) => VaultController.editar(payload),
-	AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias(payload),
-	// F-38 (desbloqueo rápido local con TOTP) — spec 05 §2.1.
-	F38_ESTADO: () => TotpLocalController.estado(),
-	F38_GENERAR_SETUP: () => TotpLocalController.generarSetup(),
-	F38_CONFIRMAR: (payload) => TotpLocalController.confirmar(payload),
-	F38_DESACTIVAR: () => TotpLocalController.desactivar(),
-	F38_DESBLOQUEAR: (payload) => TotpLocalController.desbloquear(payload)
+	AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias(payload)
+	// F-38 (rutas `F38_*`) se quitó: QA-08, ver `services/restos-f38.ts`.
 };
 
 /**

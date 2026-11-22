@@ -17,7 +17,7 @@
 	import { iniciarSesion, verificarDispositivo, cambiarPassphrase } from '$lib/crypto/identity';
 	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '$lib/crypto/totp';
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
-	import { desbloquear as desbloquearLocal } from '$lib/crypto/totp-local';
+	import { desbloquear as desbloquearLocal, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
 	import { estaActivo as llaveroActivo, desbloquear as desbloquearLlavero } from '$lib/crypto/llavero-local';
 	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
@@ -461,8 +461,10 @@
 		<hr />
 		<p class="hint centrado">
 			<button type="button" class="link" onclick={() => (conPasskey = true)}>{$t.login.usarPasskey}</button>
-			· <button type="button" class="link" onclick={() => (conCodigoLocal = true)}>{$t.login.usarCodigoLocal}</button
-			>
+			{#if totpLocalDisponible()}
+				· <button type="button" class="link" onclick={() => (conCodigoLocal = true)}>{$t.login.usarCodigoLocal}</button
+				>
+			{/if}
 		</p>
 	{/if}
 </Card>

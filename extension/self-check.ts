@@ -66,13 +66,13 @@ async function main() {
 	port1.emit({ requestId: 'h1', tipo: 'HANDSHAKE', payload: { name: 'WebIntegration' } });
 	assert.deepEqual(port1.enviados[0], ['ellkan.port.ready'], 'debe confirmar el handshake');
 
+	// QA-32: un content script sólo tiene las rutas de autofill; PING no.
 	port1.emit({ requestId: 'r1', tipo: 'PING' });
 	await new Promise((r) => setTimeout(r, 0)); // deja resolver el handler async
-	const respuestaPing = port1.enviados[1] as [string, string, { pong: boolean }];
+	const respuestaPing = port1.enviados[1] as [string, string, unknown];
 	assert.equal(respuestaPing[0], 'r1');
-	assert.equal(respuestaPing[1], 'SUCCESS');
-	assert.equal(respuestaPing[2].pong, true);
-	console.log('OK: handshake + PING/PONG (Pagemod→Event→Controller→Service)');
+	assert.equal(respuestaPing[1], 'ERROR', 'un content script no puede pedir PING (QA-32)');
+	console.log('OK: handshake de content script; PING le está vedado (QA-32)');
 
 	// --- 2. Anti-spoofing: mismo workerId desde otro tab/frame se rechaza ---
 	let desconectado = false;
@@ -103,6 +103,14 @@ async function main() {
 	portPopup.emit({ requestId: 'h4', tipo: 'HANDSHAKE', payload: { name: 'QuickAccess' } });
 	assert.deepEqual(portPopup.enviados[0], ['ellkan.port.ready'], 'el popup debe poder loguearse sin tabId/frameId');
 	console.log('OK: QuickAccess (popup) se registra sin tabId/frameId');
+
+	portPopup.emit({ requestId: 'r4', tipo: 'PING' });
+	await new Promise((r) => setTimeout(r, 0));
+	const pingPopup = portPopup.enviados[1] as [string, string, { pong: boolean }];
+	assert.equal(pingPopup[0], 'r4');
+	assert.equal(pingPopup[1], 'SUCCESS');
+	assert.equal(pingPopup[2].pong, true);
+	console.log('OK: PING/PONG desde el popup (Pagemod→Event→Controller→Service)');
 
 	// --- 5. Alguien pretendiendo ser QuickAccess desde OTRA extensión (sender.id
 	// distinto) se rechaza — el único chequeo de legitimidad que le queda a
@@ -388,30 +396,6 @@ async function main() {
 		'hay entradas del sitio pero para otro usuario → ofrecer guardar la nueva'
 	);
 	console.log('OK: save-prompt.ts — ofrece guardar sólo credenciales nuevas (con contraseña, usuario no repetido)');
-
-	// --- 12. `totp-local-service.ts::siguienteBackoff` (F-38, spec 05 §2.1):
-	// backoff tras códigos fallidos como decisión pura. ---
-	const { siguienteBackoff, INTENTOS_ANTES_DE_BLOQUEAR, BLOQUEO_MS } = await import(
-		'./src/background/services/totp-local-service.ts'
-	);
-	const t0 = 1_000_000;
-	let est = { fallosConsecutivos: 0, bloqueadoHastaMs: null as number | null };
-	// Dos fallos: cuenta pero no bloquea todavía.
-	est = siguienteBackoff(est, false, t0).nuevo;
-	est = siguienteBackoff(est, false, t0).nuevo;
-	assert.deepEqual(est, { fallosConsecutivos: 2, bloqueadoHastaMs: null }, '2 fallos: sin bloqueo aún');
-	// Tercer fallo: bloqueo por 30s.
-	const r3 = siguienteBackoff(est, false, t0);
-	assert.equal(r3.nuevo.fallosConsecutivos, INTENTOS_ANTES_DE_BLOQUEAR);
-	assert.equal(r3.nuevo.bloqueadoHastaMs, t0 + BLOQUEO_MS, 'al 3er fallo se bloquea 30s');
-	// Intentar durante el bloqueo: aborta con segundos restantes, sin tocar el estado.
-	const durante = siguienteBackoff(r3.nuevo, true, t0 + 10_000);
-	assert.equal(durante.bloqueadoSegundos, 20, 'durante el bloqueo informa los segundos que faltan');
-	assert.deepEqual(durante.nuevo, r3.nuevo, 'durante el bloqueo no muta el estado');
-	// Pasado el bloqueo, un código válido resetea todo.
-	const ok = siguienteBackoff(r3.nuevo, true, t0 + BLOQUEO_MS + 1);
-	assert.deepEqual(ok.nuevo, { fallosConsecutivos: 0, bloqueadoHastaMs: null }, 'código válido tras el bloqueo resetea');
-	console.log('OK: totp-local-service.ts (siguienteBackoff) — 3 fallos → 30s de bloqueo, reset al acertar (F-38)');
 
 	// --- 8. Generador de contraseñas + medidor de fortaleza (pedido explícito
 	// del usuario, modal del popup) — mismos módulos que ya usa la app web,
