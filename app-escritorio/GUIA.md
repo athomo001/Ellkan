@@ -191,7 +191,7 @@ En la pantalla de acceso, *¿Olvidaste tu contraseña?* → escribe tu correo �
 **Si ya tenés cuenta en un servidor Ellkan**, elegí *Tengo cuenta en un servidor* en la primera pantalla de la app: pide la dirección del servidor (la misma que abrís en el navegador), tu correo, tu frase de contraseña y qué se guarda en este equipo (los tres modos de la tabla de abajo). La app arma la bóveda con tu misma cuenta, trae tus contraseñas y, desde ahí, lo que guardes en la app se sube al servidor y lo nuevo del servidor baja solo: el servidor avisa a la app en el momento en que algo cambia (y, por las dudas, la app revisa también al entrar, al volver a la ventana y cada 5 minutos), y la pantalla se actualiza sola. Se desbloquea con la misma frase que usás en la web.
 
 - Si la cuenta la creó un administrador, la frase que te dio es temporal: al conectar con ella, la app te pide en la misma pantalla una frase nueva, la cambia en el servidor y sigue. Desde ahí esa es tu frase, en la app y en la web.
-- Todavía no funciona si tu cuenta exige MFA o aprobación de dispositivo en el servidor.
+- Todavía no funciona si tu cuenta exige MFA en el servidor.
 - Los recursos que el servidor guarda con una clave de equipo, o que te compartió otra persona, se ven en la app pero los cambios que les hagas acá no se suben: editalos en la web.
 - Para probarlo en un equipo que ya tiene una cuenta local, usá el modo portable (sección 8): arranca con una bóveda vacía y muestra la primera pantalla.
 

@@ -546,11 +546,14 @@ const es = {
 		recoveryHabilitar: 'Habilitar recuperación de cuenta',
 		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',
 		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.',
-		dispositivosTitulo: 'Dispositivos de confianza',
-		dispositivosHint: 'Dispositivos marcados como confiables — revocar uno acá borra la clave sellada para ese dispositivo, no afecta a los demás.',
-		dispositivosSinDispositivos: 'No tenés dispositivos de confianza activos.',
-		dispositivosRevocar: 'Revocar',
-		dispositivosError: 'No se pudo cargar la lista de dispositivos.'
+		sesionesTitulo: 'Sesiones abiertas',
+		sesionesHint: 'Dónde está abierta tu cuenta. Si no reconocés alguna, cerrala y cambiá tu contraseña.',
+		sesionActual: 'Esta sesión',
+		sesionDesconocida: 'Dispositivo desconocido',
+		sesionUltimoUso: 'Último uso: {fecha}',
+		sesionCerrar: 'Cerrar',
+		sesionesCerrarOtras: 'Cerrar todas las demás',
+		sesionesError: 'No se pudo cargar la lista de sesiones.'
 	},
 	revocacion: {
 		titulo: 'La cuenta fue revocada',
@@ -852,7 +855,6 @@ const es = {
 			politicaRecovery: 'Recuperación de cuenta',
 			politicaSelfRegistration: 'Auto-registro',
 			politicaEmergencia: 'Acceso de emergencia',
-			politicaDispositivo: 'Aprobación de dispositivo',
 			politicaExport: 'Política de exportación',
 			politicaExternalShare: 'Compartir Externo',
 			smtp: 'SMTP',
@@ -1111,11 +1113,6 @@ const es = {
 		politicaEmergencia: {
 			titulo: 'Acceso de emergencia',
 			habilitado: 'Habilitado'
-		},
-		politicaDispositivo: {
-			titulo: 'Aprobación de dispositivo',
-			peer: 'Permitir aprobación por otro dispositivo propio',
-			admin: 'Permitir aprobación por un admin'
 		},
 		politicaExternalShare: {
 			titulo: 'Política de Compartir Externo',

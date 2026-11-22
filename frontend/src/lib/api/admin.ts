@@ -196,16 +196,6 @@ export const emergencyAccessPolicyApi = {
 	actualizar: (p: EmergencyAccessPolicy) => api.put<EmergencyAccessPolicy>('/admin/emergency-access-policy', p)
 };
 
-// --- políticas: aprobación de dispositivo ---
-export interface DeviceApprovalPolicy {
-	allow_peer_device_approval: boolean;
-	allow_admin_device_approval: boolean;
-}
-export const deviceApprovalPolicyApi = {
-	obtener: () => api.get<DeviceApprovalPolicy>('/admin/device-approval-policy'),
-	actualizar: (p: DeviceApprovalPolicy) => api.put<DeviceApprovalPolicy>('/admin/device-approval-policy', p)
-};
-
 // --- SSO ---
 export interface SsoConfig {
 	issuer_url: string | null;

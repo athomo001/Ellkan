@@ -14,7 +14,6 @@ use crate::audit::repository::PgAuditLogRepository;
 use crate::auth::repository::{
     PgAuthChallengeRepository, PgDeviceChallengeRepository, PgKnownDeviceRepository, PgSessionRepository, PgUserRepository,
 };
-use crate::devices::repository::{PgApprovalRequestRepository, PgDeviceApprovalPolicyRepository, PgTrustedDeviceRepository};
 use crate::directory_sync::repository::PgDirectorySyncConfigRepository;
 use crate::emergency_access::repository::{
     PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
@@ -73,9 +72,6 @@ pub struct AppState {
     pub organizacion: PgOrganizationRepository,
     pub passkeys: PgPasskeyRepository,
     pub ceremonias_webauthn: PgCeremonyStateRepository,
-    pub dispositivos_confiables: PgTrustedDeviceRepository,
-    pub solicitudes_aprobacion: PgApprovalRequestRepository,
-    pub politica_aprobacion_dispositivo: PgDeviceApprovalPolicyRepository,
     pub mfa_policy: PgMfaPolicyRepository,
     pub mfa_totp: PgTotpCredentialRepository,
     pub mfa_challenges: PgMfaChallengeRepository,
@@ -216,9 +212,6 @@ impl AppState {
             organizacion: PgOrganizationRepository { pool: pool.clone() },
             passkeys: PgPasskeyRepository { pool: pool.clone() },
             ceremonias_webauthn: PgCeremonyStateRepository { pool: pool.clone() },
-            dispositivos_confiables: PgTrustedDeviceRepository { pool: pool.clone() },
-            solicitudes_aprobacion: PgApprovalRequestRepository { pool: pool.clone() },
-            politica_aprobacion_dispositivo: PgDeviceApprovalPolicyRepository { pool: pool.clone() },
             mfa_policy: PgMfaPolicyRepository { pool: pool.clone() },
             mfa_totp: PgTotpCredentialRepository { pool: pool.clone() },
             mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },

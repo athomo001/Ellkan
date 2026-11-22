@@ -15,7 +15,6 @@ pub mod config;
 #[cfg(feature = "desktop")]
 #[path = "../../app-escritorio/backend-desktop/mod.rs"]
 pub mod desktop;
-pub mod devices;
 pub mod directory_sync;
 pub mod emergency_access;
 pub mod error;
@@ -40,6 +39,7 @@ pub mod retention;
 pub mod revocacion;
 pub mod scim;
 pub mod self_registration;
+pub mod sesiones;
 pub mod sharing_policy;
 pub mod smtp_config;
 pub mod sso;
@@ -539,11 +539,6 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/login/options", post(passkeys::handlers::login_options))
         .route("/login/verify", post(passkeys::handlers::login_verify));
 
-    let device_approval_router = Router::new()
-        .route("/request", post(devices::handlers::solicitar_aprobacion))
-        .route("/{id}", get(devices::handlers::estado_aprobacion))
-        .route("/{id}/approve", post(devices::handlers::aprobar));
-
     // F-14: rate limit dedicado, keyed por sesión parcial — más estricto que
     // el general, ver `rate_limit::limitar_mfa_por_sesion`.
     let auth_mfa_router = Router::new()
@@ -569,25 +564,22 @@ pub fn construir_router(estado: AppState) -> Router {
         // de la cuenta (ver `revocacion`).
         .route("/estado-cuenta", post(revocacion::estado_cuenta))
         .nest("/webauthn", webauthn_router)
-        .nest("/device-approval", device_approval_router)
         .nest("/mfa", auth_mfa_router)
         .nest("/sso", sso_router);
 
-    let me_devices_router = Router::new()
-        .route("/", get(devices::handlers::listar_confiables))
-        .route("/trust", post(devices::handlers::marcar_confiable))
-        .route("/{id}", axum::routing::delete(devices::handlers::revocar))
-        .route("/pending-approvals", get(devices::handlers::listar_pendientes));
+    // QA-21: sesiones abiertas del usuario (reemplaza la aprobación de
+    // dispositivos y los dispositivos de confianza).
+    let me_sessions_router = Router::new()
+        .route("/", get(sesiones::listar))
+        .route("/close-others", post(sesiones::cerrar_otras))
+        .route("/{id}", axum::routing::delete(sesiones::cerrar));
 
     // F-03 (PRF): listar/revocar passkeys propias — a diferencia de
     // `/auth/webauthn/*` (sin sesión, ceremonia de alta/login), esto exige
-    // sesión activa, mismo criterio que `/me/devices`.
+    // sesión activa, mismo criterio que `/me/sessions`.
     let me_passkeys_router = Router::new()
         .route("/", get(passkeys::handlers::listar))
         .route("/{id}", axum::routing::delete(passkeys::handlers::revocar));
-
-    let admin_device_approval_policy_router =
-        Router::new().route("/", get(devices::handlers::politica).put(devices::handlers::actualizar_politica));
 
     let me_preferences_router = Router::new().route("/", get(me::handlers::obtener).put(me::handlers::actualizar));
 
@@ -914,10 +906,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/me/preferences", me_preferences_router)
         .nest("/me/avatar", me_avatar_router)
         .nest("/me/change-passphrase", me_change_passphrase_router)
-        .nest("/me/devices", me_devices_router)
+        .nest("/me/sessions", me_sessions_router)
         .nest("/me/passkeys", me_passkeys_router)
         .nest("/me/mfa/totp", me_mfa_totp_router)
-        .nest("/admin/device-approval-policy", admin_device_approval_policy_router)
         .nest("/admin/mfa-policy", admin_mfa_policy_router)
         .nest("/admin/smtp-config", admin_smtp_config_router)
         .nest("/admin/password-policy", admin_password_policy_router)

@@ -340,6 +340,40 @@ pub async fn login(entorno: &Entorno, usuario: &Usuario) -> Uuid {
     cuerpo["session_id"].as_str().unwrap().parse().unwrap()
 }
 
+/// Otro login desde el mismo `device_token`, ya verificado por `login`: no
+/// vuelve a pedir el código y entrega la sesión directo. Sirve para tener
+/// varias sesiones abiertas de un mismo usuario.
+#[allow(dead_code)]
+pub async fn login_dispositivo_conocido(entorno: &Entorno, usuario: &Usuario) -> Uuid {
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/challenge", entorno.base))
+        .json(&json!({ "email": usuario.email }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    let nonce = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
+    let firma = usuario.ed25519.firmante().sign(&nonce);
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/verify", entorno.base))
+        .json(&json!({
+            "email": usuario.email,
+            "nonce_b64": B64.encode(&nonce),
+            "signature_b64": B64.encode(firma.to_bytes()),
+            "device_token_hash_b64": B64.encode(Sha256::digest(usuario.device_token)),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["estado"], "completo", "{cuerpo:?}");
+    cuerpo["session_id"].as_str().unwrap().parse().unwrap()
+}
+
 /// Promueve a un usuario a rol `admin` directo por SQL — equivalente de test
 /// a `ellkan-cli admin promote-to-admin` (F-41), sin pasar por HTTP: ningún
 /// endpoint de la API permite auto-promoverse, a propósito.

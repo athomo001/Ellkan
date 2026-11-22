@@ -543,11 +543,14 @@ const en: Diccionario = {
 		recoveryHabilitar: 'Enable account recovery',
 		recoveryErrorHabilitar: 'Could not enable account recovery.',
 		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.',
-		dispositivosTitulo: 'Trusted devices',
-		dispositivosHint: 'Devices marked as trusted — revoking one here deletes the sealed key for that device only, others are unaffected.',
-		dispositivosSinDispositivos: "You don't have any active trusted devices.",
-		dispositivosRevocar: 'Revoke',
-		dispositivosError: 'Could not load the device list.'
+		sesionesTitulo: 'Open sessions',
+		sesionesHint: "Where your account is signed in. If you don't recognize one, close it and change your password.",
+		sesionActual: 'This session',
+		sesionDesconocida: 'Unknown device',
+		sesionUltimoUso: 'Last used: {fecha}',
+		sesionCerrar: 'Close',
+		sesionesCerrarOtras: 'Close all others',
+		sesionesError: 'Could not load the session list.'
 	},
 	revocacion: {
 		titulo: 'The account was revoked',
@@ -843,7 +846,6 @@ const en: Diccionario = {
 			politicaRecovery: 'Account recovery',
 			politicaSelfRegistration: 'Self-registration',
 			politicaEmergencia: 'Emergency access',
-			politicaDispositivo: 'Device approval',
 			politicaExport: 'Export policy',
 			politicaExternalShare: 'External Sharing',
 			smtp: 'SMTP',
@@ -1097,11 +1099,6 @@ const en: Diccionario = {
 		politicaEmergencia: {
 			titulo: 'Emergency access',
 			habilitado: 'Enabled'
-		},
-		politicaDispositivo: {
-			titulo: 'Device approval',
-			peer: 'Allow approval from another own device',
-			admin: 'Allow approval by an admin'
 		},
 		politicaExternalShare: {
 			titulo: 'External Sharing Policy',

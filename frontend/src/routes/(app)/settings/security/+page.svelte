@@ -30,7 +30,7 @@
 	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
-	import { devicesApi, type TrustedDevice } from '$lib/api/devices';
+	import { sesionesApi, type SesionAbierta } from '$lib/api/sesiones';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -250,38 +250,59 @@
 		activandoLlaveroPaso = 'inicial';
 	}
 
-	// F-37: dispositivos de confianza propios — backend completo desde
-	// Fase 1.2, sin ninguna pantalla hasta ahora.
-	let dispositivos = $state<TrustedDevice[]>([]);
-	let cargandoDispositivos = $state(true);
-	let errorDispositivos = $state<string | undefined>();
-	let revocandoDispositivoId = $state<string | undefined>();
+	// QA-21: sesiones abiertas (como los dispositivos vinculados de WhatsApp):
+	// se ve dónde está abierta la cuenta y se cierran las otras. En el
+	// escritorio no aplica — la sesión es local.
+	let sesiones = $state<SesionAbierta[]>([]);
+	let cargandoSesiones = $state(true);
+	let errorSesiones = $state<string | undefined>();
+	let cerrandoSesionId = $state<string | undefined>();
+	let cerrandoOtras = $state(false);
 
-	async function cargarDispositivos() {
-		cargandoDispositivos = true;
-		try {
-			dispositivos = await devicesApi.listar();
-		} catch (err) {
-			errorDispositivos = err instanceof ApiError ? err.message : get(t).settingsSecurity.dispositivosError;
-		} finally {
-			cargandoDispositivos = false;
-		}
-	}
-	onMount(cargarDispositivos);
-
-	async function revocarDispositivo(id: string) {
-		revocandoDispositivoId = id;
-		try {
-			await devicesApi.revocar(id);
-			await cargarDispositivos();
-		} catch (err) {
-			errorDispositivos = err instanceof ApiError ? err.message : get(t).settingsSecurity.dispositivosError;
-		} finally {
-			revocandoDispositivoId = undefined;
-		}
+	function errorDeSesiones(err: unknown) {
+		errorSesiones = err instanceof ApiError ? err.message : get(t).settingsSecurity.sesionesError;
 	}
 
-	const dispositivosActivos = $derived(dispositivos.filter((d) => !d.revoked_at));
+	async function cargarSesiones() {
+		cargandoSesiones = true;
+		errorSesiones = undefined;
+		try {
+			sesiones = await sesionesApi.listar();
+		} catch (err) {
+			errorDeSesiones(err);
+		} finally {
+			cargandoSesiones = false;
+		}
+	}
+	onMount(() => {
+		if (!enModoEscritorio()) cargarSesiones();
+	});
+
+	async function cerrarSesion(id: string) {
+		cerrandoSesionId = id;
+		try {
+			await sesionesApi.cerrar(id);
+			await cargarSesiones();
+		} catch (err) {
+			errorDeSesiones(err);
+		} finally {
+			cerrandoSesionId = undefined;
+		}
+	}
+
+	async function cerrarOtrasSesiones() {
+		cerrandoOtras = true;
+		try {
+			await sesionesApi.cerrarOtras();
+			await cargarSesiones();
+		} catch (err) {
+			errorDeSesiones(err);
+		} finally {
+			cerrandoOtras = false;
+		}
+	}
+
+	const hayOtrasSesiones = $derived(sesiones.some((s) => !s.actual));
 </script>
 
 <svelte:head>
@@ -437,32 +458,43 @@
 	{/if}
 </Card>
 
-<Card>
-	<h2>{$t.settingsSecurity.dispositivosTitulo}</h2>
-	<p class="hint">{$t.settingsSecurity.dispositivosHint}</p>
+{#if !enModoEscritorio()}
+	<Card>
+		<h2>{$t.settingsSecurity.sesionesTitulo}</h2>
+		<p class="hint">{$t.settingsSecurity.sesionesHint}</p>
 
-	{#if cargandoDispositivos}
-		<p class="hint">{$t.settingsSecurity.cargando}</p>
-	{:else if errorDispositivos}
-		<p class="error">{errorDispositivos}</p>
-	{:else if dispositivosActivos.length === 0}
-		<p class="hint">{$t.settingsSecurity.dispositivosSinDispositivos}</p>
-	{:else}
-		<ul class="lista-passkeys">
-			{#each dispositivosActivos as d (d.id)}
-				<li class="item-passkey">
-					<div class="info">
-						<strong>{d.label || $t.settingsSecurity.sinNombre}</strong>
-						<span class="secundario-dispositivo">{new Date(d.created_at).toLocaleString()}</span>
-					</div>
-					<Button variant="danger" onclick={() => revocarDispositivo(d.id)} loading={revocandoDispositivoId === d.id}>
-						{$t.settingsSecurity.dispositivosRevocar}
-					</Button>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</Card>
+		{#if cargandoSesiones}
+			<p class="hint">{$t.settingsSecurity.cargando}</p>
+		{:else if errorSesiones}
+			<p class="error">{errorSesiones}</p>
+		{:else}
+			<ul class="lista-passkeys">
+				{#each sesiones as s (s.id)}
+					<li class="item-passkey">
+						<div class="info">
+							<strong>{s.dispositivo ?? $t.settingsSecurity.sesionDesconocida}</strong>
+							<span class="secundario-dispositivo">
+								{s.actual
+									? $t.settingsSecurity.sesionActual
+									: $t.settingsSecurity.sesionUltimoUso.replace('{fecha}', new Date(s.ultimo_uso ?? s.creada).toLocaleString())}
+							</span>
+						</div>
+						{#if !s.actual}
+							<Button variant="danger" onclick={() => cerrarSesion(s.id)} loading={cerrandoSesionId === s.id}>
+								{$t.settingsSecurity.sesionCerrar}
+							</Button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			{#if hayOtrasSesiones}
+				<Button variant="secondary" onclick={cerrarOtrasSesiones} loading={cerrandoOtras}>
+					{$t.settingsSecurity.sesionesCerrarOtras}
+				</Button>
+			{/if}
+		{/if}
+	</Card>
+{/if}
 
 <style>
 	h1 {

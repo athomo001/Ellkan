@@ -26,6 +26,8 @@
 
 **Dirección IP:** no se guarda en la base de datos. Los logs del servidor sólo la incluyen cuando una solicitud se rechaza por exceso de solicitudes (para detectar abuso); cuánto tiempo se conservan esos logs depende del operador.
 
+**Sesiones abiertas:** de cada sesión se guarda sólo un nombre corto del navegador y el sistema (por ejemplo «Chrome · Windows») y la hora del último uso, para que puedas ver dónde está abierta tu cuenta y cerrar las otras. No se guarda el identificador completo del navegador (User-Agent).
+
 ## Servicios de terceros
 
 Ellkan sólo se conecta con servicios externos en estos casos:
@@ -70,6 +72,8 @@ Para dudas sobre el software, abrí un issue en el repositorio. Para datos guard
 **Zero-knowledge exception:** if the operator enables *administrator-approved account recovery*, the administrators of that instance can, with the required approval, restore your access to your vault. It is optional and the interface warns about it when enrolling.
 
 **IP address:** not stored in the database. Server logs only include it when a request is rejected for exceeding the rate limit (to detect abuse); how long those logs are kept is up to the operator.
+
+**Open sessions:** for each session only a short browser and system name (for example "Chrome · Windows") and the time it was last used are stored, so you can see where your account is signed in and close the others. The full browser identifier (User-Agent) is not stored.
 
 ### Third-party services
 

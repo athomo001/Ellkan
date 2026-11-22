@@ -151,8 +151,7 @@ pub async fn confirmar_solicitud(
     Ok(Json(ConfirmarSolicitudResponse { requester_token_b64: B64.encode(token) }))
 }
 
-/// `GET /account-recovery/requests/{id}` — poll sin sesión, mismo criterio
-/// que `GET /auth/device-approval/{id}` (F-37), pero con el token del
+/// `GET /account-recovery/requests/{id}` — poll sin sesión, con el token del
 /// solicitante en `X-Ellkan-Recovery-Token`: conocer el id no alcanza.
 pub async fn estado_solicitud(
     State(state): State<AppState>,

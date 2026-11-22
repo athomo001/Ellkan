@@ -169,14 +169,10 @@ impl PurgeRepository for PgPurgeRepository {
         // configurables: un día de gracia para lo vencido (por si un reloj
         // está corrido) y una semana para los correos ya enviados o fallidos
         // (destinatario + cuerpo con códigos de verificación), que sólo sirven
-        // para diagnosticar un envío. Los pendientes no se tocan. Orden: los
-        // pedidos de aprobación de dispositivo antes que las sesiones que
-        // referencian.
+        // para diagnosticar un envío. Los pendientes no se tocan.
         let mut efimeros = 0;
         for sentencia in [
-            "delete from device_approval_requests where expires_at < now() - interval '1 day'",
-            "delete from sessions s where (s.expires_at < now() - interval '1 day' or s.revoked_at < now() - interval '1 day')
-               and not exists (select 1 from device_approval_requests d where d.session_id = s.id)",
+            "delete from sessions where expires_at < now() - interval '1 day' or revoked_at < now() - interval '1 day'",
             "delete from auth_challenges where expires_at < now() - interval '1 day'",
             "delete from device_challenges where expires_at < now() - interval '1 day'",
             "delete from mfa_challenges where expires_at < now() - interval '1 day'",
