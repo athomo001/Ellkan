@@ -34,13 +34,13 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 - Política de contraseña/passphrase (longitud, entropía mínima, reglas del generador).
 - Retención y purga automática de datos vencidos. El registro de auditoría tiene su propio plazo (365 días por defecto, configurable).
 - Recuperación de cuenta con custodia y aprobación por umbral de administradores. Si se activa, es otra vía para recuperar el acceso además de la passphrase y del kit de recuperación propio: la organización custodia una copia sellada de las claves que sólo se abre con la aprobación de varios administradores.
-- Acceso de emergencia entre pares (designar un contacto de confianza, solicitar, aprobar, o resolución automática por tiempo agotado).
+- Acceso de emergencia entre pares (designar un contacto de confianza, solicitar, aprobar, o resolución automática por tiempo agotado), en «Mi cuenta → Acceso de emergencia». Al designar se muestra la huella de la clave del contacto para compararla. Abrir la bóveda del titular una vez concedido el acceso todavía no está disponible.
 - Política de Compartir Externo (habilitar/deshabilitar, expiración máxima, exigir contraseña adicional).
 - Política de exportación (habilitar/deshabilitar por organización, con excepción para admins, formatos permitidos).
 
 ## Federación e identidad externa
 
-- **SSO** vía OpenID Connect. Una cuenta que ya existe se vincula desde la propia sesión (nunca sola por coincidir el email); las cuentas nuevas se crean al entrar sólo si el admin activa el aprovisionamiento automático. Por ahora sólo por API: todavía no hay botón en la web.
+- **SSO** vía OpenID Connect. Una cuenta que ya existe se vincula desde la propia sesión (nunca sola por coincidir el email); las cuentas nuevas se crean al entrar sólo si el admin activa el aprovisionamiento automático. En la web: «Entrar con tu organización» en el inicio de sesión y «Vincular» en «Mi cuenta → Seguridad». Una cuenta nueva elige su contraseña en el primer acceso y sus claves se generan en el navegador. En el proveedor se registra como URL de retorno `https://<tu-dominio>/sso/callback` (o la de `ELLKAN_SSO_REDIRECT_URL`). La extensión y la app de escritorio todavía no lo tienen.
 - **SCIM 2.0** para aprovisionamiento automático de usuarios desde un IdP externo.
 - **Directory Sync (LDAP)** con modo simulación (dry-run) antes de aplicar cambios.
 

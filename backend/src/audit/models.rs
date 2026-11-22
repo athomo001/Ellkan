@@ -148,6 +148,8 @@ pub enum AuditEventType {
     /// Revocación remota: el servidor emitió el aviso firmado de cuenta
     /// revocada para las apps de escritorio vinculadas (docs/revocacion-remota.md).
     UserRemoteWipeSignaled,
+    /// Pendiente #133: primer par de claves de una cuenta creada por SSO.
+    UserKeysEnrolled,
 }
 
 impl AuditEventType {
@@ -242,6 +244,7 @@ impl AuditEventType {
             AuditEventType::GroupShareExemptChanged => "group.share_exempt_changed",
             AuditEventType::ResourceOwnershipTransferred => "resource.ownership_transferred",
             AuditEventType::UserRemoteWipeSignaled => "user.remote_wipe_signaled",
+            AuditEventType::UserKeysEnrolled => "user.keys_enrolled",
         }
     }
 
@@ -339,6 +342,7 @@ impl AuditEventType {
             "group.share_exempt_changed" => AuditEventType::GroupShareExemptChanged,
             "resource.ownership_transferred" => AuditEventType::ResourceOwnershipTransferred,
             "user.remote_wipe_signaled" => AuditEventType::UserRemoteWipeSignaled,
+            "user.keys_enrolled" => AuditEventType::UserKeysEnrolled,
             _ => return None,
         })
     }

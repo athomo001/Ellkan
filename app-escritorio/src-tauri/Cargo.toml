@@ -4,6 +4,7 @@ version.workspace = true
 description = "Ellkan — modo escritorio (shell Tauri)"
 authors = ["Athan Espinoza"]
 license.workspace = true
+publish = false
 repository.workspace = true
 edition.workspace = true
 # Con `src/bin/ellkan_askpass.rs` (F-49) el crate pasó a tener 2 binarios —

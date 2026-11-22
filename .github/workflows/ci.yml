@@ -76,6 +76,13 @@ jobs:
           tool: cargo-audit
       - name: cargo audit
         run: cargo audit
+      # Pendiente #80: licencias, crates prohibidos y orígenes (`deny.toml`).
+      # Las vulnerabilidades quedan en `cargo audit` (arriba).
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny
+        run: cargo deny check licenses bans sources
 
   web:
     name: WASM, frontend y extensión
@@ -127,6 +134,11 @@ jobs:
         run: pnpm -C extension test
       - name: Extensión — audit
         run: pnpm -C extension audit --audit-level high
+      # Pendiente #80: ni analítica ni CDNs externos en lo que se publica.
+      - name: Extensión — build
+        run: pnpm -C extension build
+      - name: Sin analítica ni CDNs de terceros
+        run: bash .github/scripts/sin-terceros.sh frontend/build extension/dist
 
   docker:
     name: Imagen Docker

@@ -203,7 +203,7 @@ async fn rotacion_completa_expira_la_saliente_y_migrar_via_rekey_funciona() {
             "expected_current_metadata_key_id": saliente_id,
             "new_metadata_key_id": entrante_id,
             "metadata_ciphertext_b64": "eA==",
-            "metadata_nonce_b64": "eA==",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -219,7 +219,7 @@ async fn rotacion_completa_expira_la_saliente_y_migrar_via_rekey_funciona() {
             "expected_current_metadata_key_id": saliente_id,
             "new_metadata_key_id": entrante_id,
             "metadata_ciphertext_b64": "eA==",
-            "metadata_nonce_b64": "eA==",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await

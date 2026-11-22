@@ -60,7 +60,7 @@ async fn pagina(entorno: &common::Entorno, sesion: Uuid, consulta: &str) -> (Vec
 async fn las_paginas_juntas_son_la_lista_entera() {
     let entorno = common::levantar().await;
     let alice = common::registrar(&entorno, "alice@test.ellkan").await;
-    let sesion = common::login_dispositivo_conocido(&entorno, &alice).await;
+    let sesion = common::login(&entorno, &alice).await;
     for _ in 0..7 {
         crear_recurso(&entorno, sesion, &alice).await;
     }

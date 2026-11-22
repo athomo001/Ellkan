@@ -31,6 +31,7 @@
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
 	import { sesionesApi, type SesionAbierta } from '$lib/api/sesiones';
+	import { ssoApi } from '$lib/api/sso';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -290,6 +291,31 @@
 		}
 	}
 
+	// F-17 / QA-31 (pendiente #133): vincular esta cuenta al proveedor de la
+	// organización. Sólo se ofrece si la instancia tiene uno configurado.
+	let ssoHabilitado = $state(false);
+	let vinculandoSso = $state(false);
+	let errorSso = $state<string | undefined>();
+	onMount(() => {
+		if (enModoEscritorio()) return;
+		ssoApi
+			.habilitado()
+			.then((si) => (ssoHabilitado = si))
+			.catch(() => {});
+	});
+
+	async function vincularSso() {
+		vinculandoSso = true;
+		errorSso = undefined;
+		try {
+			// Navegación completa: el proveedor vuelve a `/sso/callback`.
+			window.location.assign((await ssoApi.vincular()).authorization_url);
+		} catch (err) {
+			errorSso = err instanceof ApiError ? err.message : get(t).sso.errorGenerico;
+			vinculandoSso = false;
+		}
+	}
+
 	async function cerrarOtrasSesiones() {
 		cerrandoOtras = true;
 		try {
@@ -457,6 +483,15 @@
 		</Button>
 	{/if}
 </Card>
+
+{#if ssoHabilitado}
+	<Card>
+		<h2>{$t.sso.vincularTitulo}</h2>
+		<p class="hint">{$t.sso.vincularHint}</p>
+		<Button variant="secondary" onclick={vincularSso} loading={vinculandoSso}>{$t.sso.vincular}</Button>
+		{#if errorSso}<p class="error" role="alert">{errorSso}</p>{/if}
+	</Card>
+{/if}
 
 {#if !enModoEscritorio()}
 	<Card>

@@ -14,6 +14,8 @@ export interface Perfil {
 	created_at: string;
 	updated_at: string;
 	keys_created_at: string;
+	/** Pendiente #133: cuenta creada por SSO que todavía no tiene claves. */
+	needs_key_enrollment?: boolean;
 }
 
 export const perfilApi = {

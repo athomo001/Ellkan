@@ -110,10 +110,10 @@ async fn purgar_unico_owner_sin_transferencia_falla_y_con_transferencia_funciona
             "id": resource_id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "AAAA",
-            "metadata_nonce_b64": "AAAA",
-            "sealed_dek_b64": "AAAA",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "metadata_key_id": metadata_key_id,
         }))
         .send()
@@ -127,9 +127,9 @@ async fn purgar_unico_owner_sin_transferencia_falla_y_con_transferencia_funciona
         .bearer_auth(sesion_owner)
         .json(&json!({
             "recipient_user_id": colaborador.user_id,
-            "sealed_dek_b64": "AAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "level": "update",
         }))
         .send()
@@ -223,10 +223,10 @@ async fn recurso_100_por_ciento_personal_no_bloquea_la_purga() {
             "id": resource_id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "AAAA",
-            "metadata_nonce_b64": "AAAA",
-            "sealed_dek_b64": "AAAA",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -376,10 +376,10 @@ async fn purgar_con_transferencia_a_un_destinatario_ya_purgado_falla_explicito()
             "id": resource_id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "AAAA",
-            "metadata_nonce_b64": "AAAA",
-            "sealed_dek_b64": "AAAA",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "metadata_key_id": metadata_key_id,
         }))
         .send()
@@ -393,9 +393,9 @@ async fn purgar_con_transferencia_a_un_destinatario_ya_purgado_falla_explicito()
         .bearer_auth(sesion_owner)
         .json(&json!({
             "recipient_user_id": colaborador.user_id,
-            "sealed_dek_b64": "AAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "level": "read",
         }))
         .send()
@@ -502,10 +502,10 @@ async fn escenario_grupo(prefijo: &str) -> EscenarioGrupo {
             "id": resource_id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "AAAA",
-            "metadata_nonce_b64": "AAAA",
-            "sealed_dek_b64": "AAAA",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "metadata_key_id": metadata_key["id"].as_str().unwrap(),
         }))
         .send()
@@ -638,9 +638,9 @@ async fn purgar_pasa_la_propiedad_a_los_admins_del_grupo() {
         .bearer_auth(e.sesion_jefe)
         .json(&json!({
             "recipient_user_id": e.analista.user_id,
-            "sealed_dek_b64": "AAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "AAAA",
-            "secret_nonce_b64": "AAAA",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "level": "update",
         }))
         .send()
@@ -843,4 +843,111 @@ async fn quitar_del_grupo_a_quien_ademas_es_owner_directo_no_le_borra_el_envelop
         !tiene_envelope(e.analista.user_id).await.unwrap().0,
         "el analista sólo lo veía por el grupo: se le revoca"
     );
+}
+
+/// Pendiente #51: el saliente es el único miembro del grupo dueño de un
+/// recurso que otra persona usa. Con la purga el grupo queda vacío y el
+/// recurso sin nadie que lo administre: tiene que bloquear como si fuera
+/// dueño directo.
+#[tokio::test]
+async fn propiedad_via_un_grupo_que_queda_vacio_bloquea_la_purga() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "admin@test.ellkan").await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    let solo = common::registrar(&entorno, "solo@test.ellkan").await;
+    let sesion_solo = common::login(&entorno, &solo).await;
+    let lector = common::registrar(&entorno, "lector@test.ellkan").await;
+
+    let resource_id = uuid::Uuid::now_v7();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/resources", entorno.base))
+        .bearer_auth(sesion_solo)
+        .json(&json!({
+            "id": resource_id,
+            "resource_type_slug": "login-password",
+            "metadata_ciphertext_b64": B64.encode([1u8; 40]),
+            "metadata_nonce_b64": B64.encode([2u8; 24]),
+            "sealed_dek_b64": B64.encode([3u8; 80]),
+            "secret_ciphertext_b64": B64.encode([4u8; 40]),
+            "secret_nonce_b64": B64.encode([5u8; 24]),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+
+    // La propiedad pasa a un grupo de un solo miembro; `lector` lee directo.
+    let group_id = uuid::Uuid::now_v7();
+    for (sql, a, b) in [
+        (
+            "insert into groups (id, name) select $1, 'Solo yo' where $2::uuid = $1 returning 1",
+            group_id,
+            group_id,
+        ),
+        (
+            "insert into group_members (group_id, user_id, is_admin) values ($1, $2, true) returning 1",
+            group_id,
+            solo.user_id,
+        ),
+        (
+            "update permissions set grantee_type = 'group', grantee_id = $1
+             where subject_type = 'resource' and subject_id = $2 and grantee_type = 'user' returning 1",
+            group_id,
+            resource_id,
+        ),
+        (
+            "insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)
+             values ('resource', $1, 'user', $2, 'read') returning 1",
+            resource_id,
+            lector.user_id,
+        ),
+        (
+            "insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce)
+             values ($1, $2, '\\x00', '\\x00', '\\x00') returning 1",
+            resource_id,
+            lector.user_id,
+        ),
+    ] {
+        let filas = sqlx::query(sql).bind(a).bind(b).fetch_all(&entorno.pool).await.unwrap();
+        assert_eq!(filas.len(), 1, "{sql}");
+    }
+
+    let cuerpo: Value = entorno
+        .cliente
+        .get(format!("{}/admin/users/{}/purge/dry-run", entorno.base, solo.user_id))
+        .bearer_auth(sesion_admin)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(cuerpo["blocks_purge"], true, "{cuerpo}");
+    let bloqueados: Vec<&str> = cuerpo["blocked_resources"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+    assert_eq!(bloqueados, vec![resource_id.to_string()]);
+
+    // Sin transferencia, no se purga; pasándosela a `lector`, sí.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/users/{}/purge", entorno.base, solo.user_id))
+        .bearer_auth(sesion_admin)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409);
+    assert!(usuario_existe(&entorno.pool, solo.user_id).await);
+
+    let resp = entorno
+        .cliente
+        .post(format!("{}/admin/users/{}/purge", entorno.base, solo.user_id))
+        .bearer_auth(sesion_admin)
+        .json(&json!({ "transfer": { "owners": [{ "resource_id": resource_id, "new_owner_user_id": lector.user_id }] } }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "{:?}", resp.text().await);
+    assert_eq!(nivel_de(&entorno.pool, resource_id, "user", lector.user_id).await.as_deref(), Some("owner"));
 }

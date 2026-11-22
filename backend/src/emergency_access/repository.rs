@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{AvisoEmergencia, EmergencyAccess, EmergencyAccessRequest};
+use super::models::{AvisoEmergencia, EmergencyAccess, EmergencyAccessRequest, PersonaEmergencia};
 
 pub trait EmergencyAccessPolicyRepository {
     async fn habilitado(&self) -> Result<bool, RepoError>;
@@ -27,6 +27,11 @@ pub trait EmergencyAccessRepository {
     async fn buscar(&self, id: Uuid) -> Result<Option<EmergencyAccess>, RepoError>;
 
     async fn listar_por_titular_o_contacto(&self, user_id: Uuid) -> Result<Vec<EmergencyAccess>, RepoError>;
+
+    /// Pendiente #131: email y nombre de las personas con las que `user_id`
+    /// tiene una relación de emergencia (titulares y contactos), para que la
+    /// pantalla muestre personas y no UUIDs. Una sola consulta.
+    async fn personas_relacionadas(&self, user_id: Uuid) -> Result<Vec<PersonaEmergencia>, RepoError>;
 
     async fn marcar_status(&self, id: Uuid, status: &str) -> Result<(), RepoError>;
 
@@ -191,6 +196,20 @@ impl EmergencyAccessRepository for PgEmergencyAccessRepository {
                 )
             })
             .collect())
+    }
+
+    async fn personas_relacionadas(&self, user_id: Uuid) -> Result<Vec<PersonaEmergencia>, RepoError> {
+        let filas = sqlx::query_as!(
+            PersonaEmergencia,
+            r#"select distinct u.id, u.email, u.display_name
+               from emergency_access ea
+               join users u on u.id in (ea.granter_id, ea.grantee_id)
+               where (ea.granter_id = $1 or ea.grantee_id = $1) and u.id <> $1"#,
+            user_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas)
     }
 
     async fn marcar_status(&self, id: Uuid, status: &str) -> Result<(), RepoError> {

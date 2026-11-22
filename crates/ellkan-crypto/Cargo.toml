@@ -3,6 +3,7 @@ name = "ellkan-crypto"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false
 repository.workspace = true
 
 # `cdylib` para compilar a `ellkan_crypto.wasm` (Fase 1.4, `wasm-pack`);

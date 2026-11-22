@@ -20,7 +20,7 @@ async fn crear_carpeta(entorno: &common::Entorno, sesion: Uuid, parent: Option<U
         .json(&json!({
             "id": id,
             "name_ciphertext_b64": "eA==",
-            "name_nonce_b64": "eA==",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "parent_folder_id": parent,
         }))
         .send()
@@ -40,10 +40,10 @@ async fn crear_recurso_simple(entorno: &common::Entorno, sesion: Uuid) -> Uuid {
             "id": id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "eA==",
-            "metadata_nonce_b64": "eA==",
-            "sealed_dek_b64": "eA==",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -74,7 +74,7 @@ async fn mover_carpeta_no_afecta_la_vista_de_otro_usuario() {
         .json(&json!({
             "id": raiz_id,
             "name_ciphertext_b64": "dHJhYmFqbw==",
-            "name_nonce_b64": "bm9uY2U=",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "parent_folder_id": null,
         }))
         .send()
@@ -90,7 +90,7 @@ async fn mover_carpeta_no_afecta_la_vista_de_otro_usuario() {
         .json(&json!({
             "id": sub_id,
             "name_ciphertext_b64": "Y2xpZW50ZXM=",
-            "name_nonce_b64": "bm9uY2U=",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "parent_folder_id": raiz_id,
         }))
         .send()
@@ -108,7 +108,7 @@ async fn mover_carpeta_no_afecta_la_vista_de_otro_usuario() {
         .json(&json!({
             "id": bob_raiz_id,
             "name_ciphertext_b64": "cGVyc29uYWw=",
-            "name_nonce_b64": "bm9uY2U=",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "parent_folder_id": null,
         }))
         .send()
@@ -177,7 +177,7 @@ async fn crear_carpeta_con_parent_inexistente_falla() {
         .json(&json!({
             "id": Uuid::now_v7(),
             "name_ciphertext_b64": "eA==",
-            "name_nonce_b64": "eA==",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "parent_folder_id": Uuid::now_v7(),
         }))
         .send()
@@ -264,7 +264,7 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
             "grantee_id": bob.user_id,
             "level": "read",
             "name_ciphertext_b64": "eA==",
-            "name_nonce_b64": "eA==",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -281,7 +281,7 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
             "grantee_id": bob.user_id,
             "level": "read",
             "name_ciphertext_b64": "eA==",
-            "name_nonce_b64": "eA==",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -321,7 +321,7 @@ async fn compartir_carpeta_exige_owner_y_mover_recurso_exige_update() {
             "grantee_id": bob.user_id,
             "level": "update",
             "name_ciphertext_b64": "eA==",
-            "name_nonce_b64": "eA==",
+            "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await

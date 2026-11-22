@@ -989,3 +989,13 @@ button[type='submit']:disabled {
 	outline: 2px solid currentColor;
 	outline-offset: 2px;
 }
+
+/* Pendiente #77: link al código fuente (AGPL-3.0 §13), discreto. */
+.codigo-fuente {
+	display: block;
+	margin-top: 12px;
+	text-align: center;
+	font-size: 0.75rem;
+	color: var(--ellkan-texto-secundario);
+	text-decoration: underline;
+}

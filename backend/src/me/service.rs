@@ -81,6 +81,21 @@ where
     pub async fn obtener(&self, user_id: Uuid) -> Result<Perfil, DomainError> {
         Ok(self.perfil.obtener(user_id).await?)
     }
+
+    /// Pendiente #133: primer par de claves de una cuenta creada por SSO.
+    /// 409 si la cuenta ya tiene claves.
+    pub async fn enrolar_claves(
+        &self,
+        user_id: Uuid,
+        claves: &super::models::ClavesIniciales,
+        eventos: &EmisorDeEventos,
+    ) -> Result<(), DomainError> {
+        if !self.perfil.enrolar_claves(user_id, claves).await? {
+            return Err(DomainError::Conflict);
+        }
+        let _ = eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::UserKeysEnrolled, Some(user_id))));
+        Ok(())
+    }
 }
 
 /// Formatos aceptados para el avatar — mismo criterio que cualquier otra

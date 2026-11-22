@@ -13,7 +13,10 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 use crate::validacion;
 
-use super::dto::{ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, PerfilResponse, PreferenciasResponse};
+use super::dto::{
+    ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, EnrolarClavesRequest, PerfilResponse,
+    PreferenciasResponse,
+};
 use super::models::{Avatar, NuevaClavePrivada, Preferencias};
 use super::repository::PgPreferenciasRepository;
 use super::service::{AvatarService, CambiarPassphraseService, PerfilService, PreferenciasService, PruebaDePosesion, verificar_posesion};
@@ -68,7 +71,33 @@ pub async fn perfil(State(state): State<AppState>, user: AuthenticatedUser) -> R
         created_at: p.created_at,
         updated_at: p.updated_at,
         keys_created_at: p.keys_created_at,
+        needs_key_enrollment: p.necesita_enrolar_claves,
     }))
+}
+
+/// `POST /me/keys/enroll` (pendiente #133): primer acceso de una cuenta
+/// creada por SSO. El navegador generó el par y selló la privada con la
+/// contraseña que eligió el usuario; el servidor sólo lo guarda, una vez.
+pub async fn enrolar_claves(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<EnrolarClavesRequest>,
+) -> Result<StatusCode, ApiError> {
+    let claves = super::models::ClavesIniciales {
+        public_key_x25519: validacion::b64_exacto(&req.public_key_x25519_b64, "public_key_x25519_b64", validacion::LARGO_CLAVE_PUBLICA)?,
+        public_key_ed25519: validacion::b64_exacto(&req.public_key_ed25519_b64, "public_key_ed25519_b64", validacion::LARGO_CLAVE_PUBLICA)?,
+        encrypted_private_key_blob: validacion::b64_exacto(
+            &req.encrypted_private_key_blob_b64,
+            "encrypted_private_key_blob_b64",
+            validacion::LARGO_BLOB_CLAVE_PRIVADA,
+        )?,
+        private_key_nonce: validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?,
+        kdf_salt: validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?,
+    };
+    PerfilService { perfil: &state.preferencias_usuario }
+        .enrolar_claves(user.user_id, &claves, &state.eventos)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `GET /me/permissions` (módulo 1, matriz RBAC) — conjunto resuelto de

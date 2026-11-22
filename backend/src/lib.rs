@@ -588,7 +588,9 @@ pub fn construir_router(estado: AppState) -> Router {
     let me_router = Router::new()
         .route("/", get(me::handlers::perfil))
         .route("/permissions", get(me::handlers::permisos))
-        .route("/groups", get(me::handlers::grupos));
+        .route("/groups", get(me::handlers::grupos))
+        // Pendiente #133: primer par de claves de una cuenta creada por SSO.
+        .route("/keys/enroll", post(me::handlers::enrolar_claves));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
     // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
     // en base64 dentro de un JSON (~33% más grande que los bytes crudos),

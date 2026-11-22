@@ -177,8 +177,12 @@ pub async fn server_key(State(state): State<AppState>) -> Json<ServerKeyResponse
 /// está vacía ya se deduce intentando registrarse, y el token no se revela.
 pub async fn setup_status(State(state): State<AppState>) -> Result<Json<super::dto::SetupStatusResponse>, ApiError> {
     let instancia_vacia = !state.usuarios.existe_alguno().await.map_err(DomainError::from)?;
+    let sso = crate::sso::repository::SsoConfigRepository::obtener(&state.sso_config)
+        .await
+        .map_err(DomainError::from)?;
     Ok(Json(super::dto::SetupStatusResponse {
         setup_token_required: instancia_vacia && state.setup_token.is_some(),
+        sso_enabled: sso.issuer_url.is_some_and(|u| !u.is_empty()) && sso.client_id.is_some_and(|c| !c.is_empty()),
     }))
 }
 

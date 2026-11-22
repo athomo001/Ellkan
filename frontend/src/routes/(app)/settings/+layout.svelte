@@ -21,6 +21,9 @@
 		{ href: '/settings/token', label: $t.settingsProfile.tokenTitulo },
 		{ href: '/settings/preferences', label: $t.appShell.preferencias },
 		{ href: '/settings/security', label: $t.appShell.seguridad },
+		// F-36 (pendiente #131): entre personas de una instancia; el escritorio
+		// es de un solo usuario.
+		...(enModoEscritorio() ? [] : [{ href: '/settings/emergency', label: $t.settingsEmergency.navTitulo }]),
 		// F-47: sólo en modo escritorio — "modo conectado" no existe como
 		// concepto en la web (ya está siempre conectada al único servidor).
 		...(enModoEscritorio() ? [{ href: '/settings/sync', label: $t.settingsSync.navTitulo }] : []),

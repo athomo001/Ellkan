@@ -50,6 +50,9 @@ pub struct SetupStatusResponse {
     /// `true` si la instancia no tiene usuarios y el primer registro (que
     /// nace admin) tiene que presentar el token de instalación.
     pub setup_token_required: bool,
+    /// Pendiente #133: la instancia tiene un proveedor OIDC configurado (el
+    /// login muestra "Entrar con tu organización").
+    pub sso_enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]

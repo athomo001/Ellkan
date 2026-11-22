@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select u.email, u.display_name, r.name as role, u.created_at, u.updated_at,\n                      uk.created_at as keys_created_at\n               from users u\n               join roles r on r.id = u.role_id\n               join user_keys uk on uk.user_id = u.id\n               where u.id = $1",
+  "query": "select u.email, u.display_name, r.name as role, u.created_at, u.updated_at,\n                      uk.created_at as keys_created_at,\n                      octet_length(uk.encrypted_private_key_blob) = 0 as \"necesita_enrolar_claves!\"\n               from users u\n               join roles r on r.id = u.role_id\n               join user_keys uk on uk.user_id = u.id\n               where u.id = $1",
   "describe": {
     "columns": [
       {
@@ -68,6 +68,12 @@
             "name": "created_at"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "necesita_enrolar_claves!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -81,8 +87,9 @@
       false,
       false,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "d597d85b021fb01debfd91e66da3dfef9cd418e4b39fa9d40f45468158102553"
+  "hash": "2f9ca43457a770c9a5197f62f4e127e27621b5fcee4adde393162749a7b0d212"
 }

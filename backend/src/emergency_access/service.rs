@@ -74,6 +74,11 @@ where
         Ok(acceso)
     }
 
+    /// Pendiente #131: ver `EmergencyAccessRepository::personas_relacionadas`.
+    pub async fn personas_relacionadas(&self, user_id: Uuid) -> Result<Vec<super::models::PersonaEmergencia>, DomainError> {
+        Ok(self.accesos.personas_relacionadas(user_id).await?)
+    }
+
     pub async fn listar(&self, user_id: Uuid) -> Result<Vec<(EmergencyAccess, Option<String>, bool)>, DomainError> {
         let filas = self.accesos.listar_por_titular_o_contacto(user_id).await?;
         let mut resultado = Vec::with_capacity(filas.len());

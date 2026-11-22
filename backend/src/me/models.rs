@@ -18,6 +18,19 @@ pub struct Perfil {
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub keys_created_at: OffsetDateTime,
+    /// Pendiente #133: cuenta creada por SSO que todavía no tiene claves
+    /// (el blob de la privada está vacío).
+    pub necesita_enrolar_claves: bool,
+}
+
+/// Pendiente #133: el primer par de claves de una cuenta creada por SSO.
+#[derive(Debug, Clone)]
+pub struct ClavesIniciales {
+    pub public_key_x25519: Vec<u8>,
+    pub public_key_ed25519: Vec<u8>,
+    pub encrypted_private_key_blob: Vec<u8>,
+    pub private_key_nonce: Vec<u8>,
+    pub kdf_salt: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]

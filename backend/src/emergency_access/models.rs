@@ -15,6 +15,14 @@ pub struct EmergencyAccess {
     pub created_at: OffsetDateTime,
 }
 
+/// Pendiente #131: la otra persona de una relación de emergencia.
+#[derive(Debug, Clone)]
+pub struct PersonaEmergencia {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: String,
+}
+
 /// QA-22: lo que hace falta para avisarle al titular de una solicitud
 /// pendiente (al crearla y en el recordatorio de mitad de plazo).
 #[derive(Debug, Clone, sqlx::FromRow)]

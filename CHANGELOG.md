@@ -8,6 +8,9 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Seguridad y privacidad
 
+- **Acceso de emergencia en la web (pendiente #131):** «Mi cuenta → Acceso de emergencia» permite designar contactos (muestra la huella de su clave para compararla antes de sellar), aceptar, pedir acceso, aprobar, rechazar y quitar.
+- **Entrar con tu organización (pendiente #133):** botón en el login cuando la instancia tiene SSO; la vuelta del proveedor (`/sso/callback`) recibe la sesión por `fetch`, nunca en la URL. Una cuenta nueva por SSO elige su contraseña y genera sus claves en el navegador. «Vincular» en «Mi cuenta → Seguridad».
+- **Código fuente en la extensión (pendiente #77):** link «Código fuente (AGPL-3.0)» en el login y en «Mi cuenta» del popup.
 - **Token de instalación obligatorio en instancias nuevas (QA-11, pendiente #109):** si no se configura `ELLKAN_SETUP_TOKEN`, el servidor genera uno al azar mientras no haya usuarios y lo escribe en su log. La pantalla de registro de la web lo pide en el primer registro (el que nace admin) y muestra el comando para verlo (`docker logs ellkan 2>&1 | grep "token de instalación"`). Endpoint nuevo `GET /auth/setup-status`.
 - **IP sólo en los avisos de abuso (pendiente #21):** los logs de cada solicitud ya no llevan la IP del cliente; sólo la llevan los rechazos por límite de solicitudes (429).
 - **Favicons opcionales en la extensión (pendiente #126):** el popup ya no pide los íconos a Google por defecto; muestra la inicial del sitio. Se activa en «Mi cuenta → Íconos de los sitios».
@@ -26,6 +29,8 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Sesiones abiertas en vez de aprobar dispositivos (QA-21, pendiente #110):** se quita el login aprobado desde otro dispositivo y los dispositivos de confianza: el pedido se podía crear sin sesión para cualquier email y, si la víctima aprobaba por error, entregaba una sesión completa sin pasar por MFA. En su lugar, «Mi cuenta → Seguridad» muestra las sesiones abiertas (navegador, sistema y último uso) y deja cerrar una o todas las demás, como los dispositivos vinculados de WhatsApp. Endpoints nuevos `GET /me/sessions`, `DELETE /me/sessions/{id}` y `POST /me/sessions/close-others`; se eliminan `/auth/device-approval/*`, `/me/devices` y `/admin/device-approval-policy`.
 - **Un email, una cuenta (QA-16, pendiente #107):** `Alice@x.com` y `alice@x.com` ya no pueden ser dos cuentas, y el login, SSO, SCIM y compartir encuentran la cuenta como sea que se escriba el email. Los emails guardados no se cambian; `/auth/key-material` devuelve el email guardado y la web, la extensión, el escritorio y la CLI abren la clave privada con ése. **Al actualizar:** si la base ya tiene dos cuentas cuyo email sólo difiere en mayúsculas, el servidor no arranca y el log las lista; hay que dejar una sola y volver a arrancar.
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
+- **Purga con propiedad por grupo (pendiente #51):** si quien se purga es el único miembro de un grupo dueño de una clave que otra persona usa, la purga lo detecta y pide transferirla (antes la clave quedaba sin nadie que la administrara).
+- **Validación también en acceso de emergencia:** el material sellado tiene un tope de tamaño (QA-45).
 - **Bóvedas grandes por partes (QA-12, pendiente #105):** `GET /resources` acepta `?limit=` (hasta 500) y `?after=`, y avisa con `X-Ellkan-Next-Cursor` si quedan más. La web, el escritorio y la extensión cargan la bóveda de a 500; sin `limit` el servidor responde igual que antes, y un cliente nuevo contra un servidor viejo sigue funcionando.
 - **Siempre queda un administrador (QA-38, pendiente #108):** ni un token SCIM, ni la sincronización de directorio, ni la web pueden desactivar, borrar o quitarle el rol al último administrador activo (409 `LAST_ADMIN`). Lo asegura la base de datos, así que vale también para cambios hechos a mano.
 - **Avisos en vivo (QA-39, pendiente #118):** una sesión cerrada deja de recibir avisos al minuto (antes hasta 10), y cada usuario puede tener hasta 10 conexiones abiertas.
@@ -36,10 +41,16 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Servidor
 
+- **Borrar un recurso compartido avisa en vivo (pendiente #50):** los demás destinatarios lo ven desaparecer al instante (test de integración nuevo); antes había que esperar el sync de respaldo.
+- **Cuentas creadas por SSO (pendiente #133):** `POST /me/keys/enroll` guarda el primer par de claves de una cuenta que no tiene (una sola vez, auditado como `user.keys_enrolled`, migración 0061); `GET /me` dice `needs_key_enrollment` y `GET /auth/setup-status` dice `sso_enabled`. `ELLKAN_SSO_REDIRECT_URL` pasa a valer por defecto `<ELLKAN_RP_ORIGIN>/sso/callback`.
+- **Acceso de emergencia (pendiente #131):** `GET /me/emergency-access` incluye email y nombre del titular y del contacto.
 - **SMTP con el puerto 587 (QA-43, pendiente #122):** con TLS activado, el puerto 465 usa TLS directo y cualquier otro (587) STARTTLS obligatorio. Antes el 587 fallaba sin un error claro.
 - **Apagado ordenado (QA-44, pendiente #123):** al recibir SIGTERM (`docker stop`) el servidor deja de aceptar conexiones y termina las que están en curso (hasta 20 s) antes de salir; `docker-compose.yml` le da 30 s.
 
 ### CI
+
+- **Cadena de suministro (pendiente #80):** `cargo deny` (licencias compatibles con AGPL-3.0, crates sólo de crates.io, sin `*`) y un control que falla si el build de la web o de la extensión menciona un dominio de analítica o CDN externo. Los crates del workspace se marcan `publish = false`.
+- **Tests del motor de sync (pendiente #103):** `motor.test.ts` con dobles de la API local y remota (altas, eco de cambios propios, conflictos, borrados pendientes, 409, sesión remota vencida, carpetas).
 
 - **Repo sin binarios (QA-42, pendiente #121):** los paquetes de la extensión (`.zip`, `.crx`, `.xpi`) y la configuración local del asistente dejan de versionarse; los paquetes se publican sólo como assets del release.
 

@@ -44,6 +44,18 @@ pub struct PerfilResponse {
     pub updated_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub keys_created_at: OffsetDateTime,
+    /// Pendiente #133: cuenta creada por SSO sin claves todavía.
+    pub needs_key_enrollment: bool,
+}
+
+/// Pendiente #133: `POST /me/keys/enroll`, mismo armado que el registro.
+#[derive(Debug, Deserialize)]
+pub struct EnrolarClavesRequest {
+    pub public_key_x25519_b64: String,
+    pub public_key_ed25519_b64: String,
+    pub encrypted_private_key_blob_b64: String,
+    pub private_key_nonce_b64: String,
+    pub kdf_salt_b64: String,
 }
 
 #[derive(Debug, Deserialize)]

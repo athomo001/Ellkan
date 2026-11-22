@@ -25,6 +25,7 @@
 	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+	import { ssoApi, RUTA_INICIO_SSO } from '$lib/api/sso';
 
 	let email = $state('');
 	let passphrase = $state('');
@@ -74,6 +75,17 @@
 				})
 				.catch(() => {});
 		}
+	});
+
+	// F-17 (pendiente #133): "Entrar con tu organización" sólo si la instancia
+	// tiene un proveedor configurado. En escritorio no hay SSO.
+	let ssoHabilitado = $state(false);
+	$effect(() => {
+		if (enModoEscritorio()) return;
+		ssoApi
+			.habilitado()
+			.then((si) => (ssoHabilitado = si))
+			.catch(() => {});
 	});
 
 	// F-02: sólo se llena si el backend responde "pendiente_dispositivo".
@@ -443,6 +455,9 @@
 		<p class="hint centrado">{$t.login.sinCuenta} <a href="/register">{$t.login.registrate}</a></p>
 	{/if}
 		<p class="hint centrado"><a href="/recover">{$t.login.olvidasteTuPassphrase}</a></p>
+		{#if ssoHabilitado}
+			<a class="boton-sso" href={RUTA_INICIO_SSO} data-sveltekit-reload>{$t.sso.entrarConOrganizacion}</a>
+		{/if}
 		<hr />
 		<p class="hint centrado">
 			<button type="button" class="link" onclick={() => (conPasskey = true)}>{$t.login.usarPasskey}</button>
@@ -466,6 +481,21 @@
 	form {
 		display: flex;
 		flex-direction: column;
+	}
+	/* Pendiente #133: navegación real (302 al proveedor), no un fetch. */
+	.boton-sso {
+		display: block;
+		text-align: center;
+		padding: var(--space-2) var(--space-4);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md);
+		color: var(--text-primary);
+		text-decoration: none;
+		margin-top: var(--space-2);
+	}
+	.boton-sso:hover,
+	.boton-sso:focus-visible {
+		background: var(--bg-secondary, transparent);
 	}
 	hr {
 		border: none;

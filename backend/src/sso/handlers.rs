@@ -21,10 +21,17 @@ use crate::auth::repository::PgUserRepository;
 
 type Servicio<'a> = SsoService<'a, PgSsoConfigRepository, PgSsoIdentityRepository, PgLoginStateRepository, PgUserRepository>;
 
-/// Mismo criterio que `ELLKAN_RP_ORIGIN` (F-03): default de desarrollo,
-/// producción debe fijar la variable a su origen real.
+/// Adónde vuelve el IdP. Pendiente #133: por defecto, la página
+/// `/sso/callback` de la web en la dirección pública (`ELLKAN_RP_ORIGIN`),
+/// que le pasa `code`/`state` a `GET /auth/sso/oidc/callback` con `fetch`:
+/// la sesión llega en el cuerpo y nunca pasa por una URL.
+/// `ELLKAN_SSO_REDIRECT_URL` la reemplaza (debe coincidir con la registrada
+/// en el IdP).
 fn redirect_url(_state: &AppState) -> String {
-    std::env::var("ELLKAN_SSO_REDIRECT_URL").unwrap_or_else(|_| "http://localhost:8080/auth/sso/oidc/callback".to_string())
+    std::env::var("ELLKAN_SSO_REDIRECT_URL").unwrap_or_else(|_| {
+        let origen = std::env::var("ELLKAN_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:8080".to_string());
+        format!("{}/sso/callback", origen.trim_end_matches('/'))
+    })
 }
 
 /// QA-31 (login CSRF / fijación de sesión): el `state` se ata al navegador

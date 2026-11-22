@@ -99,6 +99,37 @@ export async function registrar(
 	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
 }
 
+/** Pendiente #133: primer acceso de una cuenta creada por SSO (JIT), que
+ * nace sin claves. Mismo armado que `registrar` (identidad nueva, blob
+ * sellado con la contraseña que elige el usuario y su email como AAD), pero
+ * contra `POST /me/keys/enroll`, que el servidor acepta una sola vez.
+ * Devuelve las claves ya abiertas para no volver a pedir la contraseña. */
+export async function enrolarClaves(email: string, passphrase: string): Promise<ClavesDesbloqueadas> {
+	const wasm = await cargarCrypto();
+	const identidad = wasm.generar_identidad();
+	const salt = wasm.generar_salt_kdf();
+	const blob = await sellarClavePrivadaEnWorker(
+		passphrase,
+		salt,
+		identidad.x25519_private,
+		identidad.ed25519_private,
+		aadClavePrivada(email)
+	);
+	await api.post('/me/keys/enroll', {
+		public_key_x25519_b64: bytesABase64(identidad.x25519_public),
+		public_key_ed25519_b64: bytesABase64(identidad.ed25519_public),
+		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
+		private_key_nonce_b64: bytesABase64(blob.nonce),
+		kdf_salt_b64: bytesABase64(salt)
+	});
+	return {
+		x25519Private: identidad.x25519_private,
+		ed25519Private: identidad.ed25519_private,
+		x25519Public: identidad.x25519_public,
+		ed25519Public: identidad.ed25519_public
+	};
+}
+
 /** Parte C: mismo shape que `registrar`, pero contra `POST /admin/users`
  * (requiere permiso `*`) — salta la política de auto-registro y el
  * requisito de SMTP configurado, la cuenta queda verificada de una. */

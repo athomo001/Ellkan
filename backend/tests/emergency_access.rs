@@ -76,6 +76,9 @@ async fn flujo_designar_aceptar_solicitar_aprobar() {
     let lista: Value = resp.json().await.unwrap();
     let fila = lista.as_array().unwrap().iter().find(|f| f["id"] == id).unwrap();
     assert_eq!(fila["sealed_material_b64"], Value::Null, "sin aprobar, el material no debe exponerse");
+    // Pendiente #131: la lista dice quién es la otra persona; la propia queda vacía.
+    assert_eq!(fila["granter"]["email"], "titular@test.ellkan");
+    assert_eq!(fila["grantee"]["email"], "");
 
     // El propio contacto no puede auto-aprobarse.
     let resp = entorno
