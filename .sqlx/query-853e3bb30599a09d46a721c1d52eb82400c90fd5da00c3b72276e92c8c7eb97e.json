@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select ael.id, ael.actor_user_id, u.email as \"actor_email?\", ael.event_type,\n                   ael.subject_type, ael.subject_id, ael.metadata, ael.created_at\n            from audit_log_entries ael\n            left join users u on u.id = ael.actor_user_id\n            where ($1::uuid is null or ael.actor_user_id = $1)\n              and ($2::text is null or ael.event_type = $2)\n              and ($3::timestamptz is null or ael.created_at >= $3)\n              and ($4::timestamptz is null or ael.created_at <= $4)\n            order by ael.id asc\n            limit $5\n            ",
+  "query": "\n            select ael.id, ael.actor_user_id, u.email as \"actor_email?\", ael.event_type,\n                   ael.subject_type, ael.subject_id, ael.metadata, ael.created_at\n            from audit_log_entries ael\n            left join users u on u.id = ael.actor_user_id\n            where ($1::uuid is null or ael.actor_user_id = $1)\n              and ($2::text is null or ael.event_type = $2)\n              and ($3::timestamptz is null or ael.created_at >= $3)\n              and ($4::timestamptz is null or ael.created_at <= $4)\n              and ($5::uuid is null or ael.id > $5)\n            order by ael.id asc\n            limit $6\n            ",
   "describe": {
     "columns": [
       {
@@ -98,6 +98,7 @@
         "Text",
         "Timestamptz",
         "Timestamptz",
+        "Uuid",
         "Int8"
       ]
     },
@@ -112,5 +113,5 @@
       false
     ]
   },
-  "hash": "d2750155c933b146093c51c134cf5572f1aa651314b5bb04fbae5184fd1e65cf"
+  "hash": "853e3bb30599a09d46a721c1d52eb82400c90fd5da00c3b72276e92c8c7eb97e"
 }

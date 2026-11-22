@@ -1058,7 +1058,7 @@ const es = {
 			host: 'Host',
 			puerto: 'Puerto',
 			remitente: 'Remitente (From)',
-			tls: 'TLS (STARTTLS + autenticación)',
+			tls: 'TLS + autenticación (puerto 465: TLS directo; 587 u otro: STARTTLS obligatorio)',
 			usuario: 'Usuario (opcional)',
 			contrasena: 'Contraseña',
 			contrasenaHint: 'Dejar en blanco para no cambiarla. Ya hay una guardada si el estado dice "configurado".',

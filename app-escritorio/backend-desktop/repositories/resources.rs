@@ -168,6 +168,22 @@ impl ResourceRepository for SqliteResourceRepository {
         filas.iter().map(fila_a_resource).collect()
     }
 
+    /// QA-12: mismo keyset que en Postgres. `id` es TEXT con el UUID en
+    /// minúsculas y guiones: su orden de texto es el de los bytes.
+    async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, RepoError> {
+        let filas = sqlx::query(
+            "select id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at, \
+             updated_at, metadata_key_type, metadata_key_id from resources \
+             where created_by = ?1 and deleted_at is null and (?2 is null or id > ?2) order by id limit ?3",
+        )
+        .bind(user_id.to_string())
+        .bind(despues_de.map(|id| id.to_string()))
+        .bind(limite)
+        .fetch_all(&self.pool)
+        .await?;
+        filas.iter().map(fila_a_resource).collect()
+    }
+
     /// F-47 (sync): sin consumidor en este modo todavía — el backend local
     /// nunca SIRVE `/sync` (eso lo hace el servidor remoto al que este modo
     /// se conecta, spec/13 §7), pero el trait es compartido, así que hace

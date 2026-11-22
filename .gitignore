@@ -30,9 +30,17 @@ pkg/
 
 # Build de la extensión — `node build.mjs`/`cli.mjs` lo regeneran; su
 # contenido cambia según el último `BROWSER` usado (chrome vs firefox), así
-# que trackearlo sólo generaba diffs enormes y sin sentido. Los artefactos
-# instalables (`.zip`/`.xpi`/`.crx`) sí se siguen versionando.
+# que trackearlo sólo generaba diffs enormes y sin sentido.
 /extension/dist/
+# QA-42: los instalables (`.zip`/`.xpi`/`.crx`) tampoco se versionan — los
+# publica `release.yml` como assets de cada Release, con SBOM y procedencia.
+/extension/ellkan-*.zip
+/extension/ellkan-*.xpi
+/extension/ellkan-*.crx
+
+# Configuración local del asistente (rutas y permisos de la máquina del autor).
+/.claude/settings.json
+/.claude/settings.local.json
 # Restos de una compilación de depuración de la extensión (nadie los usa).
 /extension/.dbg-out/
 

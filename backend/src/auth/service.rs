@@ -67,11 +67,9 @@ fn material_desbloqueo_falso(
     }
 }
 
-/// Código de un solo uso de 6 dígitos — CSPRNG, nunca `thread_rng`.
+/// Código de un solo uso de 6 dígitos — CSPRNG y sin sesgo (QA-41).
 fn generar_codigo_device() -> String {
-    let bytes: [u8; 4] = bytes_aleatorios();
-    let n = u32::from_be_bytes(bytes) % 1_000_000;
-    format!("{n:06}")
+    ellkan_crypto::aleatoriedad::codigo_numerico(6)
 }
 
 pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV> {

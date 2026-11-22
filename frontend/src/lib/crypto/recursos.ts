@@ -226,7 +226,7 @@ async function cargarClavesMetadataCompartidas(claves: ClavesDesbloqueadas): Pro
 
 export async function listarRecursos(claves: ClavesDesbloqueadas, alAvanzar?: (avance: AvanceCarga) => void): Promise<Recurso[]> {
 	const wasm = await cargarCrypto();
-	const crudos = await api.get<RecursoCrudo[]>('/resources');
+	const crudos = await api.getTodo<RecursoCrudo>('/resources');
 	const clavesMetadata = await cargarClavesMetadataCompartidas(claves);
 
 	const resultado: Recurso[] = [];

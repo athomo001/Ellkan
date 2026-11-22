@@ -445,13 +445,26 @@ impl SmtpConfig {
     }
 }
 
+/// Puerto de SMTP con TLS implícito (submissions, RFC 8314).
+const PUERTO_TLS_IMPLICITO: u16 = 465;
+
 /// QA-07: un host inválido (lo escribe un admin en `PUT /admin/smtp-config`)
 /// es un error de configuración, no un estado imposible — antes era un
 /// `expect` que, con `panic = "abort"` en release, tiraba el proceso en
 /// cada tick del poller.
 fn construir_mailer(cfg: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, lettre::transport::smtp::Error> {
     if cfg.tls {
-        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)?.port(cfg.port);
+        // QA-43 (RFC 8314): 465 es TLS implícito; cualquier otro puerto (587,
+        // 25, 2525…) habla en claro y sube a TLS con STARTTLS. Antes se usaba
+        // TLS implícito siempre y con 587 el handshake fallaba. El STARTTLS
+        // de `starttls_relay` es obligatorio: si el servidor no lo ofrece, no
+        // se manda nada en claro.
+        let builder = if cfg.port == PUERTO_TLS_IMPLICITO {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)?
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&cfg.host)?
+        };
+        let mut builder = builder.port(cfg.port);
         if let (Some(u), Some(p)) = (&cfg.username, &cfg.password) {
             builder = builder.credentials(Credentials::new(u.clone(), p.clone()));
         }

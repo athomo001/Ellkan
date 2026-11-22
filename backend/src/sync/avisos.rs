@@ -13,9 +13,9 @@
 //! destinatarios ya no existen al momento del aviso) lo trae el sync de
 //! respaldo que la app sigue haciendo cada pocos minutos.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::State;
@@ -25,6 +25,8 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::auth::extractor::AuthenticatedUser;
+use crate::auth::repository::SessionRepository;
+use crate::error::{ApiError, DomainError};
 use crate::eventos::{DomainEvent, EmisorDeEventos, recibir_tolerando_lag};
 use crate::resources::repository::{PgResourceRepository, ResourceRepository};
 use crate::state::AppState;
@@ -52,6 +54,50 @@ pub fn nuevo_canal() -> CanalAvisos {
 /// Cada cuánto se cierra una conexión de avisos: la app reconecta y vuelve a
 /// autenticar, así una sesión revocada o vencida no queda escuchando para siempre.
 const VIDA_CONEXION: Duration = Duration::from_secs(10 * 60);
+
+/// QA-39: cada cuánto se vuelve a validar la sesión de una conexión abierta.
+/// Una sesión cerrada («Cerrar las demás»), revocada o vencida deja de
+/// recibir avisos a más tardar en este plazo, no a los 10 minutos.
+const REVALIDAR_SESION: Duration = Duration::from_secs(60);
+
+/// QA-39: conexiones de avisos simultáneas por usuario. Alcanza de sobra
+/// para la app, la web y la extensión en varios equipos; más que esto es un
+/// cliente roto o abuso (cada conexión es una tarea y un receptor del canal).
+pub const MAX_CONEXIONES_POR_USUARIO: u32 = 10;
+
+/// Contador de conexiones abiertas por usuario.
+pub type ConexionesPorUsuario = Arc<Mutex<HashMap<Uuid, u32>>>;
+
+/// Ocupa un lugar en el contador mientras vive (el stream SSE lo guarda); al
+/// cerrarse la conexión por cualquier motivo, `Drop` lo libera.
+struct LugarDeConexion {
+    conexiones: ConexionesPorUsuario,
+    usuario: Uuid,
+}
+
+impl LugarDeConexion {
+    fn ocupar(conexiones: &ConexionesPorUsuario, usuario: Uuid) -> Option<Self> {
+        let mut mapa = conexiones.lock().unwrap_or_else(|e| e.into_inner());
+        let abiertas = mapa.entry(usuario).or_insert(0);
+        if *abiertas >= MAX_CONEXIONES_POR_USUARIO {
+            return None;
+        }
+        *abiertas += 1;
+        Some(Self { conexiones: conexiones.clone(), usuario })
+    }
+}
+
+impl Drop for LugarDeConexion {
+    fn drop(&mut self) {
+        let mut mapa = self.conexiones.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(abiertas) = mapa.get_mut(&self.usuario) {
+            *abiertas -= 1;
+            if *abiertas == 0 {
+                mapa.remove(&self.usuario);
+            }
+        }
+    }
+}
 
 pub fn spawn_consumidor(eventos: &EmisorDeEventos, recursos: PgResourceRepository, avisos: CanalAvisos) {
     let mut receptor = eventos.subscribe();
@@ -87,32 +133,90 @@ fn aviso_revocada(firmado: &crate::revocacion::AvisoFirmado) -> Result<Event, In
 }
 
 /// `GET /sync/eventos` — Server-Sent Events, sólo con los avisos del usuario
-/// autenticado. Se cierra sola a los `VIDA_CONEXION`; un `keep-alive` cada 20 s
+/// autenticado. Se cierra sola a los `VIDA_CONEXION`, o antes si la sesión deja
+/// de ser válida (se revisa cada `REVALIDAR_SESION`); un `keep-alive` cada 20 s
 /// evita que un proxy la corte por inactividad. Si la cuenta se revoca, manda
-/// el aviso firmado y se cierra en el acto.
-pub async fn eventos(State(state): State<AppState>, auth: AuthenticatedUser) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let receptor = state.avisos_sync.subscribe();
+/// el aviso firmado y se cierra en el acto. 429 si el usuario ya tiene
+/// `MAX_CONEXIONES_POR_USUARIO` abiertas.
+pub async fn eventos(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let usuario = auth.user_id;
+    let lugar = LugarDeConexion::ocupar(&state.conexiones_sse, usuario).ok_or(DomainError::RateLimited)?;
+    let receptor = state.avisos_sync.subscribe();
+    let sesiones = state.sesiones.clone();
+    let session_id = auth.session_id;
     let fin = tokio::time::Instant::now() + VIDA_CONEXION;
-    // Estado: (receptor, ya se mandó la revocación → cortar en el próximo paso).
-    let flujo = futures_util::stream::unfold((receptor, false), move |(mut receptor, revocada)| async move {
-        if revocada {
-            return None;
-        }
-        loop {
-            match tokio::time::timeout_at(fin, receptor.recv()).await {
-                Err(_) | Ok(Err(broadcast::error::RecvError::Closed)) => return None,
-                Ok(Ok(AvisoSync::Cambio(destino))) if destino == usuario => return Some((aviso(), (receptor, false))),
-                Ok(Ok(AvisoSync::Revocada { user_id, aviso })) if user_id == usuario => {
-                    return Some((aviso_revocada(&aviso), (receptor, true)));
+    let estado_inicial = Conexion {
+        receptor,
+        revocada: false,
+        revisar_sesion: tokio::time::Instant::now() + REVALIDAR_SESION,
+        _lugar: lugar,
+    };
+    let flujo = futures_util::stream::unfold(estado_inicial, move |mut c| {
+        let sesiones = sesiones.clone();
+        async move {
+            if c.revocada {
+                return None;
+            }
+            loop {
+                match tokio::time::timeout_at(fin.min(c.revisar_sesion), c.receptor.recv()).await {
+                    Err(_) if tokio::time::Instant::now() >= fin => return None,
+                    Err(_) => {
+                        // Revisión periódica: sesión cerrada, revocada o vencida
+                        // (o error de base, por las dudas) → se corta.
+                        if !matches!(sesiones.validar(session_id).await, Ok(Some(_))) {
+                            return None;
+                        }
+                        c.revisar_sesion = tokio::time::Instant::now() + REVALIDAR_SESION;
+                    }
+                    Ok(Err(broadcast::error::RecvError::Closed)) => return None,
+                    Ok(Ok(AvisoSync::Cambio(destino))) if destino == usuario => return Some((aviso(), c)),
+                    Ok(Ok(AvisoSync::Revocada { user_id, aviso })) if user_id == usuario => {
+                        c.revocada = true;
+                        return Some((aviso_revocada(&aviso), c));
+                    }
+                    Ok(Ok(_)) => continue,
+                    // Se perdieron avisos (ráfaga): avisar igual, el delta de `/sync` pone todo al día.
+                    // Una revocación perdida la recupera la app con `POST /auth/estado-cuenta`
+                    // cuando la re-autenticación falle.
+                    Ok(Err(broadcast::error::RecvError::Lagged(_))) => return Some((aviso(), c)),
                 }
-                Ok(Ok(_)) => continue,
-                // Se perdieron avisos (ráfaga): avisar igual, el delta de `/sync` pone todo al día.
-                // Una revocación perdida la recupera la app con `POST /auth/estado-cuenta`
-                // cuando la re-autenticación falle.
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => return Some((aviso(), (receptor, false))),
             }
         }
     });
-    Sse::new(flujo).keep_alive(KeepAlive::new().interval(Duration::from_secs(20)))
+    Ok(Sse::new(flujo).keep_alive(KeepAlive::new().interval(Duration::from_secs(20))))
+}
+
+/// Estado de una conexión de avisos abierta.
+struct Conexion {
+    receptor: broadcast::Receiver<AvisoSync>,
+    /// Ya se mandó la revocación: cortar en el próximo paso.
+    revocada: bool,
+    revisar_sesion: tokio::time::Instant,
+    /// Libera el lugar en el tope por usuario al cerrarse la conexión.
+    _lugar: LugarDeConexion,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn el_tope_por_usuario_se_libera_al_cerrar() {
+        let conexiones = ConexionesPorUsuario::default();
+        let usuario = Uuid::now_v7();
+        let lugares: Vec<_> = (0..MAX_CONEXIONES_POR_USUARIO)
+            .map(|_| LugarDeConexion::ocupar(&conexiones, usuario).unwrap())
+            .collect();
+        assert!(LugarDeConexion::ocupar(&conexiones, usuario).is_none(), "una de más se rechaza");
+        assert!(LugarDeConexion::ocupar(&conexiones, Uuid::now_v7()).is_some(), "otro usuario no se ve afectado");
+        drop(lugares);
+        let otro_lugar = LugarDeConexion::ocupar(&conexiones, usuario);
+        assert!(otro_lugar.is_some());
+        assert_eq!(conexiones.lock().unwrap().get(&usuario), Some(&1));
+        drop(otro_lugar);
+        assert!(conexiones.lock().unwrap().get(&usuario).is_none(), "sin conexiones no queda la entrada");
+    }
 }

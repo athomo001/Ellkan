@@ -44,14 +44,9 @@ fn hash_de_token(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
-/// Código de un solo uso de 6 dígitos — mismo generador que `auth::service`
-/// (CSPRNG, nunca `thread_rng`), copiado acá porque esa función es privada
-/// de su módulo (mismo criterio de duplicación ya establecido entre
-/// `auth::service`/`mfa::service` para este tipo de helper chico).
+/// Código de un solo uso de 6 dígitos — CSPRNG y sin sesgo (QA-41).
 fn generar_codigo_email() -> String {
-    let bytes: [u8; 4] = bytes_aleatorios();
-    let n = u32::from_be_bytes(bytes) % 1_000_000;
-    format!("{n:06}")
+    ellkan_crypto::aleatoriedad::codigo_numerico(6)
 }
 
 fn hash_de_codigo(codigo: &str) -> Vec<u8> {

@@ -11,6 +11,7 @@ use crate::auth::models::PropositoSesion;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
+use crate::validacion;
 
 use super::dto::{ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, PerfilResponse, PreferenciasResponse};
 use super::models::{Avatar, NuevaClavePrivada, Preferencias};
@@ -158,11 +159,13 @@ pub async fn cambiar_passphrase(
     Json(req): Json<CambiarPassphraseRequest>,
 ) -> Result<(), ApiError> {
     sesion.exigir(&[PropositoSesion::Completa, PropositoSesion::CambiarPassphrase])?;
-    let encrypted_private_key_blob = b64::decode(&req.encrypted_private_key_blob_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let private_key_nonce =
-        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let kdf_salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let encrypted_private_key_blob = validacion::b64_exacto(
+        &req.encrypted_private_key_blob_b64,
+        "encrypted_private_key_blob_b64",
+        validacion::LARGO_BLOB_CLAVE_PRIVADA,
+    )?;
+    let private_key_nonce = validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?;
+    let kdf_salt = validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?;
     let prueba = PruebaDePosesion {
         challenge: b64::decode(&req.challenge_nonce_b64)
             .map_err(|_| DomainError::ValidacionInvalida("challenge_nonce_b64 inválido".into()))?,

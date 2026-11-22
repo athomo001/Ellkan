@@ -1045,7 +1045,7 @@ const en: Diccionario = {
 			host: 'Host',
 			puerto: 'Port',
 			remitente: 'From address',
-			tls: 'TLS (STARTTLS + auth)',
+			tls: 'TLS + auth (port 465: implicit TLS; 587 or other: required STARTTLS)',
 			usuario: 'Username (optional)',
 			contrasena: 'Password',
 			contrasenaHint: 'Leave blank to keep it unchanged. One is already saved if the status says "configured".',

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::error::DomainError;
 
 use super::models::{AuditLogEntry, FiltroAuditLog};
-use super::repository::{AuditLogRepository, LIMITE_PAGINA_DEFAULT, LIMITE_PAGINA_MAXIMO};
+use super::repository::{AuditLogRepository, LIMITE_EXPORT_MAXIMO, LIMITE_PAGINA_DEFAULT, LIMITE_PAGINA_MAXIMO};
 
 pub struct AuditLogService<'a, A> {
     pub audit_log: &'a A,
@@ -45,9 +45,18 @@ where
         Ok(PaginaAuditLog { items, next_cursor })
     }
 
-    /// `GET /admin/audit-log/export` — sin paginación, orden cronológico
-    /// ascendente, techo duro en el repository (`LIMITE_EXPORT_MAXIMO`).
-    pub async fn exportar(&self, filtro: FiltroAuditLog) -> Result<Vec<AuditLogEntry>, DomainError> {
-        Ok(self.audit_log.listar_para_exportar(&filtro).await?)
+    /// `GET /admin/audit-log/export` — orden cronológico ascendente, de a
+    /// tandas de `LIMITE_EXPORT_MAXIMO`. QA-40: se pide una fila de más para
+    /// saber si quedan; si quedan, `next_cursor` es el id de la última
+    /// entregada y se sigue con `after`.
+    pub async fn exportar(&self, filtro: FiltroAuditLog, despues_de: Option<Uuid>) -> Result<PaginaAuditLog, DomainError> {
+        let mut items = self.audit_log.listar_para_exportar(&filtro, despues_de, LIMITE_EXPORT_MAXIMO + 1).await?;
+        let next_cursor = if items.len() as i64 > LIMITE_EXPORT_MAXIMO {
+            items.truncate(LIMITE_EXPORT_MAXIMO as usize);
+            items.last().map(|e| e.id)
+        } else {
+            None
+        };
+        Ok(PaginaAuditLog { items, next_cursor })
     }
 }

@@ -61,8 +61,8 @@ async function reconciliarUnaVez(remoto: ReturnType<typeof clienteRemoto>, email
 	if (reconciliados.has(email)) return;
 	try {
 		const [locales, delServidor] = await Promise.all([
-			api.get<RecursoListado[]>('/resources'),
-			remoto.get<RecursoListado[]>('/resources')
+			api.getTodo<RecursoListado>('/resources'),
+			remoto.getTodo<RecursoListado>('/resources')
 		]);
 		const servidor = new Map(delServidor.map((r) => [r.id, r]));
 		let encolados = 0;

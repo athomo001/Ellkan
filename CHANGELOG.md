@@ -26,8 +26,22 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Sesiones abiertas en vez de aprobar dispositivos (QA-21, pendiente #110):** se quita el login aprobado desde otro dispositivo y los dispositivos de confianza: el pedido se podía crear sin sesión para cualquier email y, si la víctima aprobaba por error, entregaba una sesión completa sin pasar por MFA. En su lugar, «Mi cuenta → Seguridad» muestra las sesiones abiertas (navegador, sistema y último uso) y deja cerrar una o todas las demás, como los dispositivos vinculados de WhatsApp. Endpoints nuevos `GET /me/sessions`, `DELETE /me/sessions/{id}` y `POST /me/sessions/close-others`; se eliminan `/auth/device-approval/*`, `/me/devices` y `/admin/device-approval-policy`.
 - **Un email, una cuenta (QA-16, pendiente #107):** `Alice@x.com` y `alice@x.com` ya no pueden ser dos cuentas, y el login, SSO, SCIM y compartir encuentran la cuenta como sea que se escriba el email. Los emails guardados no se cambian; `/auth/key-material` devuelve el email guardado y la web, la extensión, el escritorio y la CLI abren la clave privada con ése. **Al actualizar:** si la base ya tiene dos cuentas cuyo email sólo difiere en mayúsculas, el servidor no arranca y el log las lista; hay que dejar una sola y volver a arrancar.
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
+- **Bóvedas grandes por partes (QA-12, pendiente #105):** `GET /resources` acepta `?limit=` (hasta 500) y `?after=`, y avisa con `X-Ellkan-Next-Cursor` si quedan más. La web, el escritorio y la extensión cargan la bóveda de a 500; sin `limit` el servidor responde igual que antes, y un cliente nuevo contra un servidor viejo sigue funcionando.
+- **Siempre queda un administrador (QA-38, pendiente #108):** ni un token SCIM, ni la sincronización de directorio, ni la web pueden desactivar, borrar o quitarle el rol al último administrador activo (409 `LAST_ADMIN`). Lo asegura la base de datos, así que vale también para cambios hechos a mano.
+- **Avisos en vivo (QA-39, pendiente #118):** una sesión cerrada deja de recibir avisos al minuto (antes hasta 10), y cada usuario puede tener hasta 10 conexiones abiertas.
+- **CSV de auditoría (QA-40, pendiente #119):** neutraliza fórmulas igual que la exportación de la bóveda, y si se corta en 50.000 filas lo dice (`X-Ellkan-Truncated`) y da el cursor para pedir lo que sigue (`X-Ellkan-Next-Cursor`, `?after=`).
+- **Códigos sin sesgo (QA-41, pendiente #120):** los códigos numéricos de email y de recuperación salen de una sola función sin sesgo de módulo.
+- **Validación de entrada (QA-45, pendiente #124):** el servidor rechaza nonces, claves y ciphertexts con el largo equivocado o demasiado grandes, emails mal formados y nombres vacíos o con saltos de línea.
+- **Sesión de la CLI privada (QA-46, pendiente #125):** `sesion.json` y `perfil.json` se reescriben enteros con permisos sólo del dueño (también en Windows), aunque vinieran de una versión vieja con permisos más abiertos.
+
+### Servidor
+
+- **SMTP con el puerto 587 (QA-43, pendiente #122):** con TLS activado, el puerto 465 usa TLS directo y cualquier otro (587) STARTTLS obligatorio. Antes el 587 fallaba sin un error claro.
+- **Apagado ordenado (QA-44, pendiente #123):** al recibir SIGTERM (`docker stop`) el servidor deja de aceptar conexiones y termina las que están en curso (hasta 20 s) antes de salir; `docker-compose.yml` le da 30 s.
 
 ### CI
+
+- **Repo sin binarios (QA-42, pendiente #121):** los paquetes de la extensión (`.zip`, `.crx`, `.xpi`) y la configuración local del asistente dejan de versionarse; los paquetes se publican sólo como assets del release.
 
 - **Test de auditoría de recuperación de cuenta sin carrera:** espera a que el evento llegue a la auditoría en vez de leerlo una sola vez.
 - **Accesibilidad en el CI (QA-13):** Playwright + axe (WCAG 2.2 AA) sobre las pantallas sin sesión, en los dos temas, incluido el registro con token de instalación. Encontró y se corrigió una región con scroll no alcanzable con el teclado.

@@ -6,6 +6,7 @@ pub mod audit;
 pub mod auth;
 pub mod b64;
 pub mod config;
+pub mod csv_seguro;
 // El código del módulo `desktop` vive físicamente en `app-escritorio/backend-desktop/`
 // (fuera de `backend/src/`) — pedido explícito del usuario, 2026-09-16: todo el
 // código del modo escritorio junto en `app-escritorio/`, no repartido por el resto
@@ -48,6 +49,7 @@ pub mod sync;
 pub mod system_status;
 pub mod tags;
 pub mod users_admin;
+pub mod validacion;
 
 use std::time::Duration;
 

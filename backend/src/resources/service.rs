@@ -178,6 +178,11 @@ where
         Ok(self.recursos.listar_visibles_por(user_id).await?)
     }
 
+    /// QA-12: ver `ResourceRepository::listar_visibles_pagina`.
+    pub async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, DomainError> {
+        Ok(self.recursos.listar_visibles_pagina(user_id, despues_de, limite).await?)
+    }
+
     /// `GET /resources/{id}`.
     pub async fn obtener(&self, resource_id: Uuid, user_id: Uuid) -> Result<Resource, DomainError> {
         if !self

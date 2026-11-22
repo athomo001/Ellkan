@@ -129,6 +129,11 @@ impl From<DomainError> for ApiError {
             // es un conflicto, no una falla del servidor: antes salía como 500
             // "error interno" (ej. el sync del escritorio, 2026-10-18).
             DomainError::Interno(RepoError::Conflict) => ApiError::new(StatusCode::CONFLICT, "CONFLICT", "conflicto de estado"),
+            // QA-38: el trigger `users_un_admin_activo` (migración 0060)
+            // rechaza dejar la instancia sin administradores activos.
+            DomainError::Interno(RepoError::Database(causa)) if es_ultimo_admin(&causa) => {
+                ApiError::new(StatusCode::CONFLICT, "LAST_ADMIN", "no se puede: debe quedar al menos un administrador activo")
+            }
             DomainError::Interno(RepoError::Database(causa)) => {
                 // Antes la causa se descartaba sin dejar rastro: el cliente veía
                 // "error interno" y ni el log del servidor ni el del escritorio
@@ -139,4 +144,15 @@ impl From<DomainError> for ApiError {
             }
         }
     }
+}
+
+/// SQLSTATE propio del trigger `asegurar_un_admin_activo` (migración 0060).
+fn es_ultimo_admin(causa: &sqlx::Error) -> bool {
+    causa.as_database_error().and_then(|d| d.code()).is_some_and(|c| c == "EK001")
+}
+
+/// Lo mismo, sobre un `RepoError` (para quien quiere seguir de largo en vez
+/// de devolver el 409, ej. el sync de directorio).
+pub fn es_ultimo_admin_repo(error: &RepoError) -> bool {
+    matches!(error, RepoError::Database(causa) if es_ultimo_admin(causa))
 }

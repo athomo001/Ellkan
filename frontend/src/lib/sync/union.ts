@@ -143,7 +143,7 @@ export async function unirConCuentaDelServidor(
 		subidas.add(c.id);
 	}
 
-	const recursos = await api.get<RecursoLocalCrudo[]>('/resources');
+	const recursos = await api.getTodo<RecursoLocalCrudo>('/resources');
 	let subidos = 0;
 	let omitidos = 0;
 	for (const r of recursos) {

@@ -108,7 +108,15 @@ pub struct ListarQuery {
     /// los recursos de sus subcarpetas (sin esto, el filtro es exacto).
     #[serde(default)]
     pub incluir_subcarpetas: bool,
+    /// QA-12: tamaño de página (1 a `MAX_PAGINA_RECURSOS`). Sin él, la lista
+    /// entera como siempre (clientes anteriores).
+    pub limit: Option<u32>,
+    /// QA-12: cursor de `X-Ellkan-Next-Cursor` de la página anterior.
+    pub after: Option<Uuid>,
 }
+
+/// QA-12: tope de `GET /resources?limit=`.
+pub const MAX_PAGINA_RECURSOS: u32 = 500;
 
 /// `PUT /resources/{id}/type` (2026-09-17) — cambiar el tipo de un recurso
 /// ya creado entre tipos con el mismo `json_schema` (ver

@@ -44,3 +44,8 @@ age = { version = "0.12.1", features = ["armor"] }
 uuid = { version = "1.24.0", features = ["v7", "serde"] }
 x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
 zeroize = "1.9.0"
+
+# QA-46: en Windows, `perfil.json`/`sesion.json` se crean con una ACL propia
+# (sólo el dueño), mismo descriptor que ya usa la app de escritorio.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem"] }

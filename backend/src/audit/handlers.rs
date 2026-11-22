@@ -2,7 +2,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::http::header;
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::IntoResponse;
 
 use crate::auth::extractor::AuditorUser;
@@ -57,16 +57,6 @@ pub async fn listar(
     }))
 }
 
-/// Escapa un campo para una fila CSV (RFC 4180): entre comillas dobles si
-/// contiene coma, comilla o salto de línea, duplicando comillas internas.
-fn csv_campo(valor: &str) -> String {
-    if valor.contains(',') || valor.contains('"') || valor.contains('\n') {
-        format!("\"{}\"", valor.replace('"', "\"\""))
-    } else {
-        valor.to_string()
-    }
-}
-
 fn a_fila_csv(e: &AuditLogEntry) -> String {
     let actor = e.actor_user_id.map(|u| u.to_string()).unwrap_or_default();
     let subject_type = e.subject_type.clone().unwrap_or_default();
@@ -74,13 +64,13 @@ fn a_fila_csv(e: &AuditLogEntry) -> String {
     let metadata = e.metadata.to_string();
     format!(
         "{},{},{},{},{},{},{}\n",
-        csv_campo(&e.id.to_string()),
-        csv_campo(&actor),
-        csv_campo(&e.event_type),
-        csv_campo(&subject_type),
-        csv_campo(&subject_id),
-        csv_campo(&metadata),
-        csv_campo(&e.created_at.to_string()),
+        crate::csv_seguro::campo(&e.id.to_string()),
+        crate::csv_seguro::campo(&actor),
+        crate::csv_seguro::campo(&e.event_type),
+        crate::csv_seguro::campo(&subject_type),
+        crate::csv_seguro::campo(&subject_id),
+        crate::csv_seguro::campo(&metadata),
+        crate::csv_seguro::campo(&e.created_at.to_string()),
     )
 }
 
@@ -96,25 +86,42 @@ pub async fn exportar(
     let event_type = resolver_event_type(q.event_type)?;
     let filtro = FiltroAuditLog { actor_user_id: q.actor_user_id, event_type, desde: q.from, hasta: q.to };
 
-    let entradas = servicio(&state).exportar(filtro).await?;
+    let tanda = servicio(&state).exportar(filtro, q.after).await?;
 
-    match q.format.as_deref() {
+    let (tipo, cuerpo) = match q.format.as_deref() {
         Some("csv") => {
             let mut cuerpo = String::from("id,actor_user_id,event_type,subject_type,subject_id,metadata,created_at\n");
-            for e in &entradas {
+            for e in &tanda.items {
                 cuerpo.push_str(&a_fila_csv(e));
             }
-            Ok(([(header::CONTENT_TYPE, "text/csv; charset=utf-8")], cuerpo))
+            ("text/csv; charset=utf-8", cuerpo)
         }
         None | Some("ndjson") => {
             let mut cuerpo = String::new();
-            for e in &entradas {
+            for e in &tanda.items {
                 let linea = serde_json::to_string(&a_response(e.clone())).expect("AuditLogEntryResponse siempre serializa");
                 cuerpo.push_str(&linea);
                 cuerpo.push('\n');
             }
-            Ok(([(header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8")], cuerpo))
+            ("application/x-ndjson; charset=utf-8", cuerpo)
         }
-        Some(_) => Err(DomainError::ValidacionInvalida("format debe ser ndjson o csv".into()).into()),
+        Some(_) => return Err(DomainError::ValidacionInvalida("format debe ser ndjson o csv".into()).into()),
+    };
+
+    // QA-40: si quedan eventos se avisa y se da con qué seguir (`?after=`),
+    // en vez de cortar en silencio. `X-Ellkan-Truncated` va siempre, para que
+    // el colector no tenga que inferirlo.
+    let mut cabeceras = HeaderMap::new();
+    cabeceras.insert(header::CONTENT_TYPE, HeaderValue::from_static(tipo));
+    cabeceras.insert(
+        "x-ellkan-truncated",
+        HeaderValue::from_static(if tanda.next_cursor.is_some() { "true" } else { "false" }),
+    );
+    if let Some(cursor) = tanda.next_cursor {
+        cabeceras.insert(
+            "x-ellkan-next-cursor",
+            HeaderValue::from_str(&cursor.to_string()).expect("un uuid es un header válido"),
+        );
     }
+    Ok((cabeceras, cuerpo))
 }

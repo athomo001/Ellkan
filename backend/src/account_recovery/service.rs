@@ -65,11 +65,9 @@ const MAX_INTENTOS_CONFIRMACION: i32 = 5;
 /// un solo manager de grupo nunca alcanza para entregar la clave de otro.
 const UMBRAL_MINIMO_SIN_ADMIN_ORG: i32 = 2;
 
-/// Código de 8 dígitos — CSPRNG (`OsRng` vía `bytes_aleatorios`). El sesgo
-/// del módulo sobre 2^64 es despreciable.
+/// Código de 8 dígitos — CSPRNG y sin sesgo (QA-41).
 fn generar_codigo_confirmacion() -> String {
-    let n = u64::from_be_bytes(bytes_aleatorios::<8>()) % 100_000_000;
-    format!("{n:08}")
+    ellkan_crypto::aleatoriedad::codigo_numerico(8)
 }
 
 fn sha256(bytes: &[u8]) -> Vec<u8> {

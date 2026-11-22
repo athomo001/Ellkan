@@ -57,6 +57,12 @@ pub trait ResourceRepository {
     /// `permissions` (sin grupos todavía, F-11 básico).
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError>;
 
+    /// QA-12: una página de `listar_visibles_por` por keyset sobre `id`
+    /// (orden total y estable, la clave primaria): los de `id > despues_de`,
+    /// a lo sumo `limite`. Un recurso creado o borrado entre páginas no
+    /// corre ni duplica a los demás.
+    async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, RepoError>;
+
     /// F-47 (sync): recursos VIVOS visibles para `user_id` cuyo contenido
     /// (`updated_at`) cambió desde `desde` — mismo criterio de visibilidad
     /// que `listar_visibles_por`. No incluye los que sólo cambiaron de
@@ -384,6 +390,45 @@ impl ResourceRepository for PgResourceRepository {
             order by r.created_at desc
             "#,
             user_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| Resource {
+                id: f.id,
+                resource_type_id: f.resource_type_id,
+                metadata_ciphertext: f.metadata_ciphertext,
+                metadata_nonce: f.metadata_nonce,
+                created_by: f.created_by,
+                created_at: f.created_at,
+                updated_at: f.updated_at,
+                metadata_key_type: f.metadata_key_type,
+                metadata_key_id: f.metadata_key_id,
+            })
+            .collect())
+    }
+
+    async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select r.id, r.resource_type_id, r.metadata_ciphertext, r.metadata_nonce,
+                   r.created_by, r.created_at, r.updated_at, r.metadata_key_type, r.metadata_key_id
+            from resources r
+            where r.deleted_at is null
+              and ($2::uuid is null or r.id > $2)
+              and exists (
+                  select 1 from permissions p
+                  where p.subject_type = 'resource' and p.subject_id = r.id
+                    and p.grantee_type = 'user' and p.grantee_id = $1
+              )
+            order by r.id
+            limit $3
+            "#,
+            user_id,
+            despues_de,
+            limite,
         )
         .fetch_all(&self.pool)
         .await?;

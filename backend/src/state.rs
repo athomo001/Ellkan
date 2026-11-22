@@ -56,6 +56,8 @@ pub struct AppState {
     pub eventos: EmisorDeEventos,
     /// F-47: avisos en vivo a la app de escritorio (`sync::avisos`).
     pub avisos_sync: crate::sync::avisos::CanalAvisos,
+    /// QA-39: conexiones de avisos abiertas por usuario (tope en `sync::avisos`).
+    pub conexiones_sse: crate::sync::avisos::ConexionesPorUsuario,
     pub recursos: PgResourceRepository,
     pub tipos_recurso: PgResourceTypeRepository,
     pub envolturas: PgSecretEnvelopeRepository,
@@ -196,6 +198,7 @@ impl AppState {
             emails: PgOutboundEmailRepository { pool: pool.clone() },
             eventos: eventos::nuevo_canal(),
             avisos_sync: crate::sync::avisos::nuevo_canal(),
+            conexiones_sse: Default::default(),
             recursos: PgResourceRepository { pool: pool.clone() },
             tipos_recurso: PgResourceTypeRepository { pool: pool.clone() },
             envolturas: PgSecretEnvelopeRepository { pool: pool.clone() },

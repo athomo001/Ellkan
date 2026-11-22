@@ -5,9 +5,9 @@ use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
-use crate::b64;
-use crate::error::{ApiError, DomainError};
+use crate::error::ApiError;
 use crate::state::AppState;
+use crate::validacion;
 
 use super::dto::{
     ActualizarShareExemptRequest, AgregarMiembroRequest, CrearGrupoRequest, GrupoResponse, MiembroResponse, MoverGrupoRequest,
@@ -121,11 +121,9 @@ pub async fn agregar_miembro(
 ) -> Result<(), ApiError> {
     let mut envelopes = Vec::with_capacity(req.envelopes.len());
     for e in req.envelopes {
-        let sealed_dek = b64::decode(&e.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-        let secret_ciphertext =
-            b64::decode(&e.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-        let secret_nonce =
-            b64::decode(&e.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+        let sealed_dek = validacion::b64_exacto(&e.sealed_dek_b64, "sealed_dek_b64", validacion::LARGO_CLAVE_SELLADA)?;
+        let secret_ciphertext = validacion::b64_acotado(&e.secret_ciphertext_b64, "secret_ciphertext_b64", validacion::MAX_SECRETO)?;
+        let secret_nonce = validacion::b64_exacto(&e.secret_nonce_b64, "secret_nonce_b64", validacion::LARGO_NONCE)?;
         envelopes.push(EnvelopeParaMiembroNuevo { resource_id: e.resource_id, sealed_dek, secret_ciphertext, secret_nonce });
     }
 

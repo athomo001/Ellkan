@@ -10,6 +10,9 @@ services:
     # código si no la encuentra; `docker compose up -d --build` fuerza compilar.
     # `ELLKAN_VERSION` (en .env) elige la versión; por defecto, la última.
     image: "ghcr.io/athomo001/ellkan:${ELLKAN_VERSION:-latest}"
+    # QA-44: el servidor termina lo que está haciendo hasta 20 s después de
+    # `docker stop`; el default de Docker (10 s) lo mataría antes.
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: backend/Dockerfile

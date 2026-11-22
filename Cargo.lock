@@ -2256,6 +2256,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "uuid",
+ "windows",
  "x25519-dalek 3.0.0",
  "zeroize",
 ]

@@ -10,6 +10,7 @@ import { goto } from '$app/navigation';
 import { sesion } from '$lib/state/session';
 import { limpiarStoresEn } from '$lib/state/declarative-store';
 import { fetchConReintento, parsearCuerpo } from './reintento';
+import { traerTodasLasPaginas, type Pagina } from './paginado';
 
 export class ApiError extends Error {
 	constructor(
@@ -47,6 +48,10 @@ export async function baseUrl(): Promise<string> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+	return (await requestConCabeceras<T>(path, init)).cuerpo;
+}
+
+async function requestConCabeceras<T>(path: string, init: RequestInit = {}): Promise<{ cuerpo: T; cabeceras: Headers }> {
 	const s = get(sesion);
 	const headers = new Headers(init.headers);
 	headers.set('Content-Type', 'application/json');
@@ -54,7 +59,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 	const resp = await fetchConReintento(`${await baseUrl()}${path}`, { ...init, headers });
 
-	if (resp.status === 204) return undefined as T;
+	if (resp.status === 204) return { cuerpo: undefined as T, cabeceras: resp.headers };
 
 	const cuerpo = parsearCuerpo(await resp.text());
 
@@ -77,11 +82,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 		throw new ApiError(resp.status, err.code, err.message);
 	}
 
-	return cuerpo as T;
+	return { cuerpo: cuerpo as T, cabeceras: resp.headers };
 }
 
 export const api = {
 	get: <T>(path: string, headers?: HeadersInit) => request<T>(path, { method: 'GET', headers }),
+	/** QA-12: una lista paginada por cursor, entera (ver `paginado.ts`). */
+	getTodo: <T>(path: string) =>
+		traerTodasLasPaginas<T>(path, (ruta) => requestConCabeceras<T[]>(ruta, { method: 'GET' }) as Promise<Pagina<T>>),
 	post: <T>(path: string, body?: unknown) =>
 		request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
 	put: <T>(path: string, body?: unknown, headers?: HeadersInit) =>
