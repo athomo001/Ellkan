@@ -21,7 +21,14 @@ pub trait SsoIdentityRepository {
 }
 
 pub trait LoginStateRepository {
-    async fn crear(&self, state: &str, nonce: &str, pkce_verifier: &str, expires_at: OffsetDateTime) -> Result<(), RepoError>;
+    async fn crear(
+        &self,
+        state: &str,
+        nonce: &str,
+        pkce_verifier: &str,
+        expires_at: OffsetDateTime,
+        link_user_id: Option<Uuid>,
+    ) -> Result<(), RepoError>;
 
     /// Consume (marca usado) un `state` pendiente — devuelve `None` si no
     /// existía, ya estaba consumido, o venció (un `state` reutilizado o
@@ -103,35 +110,42 @@ pub struct PgLoginStateRepository {
 }
 
 impl LoginStateRepository for PgLoginStateRepository {
-    async fn crear(&self, state: &str, nonce: &str, pkce_verifier: &str, expires_at: OffsetDateTime) -> Result<(), RepoError> {
-        sqlx::query!(
-            r#"insert into sso_login_state (state, nonce, pkce_verifier, expires_at) values ($1, $2, $3, $4)"#,
-            state,
-            nonce,
-            pkce_verifier,
-            expires_at,
-        )
-        .execute(&self.pool)
-        .await?;
+    async fn crear(
+        &self,
+        state: &str,
+        nonce: &str,
+        pkce_verifier: &str,
+        expires_at: OffsetDateTime,
+        link_user_id: Option<Uuid>,
+    ) -> Result<(), RepoError> {
+        sqlx::query("insert into sso_login_state (state, nonce, pkce_verifier, expires_at, link_user_id) values ($1, $2, $3, $4, $5)")
+            .bind(state)
+            .bind(nonce)
+            .bind(pkce_verifier)
+            .bind(expires_at)
+            .bind(link_user_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     async fn consumir(&self, state: &str) -> Result<Option<LoginState>, RepoError> {
-        let fila = sqlx::query!(
+        let fila: Option<(String, String, String, OffsetDateTime, Option<Uuid>)> = sqlx::query_as(
             r#"
             update sso_login_state set consumed_at = now()
             where state = $1 and consumed_at is null and expires_at > now()
-            returning state, nonce, pkce_verifier, expires_at
+            returning state, nonce, pkce_verifier, expires_at, link_user_id
             "#,
-            state,
         )
+        .bind(state)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(fila.map(|f| LoginState {
-            state: f.state,
-            nonce: f.nonce,
-            pkce_verifier: f.pkce_verifier,
-            expires_at: f.expires_at,
+        Ok(fila.map(|(state, nonce, pkce_verifier, expires_at, link_user_id)| LoginState {
+            state,
+            nonce,
+            pkce_verifier,
+            expires_at,
+            link_user_id,
         }))
     }
 }

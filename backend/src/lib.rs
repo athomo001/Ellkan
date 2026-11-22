@@ -930,6 +930,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/me/recovery-kit", me_recovery_kit_router)
         .nest("/recovery-kit/reset", recovery_kit_reset_router)
         .nest("/me/emergency-access", me_emergency_access_router)
+        // QA-31: vincular el SSO de la organización a la cuenta propia.
+        .route("/me/sso/link", post(sso::handlers::vincular))
         .nest("/admin/emergency-access-policy", admin_emergency_access_policy_router)
         .nest("/admin/sso-config", admin_sso_config_router)
         .nest("/admin/scim-tokens", admin_scim_tokens_router)

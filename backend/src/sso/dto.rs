@@ -32,3 +32,9 @@ pub struct LoginCompletoResponse {
     pub estado: String,
     pub session_id: Option<uuid::Uuid>,
 }
+
+/// QA-31: respuesta de `POST /me/sso/link` — el cliente navega a esta URL.
+#[derive(Debug, Serialize)]
+pub struct VincularResponse {
+    pub authorization_url: String,
+}

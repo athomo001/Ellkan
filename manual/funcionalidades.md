@@ -40,7 +40,7 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 
 ## Federación e identidad externa
 
-- **SSO** vía OpenID Connect, vinculado por email verificado del proveedor.
+- **SSO** vía OpenID Connect. Una cuenta que ya existe se vincula desde la propia sesión (nunca sola por coincidir el email); las cuentas nuevas se crean al entrar sólo si el admin activa el aprovisionamiento automático. Por ahora sólo por API: todavía no hay botón en la web.
 - **SCIM 2.0** para aprovisionamiento automático de usuarios desde un IdP externo.
 - **Directory Sync (LDAP)** con modo simulación (dry-run) antes de aplicar cambios.
 
