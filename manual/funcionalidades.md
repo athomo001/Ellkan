@@ -32,7 +32,7 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 
 - Política de MFA (TOTP obligatorio u opcional, días de gracia).
 - Política de contraseña/passphrase (longitud, entropía mínima, reglas del generador).
-- Retención y purga automática de datos vencidos (nunca toca el audit log).
+- Retención y purga automática de datos vencidos. El registro de auditoría tiene su propio plazo (365 días por defecto, configurable).
 - Recuperación de cuenta con custodia y aprobación por umbral de administradores. Si se activa, es otra vía para recuperar el acceso además de la passphrase y del kit de recuperación propio: la organización custodia una copia sellada de las claves que sólo se abre con la aprobación de varios administradores.
 - Acceso de emergencia entre pares (designar un contacto de confianza, solicitar, aprobar, o resolución automática por tiempo agotado).
 - Política de Compartir Externo (habilitar/deshabilitar, expiración máxima, exigir contraseña adicional).
