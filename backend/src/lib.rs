@@ -86,7 +86,27 @@ use state::AppState;
 /// gobernado por ese `<meta>`, nunca por este header. El resto de las
 /// directivas sí puede (y debe) seguir acá: `frame-ancestors` en particular
 /// **tiene que** ser un header, un `<meta>` lo ignora por especificación.
-const CSP: &str = "object-src 'none'; frame-ancestors 'none'; base-uri 'self'";
+///
+/// QA-27: las dos políticas (header y `<meta>`) se aplican a la vez, así que
+/// acá NO puede ir `default-src`: valdría también para scripts y bloquearía
+/// el `<script>` inline, cuyo hash sólo conoce el `<meta>`. En su lugar, cada
+/// tipo de carga por separado, para que un XSS no pueda sacar datos a otro
+/// sitio (`connect-src`, `img-src`, `form-action`). El único destino externo
+/// es HIBP (comprobación opcional de contraseñas filtradas, `lib/salud`).
+/// `style-src` queda sin restringir: Svelte usa atributos `style` inline. La
+/// app de escritorio no pasa por acá: su CSP está en `tauri.conf.json`.
+const CSP: &str = "object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' https://api.pwnedpasswords.com; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'none'; frame-src 'none'; form-action 'self'";
+
+/// QA-27: la app no usa ninguna de estas APIs; negarlas acota lo que podría
+/// pedir un script inyectado. WebAuthn y el portapapeles quedan con su valor
+/// por defecto (sólo el propio origen).
+const PERMISSIONS_POLICY: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=()";
+
+/// QA-27: HSTS sólo si la dirección pública es `https://`. Sobre HTTP el
+/// navegador lo ignora igual (RFC 6797 §8.1), y una instalación local por
+/// `http://localhost` no debe quedar pegada a HTTPS. Sin `includeSubDomains`:
+/// Ellkan no sabe qué otros servicios viven en los subdominios.
+const HSTS: &str = "max-age=31536000";
 
 fn header_estatico(nombre: &'static str, valor: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
     SetResponseHeaderLayer::overriding(HeaderName::from_static(nombre), HeaderValue::from_static(valor))
@@ -133,8 +153,15 @@ fn respuesta_limite_por_ip(err: tower_governor::GovernorError) -> axum::response
 /// un set de headers. Aplicado globalmente (incluida la API JSON) — inerte
 /// ahí, pero evita duplicar la capa entre rutas de API y estáticas.
 fn capa_headers_seguridad(router: Router) -> Router {
+    let con_https = std::env::var("ELLKAN_RP_ORIGIN").is_ok_and(|o| o.trim().starts_with("https://"));
+    let router = if con_https {
+        router.layer(header_estatico("strict-transport-security", HSTS))
+    } else {
+        router
+    };
     router
         .layer(header_estatico("content-security-policy", CSP))
+        .layer(header_estatico("permissions-policy", PERMISSIONS_POLICY))
         .layer(header_estatico("x-content-type-options", "nosniff"))
         .layer(header_estatico("referrer-policy", "same-origin"))
         .layer(header_estatico("cross-origin-opener-policy", "same-origin"))

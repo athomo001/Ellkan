@@ -20,6 +20,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Crear y compartir recursos son atómicos (QA-25, pendiente #112):** el recurso, el sobre y el permiso se guardan en una sola transacción; antes un fallo a mitad podía dejar un recurso sin dueño o un sobre sin permiso que bloqueaba el reintento.
 - **Límites por IP detrás de un reverse proxy (QA-26, pendiente #113):** nueva variable `ELLKAN_TRUSTED_PROXIES`. Con ella, los límites de solicitudes sin sesión usan la IP real del cliente (`X-Forwarded-For`, sólo si la conexión viene de ese proxy) en vez de contar a todos como la IP del proxy.
 - **Dependencias:** `lettre` 0.11.24 (seis avisos de seguridad del envío de correo: inyección de comandos SMTP, respuestas STARTTLS falsificadas, entre otros) y `quinn-udp` 0.5.16. La alerta de SQLite en `libsqlite3-sys` (sólo escritorio) queda como excepción documentada hasta que `sqlx` permita actualizarlo.
+- **Cabeceras de seguridad del navegador (QA-27, pendiente #114):** la CSP de la web limita a dónde puede conectarse, de dónde carga imágenes y a dónde puede mandar formularios (si alguna vez se cuela un script, no puede sacar datos a otro sitio). Nueva `Permissions-Policy`, y HSTS cuando la dirección pública es `https://`.
 - **Links sólo http(s):** la bóveda web y el popup de la extensión ya no convierten en link un `uri` con `javascript:`, `data:` u otro esquema; se muestra como texto.
 
 ### CI
