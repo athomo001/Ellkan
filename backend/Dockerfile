@@ -59,6 +59,11 @@ RUN sed -i 's#, "app-escritorio/src-tauri"##' Cargo.toml
 # prepare`, commiteado al repo) en vez de conectarse a una base real — el
 # build de la imagen no tiene ni debe tener acceso a Postgres.
 ENV SQLX_OFFLINE=true
+# Versión de la Release (`release.yml` la pasa con `--build-arg`): el panel de
+# estado la muestra y el aviso de versión nueva (pendiente #89) compara con
+# ella. Sin el argumento (build local), el servidor queda sin número.
+ARG ELLKAN_BUILD_VERSION=
+ENV ELLKAN_BUILD_VERSION=${ELLKAN_BUILD_VERSION}
 RUN cargo build --release -p ellkan-backend
 
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f

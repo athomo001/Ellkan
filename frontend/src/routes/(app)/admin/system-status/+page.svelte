@@ -6,7 +6,14 @@
 	// backend) y a una sugerencia de reparación si aplica.
 	import { onMount } from 'svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { systemStatusApi, type Check, type GrupoChecks, type NivelCheck } from '$lib/api/admin';
+	import {
+		systemStatusApi,
+		avisoVersionApi,
+		type AvisoVersion,
+		type Check,
+		type GrupoChecks,
+		type NivelCheck
+	} from '$lib/api/admin';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
@@ -26,6 +33,28 @@
 		}
 	}
 	onMount(cargar);
+
+	// Pendiente #89: aviso de versión nueva (opcional, apagado por defecto).
+	let aviso = $state<AvisoVersion | undefined>();
+	let guardandoAviso = $state(false);
+	let errorAviso = $state<string | undefined>();
+	onMount(() => {
+		avisoVersionApi
+			.obtener()
+			.then((a) => (aviso = a))
+			.catch(() => {});
+	});
+	async function cambiarAviso(enabled: boolean) {
+		guardandoAviso = true;
+		errorAviso = undefined;
+		try {
+			aviso = await avisoVersionApi.fijar(enabled);
+		} catch (err) {
+			errorAviso = err instanceof ApiError ? err.message : $t.admin.estadoSistema.error;
+		} finally {
+			guardandoAviso = false;
+		}
+	}
 
 	function categoriaLabel(categoria: GrupoChecks['categoria']): string {
 		const e = $t.admin.estadoSistema;
@@ -143,6 +172,45 @@
 			</Card>
 		</div>
 	{/each}
+{/if}
+
+{#if aviso}
+	<div class="grupo">
+		<Card>
+			<h2>{$t.admin.estadoSistema.versionTitulo}</h2>
+			<p class="sugerencia">{$t.admin.estadoSistema.versionHint}</p>
+			<label class="fila">
+				<input
+					type="checkbox"
+					checked={aviso.enabled}
+					disabled={guardandoAviso}
+					onchange={(e) => cambiarAviso(e.currentTarget.checked)}
+				/>
+				{$t.admin.estadoSistema.versionActivar}
+			</label>
+			<p class="mensaje">
+				{$t.admin.estadoSistema.versionActual(aviso.current_version ?? $t.admin.estadoSistema.versionDesconocida)}
+			</p>
+			{#if aviso.enabled}
+				{#if aviso.update_available && aviso.latest_version && aviso.release_url}
+					<p class="fila">
+						<span class="punto nivel-advertencia"></span>
+						<span class="mensaje"
+							>{$t.admin.estadoSistema.versionNueva(aviso.latest_version)}
+							<a href={aviso.release_url} target="_blank" rel="noreferrer">{$t.admin.estadoSistema.versionVer}</a></span
+						>
+					</p>
+				{:else if aviso.checked_at}
+					<p class="mensaje">
+						{$t.admin.estadoSistema.versionAlDia(new Date(aviso.checked_at).toLocaleString())}
+					</p>
+				{:else}
+					<p class="mensaje">{$t.admin.estadoSistema.versionSinConsultar}</p>
+				{/if}
+			{/if}
+			{#if errorAviso}<p class="error">{errorAviso}</p>{/if}
+		</Card>
+	</div>
 {/if}
 
 <style>

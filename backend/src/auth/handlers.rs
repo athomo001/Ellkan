@@ -180,7 +180,12 @@ pub async fn setup_status(State(state): State<AppState>) -> Result<Json<super::d
     let sso = crate::sso::repository::SsoConfigRepository::obtener(&state.sso_config)
         .await
         .map_err(DomainError::from)?;
+    let legales = crate::legal_links::repository::LegalLinksRepository::obtener(&state.legal_links)
+        .await
+        .map_err(DomainError::from)?;
     Ok(Json(super::dto::SetupStatusResponse {
+        privacy_url: legales.privacy_url,
+        terms_url: legales.terms_url,
         setup_token_required: instancia_vacia && state.setup_token.is_some(),
         sso_enabled: sso.issuer_url.is_some_and(|u| !u.is_empty()) && sso.client_id.is_some_and(|c| !c.is_empty()),
     }))

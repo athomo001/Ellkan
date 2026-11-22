@@ -6,7 +6,9 @@
 	// no obligar a hacer scroll para llegar a algo puntual.
 	import { onMount } from 'svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { perfilApi, misGruposApi, type Perfil, type GrupoDeUsuario } from '$lib/api/profile';
+	import Button from '$lib/components/Button.svelte';
+	import { perfilApi, misGruposApi, descargarDatosPersonales, type Perfil, type GrupoDeUsuario } from '$lib/api/profile';
+	import { enModoEscritorio } from '$lib/tauri/conectar';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
@@ -24,6 +26,22 @@
 			cargando = false;
 		}
 	});
+
+	// Pendiente #58: derecho de acceso. Sólo contra el servidor: la app de
+	// escritorio sin servidor no guarda datos personales de nadie más.
+	let descargando = $state(false);
+	let errorDescarga = $state<string | undefined>();
+	async function descargar() {
+		descargando = true;
+		errorDescarga = undefined;
+		try {
+			await descargarDatosPersonales();
+		} catch {
+			errorDescarga = $t.settingsProfile.datosError;
+		} finally {
+			descargando = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -67,6 +85,15 @@
 				{/each}
 			</ul>
 		{/if}
+	</Card>
+{/if}
+
+{#if !cargando && !error && !enModoEscritorio()}
+	<Card>
+		<h2>{$t.settingsProfile.datosTitulo}</h2>
+		<p class="hint">{$t.settingsProfile.datosHint}</p>
+		<Button variant="secondary" loading={descargando} onclick={descargar}>{$t.settingsProfile.datosDescargar}</Button>
+		{#if errorDescarga}<p class="error">{errorDescarga}</p>{/if}
 	</Card>
 {/if}
 

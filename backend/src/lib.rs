@@ -13,6 +13,7 @@ pub mod csv_seguro;
 // del código. `#[path]` lo mantiene lógicamente parte de este crate (sigue
 // resolviendo `crate::auth::...`, `crate::resources::...`, etc. con normalidad)
 // aunque el archivo no esté en la ubicación que Rust asume por default.
+pub mod datos_personales;
 #[cfg(feature = "desktop")]
 #[path = "../../app-escritorio/backend-desktop/mod.rs"]
 pub mod desktop;
@@ -25,6 +26,7 @@ pub mod external_shares;
 pub mod folders;
 pub mod groups;
 pub mod ip_cliente;
+pub mod legal_links;
 pub mod me;
 pub mod metadata;
 pub mod mfa;
@@ -48,6 +50,7 @@ pub mod state;
 pub mod sync;
 pub mod system_status;
 pub mod tags;
+pub mod update_check;
 pub mod users_admin;
 pub mod validacion;
 
@@ -535,6 +538,10 @@ pub fn construir_router(estado: AppState) -> Router {
     // `external_shares::job`.
     external_shares::job::spawn(&estado.eventos, estado.external_shares.clone(), Duration::from_secs(300));
 
+    // Pendiente #89: aviso de versión nueva — diario, y sin salir a la red
+    // mientras esté apagado (el default).
+    update_check::job::lanzar(estado.update_check.clone(), estado.eventos.clone());
+
     let webauthn_router = Router::new()
         .route("/register/options", post(passkeys::handlers::register_options))
         .route("/register/verify", post(passkeys::handlers::register_verify))
@@ -589,6 +596,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/", get(me::handlers::perfil))
         .route("/permissions", get(me::handlers::permisos))
         .route("/groups", get(me::handlers::grupos))
+        // Pendiente #58: derecho de acceso a los datos personales propios.
+        .route("/personal-data", get(datos_personales::handlers::exportar))
         // Pendiente #133: primer par de claves de una cuenta creada por SSO.
         .route("/keys/enroll", post(me::handlers::enrolar_claves));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
@@ -844,6 +853,8 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_groups_export_router = Router::new().route("/", get(export::handlers::exportar_grupos));
     let admin_reports_router = Router::new().route("/{reportId}", get(reports::handlers::obtener));
     let admin_system_status_router = Router::new().route("/", get(system_status::handlers::obtener));
+    let admin_legal_links_router = Router::new().route("/", get(legal_links::handlers::obtener).put(legal_links::handlers::actualizar));
+    let admin_update_check_router = Router::new().route("/", get(update_check::handlers::obtener).put(update_check::handlers::fijar));
 
     let admin_external_share_policy_router = Router::new().route(
         "/",
@@ -943,6 +954,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/groups/export", admin_groups_export_router)
         .nest("/admin/reports", admin_reports_router)
         .nest("/admin/system-status", admin_system_status_router)
+        .nest("/admin/update-check", admin_update_check_router)
+        .nest("/admin/legal-links", admin_legal_links_router)
         .fallback(fallback_frontend)
         // `route_layer` (no `layer`): a diferencia de `layer`, no envuelve al
         // `fallback` — el rate limit general es para proteger la API contra

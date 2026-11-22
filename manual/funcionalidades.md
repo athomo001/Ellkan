@@ -65,6 +65,12 @@ Panel web con ~19 secciones: usuarios, roles, grupos, audit log, reportes, y una
 
 **Cuenta creada por un admin que nunca entró y perdió su frase temporal:** no hay un botón para regenerarla, a propósito (sería un endpoint que reemplaza las claves de otra persona). Purgar la cuenta y crearla de nuevo con el mismo correo da el mismo resultado, porque una cuenta que nunca entró no tiene nada guardado.
 
+**Mis datos personales** (en «Mi perfil»): cada usuario descarga un archivo con lo que el servidor sabe de su cuenta —correo, nombre, grupos, sesiones, dispositivos, passkeys, contactos de emergencia e historial de actividad—. La bóveda no está ahí porque el servidor no puede leerla; se exporta aparte.
+
+**Textos legales** (en «Políticas → Textos legales»): la dirección de la política de privacidad y la de los términos de uso de la instancia. El registro y el login las muestran como links. Ellkan no redacta esos textos: hay una plantilla para adaptar en [plantilla-privacidad.md](plantilla-privacidad.md).
+
+**Aviso de versión nueva** (en «Estado del sistema»): apagado por defecto. Si un admin lo activa, el servidor consulta una vez al día la página pública de versiones de Ellkan en GitHub y avisa cuando hay una nueva, con el link a las novedades. Es la única conexión a internet que Ellkan hace por su cuenta: sólo pide el número de la última versión, sin mandar datos de la instancia. Con `ELLKAN_UPDATE_CHECK_URL` se puede apuntar a otra dirección (por ejemplo, un espejo interno).
+
 ## Internacionalización y accesibilidad visual
 
 - Español e inglés, cambiable en cualquier momento sin perder sesión.

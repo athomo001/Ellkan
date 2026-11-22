@@ -146,6 +146,16 @@ export interface RetentionPolicy {
 	data_retention_days: number;
 	audit_log_retention_days: number;
 }
+/** Pendiente #57: links de privacidad y términos (vacío = sin link). */
+export interface LegalLinks {
+	privacy_url: string | null;
+	terms_url: string | null;
+}
+export const legalLinksApi = {
+	obtener: () => api.get<LegalLinks>('/admin/legal-links'),
+	actualizar: (l: { privacy_url: string; terms_url: string }) => api.put<LegalLinks>('/admin/legal-links', l)
+};
+
 export const retentionPolicyApi = {
 	obtener: () => api.get<RetentionPolicy>('/admin/data-retention-policy'),
 	actualizar: (p: RetentionPolicy) => api.put<RetentionPolicy>('/admin/data-retention-policy', p)
@@ -479,6 +489,23 @@ export interface GrupoChecks {
 }
 export const systemStatusApi = {
 	obtener: () => api.get<GrupoChecks[]>('/admin/system-status')
+};
+
+/** Pendiente #89 (F-43): aviso de versión nueva, opcional y apagado por
+ * defecto. Con `enabled`, el servidor consulta las Releases públicas de
+ * GitHub una vez al día. `current_version` es `null` en un build sin versión
+ * (desarrollo): ahí no se compara. */
+export interface AvisoVersion {
+	enabled: boolean;
+	current_version: string | null;
+	latest_version: string | null;
+	release_url: string | null;
+	checked_at: string | null;
+	update_available: boolean;
+}
+export const avisoVersionApi = {
+	obtener: () => api.get<AvisoVersion>('/admin/update-check'),
+	fijar: (enabled: boolean) => api.put<AvisoVersion>('/admin/update-check', { enabled })
 };
 
 /** La transferencia que propone el servidor, tal cual. `null` si algo no

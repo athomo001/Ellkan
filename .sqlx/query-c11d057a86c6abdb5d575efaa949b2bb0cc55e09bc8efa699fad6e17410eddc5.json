@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select g.name, gm.is_admin, gm.created_at as joined_at\n           from group_members gm join groups g on g.id = gm.group_id\n           where gm.user_id = $1 and g.deleted_at is null\n           order by g.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "groups",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "is_admin",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "group_members",
+            "name": "is_admin"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "joined_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "group_members",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c11d057a86c6abdb5d575efaa949b2bb0cc55e09bc8efa699fad6e17410eddc5"
+}

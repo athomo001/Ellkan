@@ -8,6 +8,7 @@
 	// política lo exige y todavía no tiene ningún segundo factor — setup +
 	// confirmación en el mismo flujo, `MfaService::confirmar_setup_totp`
 	// completa la sesión al confirmar, sin un `/auth/mfa/verify` aparte).
+	import EnlacesLegales from '$lib/components/EnlacesLegales.svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
@@ -467,6 +468,7 @@
 			{/if}
 		</p>
 	{/if}
+	<EnlacesLegales />
 </Card>
 
 <style>

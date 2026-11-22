@@ -150,6 +150,10 @@ pub enum AuditEventType {
     UserRemoteWipeSignaled,
     /// Pendiente #133: primer par de claves de una cuenta creada por SSO.
     UserKeysEnrolled,
+    /// Pendiente #89: un admin activó o apagó el aviso de versión nueva.
+    UpdateCheckUpdated,
+    /// Pendiente #57: un admin cambió los links de privacidad o términos.
+    LegalLinksUpdated,
 }
 
 impl AuditEventType {
@@ -245,6 +249,8 @@ impl AuditEventType {
             AuditEventType::ResourceOwnershipTransferred => "resource.ownership_transferred",
             AuditEventType::UserRemoteWipeSignaled => "user.remote_wipe_signaled",
             AuditEventType::UserKeysEnrolled => "user.keys_enrolled",
+            AuditEventType::UpdateCheckUpdated => "update_check.updated",
+            AuditEventType::LegalLinksUpdated => "legal_links.updated",
         }
     }
 
@@ -343,6 +349,8 @@ impl AuditEventType {
             "resource.ownership_transferred" => AuditEventType::ResourceOwnershipTransferred,
             "user.remote_wipe_signaled" => AuditEventType::UserRemoteWipeSignaled,
             "user.keys_enrolled" => AuditEventType::UserKeysEnrolled,
+            "update_check.updated" => AuditEventType::UpdateCheckUpdated,
+            "legal_links.updated" => AuditEventType::LegalLinksUpdated,
             _ => return None,
         })
     }

@@ -53,6 +53,10 @@ pub struct SetupStatusResponse {
     /// Pendiente #133: la instancia tiene un proveedor OIDC configurado (el
     /// login muestra "Entrar con tu organización").
     pub sso_enabled: bool,
+    /// Pendiente #57: links de la política de privacidad y de los términos
+    /// de la instancia (`null` si el admin no los cargó).
+    pub privacy_url: Option<String>,
+    pub terms_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

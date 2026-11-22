@@ -48,6 +48,22 @@ export const clavesDesbloqueadas = declararStore<ClavesDesbloqueadas | null>('cl
 	clearOn: ['lock', 'logout']
 });
 
+// Pendiente #64 (paso 1): soltar la referencia no borra los bytes — quedan
+// en el heap hasta que el recolector los reuse, y un volcado de memoria con
+// la bóveda ya bloqueada los encontraría. Al bloquear, cerrar sesión o
+// reemplazar las claves, las privadas anteriores se ponen en cero. Si el
+// valor nuevo reusa el mismo arreglo, ése no se toca. Las copias que haya
+// hecho el wasm o un `slice()` no se alcanzan desde acá (pasos 2 y 3).
+let clavesPrevias: ClavesDesbloqueadas | null = null;
+clavesDesbloqueadas.subscribe((nuevas) => {
+	if (clavesPrevias && clavesPrevias !== nuevas) {
+		for (const viejo of [clavesPrevias.x25519Private, clavesPrevias.ed25519Private]) {
+			if (viejo !== nuevas?.x25519Private && viejo !== nuevas?.ed25519Private) viejo.fill(0);
+		}
+	}
+	clavesPrevias = nuevas;
+});
+
 /**
  * F-48, modo de persistencia "sólo-memoria" (spec/13 §8): secretos
  * descifrados de recursos que NO se replican en SQLite local, indexados por

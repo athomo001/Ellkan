@@ -22,6 +22,23 @@ export const perfilApi = {
 	obtener: () => api.get<Perfil>('/me')
 };
 
+/** Pendiente #58: descarga `ellkan-datos-personales.json` con los datos
+ * personales que el servidor tiene de esta cuenta. Pedido autenticado y
+ * descarga vía Blob (un link directo no lleva el token). */
+export async function descargarDatosPersonales(): Promise<void> {
+	const sessionId = get(sesion).sessionId;
+	const resp = await fetch(`${await baseUrl()}/me/personal-data`, {
+		headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : {}
+	});
+	if (!resp.ok) throw new Error(`descarga falló: ${resp.status}`);
+	const url = URL.createObjectURL(await resp.blob());
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = 'ellkan-datos-personales.json';
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
 /** Hallazgo real de uso 2026-08-11: "Mi perfil" no mostraba a qué grupos
  * pertenece el usuario ni si es admin de alguno. */
 export interface GrupoDeUsuario {

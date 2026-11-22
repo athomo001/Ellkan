@@ -598,6 +598,10 @@ const en: Diccionario = {
 		huellaConfirmo: 'It is the same fingerprint my contact sees',
 		designar: 'Designate as contact'
 	},
+	legales: {
+		privacidad: 'Privacy',
+		terminos: 'Terms'
+	},
 	sso: {
 		titulo: 'Organization sign-in',
 		cargando: 'Checking with your organization…',
@@ -791,6 +795,8 @@ const en: Diccionario = {
 		sistemaTitulo: 'Startup and system',
 		conexionesTitulo: 'Connections («Connect» button)',
 		conexionesPestanas: 'Open connections as tabs of a single window',
+		sinWindowsTerminal:
+			'Windows Terminal is not installed: connections open in a PowerShell console, without tabs. Install it from the Microsoft Store or with “winget install Microsoft.WindowsTerminal”.',
 		conexionesHint: 'With Windows Terminal, each SSH, FTP or database connection opens as a new tab of the «ellkan» window. Unchecked, each connection opens its own window. Without Windows Terminal, a PowerShell console is used per connection.',
 		sistemaNoSoportado: 'These options are only available on Windows for now.',
 		autostartEtiqueta: 'Open Ellkan when I sign in to Windows',
@@ -849,6 +855,11 @@ const en: Diccionario = {
 		gruposTitulo: 'Groups',
 		sinGrupos: "You don't belong to any group.",
 		adminDeGrupo: 'Group admin',
+		datosTitulo: 'My personal data',
+		datosHint:
+			'Download a JSON file with everything the server knows about your account: email, name, groups, sessions, devices, passkeys, emergency contacts and your activity history. Your vault contents are not included because the server cannot read them: export them from “Export”.',
+		datosDescargar: 'Download my data',
+		datosError: 'Could not download your data.',
 		avatarTitulo: 'Avatar',
 		avatarHint: 'PNG, JPEG or WEBP, up to 2 MB.',
 		avatarSubir: 'Upload avatar',
@@ -902,6 +913,7 @@ const en: Diccionario = {
 			politicaMfa: 'MFA policy',
 			politicaPassword: 'Passphrase policy',
 			politicaRetencion: 'Data retention',
+			politicaLegal: 'Legal texts',
 			politicaRecovery: 'Account recovery',
 			politicaSelfRegistration: 'Self-registration',
 			politicaEmergencia: 'Emergency access',
@@ -1127,6 +1139,12 @@ const en: Diccionario = {
 			techoPortapapeles: 'Clipboard-clear ceiling (minutes, empty = no ceiling)',
 			techoAutoBloqueo: 'Auto-lock ceiling (minutes, empty = no ceiling)'
 		},
+		politicaLegal: {
+			titulo: 'Legal texts',
+			hint: "Links to this instance's privacy policy and terms of use. Sign-up and login show them. Ellkan does not write these texts: publish them wherever you like (there is a template in the manual) and paste the links here. Empty = no link.",
+			privacidad: 'Privacy policy',
+			terminos: 'Terms of use'
+		},
 		politicaRetencion: {
 			titulo: 'Data retention',
 			datosDias: 'Data retention (days)',
@@ -1239,6 +1257,16 @@ const en: Diccionario = {
 			emailMiembroNuevo: "New member's email"
 		},
 		estadoSistema: {
+			versionTitulo: 'New versions',
+			versionHint:
+				"If you turn this on, the server checks Ellkan's public releases page on GitHub once a day and shows a notice here when there is a new one. It is the only internet connection Ellkan makes on its own; it only asks for the latest version number and sends no data about your instance.",
+			versionActivar: 'Notify me when a new version is available',
+			versionActual: (v: string) => `Installed version: ${v}`,
+			versionDesconocida: 'no number (development build)',
+			versionNueva: (v: string) => `A new version is available: ${v}.`,
+			versionVer: "See what's new",
+			versionAlDia: (cuando: string) => `Up to date (last check: ${cuando}).`,
+			versionSinConsultar: 'Not checked yet; it may take a minute.',
 			titulo: 'System status',
 			hint: 'Organization self-diagnostic — each row checks itself and suggests a fix if something is off.',
 			error: 'Could not load the system status.',

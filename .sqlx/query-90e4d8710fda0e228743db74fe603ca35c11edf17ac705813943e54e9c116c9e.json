@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select privacy_url, terms_url from legal_links where id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "privacy_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_links",
+            "name": "privacy_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "terms_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "legal_links",
+            "name": "terms_url"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "90e4d8710fda0e228743db74fe603ca35c11edf17ac705813943e54e9c116c9e"
+}

@@ -14,6 +14,7 @@ use crate::audit::repository::PgAuditLogRepository;
 use crate::auth::repository::{
     PgAuthChallengeRepository, PgDeviceChallengeRepository, PgKnownDeviceRepository, PgSessionRepository, PgUserRepository,
 };
+use crate::datos_personales::repository::PgDatosPersonalesRepository;
 use crate::directory_sync::repository::PgDirectorySyncConfigRepository;
 use crate::emergency_access::repository::{
     PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
@@ -23,6 +24,7 @@ use crate::export::repository::{PgExportPolicyRepository, PgExportRepository};
 use crate::external_shares::repository::{PgExternalSharePolicyRepository, PgExternalShareRepository};
 use crate::folders::repository::{PgFolderItemRepository, PgFolderRepository};
 use crate::groups::repository::{PgGroupMemberRepository, PgGroupRepository, PgOrganizationRepository};
+use crate::legal_links::repository::PgLegalLinksRepository;
 use crate::me::repository::PgPreferenciasRepository;
 use crate::metadata::repository::{PgMetadataKeyEnvelopeRepository, PgMetadataKeyRepository};
 use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, PgTotpCredentialRepository};
@@ -40,6 +42,7 @@ use crate::smtp_config::repository::PgSmtpConfigRepository;
 use crate::sso::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIdentityRepository};
 use crate::system_status::repository::PgSystemStatusRepository;
 use crate::tags::repository::PgTagRepository;
+use crate::update_check::repository::PgUpdateCheckRepository;
 use crate::users_admin::repository::PgUserPurgeRepository;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
@@ -110,6 +113,9 @@ pub struct AppState {
     pub password_policy: PgPasswordPolicyRepository,
     pub self_registration_policy: PgSelfRegistrationPolicyRepository,
     pub sharing_policy: PgSharingPolicyRepository,
+    pub update_check: PgUpdateCheckRepository,
+    pub legal_links: PgLegalLinksRepository,
+    pub datos_personales: PgDatosPersonalesRepository,
     pub reportes: PgReportsRepository,
     // F-16 (account recovery, admin-driven)
     pub account_recovery_policy: PgAccountRecoveryPolicyRepository,
@@ -229,6 +235,9 @@ impl AppState {
             password_policy: PgPasswordPolicyRepository { pool: pool.clone() },
             self_registration_policy: PgSelfRegistrationPolicyRepository { pool: pool.clone() },
             sharing_policy: PgSharingPolicyRepository { pool: pool.clone() },
+            update_check: PgUpdateCheckRepository { pool: pool.clone() },
+            legal_links: PgLegalLinksRepository { pool: pool.clone() },
+            datos_personales: PgDatosPersonalesRepository { pool: pool.clone() },
             reportes: PgReportsRepository { pool: pool.clone() },
             account_recovery_policy: PgAccountRecoveryPolicyRepository { pool: pool.clone() },
             org_recovery_key: PgOrgRecoveryKeyRepository { pool: pool.clone() },

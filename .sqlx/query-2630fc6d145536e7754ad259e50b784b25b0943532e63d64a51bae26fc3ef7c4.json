@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select enabled, latest_version, release_url, checked_at from update_check where id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "update_check",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "latest_version",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "update_check",
+            "name": "latest_version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "release_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "update_check",
+            "name": "release_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "checked_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "update_check",
+            "name": "checked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2630fc6d145536e7754ad259e50b784b25b0943532e63d64a51bae26fc3ef7c4"
+}

@@ -65,7 +65,7 @@ stateDiagram-v2
 - las contraseñas que revelaste o copiaste;
 - en el modo "sólo memoria" de la app conectada, las contraseñas que se pidieron al servidor.
 
-Al bloquear se descartan. Como la web y la extensión corren en JavaScript, el navegador decide cuándo reutiliza esa memoria, así que pueden quedar restos un tiempo. Por eso conviene **bloquear al alejarte** y dejar activos el bloqueo por inactividad y el bloqueo con Windows.
+Al bloquear se descartan: en la web y la app, los bytes de las claves privadas se sobrescriben con ceros en ese momento, no sólo se sueltan. Las copias que hacen el motor de JavaScript o la parte en WebAssembly al usarlas, y las contraseñas reveladas (texto), no se pueden borrar así: el navegador decide cuándo reutiliza esa memoria, así que pueden quedar restos un tiempo. Por eso conviene **bloquear al alejarte** y dejar activos el bloqueo por inactividad y el bloqueo con Windows.
 
 ---
 

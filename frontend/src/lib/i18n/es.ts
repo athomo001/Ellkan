@@ -601,6 +601,10 @@ const es = {
 		huellaConfirmo: 'Es la misma huella que ve mi contacto',
 		designar: 'Designar como contacto'
 	},
+	legales: {
+		privacidad: 'Privacidad',
+		terminos: 'Términos'
+	},
 	sso: {
 		titulo: 'Inicio de sesión de tu organización',
 		cargando: 'Verificando con tu organización…',
@@ -797,6 +801,8 @@ const es = {
 		sistemaTitulo: 'Inicio y sistema',
 		conexionesTitulo: 'Conexiones (botón «Conectar»)',
 		conexionesPestanas: 'Abrir las conexiones como pestañas de una misma ventana',
+		sinWindowsTerminal:
+			'Windows Terminal no está instalado: las conexiones se abren en una consola de PowerShell, sin pestañas. Se instala desde Microsoft Store o con «winget install Microsoft.WindowsTerminal».',
 		conexionesHint: 'Con Windows Terminal, cada conexión SSH, FTP o de base de datos se abre como una pestaña nueva de la ventana «ellkan». Desmarcado, cada conexión abre su propia ventana. Sin Windows Terminal se usa una consola de PowerShell por conexión.',
 		sistemaNoSoportado: 'Estas opciones sólo están disponibles en Windows por ahora.',
 		autostartEtiqueta: 'Abrir Ellkan al iniciar sesión en Windows',
@@ -856,6 +862,11 @@ const es = {
 		gruposTitulo: 'Grupos',
 		sinGrupos: 'No pertenecés a ningún grupo.',
 		adminDeGrupo: 'Admin de grupo',
+		datosTitulo: 'Mis datos personales',
+		datosHint:
+			'Descargá en un archivo JSON todo lo que el servidor sabe de tu cuenta: correo, nombre, grupos, sesiones, dispositivos, passkeys, contactos de emergencia y tu historial de actividad. El contenido de tu bóveda no está ahí porque el servidor no puede leerlo: exportalo desde «Exportar».',
+		datosDescargar: 'Descargar mis datos',
+		datosError: 'No se pudieron descargar tus datos.',
 		avatarTitulo: 'Avatar',
 		avatarHint: 'PNG, JPEG o WEBP, hasta 2 MB.',
 		avatarSubir: 'Subir avatar',
@@ -911,6 +922,7 @@ const es = {
 			politicaMfa: 'Política MFA',
 			politicaPassword: 'Política de contraseña',
 			politicaRetencion: 'Retención de datos',
+			politicaLegal: 'Textos legales',
 			politicaRecovery: 'Recuperación de cuenta',
 			politicaSelfRegistration: 'Auto-registro',
 			politicaEmergencia: 'Acceso de emergencia',
@@ -1140,6 +1152,12 @@ const es = {
 			techoPortapapeles: 'Techo de limpieza de portapapeles (minutos, vacío = sin techo)',
 			techoAutoBloqueo: 'Techo de auto-bloqueo (minutos, vacío = sin techo)'
 		},
+		politicaLegal: {
+			titulo: 'Textos legales',
+			hint: 'Direcciones de la política de privacidad y de los términos de uso de esta instancia. El registro y el login las muestran. Ellkan no redacta estos textos: publicalos donde quieras (hay una plantilla en el manual) y pegá acá los links. Vacío = sin link.',
+			privacidad: 'Política de privacidad',
+			terminos: 'Términos de uso'
+		},
 		politicaRetencion: {
 			titulo: 'Retención de datos',
 			datosDias: 'Retención de datos (días)',
@@ -1254,6 +1272,16 @@ const es = {
 			emailMiembroNuevo: 'Email del miembro nuevo'
 		},
 		estadoSistema: {
+			versionTitulo: 'Versiones nuevas',
+			versionHint:
+				'Si lo activás, el servidor consulta una vez al día la página pública de versiones de Ellkan en GitHub y avisa acá cuando hay una nueva. Es la única conexión a internet que hace Ellkan por su cuenta; sólo pide el número de la última versión y no envía datos de tu instancia.',
+			versionActivar: 'Avisar cuando haya una versión nueva',
+			versionActual: (v: string) => `Versión instalada: ${v}`,
+			versionDesconocida: 'sin número (compilación de desarrollo)',
+			versionNueva: (v: string) => `Hay una versión nueva: ${v}.`,
+			versionVer: 'Ver novedades',
+			versionAlDia: (cuando: string) => `Al día (última consulta: ${cuando}).`,
+			versionSinConsultar: 'Todavía no se consultó; puede tardar un minuto.',
 			titulo: 'Estado del sistema',
 			hint: 'Autodiagnóstico de la organización — cada fila se revisa sola y sugiere cómo repararla si hace falta.',
 			error: 'No se pudo cargar el estado del sistema.',

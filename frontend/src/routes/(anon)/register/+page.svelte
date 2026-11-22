@@ -3,6 +3,7 @@
 	// F-01: genera el keypair y sella la clave privada client-side antes de
 	// que nada viaje al servidor — el servidor sólo recibe claves públicas
 	// y un blob ya cifrado (identity.ts::registrar).
+	import EnlacesLegales from '$lib/components/EnlacesLegales.svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import Button from '$lib/components/Button.svelte';
@@ -222,6 +223,7 @@
 			<p class="hint">{$t.registro.yaTenesCuenta} <a href="/login">{$t.registro.iniciaSesion}</a></p>
 		{/if}
 	{/if}
+	<EnlacesLegales />
 </Card>
 
 <style>

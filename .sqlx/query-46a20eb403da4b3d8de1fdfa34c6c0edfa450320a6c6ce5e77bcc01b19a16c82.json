@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select case when ea.granter_id = $1 then 'granter' else 'grantee' end as \"role!\",\n                  u.email as other_email, ea.status, ea.wait_time_days, ea.created_at\n           from emergency_access ea\n           join users u on u.id = case when ea.granter_id = $1 then ea.grantee_id else ea.granter_id end\n           where ea.granter_id = $1 or ea.grantee_id = $1\n           order by ea.created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "other_email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "wait_time_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "wait_time_days"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "emergency_access",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "46a20eb403da4b3d8de1fdfa34c6c0edfa450320a6c6ce5e77bcc01b19a16c82"
+}

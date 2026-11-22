@@ -290,6 +290,8 @@ jobs:
           file: backend/Dockerfile
           platforms: linux/amd64
           push: ${{ needs.version.outputs.publicar == 'true' }}
+          # El servidor conoce su versión (aviso de versión nueva, #89).
+          build-args: ELLKAN_BUILD_VERSION=${{ needs.version.outputs.numero }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Procedencia de build (SLSA) y SBOM adjuntos a la imagen.
