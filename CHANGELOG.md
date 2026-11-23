@@ -6,6 +6,8 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ## [Sin publicar]
 
+## [0.1.71] - 2026-11-23
+
 ### Seguridad y privacidad
 
 - **La recuperación por administradores ya no depende del servidor (QA-09, pendiente #101):** la clave de recuperación de la organización la genera un administrador en su navegador y queda sellada para cada administrador de la organización; el servidor sólo guarda copias que no puede abrir y aplica el umbral de aprobaciones. Al juntarse las aprobaciones, el navegador de un administrador custodio re-sella la clave para quien pidió recuperar (estado nuevo «Aprobada: falta un custodio»). Los administradores de grupo siguen pudiendo aprobar. Sumar un administrador como custodio lo hace otro custodio, viendo su huella. En instalaciones existentes la clave vieja (guardada por el servidor) sigue sirviendo hasta que cada usuario re-sella la suya: al entrar se le pide confirmarlo, con la huella de la clave nueva; cuando no queda ninguno, el servidor la borra (o un administrador la borra antes desde «Políticas → Recuperación de cuenta»). Endpoints nuevos bajo `/admin/account-recovery/` (`custody`, `org-keys`, `server-key`, `requests/{id}/custody-material`, `requests/{id}/execute`); `/account-recovery/enroll` exige ahora `org_recovery_key_id` y `/account-recovery/org-public-key` responde 404 hasta que la organización genera su clave.
