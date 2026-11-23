@@ -586,6 +586,21 @@ fn conectar_recurso(
   Err("Conectar (F-49) todavía sólo está implementado en Windows".to_string())
 }
 
+/// Pendiente #78: ¿hay Windows Terminal? Sin él, «Conectar» abre una consola
+/// de PowerShell sin pestañas, y la pantalla de ajustes sugiere instalarlo.
+/// Fuera de Windows no aplica: `true` para no mostrar el aviso.
+#[tauri::command]
+fn hay_windows_terminal() -> bool {
+  #[cfg(target_os = "windows")]
+  {
+    buscar_en_path("wt.exe").is_some()
+  }
+  #[cfg(not(target_os = "windows"))]
+  {
+    true
+  }
+}
+
 /// F-50: Guarda una clave de envoltura cifrada (wrapped key) en el almacén de credenciales seguro del SO.
 /// Nunca almacena la contraseña ni la clave privada en claro (criterio de seguridad H-01).
 #[tauri::command]
@@ -1221,6 +1236,7 @@ pub fn run() {
       puerto_configurado,
       configurar_puerto_fijo,
       conectar_recurso,
+      hay_windows_terminal,
       guardar_envoltura_llavero,
       recuperar_envoltura_llavero,
       eliminar_envoltura_llavero,

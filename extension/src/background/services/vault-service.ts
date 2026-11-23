@@ -37,6 +37,13 @@ export const MENSAJE_SESION_INVALIDA = 'La sesión ya no es válida. Iniciá ses
 export const MENSAJE_SESION_VENCIDA = 'La sesión venció. Desbloqueá de nuevo para continuar.';
 
 async function peticion<T>(serverUrl: string, method: string, path: string, sessionId: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+	const resp = await peticionCruda(serverUrl, method, path, sessionId, body, extraHeaders);
+	if (resp.status === 204) return undefined as T;
+	return resp.json() as Promise<T>;
+}
+
+/** `peticion` sin parsear: la respuesta ya validada (2xx), con sus cabeceras. */
+async function peticionCruda(serverUrl: string, method: string, path: string, sessionId: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<Response> {
 	const enviar = (sesion: string) => {
 		const headers: Record<string, string> = { Authorization: `Bearer ${sesion}`, ...extraHeaders };
 		if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -84,11 +91,32 @@ async function peticion<T>(serverUrl: string, method: string, path: string, sess
 		}
 		throw new Error(mensaje);
 	}
-	if (resp.status === 204) return undefined as T;
-	return resp.json() as Promise<T>;
+	return resp;
 }
 
 const get = <T>(serverUrl: string, path: string, sessionId: string) => peticion<T>(serverUrl, 'GET', path, sessionId);
+
+/** QA-12: `GET /resources` paginado por cursor (mismo protocolo que
+ * `frontend/src/lib/api/paginado.ts`). El fin lo marca la ausencia de
+ * `X-Ellkan-Next-Cursor`: un servidor anterior ignora `limit`, devuelve
+ * todo de una vez y no la manda. */
+const LIMITE_PAGINA = 500;
+const MAX_PAGINAS = 10_000;
+async function getTodo<T>(serverUrl: string, path: string, sessionId: string): Promise<T[]> {
+	const base = `${path}${path.includes('?') ? '&' : '?'}limit=${LIMITE_PAGINA}`;
+	const todos: T[] = [];
+	let cursor: string | null = null;
+	for (let i = 0; i < MAX_PAGINAS; i++) {
+		// La sesión puede haberse renovado en la página anterior (401 → reautenticar).
+		const sesion = (await SesionStorage.leer('session_id')) ?? sessionId;
+		const resp = await peticionCruda(serverUrl, 'GET', cursor ? `${base}&after=${encodeURIComponent(cursor)}` : base, sesion);
+		todos.push(...((await resp.json()) as T[]));
+		const siguiente = resp.headers.get('x-ellkan-next-cursor');
+		if (!siguiente || siguiente === cursor) return todos;
+		cursor = siguiente;
+	}
+	throw new Error(`la lista de ${path} no terminó después de ${MAX_PAGINAS} páginas`);
+}
 
 /** Mismo AAD que `resources/service.rs`/`recursos.ts`: `resource_id ||
  * created_by` como bytes crudos de UUID (16+16), tiene que coincidir bit a
@@ -213,7 +241,7 @@ export const VaultService = {
 		const wasm = await cargarCrypto();
 		const { serverUrl, sessionId, x25519Private } = await sesionActiva();
 
-		const crudos = await get<RecursoCrudo[]>(serverUrl, '/resources', sessionId);
+		const crudos = await getTodo<RecursoCrudo>(serverUrl, '/resources', sessionId);
 
 		// F-06: las metadata keys compartidas sólo se piden si de verdad hace
 		// falta alguna — evita el roundtrip extra cuando todos los recursos

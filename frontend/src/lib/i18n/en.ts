@@ -104,7 +104,8 @@ const en: Diccionario = {
 			'This vault has no recovery kit registered (or the email doesn’t match), so it can’t be recovered from here.',
 		pedirLink: 'Send recovery link',
 		sinKitLink: 'Don’t have your recovery kit? Request admin approval instead',
-		esperandoEmailHint: 'Check your email and open the link we sent you. You can close this screen.',
+		esperandoEmailHint:
+			'If that email has an account with a recovery kit, a link is on its way. Check your inbox (and spam); you can close this screen.',
 		kitYPassphraseHint: 'Paste your recovery kit and choose a new passphrase.',
 		pegarKit: 'Recovery kit',
 		pegarKitHint: 'The text you saved when you set up your kit.',
@@ -128,6 +129,13 @@ const en: Diccionario = {
 		iniciaSesion: 'Sign in',
 		errorNoCoinciden: 'Passphrases do not match.',
 		errorGenerico: 'Could not complete registration.',
+		// Pending #109: first sign-up on a new instance.
+		tokenInstalacion: 'Setup token',
+		tokenInstalacionAviso:
+			'This is the first account on this server and it will be the administrator. To confirm you are the one who installed it, paste the setup token the server wrote to its log on startup. See it with:',
+		tokenInstalacionComando: 'docker logs ellkan 2>&1 | grep "token de instalación"',
+		tokenInstalacionNota: 'It stops working as soon as this account exists.',
+		errorTokenInstalacion: 'The setup token is not correct. Copy it again from the server log.',
 		verificacion: {
 			titulo: 'Verify your email',
 			hint: 'We sent a 6-digit code by email. Enter it to be able to sign in.',
@@ -308,6 +316,7 @@ const en: Diccionario = {
 		errorExterno: 'Could not create the external link.',
 		seleccionarTodos: 'Select all',
 		deseleccionarTodos: 'Deselect all',
+		seleccionarRecurso: 'Select {nombre}',
 		conteoSeleccionados: (n: number) => `${n} selected`,
 		moverSeleccion: 'Move to folder',
 		taggearSeleccion: 'Add tag',
@@ -530,16 +539,29 @@ const en: Diccionario = {
 		recoveryHint:
 			'Enable this to be able to recover access to your account if you lose your passphrase — an administrator has to approve the request.',
 		recoveryAdvertencia:
-			'Important: this option is an exception to zero-knowledge encryption. Your private key is stored on the server, encrypted with an organization key that also lives on the server. Whoever controls the server (its database and configuration) could open it and read your vault. If that is not acceptable to you, use the personal recovery kit instead.',
+			'Important: your organization still uses the previous recovery key, held by the server. While that is the case, this option is an exception to zero-knowledge encryption: whoever controls the server (its database and configuration) could open your private key and read your vault. If that is not acceptable to you, use the personal recovery kit or wait for an administrator to generate the new key.',
+		recoveryCustodiaAdmins:
+			"Your private key is sealed with the organization's recovery key, which only the administrators hold, in their own browsers: the server cannot open it. Several administrators together (per the threshold your organization sets) can restore your access, and could therefore read your vault at that moment.",
+		recoverySinClaveOrg: 'Your organization has not generated its recovery key yet. Ask an administrator to set it up.',
+		recoveryHuella: "Organization key fingerprint: {huella}",
 		recoveryHabilitada: 'Enabled on this account.',
+		recoveryDesactualizadaTitulo: 'Your organization changed its recovery key',
+		recoveryDesactualizada:
+			'So administrators can keep recovering your account, seal your key again with the new one. Administrators hold it in their browsers; the server cannot open it. Compare the fingerprint with the one your administrator gives you.',
+		recoveryActualizar: 'Update my recovery',
+		recoveryAhoraNo: 'Not now',
+		recoveryActualizada: 'Done: your recovery uses the new key.',
 		recoveryHabilitar: 'Enable account recovery',
 		recoveryErrorHabilitar: 'Could not enable account recovery.',
 		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.',
-		dispositivosTitulo: 'Trusted devices',
-		dispositivosHint: 'Devices marked as trusted — revoking one here deletes the sealed key for that device only, others are unaffected.',
-		dispositivosSinDispositivos: "You don't have any active trusted devices.",
-		dispositivosRevocar: 'Revoke',
-		dispositivosError: 'Could not load the device list.'
+		sesionesTitulo: 'Open sessions',
+		sesionesHint: "Where your account is signed in. If you don't recognize one, close it and change your password.",
+		sesionActual: 'This session',
+		sesionDesconocida: 'Unknown device',
+		sesionUltimoUso: 'Last used: {fecha}',
+		sesionCerrar: 'Close',
+		sesionesCerrarOtras: 'Close all others',
+		sesionesError: 'Could not load the session list.'
 	},
 	revocacion: {
 		titulo: 'The account was revoked',
@@ -550,6 +572,69 @@ const en: Diccionario = {
 		borrado:
 			'For security, the data of this vault was erased from this device. When you open Ellkan again, it starts as freshly installed.',
 		cerrar: 'Close Ellkan'
+	},
+	settingsEmergency: {
+		navTitulo: 'Emergency access',
+		titulo: 'Emergency access',
+		intro: 'Choose trusted people on this instance who can request access to your account if you ever cannot sign in. If they request access and you do not respond within the waiting period, it is granted automatically; until then you can reject it.',
+		cargando: 'Loading…',
+		error: 'The operation could not be completed.',
+		misContactosTitulo: 'My emergency contacts',
+		sinContactos: 'You have not designated anyone yet.',
+		soyContactoTitulo: 'I am an emergency contact for',
+		sinTitulares: 'Nobody has designated you as an emergency contact.',
+		nivelView: 'View my keys',
+		nivelTakeover: 'Take over the account',
+		plazo: '{dias}-day waiting period',
+		estadoInvitado: 'waiting for them to accept',
+		estadoActivo: 'active',
+		estadoPendiente: 'requested access: pending',
+		estadoConcedido: 'access granted',
+		estadoRechazado: 'last request rejected',
+		aprobar: 'Approve now',
+		rechazar: 'Reject',
+		revocar: 'Remove',
+		aceptar: 'Accept',
+		solicitar: 'Request access',
+		concedidoNota: 'Access is granted. Opening this person’s vault from Ellkan is not available yet.',
+		altaTitulo: 'Add a contact',
+		altaHint: 'The person needs an account on this instance. Your private keys are sealed to their public key: neither the server nor the administrators can read them.',
+		emailContacto: 'Contact email',
+		nivel: 'What they can do',
+		dias: 'Waiting period (days)',
+		diasHint: 'If they request access and you do not respond within this period, it is granted automatically. Between 1 and 90.',
+		diasInvalidos: 'The waiting period must be a whole number between 1 and 90 days.',
+		buscar: 'Look up',
+		huellaIntro: 'Ask this person to open “My account → Keys” and read you the fingerprint of their X25519 key. It must be exactly this:',
+		huellaConfirmo: 'It is the same fingerprint my contact sees',
+		designar: 'Designate as contact'
+	},
+	legales: {
+		privacidad: 'Privacy',
+		terminos: 'Terms'
+	},
+	sso: {
+		titulo: 'Organization sign-in',
+		cargando: 'Checking with your organization…',
+		errorGenerico: 'Signing in with your organization could not be completed.',
+		errorSinCodigo: 'The provider did not return a code. Try again from the sign-in page.',
+		mfaHint: 'Your account has a second factor: enter the code from your authenticator app.',
+		codigo: 'Code',
+		continuar: 'Continue',
+		enrolarHint: 'This is your first sign-in with {email}. Choose a password: it protects the keys that encrypt your vault and never leaves this device. Your organization cannot recover it.',
+		passphrase: 'New password',
+		confirmar: 'Repeat the password',
+		crearClaves: 'Create my keys',
+		errorNoCoinciden: 'The passwords do not match.',
+		errorCorta: 'Use at least 12 characters.',
+		vinculado: 'Done: your account is now linked to your organization sign-in.',
+		volver: 'Back to Security',
+		configurarMfa: 'Your organization requires a second factor you have not set up yet. Sign in once with your email and password to set it up; after that you can use your organization sign-in.',
+		irAlLogin: 'Go to sign-in',
+		entrarConOrganizacion: 'Sign in with your organization',
+		vincularTitulo: 'Organization sign-in',
+		vincularHint: 'Link this account to your organization provider to sign in with it. Your password is still required to open the vault.',
+		vincular: 'Link'
 	},
 	settingsSync: {
 		progresoBajando: 'Bringing passwords from the server',
@@ -562,6 +647,7 @@ const en: Diccionario = {
 		modoYaTengoCuenta: 'I already have an account on that server',
 		modoBovedaNueva: "It's a new local vault — I want to back it up there",
 		nombreParaElServidor: 'Your name on that server',
+		passphraseParaElServidor: 'Your passphrase (the same one you use here)',
 		vincular: 'Connect',
 		conectadaA: 'Connected to',
 		sincronizarAhora: 'Sync now',
@@ -721,6 +807,8 @@ const en: Diccionario = {
 		sistemaTitulo: 'Startup and system',
 		conexionesTitulo: 'Connections («Connect» button)',
 		conexionesPestanas: 'Open connections as tabs of a single window',
+		sinWindowsTerminal:
+			'Windows Terminal is not installed: connections open in a PowerShell console, without tabs. Install it from the Microsoft Store or with “winget install Microsoft.WindowsTerminal”.',
 		conexionesHint: 'With Windows Terminal, each SSH, FTP or database connection opens as a new tab of the «ellkan» window. Unchecked, each connection opens its own window. Without Windows Terminal, a PowerShell console is used per connection.',
 		sistemaNoSoportado: 'These options are only available on Windows for now.',
 		autostartEtiqueta: 'Open Ellkan when I sign in to Windows',
@@ -779,8 +867,14 @@ const en: Diccionario = {
 		gruposTitulo: 'Groups',
 		sinGrupos: "You don't belong to any group.",
 		adminDeGrupo: 'Group admin',
+		datosTitulo: 'My personal data',
+		datosHint:
+			'Download a JSON file with everything the server knows about your account: email, name, groups, sessions, devices, passkeys, emergency contacts and your activity history. Your vault contents are not included because the server cannot read them: export them from “Export”.',
+		datosDescargar: 'Download my data',
+		datosError: 'Could not download your data.',
 		avatarTitulo: 'Avatar',
 		avatarHint: 'PNG, JPEG or WEBP, up to 2 MB.',
+		avatarElegir: 'Choose avatar image',
 		avatarSubir: 'Upload avatar',
 		avatarQuitar: 'Remove avatar',
 		avatarSubiendo: 'Uploading…',
@@ -832,10 +926,10 @@ const en: Diccionario = {
 			politicaMfa: 'MFA policy',
 			politicaPassword: 'Passphrase policy',
 			politicaRetencion: 'Data retention',
+			politicaLegal: 'Legal texts',
 			politicaRecovery: 'Account recovery',
 			politicaSelfRegistration: 'Self-registration',
 			politicaEmergencia: 'Emergency access',
-			politicaDispositivo: 'Device approval',
 			politicaExport: 'Export policy',
 			politicaExternalShare: 'External Sharing',
 			smtp: 'SMTP',
@@ -901,6 +995,7 @@ const en: Diccionario = {
 			errorBuscar: 'No user found with that email.',
 			seleccionarTodos: 'Select all',
 			deseleccionarTodos: 'Deselect all',
+			seleccionarUsuario: 'Select {email}',
 			purgarSeleccionados: (n: number) => `Purge ${n} selected`,
 			activarSeleccionados: 'Activate selected',
 			desactivarSeleccionados: 'Deactivate selected',
@@ -976,7 +1071,7 @@ const en: Diccionario = {
 			politicaTitulo: 'Sharing visibility',
 			politicaRestringir: 'Restrict by group (without this, anyone sees and can share with anyone)',
 			politicaHint:
-				"With the restriction on, each user only sees and can share with people in their own group; a group admin also sees other group admins. Groups marked \"exempt\" below skip this rule without turning it off for everyone else.",
+				"With the restriction on, when searching whom to share with each user only finds people in their own group; a group admin also sees other group admins. It is a search rule, not a block: the API still accepts sharing with any user whose identifier is known by other means. Groups marked \"exempt\" below skip this rule without turning it off for everyone else.",
 			shareExempt: 'Exempt — members see and share with anyone',
 			shareExemptCol: 'Exempt',
 			shareExemptSinEfecto: 'No effect while "Restrict by group" is off — everyone already sees everyone.',
@@ -1035,7 +1130,7 @@ const en: Diccionario = {
 			host: 'Host',
 			puerto: 'Port',
 			remitente: 'From address',
-			tls: 'TLS (STARTTLS + auth)',
+			tls: 'TLS + auth (port 465: implicit TLS; 587 or other: required STARTTLS)',
 			usuario: 'Username (optional)',
 			contrasena: 'Password',
 			contrasenaHint: 'Leave blank to keep it unchanged. One is already saved if the status says "configured".',
@@ -1058,6 +1153,12 @@ const en: Diccionario = {
 			techoPortapapeles: 'Clipboard-clear ceiling (minutes, empty = no ceiling)',
 			techoAutoBloqueo: 'Auto-lock ceiling (minutes, empty = no ceiling)'
 		},
+		politicaLegal: {
+			titulo: 'Legal texts',
+			hint: "Links to this instance's privacy policy and terms of use. Sign-up and login show them. Ellkan does not write these texts: publish them wherever you like (there is a template in the manual) and paste the links here. Empty = no link.",
+			privacidad: 'Privacy policy',
+			terminos: 'Terms of use'
+		},
 		politicaRetencion: {
 			titulo: 'Data retention',
 			datosDias: 'Data retention (days)',
@@ -1078,7 +1179,30 @@ const en: Diccionario = {
 			colFecha: 'Requested',
 			aprobar: 'Approve',
 			rechazar: 'Reject',
-			sinSolicitudes: 'No pending requests.'
+			sinSolicitudes: 'No pending requests.',
+			ejecutar: 'Re-seal and deliver',
+			estadoEsperaCustodio: 'Approved: waiting for a custodian',
+			custodiaTitulo: 'Organization recovery key',
+			custodiaServidor:
+				'The key is currently held by the server (pre QA-09): whoever controls the server could open the escrows. Generate it in your browser: it is sealed only for the administrators below, and each user re-seals their escrow with the new key next time they sign in.',
+			custodiaNinguna:
+				'There is no recovery key yet. Generate it in your browser: it is sealed only for the administrators below; the server can never open it.',
+			custodiaCliente: 'The key is held by the administrators in their browsers; the server cannot open it.',
+			custodiaHuella: 'Current key fingerprint: {huella}',
+			custodiaSeSellaPara: 'It will be sealed for these administrators (compare fingerprints with each of them):',
+			custodiaGenerar: 'Generate the key in this browser',
+			custodiaRotar: 'Generate a new key (rotate)',
+			custodiaConfirmarRotar:
+				'A new key is generated, sealed for every current administrator. Each user re-seals their escrow when they sign in; until then, their escrow stays on the previous key. Use this if someone stopped being an administrator. Continue?',
+			custodiaSinCopia: 'You have no copy of the current key: ask another custodian to seal it for you.',
+			custodiaPendientes: 'Administrators without a copy of the current key:',
+			custodiaSellarPara: 'Seal for {nombre}',
+			custodiaEscrowsServidor: '{n} user(s) are still on the previous server key. They re-seal automatically when they sign in; once none are left, the server deletes it.',
+			custodiaPurgar: 'Delete the server key now',
+			custodiaConfirmarPurgar:
+				'Users who have not re-sealed yet lose administrator recovery until they enable it again. Delete the server key?',
+			custodiaPurgada: 'Server key deleted ({n} escrow(s) removed).',
+			custodiaClavesBloqueadas: 'Unlock your vault to work with the recovery key.'
 		},
 		politicaSelfRegistration: {
 			titulo: 'Self-registration',
@@ -1089,11 +1213,6 @@ const en: Diccionario = {
 		politicaEmergencia: {
 			titulo: 'Emergency access',
 			habilitado: 'Enabled'
-		},
-		politicaDispositivo: {
-			titulo: 'Device approval',
-			peer: 'Allow approval from another own device',
-			admin: 'Allow approval by an admin'
 		},
 		politicaExternalShare: {
 			titulo: 'External Sharing Policy',
@@ -1175,6 +1294,16 @@ const en: Diccionario = {
 			emailMiembroNuevo: "New member's email"
 		},
 		estadoSistema: {
+			versionTitulo: 'New versions',
+			versionHint:
+				"If you turn this on, the server checks Ellkan's public releases page on GitHub once a day and shows a notice here when there is a new one. It is the only internet connection Ellkan makes on its own; it only asks for the latest version number and sends no data about your instance.",
+			versionActivar: 'Notify me when a new version is available',
+			versionActual: (v: string) => `Installed version: ${v}`,
+			versionDesconocida: 'no number (development build)',
+			versionNueva: (v: string) => `A new version is available: ${v}.`,
+			versionVer: "See what's new",
+			versionAlDia: (cuando: string) => `Up to date (last check: ${cuando}).`,
+			versionSinConsultar: 'Not checked yet; it may take a minute.',
 			titulo: 'System status',
 			hint: 'Organization self-diagnostic — each row checks itself and suggests a fix if something is off.',
 			error: 'Could not load the system status.',

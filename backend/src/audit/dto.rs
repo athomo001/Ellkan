@@ -32,6 +32,9 @@ pub struct AuditLogExportQuery {
     pub to: Option<OffsetDateTime>,
     /// `ndjson` (default) o `csv` — F-13, `03-api-contrato.md`.
     pub format: Option<String>,
+    /// QA-40: seguir después de este id (el `X-Ellkan-Next-Cursor` de la
+    /// respuesta anterior).
+    pub after: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]

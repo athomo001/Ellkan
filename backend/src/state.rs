@@ -14,7 +14,7 @@ use crate::audit::repository::PgAuditLogRepository;
 use crate::auth::repository::{
     PgAuthChallengeRepository, PgDeviceChallengeRepository, PgKnownDeviceRepository, PgSessionRepository, PgUserRepository,
 };
-use crate::devices::repository::{PgApprovalRequestRepository, PgDeviceApprovalPolicyRepository, PgTrustedDeviceRepository};
+use crate::datos_personales::repository::PgDatosPersonalesRepository;
 use crate::directory_sync::repository::PgDirectorySyncConfigRepository;
 use crate::emergency_access::repository::{
     PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository,
@@ -24,6 +24,7 @@ use crate::export::repository::{PgExportPolicyRepository, PgExportRepository};
 use crate::external_shares::repository::{PgExternalSharePolicyRepository, PgExternalShareRepository};
 use crate::folders::repository::{PgFolderItemRepository, PgFolderRepository};
 use crate::groups::repository::{PgGroupMemberRepository, PgGroupRepository, PgOrganizationRepository};
+use crate::legal_links::repository::PgLegalLinksRepository;
 use crate::me::repository::PgPreferenciasRepository;
 use crate::metadata::repository::{PgMetadataKeyEnvelopeRepository, PgMetadataKeyRepository};
 use crate::mfa::repository::{PgMfaChallengeRepository, PgMfaPolicyRepository, PgTotpCredentialRepository};
@@ -41,6 +42,7 @@ use crate::smtp_config::repository::PgSmtpConfigRepository;
 use crate::sso::repository::{PgLoginStateRepository, PgSsoConfigRepository, PgSsoIdentityRepository};
 use crate::system_status::repository::PgSystemStatusRepository;
 use crate::tags::repository::PgTagRepository;
+use crate::update_check::repository::PgUpdateCheckRepository;
 use crate::users_admin::repository::PgUserPurgeRepository;
 use ellkan_crypto::secretos::ClaveSecreta32;
 
@@ -57,6 +59,8 @@ pub struct AppState {
     pub eventos: EmisorDeEventos,
     /// F-47: avisos en vivo a la app de escritorio (`sync::avisos`).
     pub avisos_sync: crate::sync::avisos::CanalAvisos,
+    /// QA-39: conexiones de avisos abiertas por usuario (tope en `sync::avisos`).
+    pub conexiones_sse: crate::sync::avisos::ConexionesPorUsuario,
     pub recursos: PgResourceRepository,
     pub tipos_recurso: PgResourceTypeRepository,
     pub envolturas: PgSecretEnvelopeRepository,
@@ -73,9 +77,6 @@ pub struct AppState {
     pub organizacion: PgOrganizationRepository,
     pub passkeys: PgPasskeyRepository,
     pub ceremonias_webauthn: PgCeremonyStateRepository,
-    pub dispositivos_confiables: PgTrustedDeviceRepository,
-    pub solicitudes_aprobacion: PgApprovalRequestRepository,
-    pub politica_aprobacion_dispositivo: PgDeviceApprovalPolicyRepository,
     pub mfa_policy: PgMfaPolicyRepository,
     pub mfa_totp: PgTotpCredentialRepository,
     pub mfa_challenges: PgMfaChallengeRepository,
@@ -92,6 +93,11 @@ pub struct AppState {
     /// sesión parcial — más estricto que el general por usuario, porque un
     /// código TOTP de 6 dígitos tiene espacio de búsqueda acotado (F-14).
     pub limitador_mfa: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    /// QA-03: `POST /auth/key-material` por email (normalizado), exista o
+    /// no la cuenta, así el 429 no la delata. Frena adivinar la passphrase
+    /// online contra el verificador; el costo es que quien inunde un email
+    /// demora el desbloqueo de esa cuenta mientras dure el ataque.
+    pub limitador_auth_key: Arc<DefaultKeyedRateLimiter<String>>,
     /// F-03: instancia única del RP WebAuthn — `rp_id`/origin se leen de
     /// `ELLKAN_RP_ID`/`ELLKAN_RP_ORIGIN` (default de desarrollo
     /// `localhost`/`http://localhost:8080`). **Producción debe fijar
@@ -112,6 +118,9 @@ pub struct AppState {
     pub password_policy: PgPasswordPolicyRepository,
     pub self_registration_policy: PgSelfRegistrationPolicyRepository,
     pub sharing_policy: PgSharingPolicyRepository,
+    pub update_check: PgUpdateCheckRepository,
+    pub legal_links: PgLegalLinksRepository,
+    pub datos_personales: PgDatosPersonalesRepository,
     pub reportes: PgReportsRepository,
     // F-16 (account recovery, admin-driven)
     pub account_recovery_policy: PgAccountRecoveryPolicyRepository,
@@ -191,6 +200,7 @@ impl AppState {
         // sesión parcial, muy por debajo del espacio de búsqueda de un
         // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.
         let cuota_mfa = Quota::per_minute(NonZeroU32::new(5).expect("5 no es cero"));
+        let cuota_auth_key = Quota::per_minute(NonZeroU32::new(10).expect("10 no es cero"));
         Self {
             usuarios: PgUserRepository { pool: pool.clone() },
             challenges: PgAuthChallengeRepository { pool: pool.clone() },
@@ -200,6 +210,7 @@ impl AppState {
             emails: PgOutboundEmailRepository { pool: pool.clone() },
             eventos: eventos::nuevo_canal(),
             avisos_sync: crate::sync::avisos::nuevo_canal(),
+            conexiones_sse: Default::default(),
             recursos: PgResourceRepository { pool: pool.clone() },
             tipos_recurso: PgResourceTypeRepository { pool: pool.clone() },
             envolturas: PgSecretEnvelopeRepository { pool: pool.clone() },
@@ -216,9 +227,6 @@ impl AppState {
             organizacion: PgOrganizationRepository { pool: pool.clone() },
             passkeys: PgPasskeyRepository { pool: pool.clone() },
             ceremonias_webauthn: PgCeremonyStateRepository { pool: pool.clone() },
-            dispositivos_confiables: PgTrustedDeviceRepository { pool: pool.clone() },
-            solicitudes_aprobacion: PgApprovalRequestRepository { pool: pool.clone() },
-            politica_aprobacion_dispositivo: PgDeviceApprovalPolicyRepository { pool: pool.clone() },
             mfa_policy: PgMfaPolicyRepository { pool: pool.clone() },
             mfa_totp: PgTotpCredentialRepository { pool: pool.clone() },
             mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },
@@ -226,6 +234,7 @@ impl AppState {
             secrets_key: Arc::new(secrets_key),
             setup_token: None,
             limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
+            limitador_auth_key: Arc::new(governor::RateLimiter::keyed(cuota_auth_key)),
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),
@@ -233,6 +242,9 @@ impl AppState {
             password_policy: PgPasswordPolicyRepository { pool: pool.clone() },
             self_registration_policy: PgSelfRegistrationPolicyRepository { pool: pool.clone() },
             sharing_policy: PgSharingPolicyRepository { pool: pool.clone() },
+            update_check: PgUpdateCheckRepository { pool: pool.clone() },
+            legal_links: PgLegalLinksRepository { pool: pool.clone() },
+            datos_personales: PgDatosPersonalesRepository { pool: pool.clone() },
             reportes: PgReportsRepository { pool: pool.clone() },
             account_recovery_policy: PgAccountRecoveryPolicyRepository { pool: pool.clone() },
             org_recovery_key: PgOrgRecoveryKeyRepository { pool: pool.clone() },

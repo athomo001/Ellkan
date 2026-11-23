@@ -16,6 +16,9 @@ pub struct LoginState {
     pub nonce: String,
     pub pkce_verifier: String,
     pub expires_at: OffsetDateTime,
+    /// QA-31: `Some` cuando el flujo lo inició una sesión para vincular su
+    /// propia cuenta (`POST /me/sso/link`), no un login.
+    pub link_user_id: Option<Uuid>,
 }
 
 /// Resultado de resolver la identidad OIDC contra una cuenta local — mismo
@@ -26,4 +29,7 @@ pub enum ResultadoLinking {
     Vinculado(Uuid),
     RechazadoEmailNoVerificado,
     SinCuentaYJitDeshabilitado,
+    /// QA-31: hay una cuenta local con ese email y todavía no está vinculada:
+    /// sólo su dueño, con sesión iniciada, puede vincularla.
+    CuentaLocalSinVincular,
 }

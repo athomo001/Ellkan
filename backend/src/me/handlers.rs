@@ -11,8 +11,12 @@ use crate::auth::models::PropositoSesion;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
+use crate::validacion;
 
-use super::dto::{ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, PerfilResponse, PreferenciasResponse};
+use super::dto::{
+    ActualizarAvatarRequest, ActualizarPreferenciasRequest, CambiarPassphraseRequest, EnrolarClavesRequest, PerfilResponse,
+    PreferenciasResponse,
+};
 use super::models::{Avatar, NuevaClavePrivada, Preferencias};
 use super::repository::PgPreferenciasRepository;
 use super::service::{AvatarService, CambiarPassphraseService, PerfilService, PreferenciasService, PruebaDePosesion, verificar_posesion};
@@ -67,7 +71,35 @@ pub async fn perfil(State(state): State<AppState>, user: AuthenticatedUser) -> R
         created_at: p.created_at,
         updated_at: p.updated_at,
         keys_created_at: p.keys_created_at,
+        needs_key_enrollment: p.necesita_enrolar_claves,
     }))
+}
+
+/// `POST /me/keys/enroll` (pendiente #133): primer acceso de una cuenta
+/// creada por SSO. El navegador generó el par y selló la privada con la
+/// contraseña que eligió el usuario; el servidor sólo lo guarda, una vez.
+pub async fn enrolar_claves(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<EnrolarClavesRequest>,
+) -> Result<StatusCode, ApiError> {
+    let claves = super::models::ClavesIniciales {
+        public_key_x25519: validacion::b64_exacto(&req.public_key_x25519_b64, "public_key_x25519_b64", validacion::LARGO_CLAVE_PUBLICA)?,
+        public_key_ed25519: validacion::b64_exacto(&req.public_key_ed25519_b64, "public_key_ed25519_b64", validacion::LARGO_CLAVE_PUBLICA)?,
+        encrypted_private_key_blob: validacion::b64_exacto(
+            &req.encrypted_private_key_blob_b64,
+            "encrypted_private_key_blob_b64",
+            validacion::LARGO_BLOB_CLAVE_PRIVADA,
+        )?,
+        private_key_nonce: validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?,
+        kdf_salt: validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?,
+        auth_key: validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?,
+        kdf_params: req.kdf_params,
+    };
+    PerfilService { perfil: &state.preferencias_usuario }
+        .enrolar_claves(user.user_id, &claves, &state.eventos)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `GET /me/permissions` (módulo 1, matriz RBAC) — conjunto resuelto de
@@ -158,23 +190,52 @@ pub async fn cambiar_passphrase(
     Json(req): Json<CambiarPassphraseRequest>,
 ) -> Result<(), ApiError> {
     sesion.exigir(&[PropositoSesion::Completa, PropositoSesion::CambiarPassphrase])?;
-    let encrypted_private_key_blob = b64::decode(&req.encrypted_private_key_blob_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let private_key_nonce =
-        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let kdf_salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
-    let prueba = PruebaDePosesion {
-        challenge: b64::decode(&req.challenge_nonce_b64)
-            .map_err(|_| DomainError::ValidacionInvalida("challenge_nonce_b64 inválido".into()))?,
-        firma: b64::decode(&req.signature_b64).map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?,
-    };
+    let (nueva, prueba) = reemplazo_desde(&req)?;
 
     // QA-06: una sesión (aunque sea completa) no alcanza para reemplazar la
     // clave privada sellada; hace falta probar que se tiene la identidad.
-    let nueva = NuevaClavePrivada { encrypted_private_key_blob, private_key_nonce, kdf_salt };
     let verificado = verificar_posesion(&state.usuarios, &state.challenges, sesion.user_id, nueva, &prueba).await?;
     CambiarPassphraseService { claves: &state.preferencias_usuario, eventos: state.eventos.clone() }
         .actualizar(verificado)
         .await?;
     Ok(())
+}
+
+/// `POST /me/kdf-upgrade` (QA-03): el cliente acaba de abrir una cuenta
+/// sellada antes de QA-03 y la re-sella con la misma passphrase, una sal
+/// nueva y los parámetros actuales, registrando la `auth_key`. Mismo body y
+/// misma prueba de posesión que `change-passphrase`, pero no rota
+/// `security_stamp` (la passphrase no cambió) y sólo se acepta una vez: si
+/// la cuenta ya tiene verificador responde 409.
+pub async fn mejorar_kdf(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<CambiarPassphraseRequest>,
+) -> Result<StatusCode, ApiError> {
+    let (nueva, prueba) = reemplazo_desde(&req)?;
+    let verificado = verificar_posesion(&state.usuarios, &state.challenges, user.user_id, nueva, &prueba).await?;
+    CambiarPassphraseService { claves: &state.preferencias_usuario, eventos: state.eventos.clone() }
+        .mejorar_kdf(verificado)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub fn reemplazo_desde(req: &CambiarPassphraseRequest) -> Result<(NuevaClavePrivada, PruebaDePosesion), DomainError> {
+    let nueva = NuevaClavePrivada {
+        encrypted_private_key_blob: validacion::b64_exacto(
+            &req.encrypted_private_key_blob_b64,
+            "encrypted_private_key_blob_b64",
+            validacion::LARGO_BLOB_CLAVE_PRIVADA,
+        )?,
+        private_key_nonce: validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?,
+        kdf_salt: validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?,
+        auth_key: validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?,
+        kdf_params: req.kdf_params,
+    };
+    let prueba = PruebaDePosesion {
+        challenge: b64::decode(&req.challenge_nonce_b64)
+            .map_err(|_| DomainError::ValidacionInvalida("challenge_nonce_b64 inválido".into()))?,
+        firma: b64::decode(&req.signature_b64).map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?,
+    };
+    Ok((nueva, prueba))
 }

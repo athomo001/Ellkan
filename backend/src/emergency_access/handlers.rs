@@ -7,10 +7,10 @@ use base64::engine::general_purpose::STANDARD as B64;
 use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
-use crate::error::{ApiError, DomainError};
+use crate::error::ApiError;
 use crate::state::AppState;
 
-use super::dto::{ActualizarPoliticaRequest, DesignarRequest, EmergencyAccessPolicyResponse, EmergencyAccessResponse};
+use super::dto::{ActualizarPoliticaRequest, DesignarRequest, EmergencyAccessPolicyResponse, EmergencyAccessResponse, PersonaResponse};
 use super::models::EmergencyAccess;
 use super::repository::{PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository};
 use super::service::EmergencyAccessService;
@@ -32,6 +32,8 @@ fn a_response(acceso: EmergencyAccess, request_status: Option<String>, material_
         id: acceso.id,
         granter_id: acceso.granter_id,
         grantee_id: acceso.grantee_id,
+        granter: PersonaResponse::default(),
+        grantee: PersonaResponse::default(),
         access_level: acceso.access_level,
         wait_time_days: acceso.wait_time_days,
         status: acceso.status,
@@ -57,6 +59,17 @@ pub async fn actualizar_politica(
 
 pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<Vec<EmergencyAccessResponse>>, ApiError> {
     let filas = servicio(&state).listar(auth.user_id).await?;
+    let personas: std::collections::HashMap<Uuid, PersonaResponse> = servicio(&state)
+        .personas_relacionadas(auth.user_id)
+        .await?
+        .into_iter()
+        .map(|p| (p.id, PersonaResponse { email: p.email, display_name: p.display_name }))
+        .collect();
+    let persona = |id: Uuid| {
+        personas
+            .get(&id)
+            .map(|p| PersonaResponse { email: p.email.clone(), display_name: p.display_name.clone() })
+    };
     Ok(Json(
         filas
             .into_iter()
@@ -66,7 +79,13 @@ pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> R
                 } else {
                     None
                 };
-                a_response(acceso, estado, material)
+                let (granter, grantee) = (persona(acceso.granter_id), persona(acceso.grantee_id));
+                let mut resp = a_response(acceso, estado, material);
+                // La propia persona no viene en `personas_relacionadas`: queda vacía
+                // y la pantalla la muestra como "vos".
+                resp.granter = granter.unwrap_or_default();
+                resp.grantee = grantee.unwrap_or_default();
+                resp
             })
             .collect(),
     ))
@@ -77,9 +96,9 @@ pub async fn designar(
     auth: AuthenticatedUser,
     Json(req): Json<DesignarRequest>,
 ) -> Result<Json<EmergencyAccessResponse>, ApiError> {
-    let sellado = B64
-        .decode(&req.sealed_material_b64)
-        .map_err(|_| ApiError::from(DomainError::ValidacionInvalida("sealed_material_b64 inválido".into())))?;
+    // QA-45: el material son las claves privadas del titular selladas (unos
+    // 112 bytes); 4 KiB deja margen para otro formato sin aceptar basura.
+    let sellado = crate::validacion::b64_acotado(&req.sealed_material_b64, "sealed_material_b64", 4096)?;
     let acceso = servicio(&state)
         .designar(auth.user_id, req.grantee_id, &req.access_level, sellado, req.wait_time_days)
         .await?;

@@ -15,6 +15,42 @@ pub struct EmergencyAccess {
     pub created_at: OffsetDateTime,
 }
 
+/// Pendiente #131: la otra persona de una relación de emergencia.
+#[derive(Debug, Clone)]
+pub struct PersonaEmergencia {
+    pub id: Uuid,
+    pub email: String,
+    pub display_name: String,
+}
+
+/// QA-22: lo que hace falta para avisarle al titular de una solicitud
+/// pendiente (al crearla y en el recordatorio de mitad de plazo).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AvisoEmergencia {
+    pub granter_email: String,
+    pub grantee_email: String,
+    pub grantee_nombre: String,
+    pub requested_at: OffsetDateTime,
+    pub wait_time_days: i32,
+}
+
+impl AvisoEmergencia {
+    pub fn evento(&self, recordatorio: bool) -> crate::eventos::DomainEvent {
+        crate::eventos::DomainEvent::EmergencyAccessRequested {
+            granter_email: self.granter_email.clone(),
+            grantee_nombre: self.grantee_nombre.clone(),
+            grantee_email: self.grantee_email.clone(),
+            concede_el: self.concede_el(),
+            recordatorio,
+        }
+    }
+
+    /// Cuándo el job lo concede si el titular no responde.
+    pub fn concede_el(&self) -> OffsetDateTime {
+        self.requested_at + time::Duration::days(self.wait_time_days.into())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EmergencyAccessRequest {
     pub id: Uuid,

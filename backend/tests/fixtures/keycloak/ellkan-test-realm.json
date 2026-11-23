@@ -1,0 +1,57 @@
+{
+	"realm": "ellkan-test",
+	"enabled": true,
+	"sslRequired": "none",
+	"verifyEmail": false,
+	"registrationAllowed": false,
+	"clients": [
+		{
+			"clientId": "ellkan-backend",
+			"enabled": true,
+			"publicClient": true,
+			"standardFlowEnabled": true,
+			"directAccessGrantsEnabled": false,
+			"redirectUris": [
+				"*"
+			],
+			"webOrigins": [
+				"*"
+			],
+			"attributes": {
+				"pkce.code.challenge.method": "S256"
+			}
+		}
+	],
+	"users": [
+		{
+			"username": "alice",
+			"enabled": true,
+			"email": "alice@ellkan-test.example",
+			"emailVerified": true,
+			"firstName": "Alice",
+			"lastName": "Prueba",
+			"credentials": [
+				{
+					"type": "password",
+					"value": "alice-password",
+					"temporary": false
+				}
+			]
+		},
+		{
+			"username": "bob",
+			"enabled": true,
+			"email": "bob@ellkan-test.example",
+			"emailVerified": false,
+			"firstName": "Bob",
+			"lastName": "Prueba",
+			"credentials": [
+				{
+					"type": "password",
+					"value": "bob-password",
+					"temporary": false
+				}
+			]
+		}
+	]
+}

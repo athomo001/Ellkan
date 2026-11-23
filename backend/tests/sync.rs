@@ -19,10 +19,10 @@ async fn crear_recurso(entorno: &common::Entorno, sesion: Uuid) -> Uuid {
             "id": id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "eA==",
-            "metadata_nonce_b64": "eA==",
-            "sealed_dek_b64": "eA==",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -122,7 +122,7 @@ async fn carpeta_creada_y_recurso_movido_aparecen_en_el_sync() {
         .cliente
         .post(format!("{}/folders", entorno.base))
         .bearer_auth(sesion)
-        .json(&json!({ "id": folder_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==", "parent_folder_id": Value::Null }))
+        .json(&json!({ "id": folder_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "parent_folder_id": Value::Null }))
         .send()
         .await
         .unwrap();
@@ -215,7 +215,7 @@ async fn borrar_una_carpeta_no_vacia_se_rechaza() {
         .cliente
         .post(format!("{}/folders", entorno.base))
         .bearer_auth(sesion)
-        .json(&json!({ "id": folder_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==", "parent_folder_id": Value::Null }))
+        .json(&json!({ "id": folder_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "parent_folder_id": Value::Null }))
         .send()
         .await
         .unwrap();

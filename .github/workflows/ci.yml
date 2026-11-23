@@ -47,6 +47,11 @@ jobs:
   rust:
     name: Rust (clippy, tests, audit)
     runs-on: ubuntu-24.04
+    env:
+      # El LDAP de prueba (`levantar-fixtures.sh`) usa un certificado
+      # autofirmado, y el de la imagen ya venció: lo necesitan los dos pasos
+      # de tests (con y sin la feature `desktop`).
+      ELLKAN_DIRECTORY_SYNC_INSECURE_TLS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain (rust-toolchain.toml)
@@ -57,7 +62,11 @@ jobs:
       - name: Clippy (feature desktop)
         run: cargo clippy -p ellkan-backend --features desktop --all-targets -- -D warnings
       # Los tests de integración levantan Postgres 18 con testcontainers
-      # (Docker ya viene en el runner).
+      # (Docker ya viene en el runner). `directory_sync` y `sso_oidc`
+      # necesitan además OpenLDAP y Keycloak (pendiente #127): los levanta
+      # el script con los datos de `backend/tests/fixtures/`.
+      - name: Servicios de prueba (OpenLDAP + Keycloak)
+        run: bash .github/scripts/levantar-fixtures.sh
       - name: Tests
         run: cargo test --no-fail-fast --workspace $CARGO_EXCLUDE
       - name: Tests (feature desktop)
@@ -67,6 +76,13 @@ jobs:
           tool: cargo-audit
       - name: cargo audit
         run: cargo audit
+      # Pendiente #80: licencias, crates prohibidos y orígenes (`deny.toml`).
+      # Las vulnerabilidades quedan en `cargo audit` (arriba).
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny
+        run: cargo deny check licenses bans sources
 
   web:
     name: WASM, frontend y extensión
@@ -97,6 +113,9 @@ jobs:
         run: pnpm -C frontend install --frozen-lockfile
       - name: Frontend — check
         run: pnpm -C frontend check
+      # QA-14 (pendiente #103): tests unitarios (vitest, con el WASM real).
+      - name: Frontend — tests
+        run: pnpm -C frontend test
       - name: Frontend — build
         run: pnpm -C frontend build
       - name: Frontend — audit
@@ -105,8 +124,23 @@ jobs:
         run: pnpm -C extension install --frozen-lockfile
       - name: Extensión — check
         run: pnpm -C extension check
+      - name: Extensión — tests
+        run: pnpm -C extension test
       - name: Extensión — audit
         run: pnpm -C extension audit --audit-level high
+      # Pendiente #80: ni analítica ni CDNs externos en lo que se publica.
+      - name: Extensión — build
+        run: pnpm -C extension build
+      # QA-13 (pendiente #102) y pendiente #66: auditoría de accesibilidad
+      # (axe, WCAG 2.2 AA) con Playwright, en los dos temas: pantallas sin
+      # sesión, con sesión (web y modo escritorio, contra un servidor
+      # simulado) y la extensión (popup y menú inline, sobre extension/dist).
+      - name: Navegador para Playwright
+        run: pnpm -C frontend exec playwright install --with-deps chromium
+      - name: Accesibilidad (Playwright + axe)
+        run: pnpm -C frontend test:a11y
+      - name: Sin analítica ni CDNs de terceros
+        run: bash .github/scripts/sin-terceros.sh frontend/build extension/dist
 
   docker:
     name: Imagen Docker

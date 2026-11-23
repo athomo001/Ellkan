@@ -39,7 +39,15 @@ async fn registrar(cliente: &reqwest::Client, base: &str, pool: &sqlx::PgPool, e
     privadas[..32].copy_from_slice(x25519.privada().to_bytes().as_slice());
     privadas[32..].copy_from_slice(&ed25519.firmante().to_bytes());
     let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let blob = clave_privada::cifrar_clave_privada(&passphrase, salt, &privadas, email.as_bytes()).unwrap();
+    let blob_sellado = clave_privada::cifrar_clave_privada(
+        &passphrase,
+        salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &privadas,
+        email.as_bytes(),
+    )
+    .unwrap();
+    let blob = &blob_sellado.blob;
 
     let resp = cliente
         .post(format!("{base}/auth/register"))
@@ -51,6 +59,8 @@ async fn registrar(cliente: &reqwest::Client, base: &str, pool: &sqlx::PgPool, e
             "encrypted_private_key_blob_b64": B64.encode(&blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(blob_sellado.auth_key.expose_secret()),
         }))
         .send()
         .await

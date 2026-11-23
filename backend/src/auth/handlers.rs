@@ -10,10 +10,12 @@ use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::me::service::AvatarService;
 use crate::state::AppState;
+use crate::validacion;
 
 use super::dto::{
-    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PublicKeyResponse, RegisterRequest, RegisterResponse,
-    ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest, VerifyEmailRequest, VerifyRequest, VerifyResponse,
+    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PreloginRequest, PreloginResponse, PublicKeyResponse,
+    RegisterRequest, RegisterResponse, ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest, VerifyEmailRequest,
+    VerifyRequest, VerifyResponse,
 };
 use super::extractor::{AdminUser, AuthenticatedUser};
 use super::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
@@ -91,15 +93,19 @@ fn resultado_a_response(resultado: ResultadoVerify) -> VerifyResponse {
 }
 
 pub async fn register(State(state): State<AppState>, Json(req): Json<RegisterRequest>) -> Result<Json<RegisterResponse>, ApiError> {
-    let publica_x25519 =
-        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
-    let publica_ed25519 =
-        b64::decode(&req.public_key_ed25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
-    let blob = b64::decode(&req.encrypted_private_key_blob_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce =
-        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    // QA-45: formato de email y nombre antes de tocar nada.
+    validacion::email(req.email.trim())?;
+    validacion::nombre_visible(&req.display_name)?;
+    let publica_x25519 = validacion::b64_exacto(&req.public_key_x25519_b64, "public_key_x25519_b64", validacion::LARGO_CLAVE_PUBLICA)?;
+    let publica_ed25519 = validacion::b64_exacto(&req.public_key_ed25519_b64, "public_key_ed25519_b64", validacion::LARGO_CLAVE_PUBLICA)?;
+    let blob = validacion::b64_exacto(
+        &req.encrypted_private_key_blob_b64,
+        "encrypted_private_key_blob_b64",
+        validacion::LARGO_BLOB_CLAVE_PRIVADA,
+    )?;
+    let nonce = validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?;
+    let salt = validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?;
+    let auth_key = validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -109,6 +115,8 @@ pub async fn register(State(state): State<AppState>, Json(req): Json<RegisterReq
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: req.kdf_params,
+        auth_key: Some(&auth_key),
     };
 
     let resultado = servicio(&state).registrar(nuevo, req.setup_token.as_deref(), state.setup_token.as_deref()).await?;
@@ -127,15 +135,19 @@ pub async fn crear_admin(
     _admin: AdminUser,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, ApiError> {
-    let publica_x25519 =
-        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
-    let publica_ed25519 =
-        b64::decode(&req.public_key_ed25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_ed25519_b64 inválido".into()))?;
-    let blob = b64::decode(&req.encrypted_private_key_blob_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce =
-        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    // QA-45: formato de email y nombre antes de tocar nada.
+    validacion::email(req.email.trim())?;
+    validacion::nombre_visible(&req.display_name)?;
+    let publica_x25519 = validacion::b64_exacto(&req.public_key_x25519_b64, "public_key_x25519_b64", validacion::LARGO_CLAVE_PUBLICA)?;
+    let publica_ed25519 = validacion::b64_exacto(&req.public_key_ed25519_b64, "public_key_ed25519_b64", validacion::LARGO_CLAVE_PUBLICA)?;
+    let blob = validacion::b64_exacto(
+        &req.encrypted_private_key_blob_b64,
+        "encrypted_private_key_blob_b64",
+        validacion::LARGO_BLOB_CLAVE_PRIVADA,
+    )?;
+    let nonce = validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?;
+    let salt = validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?;
+    let auth_key = validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -145,6 +157,8 @@ pub async fn crear_admin(
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: req.kdf_params,
+        auth_key: Some(&auth_key),
     };
 
     let usuario = servicio(&state).crear_por_admin(nuevo).await?;
@@ -165,28 +179,71 @@ pub async fn server_key(State(state): State<AppState>) -> Json<ServerKeyResponse
     Json(ServerKeyResponse { public_key_ed25519_b64: b64::encode(state.server_public_key_ed25519.as_slice()) })
 }
 
+/// Pendiente #109 (QA-11): la pantalla de registro pregunta si tiene que
+/// pedir el token de instalación. Es público a propósito: que la instancia
+/// está vacía ya se deduce intentando registrarse, y el token no se revela.
+pub async fn setup_status(State(state): State<AppState>) -> Result<Json<super::dto::SetupStatusResponse>, ApiError> {
+    let instancia_vacia = !state.usuarios.existe_alguno().await.map_err(DomainError::from)?;
+    let sso = crate::sso::repository::SsoConfigRepository::obtener(&state.sso_config)
+        .await
+        .map_err(DomainError::from)?;
+    let legales = crate::legal_links::repository::LegalLinksRepository::obtener(&state.legal_links)
+        .await
+        .map_err(DomainError::from)?;
+    Ok(Json(super::dto::SetupStatusResponse {
+        privacy_url: legales.privacy_url,
+        terms_url: legales.terms_url,
+        setup_token_required: instancia_vacia && state.setup_token.is_some(),
+        sso_enabled: sso.issuer_url.is_some_and(|u| !u.is_empty()) && sso.client_id.is_some_and(|c| !c.is_empty()),
+    }))
+}
+
 pub async fn challenge(State(state): State<AppState>, Json(req): Json<ChallengeRequest>) -> Result<Json<ChallengeResponse>, ApiError> {
     let nonce = servicio(&state).challenge(&req.email).await?;
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
 }
 
+/// QA-03: primer paso del desbloqueo — sal y parámetros de Argon2id para
+/// derivar la `auth_key`. No entrega nada que sirva para crackear.
+pub async fn prelogin(State(state): State<AppState>, Json(req): Json<PreloginRequest>) -> Result<Json<PreloginResponse>, ApiError> {
+    let p = servicio(&state).prelogin(&req.email, &state.secrets_key).await?;
+    Ok(Json(PreloginResponse {
+        email: p.email,
+        kdf_salt_b64: b64::encode(&p.kdf_salt),
+        kdf_params: p.kdf_params,
+        auth_key_required: p.auth_key_required,
+    }))
+}
+
+/// QA-03: segundo paso — el blob, sólo contra la `auth_key` correcta (o sin
+/// ella para una cuenta todavía sellada con el esquema anterior). Email sin
+/// cuenta y `auth_key` equivocada responden el mismo 401.
 pub async fn key_material(
     State(state): State<AppState>,
     Json(req): Json<KeyMaterialRequest>,
 ) -> Result<Json<KeyMaterialResponse>, ApiError> {
-    let material = servicio(&state).material_desbloqueo(&req.email, &state.secrets_key).await?;
+    let auth_key = req
+        .auth_key_b64
+        .as_deref()
+        .map(|v| validacion::b64_exacto(v, "auth_key_b64", validacion::LARGO_AUTH_KEY))
+        .transpose()?;
+    if state.limitador_auth_key.check_key(&req.email.trim().to_lowercase()).is_err() {
+        return Err(DomainError::RateLimited.into());
+    }
+    let material = servicio(&state).material_desbloqueo(&req.email, auth_key.as_deref()).await?;
     Ok(Json(KeyMaterialResponse {
+        email: material.email,
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),
         kdf_salt_b64: b64::encode(&material.kdf_salt),
+        kdf_params: material.kdf_params,
     }))
 }
 
 pub async fn verify(State(state): State<AppState>, Json(req): Json<VerifyRequest>) -> Result<Json<VerifyResponse>, ApiError> {
-    let nonce = b64::decode(&req.nonce_b64).map_err(|_| DomainError::ValidacionInvalida("nonce_b64 inválido".into()))?;
-    let firma = b64::decode(&req.signature_b64).map_err(|_| DomainError::ValidacionInvalida("signature_b64 inválido".into()))?;
-    let device_token_hash =
-        b64::decode(&req.device_token_hash_b64).map_err(|_| DomainError::ValidacionInvalida("device_token_hash_b64 inválido".into()))?;
+    let nonce = validacion::b64_exacto(&req.nonce_b64, "nonce_b64", 32)?;
+    let firma = validacion::b64_exacto(&req.signature_b64, "signature_b64", 64)?;
+    let device_token_hash = validacion::b64_exacto(&req.device_token_hash_b64, "device_token_hash_b64", 32)?;
 
     let resultado = servicio(&state).verify(&req.email, &nonce, &firma, &device_token_hash, req.force_mfa).await?;
     Ok(Json(resultado_a_response(resultado)))

@@ -10,6 +10,9 @@ services:
     # código si no la encuentra; `docker compose up -d --build` fuerza compilar.
     # `ELLKAN_VERSION` (en .env) elige la versión; por defecto, la última.
     image: "ghcr.io/athomo001/ellkan:${ELLKAN_VERSION:-latest}"
+    # QA-44: el servidor termina lo que está haciendo hasta 20 s después de
+    # `docker stop`; el default de Docker (10 s) lo mataría antes.
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -23,6 +26,14 @@ services:
       # variable (`ELLKAN_PORT`, `.env`) controla los dos, nunca puede
       # desincronizarse entre sí.
       BIND_ADDR: "0.0.0.0:${ELLKAN_PORT:-8080}"
+      # Dirección con la que se entra a Ellkan (passkeys y links de los
+      # emails). Obligatorias: el servidor no arranca sin ellas (QA-30). En
+      # producción, definilas en `.env` con tu dominio.
+      ELLKAN_RP_ID: "${ELLKAN_RP_ID:-localhost}"
+      ELLKAN_RP_ORIGIN: "${ELLKAN_RP_ORIGIN:-http://localhost:${ELLKAN_PORT:-8080}}"
+      # QA-26: IPs o rangos de tu reverse proxy, para que los límites por IP
+      # vean al cliente real (X-Forwarded-For). Vacío = no hay proxy delante.
+      ELLKAN_TRUSTED_PROXIES: "${ELLKAN_TRUSTED_PROXIES:-}"
       # `ELLKAN_MIGRATE_REPAIR_CHECKSUMS` NO va acá: apaga la detección de
       # migraciones alteradas. Es una bandera de emergencia de un solo uso
       # (ver manual/instalacion.md, troubleshooting).

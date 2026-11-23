@@ -73,7 +73,8 @@ fn los_hosts_normales_se_aceptan() {
 
 #[test]
 fn un_usuario_raro_se_rechaza() {
-    for malo in ["-oProxyCommand=x", "us\nuario", "us\"uario", "us'uario", "a\tb"] {
+    // `;`: separador de subcomandos de Windows Terminal (pendiente #26).
+    for malo in ["-oProxyCommand=x", "us\nuario", "us\"uario", "us'uario", "a\tb", "x;new-tab calc", ";"] {
         assert!(validar_usuario(malo).is_err(), "{malo:?}");
         assert!(planificar("ssh", Some(malo), "srv", 22).is_err());
     }

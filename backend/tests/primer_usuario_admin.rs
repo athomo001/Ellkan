@@ -46,6 +46,8 @@ async fn registrar_crudo(entorno: &common::Entorno, email: &str, setup_token: Op
         "encrypted_private_key_blob_b64": B64.encode([3u8; 80]),
         "private_key_nonce_b64": B64.encode([4u8; 24]),
         "kdf_salt_b64": B64.encode([5u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     });
     if let Some(t) = setup_token {
         cuerpo["setup_token"] = serde_json::Value::String(t.to_string());
@@ -101,4 +103,39 @@ async fn registros_simultaneos_en_instancia_vacia_dejan_un_solo_admin() {
         .await
         .unwrap();
     assert_eq!(admins, 1);
+}
+
+async fn setup_status(entorno: &common::Entorno) -> bool {
+    let resp: serde_json::Value = entorno
+        .cliente
+        .get(format!("{}/auth/setup-status", entorno.base))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    resp["setup_token_required"].as_bool().expect("setup_token_required booleano")
+}
+
+/// Pendiente #109: la pantalla de registro pregunta si tiene que pedir el
+/// token. Sólo es `true` con la instancia vacía y un token configurado; en
+/// cuanto existe la primera cuenta deja de pedirse.
+#[tokio::test]
+async fn setup_status_pide_el_token_solo_mientras_la_instancia_esta_vacia() {
+    let token = "token-de-instalacion-de-prueba-0123456789";
+    let entorno = common::levantar_sin_usuarios_con_setup_token(token).await;
+    assert!(setup_status(&entorno).await, "instancia vacía con token: tiene que pedirlo");
+
+    assert_eq!(registrar_crudo(&entorno, "operador-status@test.ellkan", Some(token)).await, 200);
+    assert!(!setup_status(&entorno).await, "con la primera cuenta creada ya no se pide");
+}
+
+/// Sin token configurado (tests, escritorio) no se pide nada.
+#[tokio::test]
+async fn setup_status_no_pide_token_si_no_hay_uno_configurado() {
+    let entorno = common::levantar_sin_usuarios().await;
+    assert!(!setup_status(&entorno).await);
 }

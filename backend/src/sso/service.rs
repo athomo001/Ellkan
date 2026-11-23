@@ -27,6 +27,30 @@ use super::repository::{LoginStateRepository, SsoConfigRepository, SsoIdentityRe
 const TTL_LOGIN_STATE_SEGUNDOS: i64 = 600;
 const PROVIDER: &str = "oidc";
 
+/// QA-31: un IdP lento no puede colgar solicitudes ni conexiones.
+const TIMEOUT_IDP: std::time::Duration = std::time::Duration::from_secs(10);
+/// QA-31: el documento de discovery se reutiliza este tiempo en vez de
+/// pedirlo en cada login.
+const TTL_DISCOVERY: std::time::Duration = std::time::Duration::from_secs(600);
+
+static DISCOVERY: std::sync::Mutex<Option<(String, std::time::Instant, CoreProviderMetadata)>> = std::sync::Mutex::new(None);
+
+/// Cliente HTTP hacia el IdP: con timeout y sin seguir redirecciones (que un
+/// IdP comprometido no pueda mandar al servidor a pedir otra cosa).
+fn http_idp() -> Result<openidconnect::reqwest::Client, SsoError> {
+    openidconnect::reqwest::Client::builder()
+        .timeout(TIMEOUT_IDP)
+        .redirect(openidconnect::reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| SsoError::Protocolo(e.to_string()))
+}
+
+/// Qué resolvió el callback: un login, o la vinculación pedida desde una sesión.
+pub enum ResultadoCallback {
+    Login(User),
+    Vinculado(Uuid),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SsoError {
     #[error("SSO no está configurado")]
@@ -41,13 +65,22 @@ pub enum SsoError {
     EmailNoVerificado,
     #[error("no existe una cuenta local con ese email y el aprovisionamiento automático está deshabilitado")]
     SinCuentaYJitDeshabilitado,
+    #[error(
+        "ya existe una cuenta con ese email: iniciá sesión con tu contraseña y vinculá el inicio de sesión de tu organización desde tu cuenta"
+    )]
+    CuentaLocalSinVincular,
+    #[error("esa identidad de tu organización ya está vinculada a otra cuenta")]
+    IdentidadDeOtraCuenta,
 }
 
 impl From<SsoError> for DomainError {
     fn from(e: SsoError) -> Self {
         match e {
             SsoError::NoConfigurado | SsoError::StateInvalido => DomainError::InvalidCredentials,
-            SsoError::EmailNoVerificado | SsoError::SinCuentaYJitDeshabilitado => DomainError::ValidacionInvalida(e.to_string()),
+            SsoError::EmailNoVerificado
+            | SsoError::SinCuentaYJitDeshabilitado
+            | SsoError::CuentaLocalSinVincular
+            | SsoError::IdentidadDeOtraCuenta => DomainError::ValidacionInvalida(e.to_string()),
             SsoError::Protocolo(_) => DomainError::InvalidCredentials,
         }
     }
@@ -92,11 +125,24 @@ where
         let issuer_url = cfg.issuer_url.as_deref().ok_or(SsoError::NoConfigurado)?;
         let client_id = cfg.client_id.as_deref().ok_or(SsoError::NoConfigurado)?;
 
-        let issuer = IssuerUrl::new(issuer_url.to_string()).map_err(|e| SsoError::Protocolo(e.to_string()))?;
-        let http = openidconnect::reqwest::Client::new();
-        let metadata = CoreProviderMetadata::discover_async(issuer, &http)
-            .await
-            .map_err(|e| SsoError::Protocolo(e.to_string()))?;
+        let cacheado = DISCOVERY.lock().ok().and_then(|c| {
+            c.as_ref()
+                .filter(|(url, cuando, _)| url == issuer_url && cuando.elapsed() < TTL_DISCOVERY)
+                .map(|(_, _, m)| m.clone())
+        });
+        let metadata = match cacheado {
+            Some(m) => m,
+            None => {
+                let issuer = IssuerUrl::new(issuer_url.to_string()).map_err(|e| SsoError::Protocolo(e.to_string()))?;
+                let m = CoreProviderMetadata::discover_async(issuer, &http_idp()?)
+                    .await
+                    .map_err(|e| SsoError::Protocolo(e.to_string()))?;
+                if let Ok(mut c) = DISCOVERY.lock() {
+                    *c = Some((issuer_url.to_string(), std::time::Instant::now(), m.clone()));
+                }
+                m
+            }
+        };
         // `from_provider_metadata` deja `token_url` en `EndpointMaybeSet`
         // (viene de un `Option` del documento de discovery) — se fija acá
         // explícito a `EndpointSet`, requisito de tipos de `exchange_code`
@@ -113,10 +159,13 @@ where
             .set_token_uri(token_url))
     }
 
-    /// `GET /auth/sso/oidc/redirect` — arma la URL de autorización
+    /// `GET /auth/sso/oidc/redirect` (login) y `POST /me/sso/link`
+    /// (vincular la cuenta de `link_user_id`) — arma la URL de autorización
     /// (`code_challenge` S256, `state`/`nonce` opacos de un solo uso) y
     /// persiste el estado server-side para poder validarlo en el callback.
-    pub async fn iniciar_login(&self) -> Result<String, DomainError> {
+    /// Devuelve también el `state`: el handler ata el navegador a él con una
+    /// cookie (QA-31).
+    pub async fn iniciar(&self, link_user_id: Option<Uuid>) -> Result<(String, String), DomainError> {
         let cfg = self.config.obtener().await?;
         let client = self.cliente(&cfg).await?;
 
@@ -130,10 +179,10 @@ where
 
         let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(TTL_LOGIN_STATE_SEGUNDOS);
         self.login_state
-            .crear(csrf_token.secret(), nonce.secret(), pkce_verifier.secret(), expires_at)
+            .crear(csrf_token.secret(), nonce.secret(), pkce_verifier.secret(), expires_at, link_user_id)
             .await?;
 
-        Ok(auth_url.to_string())
+        Ok((auth_url.to_string(), csrf_token.secret().clone()))
     }
 
     /// `GET /auth/sso/oidc/callback` — intercambia el `code` por tokens
@@ -141,17 +190,16 @@ where
     /// verifica firma/`nonce`/`aud`/`iss` del `id_token` contra el JWKS del
     /// IdP, y resuelve la vinculación de cuenta (F-17: ver
     /// `resolver_linking`).
-    pub async fn resolver_callback(&self, code: String, state_recibido: &str) -> Result<User, DomainError> {
+    pub async fn resolver_callback(&self, code: String, state_recibido: &str) -> Result<ResultadoCallback, DomainError> {
         let cfg = self.config.obtener().await?;
         let estado = self.login_state.consumir(state_recibido).await?.ok_or(SsoError::StateInvalido)?;
 
         let client = self.cliente(&cfg).await?;
 
-        let http = openidconnect::reqwest::Client::new();
         let token_response = client
             .exchange_code(AuthorizationCode::new(code))
             .set_pkce_verifier(PkceCodeVerifier::new(estado.pkce_verifier))
-            .request_async(&http)
+            .request_async(&http_idp()?)
             .await
             .map_err(|e| SsoError::Protocolo(e.to_string()))?;
 
@@ -163,6 +211,10 @@ where
         let sub = claims.subject().to_string();
         let email = claims.email().map(|e| e.to_string());
         let email_verified = claims.email_verified().unwrap_or(false);
+
+        if let Some(user_id) = estado.link_user_id {
+            return self.vincular_a(user_id, &sub, email.as_deref()).await.map(ResultadoCallback::Vinculado);
+        }
 
         let resultado_linking = self.resolver_linking(&cfg, &sub, email.as_deref(), email_verified).await?;
 
@@ -177,6 +229,9 @@ where
             ResultadoLinking::SinCuentaYJitDeshabilitado => {
                 return Err(SsoError::SinCuentaYJitDeshabilitado.into());
             }
+            ResultadoLinking::CuentaLocalSinVincular => {
+                return Err(SsoError::CuentaLocalSinVincular.into());
+            }
         };
 
         let user = self.usuarios.buscar_por_id(user_id).await?.ok_or(DomainError::InvalidCredentials)?;
@@ -185,7 +240,29 @@ where
             EventoAuditoria::nuevo(AuditEventType::SsoLoginSucceeded, Some(user_id)).con_sujeto("user", user_id),
         ));
 
-        Ok(user)
+        Ok(ResultadoCallback::Login(user))
+    }
+
+    /// QA-31: vincula la identidad del IdP a la cuenta que pidió el flujo
+    /// desde su propia sesión. Idempotente si ya era suya; nunca le quita la
+    /// identidad a otra cuenta.
+    async fn vincular_a(&self, user_id: Uuid, sub: &str, email: Option<&str>) -> Result<Uuid, DomainError> {
+        match self.identities.buscar_user_id_por_identidad(PROVIDER, sub).await? {
+            Some(actual) if actual == user_id => return Ok(user_id),
+            Some(_) => return Err(SsoError::IdentidadDeOtraCuenta.into()),
+            None => {}
+        }
+        self.identities
+            .vincular(user_id, PROVIDER, sub, serde_json::json!({ "email": email }))
+            .await
+            .map_err(|e| match e {
+                crate::error::RepoError::Conflict => SsoError::IdentidadDeOtraCuenta.into(),
+                otro => DomainError::Interno(otro),
+            })?;
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::SsoAccountLinked, Some(user_id)).con_sujeto("user", user_id),
+        ));
+        Ok(user_id)
     }
 
     /// F-17: vinculación de cuenta al primer login SSO — decisión explícita,
@@ -208,15 +285,14 @@ where
             return Ok(ResultadoLinking::SinCuentaYJitDeshabilitado);
         };
 
-        if let Some(existente) = self.usuarios.buscar_por_email(email).await? {
+        // QA-31: una cuenta local existente ya no se vincula sola por el
+        // `email_verified` del IdP (un IdP mal configurado o multi-tenant
+        // podía quedarse con ella): la vincula su dueño desde su sesión.
+        if self.usuarios.buscar_por_email(email).await?.is_some() {
             if !email_verified {
                 return Ok(ResultadoLinking::RechazadoEmailNoVerificado);
             }
-            self.identities.vincular(existente.id, PROVIDER, sub, serde_json::json!({ "email": email })).await?;
-            let _ = self.eventos.send(DomainEvent::Auditoria(
-                EventoAuditoria::nuevo(AuditEventType::SsoAccountLinked, Some(existente.id)).con_sujeto("user", existente.id),
-            ));
-            return Ok(ResultadoLinking::Vinculado(existente.id));
+            return Ok(ResultadoLinking::CuentaLocalSinVincular);
         }
 
         if !cfg.jit_provisioning_enabled {
@@ -241,6 +317,9 @@ where
                     encrypted_private_key_blob: &[],
                     private_key_nonce: &bytes_aleatorios::<24>(),
                     kdf_salt: &bytes_aleatorios::<16>(),
+                    // Sin claves todavía: sin verificador hasta `POST /me/keys/enroll`.
+                    kdf_params: ellkan_crypto::derivacion::ParametrosKdf::LEGADO,
+                    auth_key: None,
                 },
                 true,
             )

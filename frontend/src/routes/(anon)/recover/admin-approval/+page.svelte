@@ -125,7 +125,7 @@
 			const blob = await reSellarConNuevaPassphrase(email, passphraseNueva, material);
 			// QA-06: firma con la identidad recién desellada.
 			const prueba = await pruebaDePosesion(api.post, email, material.slice(32, 64), blob);
-			await accountRecoveryApi.completar(requestId, tokenSolicitante, blob.blobB64, blob.nonceB64, blob.saltB64, prueba);
+			await accountRecoveryApi.completar(requestId, tokenSolicitante, blob, prueba);
 			paso = 'lista';
 		} catch (err) {
 			error = err instanceof ApiError || err instanceof Error ? err.message : get(t).recuperacionCuenta.errorGenerico;

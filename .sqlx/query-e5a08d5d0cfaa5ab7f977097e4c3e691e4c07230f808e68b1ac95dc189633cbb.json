@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update account_recovery_requests set status = 'expired', resolved_at = now()\n               where escrow_id = $1 and status = 'unconfirmed'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e5a08d5d0cfaa5ab7f977097e4c3e691e4c07230f808e68b1ac95dc189633cbb"
+}

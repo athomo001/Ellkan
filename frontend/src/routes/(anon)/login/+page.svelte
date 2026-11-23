@@ -8,16 +8,17 @@
 	// política lo exige y todavía no tiene ningún segundo factor — setup +
 	// confirmación en el mismo flujo, `MfaService::confirmar_setup_totp`
 	// completa la sesión al confirmar, sin un `/auth/mfa/verify` aparte).
+	import EnlacesLegales from '$lib/components/EnlacesLegales.svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { iniciarSesion, verificarDispositivo, cambiarPassphrase } from '$lib/crypto/identity';
+	import { iniciarSesion, verificarDispositivo, cambiarPassphrase, aplicarMejoraKdfPendiente } from '$lib/crypto/identity';
 	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '$lib/crypto/totp';
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
-	import { desbloquear as desbloquearLocal } from '$lib/crypto/totp-local';
+	import { desbloquear as desbloquearLocal, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
 	import { estaActivo as llaveroActivo, desbloquear as desbloquearLlavero } from '$lib/crypto/llavero-local';
 	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
@@ -25,6 +26,7 @@
 	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
+	import { ssoApi, RUTA_INICIO_SSO } from '$lib/api/sso';
 
 	let email = $state('');
 	let passphrase = $state('');
@@ -76,6 +78,17 @@
 		}
 	});
 
+	// F-17 (pendiente #133): "Entrar con tu organización" sólo si la instancia
+	// tiene un proveedor configurado. En escritorio no hay SSO.
+	let ssoHabilitado = $state(false);
+	$effect(() => {
+		if (enModoEscritorio()) return;
+		ssoApi
+			.habilitado()
+			.then((si) => (ssoHabilitado = si))
+			.catch(() => {});
+	});
+
 	// F-02: sólo se llena si el backend responde "pendiente_dispositivo".
 	let deviceChallengeId = $state<string | undefined>();
 	let codigoDispositivo = $state('');
@@ -113,6 +126,9 @@
 	// código local, passphrase directa).
 	async function completarSesion(userId: string | undefined, sessionId: string | undefined) {
 		sesion.set({ sessionId: sessionId ?? null, userId: userId ?? null, email });
+		// QA-03: una cuenta sellada con el esquema anterior se re-sella ahora
+		// que la sesión es completa (en segundo plano; si falla, en el próximo login).
+		void aplicarMejoraKdfPendiente(get(clavesDesbloqueadas)?.ed25519Private);
 		try {
 			const estado = await recoveryKitApi.estado();
 			if (!estado.configured) {
@@ -130,6 +146,9 @@
 	}
 
 	async function procesarResultadoLogin(resultado: Awaited<ReturnType<typeof iniciarSesion>>) {
+		// QA-16: de acá en adelante (sesión, cambio de passphrase) va el email
+		// tal como está guardado, no como se tipeó.
+		email = resultado.email;
 		switch (resultado.estado) {
 			case 'completo':
 				if (resultado.claves) clavesDesbloqueadas.set(resultado.claves);
@@ -440,13 +459,19 @@
 		<p class="hint centrado">{$t.login.sinCuenta} <a href="/register">{$t.login.registrate}</a></p>
 	{/if}
 		<p class="hint centrado"><a href="/recover">{$t.login.olvidasteTuPassphrase}</a></p>
+		{#if ssoHabilitado}
+			<a class="boton-sso" href={RUTA_INICIO_SSO} data-sveltekit-reload>{$t.sso.entrarConOrganizacion}</a>
+		{/if}
 		<hr />
 		<p class="hint centrado">
 			<button type="button" class="link" onclick={() => (conPasskey = true)}>{$t.login.usarPasskey}</button>
-			· <button type="button" class="link" onclick={() => (conCodigoLocal = true)}>{$t.login.usarCodigoLocal}</button
-			>
+			{#if totpLocalDisponible()}
+				· <button type="button" class="link" onclick={() => (conCodigoLocal = true)}>{$t.login.usarCodigoLocal}</button
+				>
+			{/if}
 		</p>
 	{/if}
+	<EnlacesLegales />
 </Card>
 
 <style>
@@ -464,6 +489,21 @@
 		display: flex;
 		flex-direction: column;
 	}
+	/* Pendiente #133: navegación real (302 al proveedor), no un fetch. */
+	.boton-sso {
+		display: block;
+		text-align: center;
+		padding: var(--space-2) var(--space-4);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md);
+		color: var(--text-primary);
+		text-decoration: none;
+		margin-top: var(--space-2);
+	}
+	.boton-sso:hover,
+	.boton-sso:focus-visible {
+		background: var(--bg-secondary, transparent);
+	}
 	hr {
 		border: none;
 		border-top: 1px solid var(--border-color);
@@ -477,6 +517,14 @@
 	.hint.centrado {
 		text-align: center;
 		margin-top: 0;
+	}
+	/* WCAG 2.5.8 (pendiente #66): los links del pie, de una línea de texto
+	 * chico, llegan a 24px de alto. */
+	.hint a,
+	.hint .link {
+		display: inline-block;
+		min-height: 24px;
+		padding-block: 0.25rem;
 	}
 	.error {
 		color: var(--danger);

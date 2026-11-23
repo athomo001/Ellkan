@@ -5,14 +5,14 @@
 // §2) — protocolo `Port.request()`: `requestId` (uuid) de correlación,
 // respuesta `[requestId, "SUCCESS"|"ERROR", ...]`.
 
-import type { MensajeRequest, MensajeResponse } from './types';
+import type { MensajeRequest, MensajeResponse, WorkerName } from './types';
 import { SesionController } from './controllers/sesion-controller';
 import { AuthController } from './controllers/auth-controller';
 import { VaultController } from './controllers/vault-controller';
 import { AutofillController } from './controllers/autofill-controller';
-import { TotpLocalController } from './controllers/totp-local-controller';
 import { LockService } from './services/lock-service';
 import { appEscritorioDisponible } from './transporte';
+import { hrefDelRemitente, revelarSiCorrespondeALaPagina, rutaPermitida } from './rutas-permitidas';
 
 type Handler = (payload: unknown) => Promise<unknown>;
 
@@ -35,16 +35,37 @@ const rutas: Record<string, Handler> = {
 	VAULT_REVELAR_SECRETO: (payload) => VaultController.revelarSecreto(payload),
 	VAULT_CREAR: (payload) => VaultController.crear(payload),
 	VAULT_EDITAR: (payload) => VaultController.editar(payload),
-	AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias(payload),
-	// F-38 (desbloqueo rápido local con TOTP) — spec 05 §2.1.
-	F38_ESTADO: () => TotpLocalController.estado(),
-	F38_GENERAR_SETUP: () => TotpLocalController.generarSetup(),
-	F38_CONFIRMAR: (payload) => TotpLocalController.confirmar(payload),
-	F38_DESACTIVAR: () => TotpLocalController.desactivar(),
-	F38_DESBLOQUEAR: (payload) => TotpLocalController.desbloquear(payload)
+	AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias(payload)
+	// F-38 (rutas `F38_*`) se quitó: QA-08, ver `services/restos-f38.ts`.
 };
 
-export function registrarEventos(port: chrome.runtime.Port): void {
+/**
+ * QA-32: para un content script, la página que pide es la del frame según el
+ * navegador (`sender.url`), nunca la que manda el propio script: el autofill
+ * busca coincidencias para esa URL y el secreto sólo sale si el recurso
+ * coincide con ella.
+ */
+function rutasDeContent(port: chrome.runtime.Port): Record<string, Handler> {
+	const urlRemitente = port.sender?.url;
+	const href = (payload: unknown) => hrefDelRemitente((payload as { href?: unknown } | undefined)?.href, urlRemitente);
+	return {
+		AUTOFILL_BUSCAR: (payload) => AutofillController.buscarCoincidencias({ href: href(payload) }),
+		VAULT_REVELAR_SECRETO: (payload) => {
+			const resourceId = (payload as { resourceId?: unknown } | undefined)?.resourceId;
+			if (typeof resourceId !== 'string' || !resourceId) throw new Error('falta resourceId');
+			return revelarSiCorrespondeALaPagina(
+				resourceId,
+				href(payload),
+				(href) => AutofillController.buscarCoincidencias({ href }),
+				() => VaultController.revelarSecreto({ resourceId })
+			);
+		},
+		VAULT_CREAR: rutas.VAULT_CREAR
+	};
+}
+
+export function registrarEventos(port: chrome.runtime.Port, worker: WorkerName): void {
+	const propias = worker === 'QuickAccess' ? rutas : rutasDeContent(port);
 	port.onMessage.addListener(async (mensaje: MensajeRequest) => {
 		if (mensaje.tipo === 'HANDSHAKE') return; // ya consumido por Pagemod
 
@@ -53,7 +74,7 @@ export function registrarEventos(port: chrome.runtime.Port): void {
 		// F-04, no sólo abrir el popup.
 		LockService.registrarActividad();
 
-		const handler = rutas[mensaje.tipo];
+		const handler = rutaPermitida(worker, mensaje.tipo) ? propias[mensaje.tipo] : undefined;
 		if (!handler) {
 			const respuesta: MensajeResponse = [mensaje.requestId, 'ERROR', `tipo de request desconocido: ${mensaje.tipo}`];
 			port.postMessage(respuesta);

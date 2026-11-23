@@ -42,6 +42,28 @@ fn nueva_version(anterior: OffsetDateTime) -> OffsetDateTime {
     OffsetDateTime::now_utc().max(anterior + time::Duration::milliseconds(1))
 }
 
+/// QA-25: mismo insert que `SecretEnvelopeRepository::insertar`, dentro de
+/// una transacción ajena (`crear`, `compartir_con`).
+async fn insertar_envelope(tx: &mut sqlx::SqliteConnection, resource_id: Uuid, env: &EnvelopeInput) -> Result<(), RepoError> {
+    sqlx::query(
+        "insert into secret_envelopes (id, resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce) \
+         values (?1,?2,?3,?4,?5,?6)",
+    )
+    .bind(Uuid::now_v7().to_string())
+    .bind(resource_id.to_string())
+    .bind(env.user_id.to_string())
+    .bind(&env.sealed_dek)
+    .bind(&env.secret_ciphertext)
+    .bind(&env.secret_nonce)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+        _ => RepoError::Database(e),
+    })?;
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct SqliteResourceRepository {
     pub pool: SqlitePool,
@@ -56,9 +78,13 @@ impl ResourceRepository for SqliteResourceRepository {
         metadata_nonce: &[u8],
         created_by: Uuid,
         metadata_key_id: Option<Uuid>,
+        envelope_dueno: Option<&EnvelopeInput>,
     ) -> Result<Resource, RepoError> {
         let metadata_key_type = if metadata_key_id.is_some() { "shared_key" } else { "user_key" };
         let ahora = fmt_dt(OffsetDateTime::now_utc());
+        // QA-25: recurso y envelope en una sola transacción (el permiso de
+        // dueño no existe acá: está implícito en `created_by`).
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "insert into resources (id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, \
              metadata_key_id, metadata_key_type, created_at, updated_at) values (?1,?2,?3,?4,?5,?6,?7,?8,?8)",
@@ -71,7 +97,7 @@ impl ResourceRepository for SqliteResourceRepository {
         .bind(metadata_key_id.map(|u| u.to_string()))
         .bind(metadata_key_type)
         .bind(&ahora)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         // El id ya existe (típicamente una fila borrada acá, soft-delete, que
         // el sync intenta volver a crear): es un conflicto, no una falla.
@@ -80,6 +106,10 @@ impl ResourceRepository for SqliteResourceRepository {
             sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
             _ => RepoError::Database(e),
         })?;
+        if let Some(envelope) = envelope_dueno {
+            insertar_envelope(&mut tx, id, envelope).await?;
+        }
+        tx.commit().await?;
 
         Ok(Resource {
             id,
@@ -133,6 +163,22 @@ impl ResourceRepository for SqliteResourceRepository {
              where created_by = ?1 and deleted_at is null order by created_at desc",
         )
         .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        filas.iter().map(fila_a_resource).collect()
+    }
+
+    /// QA-12: mismo keyset que en Postgres. `id` es TEXT con el UUID en
+    /// minúsculas y guiones: su orden de texto es el de los bytes.
+    async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, RepoError> {
+        let filas = sqlx::query(
+            "select id, resource_type_id, metadata_ciphertext, metadata_nonce, created_by, created_at, \
+             updated_at, metadata_key_type, metadata_key_id from resources \
+             where created_by = ?1 and deleted_at is null and (?2 is null or id > ?2) order by id limit ?3",
+        )
+        .bind(user_id.to_string())
+        .bind(despues_de.map(|id| id.to_string()))
+        .bind(limite)
         .fetch_all(&self.pool)
         .await?;
         filas.iter().map(fila_a_resource).collect()
@@ -276,6 +322,18 @@ impl ResourceRepository for SqliteResourceRepository {
                 })
             })
             .collect()
+    }
+
+    async fn compartir_con(&self, resource_id: Uuid, envelope: &EnvelopeInput, _nivel: &str) -> Result<(), RepoError> {
+        let mut tx = self.pool.begin().await?;
+        insertar_envelope(&mut tx, resource_id, envelope).await?;
+        sqlx::query("update resources set updated_at = ?2 where id = ?1")
+            .bind(resource_id.to_string())
+            .bind(fmt_dt(OffsetDateTime::now_utc()))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn tocar_updated_at(&self, resource_id: Uuid) -> Result<(), RepoError> {

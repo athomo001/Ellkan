@@ -75,6 +75,8 @@ async fn usuario_con_sesion(pool: &SqlitePool, clave: &SigningKey) -> (Uuid, Uui
         "encrypted_private_key_blob_b64": B64.encode([3u8; 48]),
         "private_key_nonce_b64": B64.encode([4u8; 24]),
         "kdf_salt_b64": B64.encode([5u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     });
     let (status, _) = llamar(pool, "POST", "/auth/register", None, registro).await;
     assert_eq!(status, StatusCode::OK, "el registro inicial debe funcionar");
@@ -108,9 +110,11 @@ fn cuerpo_recuperar(nonce: &[u8], firma: &[u8]) -> Value {
         "email": EMAIL,
         "nonce_b64": B64.encode(nonce),
         "signature_b64": B64.encode(firma),
-        "encrypted_private_key_blob_b64": B64.encode([21u8; 48]),
+        "encrypted_private_key_blob_b64": B64.encode([21u8; 80]),
         "private_key_nonce_b64": B64.encode([22u8; 24]),
         "kdf_salt_b64": B64.encode([23u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     })
 }
 
@@ -211,7 +215,7 @@ async fn reset_con_firma_valida_reemplaza_el_blob_mata_las_sesiones_y_marca_el_k
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         blob_actual(&pool, user_id).await,
-        vec![21u8; 48],
+        vec![21u8; 80],
         "el blob re-sellado con la passphrase nueva debe quedar guardado"
     );
 

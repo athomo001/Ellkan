@@ -81,6 +81,21 @@ where
     pub async fn obtener(&self, user_id: Uuid) -> Result<Perfil, DomainError> {
         Ok(self.perfil.obtener(user_id).await?)
     }
+
+    /// Pendiente #133: primer par de claves de una cuenta creada por SSO.
+    /// 409 si la cuenta ya tiene claves.
+    pub async fn enrolar_claves(
+        &self,
+        user_id: Uuid,
+        claves: &super::models::ClavesIniciales,
+        eventos: &EmisorDeEventos,
+    ) -> Result<(), DomainError> {
+        if !self.perfil.enrolar_claves(user_id, claves).await? {
+            return Err(DomainError::Conflict);
+        }
+        let _ = eventos.send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::UserKeysEnrolled, Some(user_id))));
+        Ok(())
+    }
 }
 
 /// Formatos aceptados para el avatar — mismo criterio que cualquier otra
@@ -148,6 +163,15 @@ pub struct ReemplazoVerificado {
     nueva: NuevaClavePrivada,
 }
 
+impl ReemplazoVerificado {
+    /// Para los repositorios que no implementan `ClavePrivadaRepository`
+    /// (la bóveda local del escritorio). Construirlo sigue exigiendo pasar
+    /// por `verificar_posesion`.
+    pub fn en_partes(self) -> (Uuid, NuevaClavePrivada) {
+        (self.user_id, self.nueva)
+    }
+}
+
 /// QA-06: valida las longitudes, consume el challenge (un solo uso, con TTL)
 /// y verifica la firma con `user_keys.public_key_ed25519`. Cualquier fallo
 /// de la prueba devuelve el mismo 403, sin distinguir cuál fue.
@@ -171,9 +195,13 @@ where
         &keys.public_key_ed25519,
         &prueba.firma,
         &prueba.challenge,
-        &nueva.encrypted_private_key_blob,
-        &nueva.private_key_nonce,
-        &nueva.kdf_salt,
+        &ellkan_crypto::clave_privada::Reemplazo {
+            blob: &nueva.encrypted_private_key_blob,
+            nonce: &nueva.private_key_nonce,
+            salt: &nueva.kdf_salt,
+            parametros: &nueva.kdf_params,
+            auth_key: &nueva.auth_key,
+        },
     );
     if !valida {
         return Err(DomainError::PermissionDenied);
@@ -201,11 +229,28 @@ where
 
         Ok(())
     }
+
+    /// QA-03: ver `me::handlers::mejorar_kdf`. `Conflict` si la cuenta ya
+    /// tiene verificador: la mejora es de una sola vez, no un cambio de
+    /// passphrase que se saltea el cierre de sesiones.
+    pub async fn mejorar_kdf(&self, verificado: ReemplazoVerificado) -> Result<(), DomainError> {
+        let ReemplazoVerificado { user_id, nueva } = verificado;
+        if !self.claves.mejorar_sello_legado(user_id, &nueva).await? {
+            return Err(DomainError::Conflict);
+        }
+        Ok(())
+    }
 }
 
 /// Validación de longitudes del blob nuevo; corre dentro de
 /// `verificar_posesion`, antes de consumir nada.
 fn validar_nueva_clave_privada(nueva: &NuevaClavePrivada) -> Result<(), DomainError> {
+    if !nueva.kdf_params.aceptables_para_sellar() {
+        return Err(DomainError::ValidacionInvalida("kdf_params por debajo del mínimo o fuera de rango".into()));
+    }
+    if nueva.auth_key.len() != crate::validacion::LARGO_AUTH_KEY {
+        return Err(DomainError::ValidacionInvalida("auth_key debe medir 32 bytes".into()));
+    }
     if nueva.private_key_nonce.len() != NONCE_LEN {
         return Err(DomainError::ValidacionInvalida(format!("private_key_nonce debe tener {NONCE_LEN} bytes")));
     }

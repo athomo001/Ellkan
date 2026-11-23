@@ -8,6 +8,7 @@ use crate::auth::extractor::AuthenticatedUser;
 use crate::b64;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
+use crate::validacion;
 
 use super::dto::{CompartirCarpetaRequest, CrearCarpetaRequest, MoverCarpetaRequest, NodoArbolResponse};
 use super::service::FolderService;
@@ -36,9 +37,8 @@ pub async fn crear(
     auth: AuthenticatedUser,
     Json(req): Json<CrearCarpetaRequest>,
 ) -> Result<Json<NodoArbolResponse>, ApiError> {
-    let name_ciphertext =
-        b64::decode(&req.name_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-    let name_nonce = b64::decode(&req.name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+    let name_ciphertext = validacion::b64_acotado(&req.name_ciphertext_b64, "name_ciphertext_b64", validacion::MAX_NOMBRE_CIFRADO)?;
+    let name_nonce = validacion::b64_exacto(&req.name_nonce_b64, "name_nonce_b64", validacion::LARGO_NONCE)?;
 
     let carpeta = servicio(&state)
         .crear(auth.user_id, req.id, &name_ciphertext, &name_nonce, req.parent_folder_id)
@@ -99,10 +99,9 @@ pub async fn compartir(
                 .member_envelopes
                 .iter()
                 .map(|m| {
-                    let ciphertext = b64::decode(&m.name_ciphertext_b64)
-                        .map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-                    let nonce =
-                        b64::decode(&m.name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+                    let ciphertext =
+                        validacion::b64_acotado(&m.name_ciphertext_b64, "name_ciphertext_b64", validacion::MAX_NOMBRE_CIFRADO)?;
+                    let nonce = validacion::b64_exacto(&m.name_nonce_b64, "name_nonce_b64", validacion::LARGO_NONCE)?;
                     Ok((m.user_id, ciphertext, nonce))
                 })
                 .collect::<Result<Vec<_>, DomainError>>()?;
@@ -120,9 +119,8 @@ pub async fn compartir(
                 .name_nonce_b64
                 .as_deref()
                 .ok_or_else(|| DomainError::ValidacionInvalida("falta name_nonce_b64".into()))?;
-            let name_ciphertext =
-                b64::decode(name_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("name_ciphertext_b64 inválido".into()))?;
-            let name_nonce = b64::decode(name_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("name_nonce_b64 inválido".into()))?;
+            let name_ciphertext = validacion::b64_acotado(name_ciphertext_b64, "name_ciphertext_b64", validacion::MAX_NOMBRE_CIFRADO)?;
+            let name_nonce = validacion::b64_exacto(name_nonce_b64, "name_nonce_b64", validacion::LARGO_NONCE)?;
 
             servicio(&state)
                 .compartir(auth.user_id, folder_id, req.grantee_id, &req.level, &name_ciphertext, &name_nonce)

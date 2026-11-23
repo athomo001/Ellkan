@@ -58,6 +58,9 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         // sesión es válida.
         tracing::Span::current().record("actor_id", user_id.to_string());
 
+        // QA-21: "último uso" y nombre del dispositivo para `/me/sessions`.
+        crate::sesiones::registrar_uso(&state.pool, session_id, &parts.headers);
+
         Ok(AuthenticatedUser { session_id, user_id })
     }
 }

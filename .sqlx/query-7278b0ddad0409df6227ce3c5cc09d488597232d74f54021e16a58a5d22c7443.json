@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select distinct subject_id from permissions\n            where subject_type = 'resource' and subject_id = any($2) and level = 'owner'\n              and (\n                (grantee_type = 'user' and grantee_id = $1)\n                or (grantee_type = 'group' and grantee_id in (\n                    select group_id from group_members where user_id = $1\n                ))\n              )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "subject_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "subject_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7278b0ddad0409df6227ce3c5cc09d488597232d74f54021e16a58a5d22c7443"
+}

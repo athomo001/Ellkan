@@ -26,9 +26,7 @@ pub trait PasskeyRepository {
 
     async fn buscar(&self, id: Uuid) -> Result<Option<PasskeyRow>, RepoError>;
 
-    /// Hard delete — a diferencia de `trusted_devices` (soft-revoke, ver
-    /// `devices::repository::revocar`), una passkey removida no necesita
-    /// retener la fila: no hay ningún flujo que dependa de saber que existió.
+    /// Hard delete — una passkey removida no necesita retener la fila: no hay ningún flujo que dependa de saber que existió.
     async fn eliminar(&self, id: Uuid) -> Result<(), RepoError>;
 
     /// Post-autenticación: nuevo estado del `Passkey` (contador, flags de

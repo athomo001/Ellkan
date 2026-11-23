@@ -1,5 +1,6 @@
 // Autor: Athan Espinoza
 
+use ellkan_crypto::derivacion::ParametrosKdf;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,6 +13,9 @@ pub struct RegisterRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id.
+    pub kdf_params: ParametrosKdf,
+    pub auth_key_b64: String,
     /// QA-11: sólo cuenta para el primer registro de una instancia vacía,
     /// y sólo si el operador configuró `ELLKAN_SETUP_TOKEN`.
     #[serde(default)]
@@ -44,26 +48,68 @@ pub struct ServerKeyResponse {
     pub public_key_ed25519_b64: String,
 }
 
+/// Pendiente #109: `GET /auth/setup-status`.
+#[derive(Debug, Serialize)]
+pub struct SetupStatusResponse {
+    /// `true` si la instancia no tiene usuarios y el primer registro (que
+    /// nace admin) tiene que presentar el token de instalación.
+    pub setup_token_required: bool,
+    /// Pendiente #133: la instancia tiene un proveedor OIDC configurado (el
+    /// login muestra "Entrar con tu organización").
+    pub sso_enabled: bool,
+    /// Pendiente #57: links de la política de privacidad y de los términos
+    /// de la instancia (`null` si el admin no los cargó).
+    pub privacy_url: Option<String>,
+    pub terms_url: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ChallengeRequest {
     pub email: String,
 }
 
 /// F-01 (frontend web) — no está en `03-api-contrato.md`, documentado igual
-/// que `rekey-metadata`/`device-approval` en fases anteriores: sin este
+/// que `rekey-metadata` en fases anteriores: sin este
 /// endpoint, un navegador sin estado local no tiene forma de desbloquear su
 /// propia clave privada al loguearse (la CLI lo evita cacheando el blob en
 /// un perfil local tras registrarse, un navegador no tiene ese cache).
 #[derive(Debug, Deserialize)]
 pub struct KeyMaterialRequest {
     pub email: String,
+    /// QA-03: `auth_key` derivada con la sal y los parámetros de
+    /// `POST /auth/prelogin`. Obligatoria salvo para una cuenta sellada
+    /// antes de QA-03 (`auth_key_required: false`).
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct KeyMaterialResponse {
+    /// QA-16: email guardado (AAD del blob).
+    pub email: String,
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    pub kdf_params: ParametrosKdf,
+}
+
+/// QA-03: `POST /auth/prelogin`.
+#[derive(Debug, Deserialize)]
+pub struct PreloginRequest {
+    pub email: String,
+}
+
+/// QA-03: sal y parámetros para derivar la `auth_key`. Para un email sin
+/// cuenta, una sal estable derivada de la clave del servidor y los
+/// parámetros actuales: igual que una cuenta real.
+#[derive(Debug, Serialize)]
+pub struct PreloginResponse {
+    /// QA-16: email guardado (AAD del blob). Sin cuenta, el pedido en
+    /// minúsculas y sin espacios.
+    pub email: String,
+    pub kdf_salt_b64: String,
+    pub kdf_params: ParametrosKdf,
+    pub auth_key_required: bool,
 }
 
 #[derive(Debug, Serialize)]

@@ -8,6 +8,8 @@
 //! `Send` en la firma del trait no es un problema real.
 #![allow(async_fn_in_trait)]
 
+use ellkan_crypto::derivacion::ParametrosKdf;
+use sqlx::types::Json;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -241,9 +243,10 @@ impl UserRepository for PgUserRepository {
             r#"
             insert into user_keys (
                 user_id, public_key_x25519, public_key_ed25519,
-                encrypted_private_key_blob, private_key_nonce, kdf_salt
+                encrypted_private_key_blob, private_key_nonce, kdf_salt,
+                kdf_params, auth_verifier
             )
-            values ($1, $2, $3, $4, $5, $6)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
             fila.id,
             nuevo.public_key_x25519,
@@ -251,6 +254,8 @@ impl UserRepository for PgUserRepository {
             nuevo.encrypted_private_key_blob,
             nuevo.private_key_nonce,
             nuevo.kdf_salt,
+            sqlx::types::Json(nuevo.kdf_params) as _,
+            nuevo.auth_key.map(|k| ellkan_crypto::derivacion::verificador_auth(k).to_vec()),
         )
         .execute(&mut *tx)
         .await?;
@@ -268,7 +273,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = $1 and active and deleted_at is null and email_verified_at is not null"#,
+               where lower(email) = lower(trim($1)) and active and deleted_at is null and email_verified_at is not null"#,
             email,
         )
         .fetch_optional(&self.pool)
@@ -328,19 +333,24 @@ impl UserRepository for PgUserRepository {
     async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError> {
         let fila = sqlx::query!(
             r#"
-            select uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
+            select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt,
+                   uk.kdf_params as "kdf_params: Json<ParametrosKdf>",
+                   uk.auth_verifier
             from user_keys uk
             join users u on u.id = uk.user_id
-            where u.email = $1 and u.active and u.deleted_at is null and u.email_verified_at is not null
+            where lower(u.email) = lower(trim($1)) and u.active and u.deleted_at is null and u.email_verified_at is not null
             "#,
             email,
         )
         .fetch_optional(&self.pool)
         .await?;
         Ok(fila.map(|f| super::models::MaterialDesbloqueo {
+            email: f.email,
             encrypted_private_key_blob: f.encrypted_private_key_blob,
             private_key_nonce: f.private_key_nonce,
             kdf_salt: f.kdf_salt,
+            kdf_params: f.kdf_params.0,
+            auth_verifier: f.auth_verifier,
         }))
     }
 
@@ -352,7 +362,7 @@ impl UserRepository for PgUserRepository {
     async fn buscar_no_verificado_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query!(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
-               where email = $1 and active and deleted_at is null and email_verified_at is null"#,
+               where lower(email) = lower(trim($1)) and active and deleted_at is null and email_verified_at is null"#,
             email,
         )
         .fetch_optional(&self.pool)
@@ -433,7 +443,7 @@ impl UserRepository for PgUserRepository {
         let fila = sqlx::query!(
             r#"
             select u.id, u.security_stamp, u.created_at, u.must_change_passphrase from users u
-            where u.email = $2 and u.active and u.deleted_at is null and u.email_verified_at is not null
+            where lower(u.email) = lower(trim($2)) and u.active and u.deleted_at is null and u.email_verified_at is not null
               and (
                     u.id = $1
                     or exists (select 1 from users a join role_permissions rp on rp.role_id = a.role_id
@@ -814,7 +824,7 @@ impl crate::notificaciones::LocaleRepository for PgUserRepository {
     /// email_verified_at is not null` de `buscar_por_email` — ver el
     /// comentario del trait en `notificaciones.rs`.
     async fn locale_de_email(&self, email: &str) -> Result<Option<String>, RepoError> {
-        let fila = sqlx::query!(r#"select locale from users where email = $1"#, email)
+        let fila = sqlx::query!(r#"select locale from users where lower(email) = lower(trim($1))"#, email)
             .fetch_optional(&self.pool)
             .await?;
         Ok(fila.map(|f| f.locale))

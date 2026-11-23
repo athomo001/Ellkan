@@ -4,12 +4,17 @@
 //! (dominio `contexto::CIFRADO_CLAVE_PRIVADA`) → XChaCha20-Poly1305. Nunca se
 //! cachea la clave privada ya descifrada — se reconstruye en cada operación
 //! desde `EncryptedPrivateKeyBlob` + la passphrase cacheada.
+//!
+//! QA-03: del mismo Argon2id sale también la `auth_key` (otro `info` de
+//! HKDF), que el servidor exige antes de entregar el blob. Sellar devuelve
+//! las dos cosas: el blob para guardar y la `auth_key` para registrar el
+//! verificador.
 
 use zeroize::Zeroizing;
 
 use crate::aead::{Envoltura, ErrorAead, cifrar, descifrar};
-use crate::derivacion::{ErrorDerivacion, contexto, derivar_clave_maestra, derivar_subclave};
-use crate::secretos::PassphraseSecreta;
+use crate::derivacion::{Desbloqueo, ErrorDerivacion, ParametrosKdf, derivar_desbloqueo};
+use crate::secretos::{ClaveSecreta32, PassphraseSecreta};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ErrorClavePrivada {
@@ -19,11 +24,19 @@ pub enum ErrorClavePrivada {
     Aead(#[from] ErrorAead),
 }
 
-/// Blob almacenado en `user_keys.encrypted_private_key_blob`.
+/// Blob almacenado en `user_keys.encrypted_private_key_blob`, con la sal y
+/// los parámetros de Argon2id con que se selló (`kdf_salt`, `kdf_params`).
 #[derive(Debug, Clone)]
 pub struct EncryptedPrivateKeyBlob {
     pub salt: [u8; 16],
+    pub parametros: ParametrosKdf,
     pub envoltura: Envoltura,
+}
+
+/// QA-03: resultado de sellar: el blob y la `auth_key` del mismo Argon2id.
+pub struct ClavePrivadaSellada {
+    pub blob: EncryptedPrivateKeyBlob,
+    pub auth_key: ClaveSecreta32,
 }
 
 /// Cifra una clave privada (32 bytes, X25519 `StaticSecret` o Ed25519
@@ -32,13 +45,23 @@ pub struct EncryptedPrivateKeyBlob {
 pub fn cifrar_clave_privada(
     passphrase: &PassphraseSecreta,
     salt: [u8; 16],
+    parametros: ParametrosKdf,
     clave_privada: &[u8],
     aad: &[u8],
-) -> Result<EncryptedPrivateKeyBlob, ErrorClavePrivada> {
-    let maestra = derivar_clave_maestra(passphrase, &salt)?;
-    let subclave = derivar_subclave(&maestra, contexto::CIFRADO_CLAVE_PRIVADA);
-    let envoltura = cifrar(&subclave, clave_privada, aad)?;
-    Ok(EncryptedPrivateKeyBlob { salt, envoltura })
+) -> Result<ClavePrivadaSellada, ErrorClavePrivada> {
+    let Desbloqueo { auth_key, clave_envoltura } = derivar_desbloqueo(passphrase, &salt, &parametros)?;
+    let envoltura = cifrar(&clave_envoltura, clave_privada, aad)?;
+    Ok(ClavePrivadaSellada { blob: EncryptedPrivateKeyBlob { salt, parametros, envoltura }, auth_key })
+}
+
+/// QA-03: abre la envoltura con la clave ya derivada (`Desbloqueo`), para
+/// quien derivó una sola vez y ya usó la `auth_key` para pedir el blob.
+pub fn descifrar_con_clave_de_envoltura(
+    clave_envoltura: &ClaveSecreta32,
+    envoltura: &Envoltura,
+    aad: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, ErrorClavePrivada> {
+    Ok(Zeroizing::new(descifrar(clave_envoltura, envoltura, aad)?))
 }
 
 /// Descifra el blob — reconstruye la clave privada en claro sólo para el
@@ -52,50 +75,55 @@ pub fn descifrar_clave_privada(
     blob: &EncryptedPrivateKeyBlob,
     aad: &[u8],
 ) -> Result<Zeroizing<Vec<u8>>, ErrorClavePrivada> {
-    let maestra = derivar_clave_maestra(passphrase, &blob.salt)?;
-    let subclave = derivar_subclave(&maestra, contexto::CIFRADO_CLAVE_PRIVADA);
-    Ok(Zeroizing::new(descifrar(&subclave, &blob.envoltura, aad)?))
+    let desbloqueo = derivar_desbloqueo(passphrase, &blob.salt, &blob.parametros)?;
+    descifrar_con_clave_de_envoltura(&desbloqueo.clave_envoltura, &blob.envoltura, aad)
 }
 
 /// QA-06: prefijo de dominio del mensaje que prueba la posesión de la
 /// identidad al reemplazar el blob sellado. Distinto del challenge de login
 /// (F-02, que firma el nonce crudo), así que ninguna de las dos firmas sirve
-/// para la otra.
-const DOMINIO_REEMPLAZO_CLAVE_PRIVADA: &[u8] = b"ellkan:v1:reemplazo-clave-privada:";
+/// para la otra. QA-03 lo subió a v2: ahora también firma los parámetros de
+/// Argon2id y la `auth_key` nueva.
+const DOMINIO_REEMPLAZO_CLAVE_PRIVADA: &[u8] = b"ellkan:v2:reemplazo-clave-privada:";
+
+/// Lo que se reemplaza: el blob sellado completo y la `auth_key` nueva.
+#[derive(Clone, Copy)]
+pub struct Reemplazo<'a> {
+    pub blob: &'a [u8],
+    pub nonce: &'a [u8],
+    pub salt: &'a [u8],
+    pub parametros: &'a ParametrosKdf,
+    pub auth_key: &'a [u8],
+}
 
 /// QA-06: mensaje que el cliente firma con su Ed25519 privada para que el
 /// servidor acepte un blob nuevo. Ata el challenge de un solo uso
-/// (`POST /auth/challenge`) a ese blob exacto (ciphertext, nonce y salt): una
-/// firma capturada no sirve para subir otro contenido. Cada parte entra
+/// (`POST /auth/challenge`) a ese blob exacto (ciphertext, nonce, salt,
+/// parámetros) y a su `auth_key` (QA-03): una firma capturada no sirve para
+/// subir otro contenido ni para cambiar sólo el verificador. Cada parte entra
 /// hasheada, así todas miden 32 bytes y la concatenación no es ambigua.
-pub fn mensaje_reemplazo_clave_privada(challenge: &[u8], blob: &[u8], nonce: &[u8], salt: &[u8]) -> Vec<u8> {
+pub fn mensaje_reemplazo_clave_privada(challenge: &[u8], r: &Reemplazo<'_>) -> Vec<u8> {
     use sha2::{Digest, Sha256};
-    let mut mensaje = Vec::with_capacity(DOMINIO_REEMPLAZO_CLAVE_PRIVADA.len() + 4 * 32);
+    let parametros = r.parametros.a_bytes();
+    let mut mensaje = Vec::with_capacity(DOMINIO_REEMPLAZO_CLAVE_PRIVADA.len() + 6 * 32);
     mensaje.extend_from_slice(DOMINIO_REEMPLAZO_CLAVE_PRIVADA);
-    for parte in [challenge, blob, nonce, salt] {
+    for parte in [challenge, r.blob, r.nonce, r.salt, &parametros, r.auth_key] {
         mensaje.extend_from_slice(&Sha256::digest(parte));
     }
     mensaje
 }
 
 /// QA-06: firma del mensaje de `mensaje_reemplazo_clave_privada`.
-pub fn firmar_reemplazo_clave_privada(ed25519_privada: &[u8; 32], challenge: &[u8], blob: &[u8], nonce: &[u8], salt: &[u8]) -> [u8; 64] {
+pub fn firmar_reemplazo_clave_privada(ed25519_privada: &[u8; 32], challenge: &[u8], r: &Reemplazo<'_>) -> [u8; 64] {
     use ed25519_dalek::{Signer, SigningKey};
     SigningKey::from_bytes(ed25519_privada)
-        .sign(&mensaje_reemplazo_clave_privada(challenge, blob, nonce, salt))
+        .sign(&mensaje_reemplazo_clave_privada(challenge, r))
         .to_bytes()
 }
 
 /// QA-06: `true` sólo si `firma` es una firma Ed25519 estricta de la
-/// identidad `publica_ed25519` sobre ese challenge y ese blob.
-pub fn verificar_reemplazo_clave_privada(
-    publica_ed25519: &[u8],
-    firma: &[u8],
-    challenge: &[u8],
-    blob: &[u8],
-    nonce: &[u8],
-    salt: &[u8],
-) -> bool {
+/// identidad `publica_ed25519` sobre ese challenge y ese reemplazo.
+pub fn verificar_reemplazo_clave_privada(publica_ed25519: &[u8], firma: &[u8], challenge: &[u8], r: &Reemplazo<'_>) -> bool {
     use ed25519_dalek::{Signature, VerifyingKey};
     let (Ok(publica), Ok(firma)) = (<[u8; 32]>::try_from(publica_ed25519), <[u8; 64]>::try_from(firma)) else {
         return false;
@@ -104,7 +132,7 @@ pub fn verificar_reemplazo_clave_privada(
         return false;
     };
     verificadora
-        .verify_strict(&mensaje_reemplazo_clave_privada(challenge, blob, nonce, salt), &Signature::from_bytes(&firma))
+        .verify_strict(&mensaje_reemplazo_clave_privada(challenge, r), &Signature::from_bytes(&firma))
         .is_ok()
 }
 
@@ -118,27 +146,68 @@ mod tests {
         use ed25519_dalek::{Signer, SigningKey};
         let privada = [7u8; 32];
         let publica = SigningKey::from_bytes(&privada).verifying_key().to_bytes();
-        let (challenge, blob, nonce, salt) = ([1u8; 32], [2u8; 80], [3u8; 24], [4u8; 16]);
-        let firma = firmar_reemplazo_clave_privada(&privada, &challenge, &blob, &nonce, &salt);
+        let challenge = [1u8; 32];
+        let r = Reemplazo {
+            blob: &[2u8; 80],
+            nonce: &[3u8; 24],
+            salt: &[4u8; 16],
+            parametros: &ParametrosKdf::ACTUAL,
+            auth_key: &[5u8; 32],
+        };
+        let firma = firmar_reemplazo_clave_privada(&privada, &challenge, &r);
 
-        assert!(verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &blob, &nonce, &salt));
-        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &[9u8; 32], &blob, &nonce, &salt));
-        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &[0u8; 80], &nonce, &salt));
-        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &blob, &[0u8; 24], &salt));
-        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &blob, &nonce, &[0u8; 16]));
+        assert!(verificar_reemplazo_clave_privada(&publica, &firma, &challenge, &r));
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma, &[9u8; 32], &r));
+        assert!(!verificar_reemplazo_clave_privada(
+            &publica,
+            &firma,
+            &challenge,
+            &Reemplazo { blob: &[0u8; 80], ..r }
+        ));
+        assert!(!verificar_reemplazo_clave_privada(
+            &publica,
+            &firma,
+            &challenge,
+            &Reemplazo { nonce: &[0u8; 24], ..r }
+        ));
+        assert!(!verificar_reemplazo_clave_privada(
+            &publica,
+            &firma,
+            &challenge,
+            &Reemplazo { salt: &[0u8; 16], ..r }
+        ));
+        assert!(!verificar_reemplazo_clave_privada(
+            &publica,
+            &firma,
+            &challenge,
+            &Reemplazo { parametros: &ParametrosKdf::LEGADO, ..r }
+        ));
+        assert!(!verificar_reemplazo_clave_privada(
+            &publica,
+            &firma,
+            &challenge,
+            &Reemplazo { auth_key: &[0u8; 32], ..r }
+        ));
         let otra = SigningKey::from_bytes(&[8u8; 32]).verifying_key().to_bytes();
-        assert!(!verificar_reemplazo_clave_privada(&otra, &firma, &challenge, &blob, &nonce, &salt));
+        assert!(!verificar_reemplazo_clave_privada(&otra, &firma, &challenge, &r));
 
         // Separación de dominio: una firma de login (nonce crudo) no sirve acá.
         let firma_login = SigningKey::from_bytes(&privada).sign(&challenge).to_bytes();
-        assert!(!verificar_reemplazo_clave_privada(&publica, &firma_login, &challenge, &blob, &nonce, &salt));
+        assert!(!verificar_reemplazo_clave_privada(&publica, &firma_login, &challenge, &r));
     }
 
     #[test]
     fn el_formato_del_mensaje_de_reemplazo_no_cambia() {
-        let mensaje = mensaje_reemplazo_clave_privada(b"c", b"b", b"n", b"s");
-        assert_eq!(mensaje.len(), DOMINIO_REEMPLAZO_CLAVE_PRIVADA.len() + 128);
-        assert!(mensaje.starts_with(b"ellkan:v1:reemplazo-clave-privada:"));
+        let r = Reemplazo {
+            blob: b"b",
+            nonce: b"n",
+            salt: b"s",
+            parametros: &ParametrosKdf::ACTUAL,
+            auth_key: b"a",
+        };
+        let mensaje = mensaje_reemplazo_clave_privada(b"c", &r);
+        assert_eq!(mensaje.len(), DOMINIO_REEMPLAZO_CLAVE_PRIVADA.len() + 192);
+        assert!(mensaje.starts_with(b"ellkan:v2:reemplazo-clave-privada:"));
     }
 
     fn passphrase(valor: &str) -> PassphraseSecreta {
@@ -150,16 +219,28 @@ mod tests {
         let pass = passphrase("passphrase-de-prueba-suficientemente-larga");
         let clave_privada = [42u8; 32];
         let aad = b"user_id:1";
-        let blob = cifrar_clave_privada(&pass, [1u8; 16], &clave_privada, aad).unwrap();
-        let recuperada = descifrar_clave_privada(&pass, &blob, aad).unwrap();
+        let sellada = cifrar_clave_privada(&pass, [1u8; 16], ParametrosKdf::LEGADO, &clave_privada, aad).unwrap();
+        let recuperada = descifrar_clave_privada(&pass, &sellada.blob, aad).unwrap();
         assert_eq!(recuperada.as_slice(), &clave_privada);
+    }
+
+    #[test]
+    fn la_auth_key_de_sellar_es_la_del_desbloqueo() {
+        use secrecy::ExposeSecret;
+        let pass = passphrase("passphrase");
+        let sellada = cifrar_clave_privada(&pass, [1u8; 16], ParametrosKdf::LEGADO, &[42u8; 64], b"aad").unwrap();
+        let d = crate::derivacion::derivar_desbloqueo(&pass, &[1u8; 16], &ParametrosKdf::LEGADO).unwrap();
+        assert_eq!(sellada.auth_key.expose_secret(), d.auth_key.expose_secret());
+        let abierta = descifrar_con_clave_de_envoltura(&d.clave_envoltura, &sellada.blob.envoltura, b"aad").unwrap();
+        assert_eq!(abierta.as_slice(), &[42u8; 64]);
     }
 
     #[test]
     fn passphrase_incorrecta_no_descifra() {
         let clave_privada = [42u8; 32];
         let aad = b"user_id:1";
-        let blob = cifrar_clave_privada(&passphrase("passphrase-correcta"), [1u8; 16], &clave_privada, aad).unwrap();
-        assert!(descifrar_clave_privada(&passphrase("passphrase-incorrecta"), &blob, aad).is_err());
+        let sellada =
+            cifrar_clave_privada(&passphrase("passphrase-correcta"), [1u8; 16], ParametrosKdf::LEGADO, &clave_privada, aad).unwrap();
+        assert!(descifrar_clave_privada(&passphrase("passphrase-incorrecta"), &sellada.blob, aad).is_err());
     }
 }

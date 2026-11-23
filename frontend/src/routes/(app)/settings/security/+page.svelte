@@ -19,18 +19,20 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import { registrarPasskey, listarPasskeys, revocarPasskey, type Passkey } from '$lib/crypto/passkeys';
 	import { verificarPassphrase } from '$lib/crypto/identity';
-	import { generarSetup, confirmarYActivar, estaActivo, desactivar } from '$lib/crypto/totp-local';
+	import { generarSetup, confirmarYActivar, estaActivo, desactivar, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
 	import {
 		estaActivo as llaveroEstaActivo,
 		activar as activarLlavero,
 		desactivar as desactivarLlavero
 	} from '$lib/crypto/llavero-local';
 	import { enModoEscritorio } from '$lib/tauri/conectar';
-	import { accountRecoveryApi } from '$lib/api/accountRecovery';
-	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
+	import { accountRecoveryApi, type ClaveOrg } from '$lib/api/accountRecovery';
+	import { enrolarConClaveVigente } from '$lib/crypto/accountRecovery';
+	import { huellaDeClave } from '$lib/crypto/emergencia';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
-	import { devicesApi, type TrustedDevice } from '$lib/api/devices';
+	import { sesionesApi, type SesionAbierta } from '$lib/api/sesiones';
+	import { ssoApi } from '$lib/api/sso';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
@@ -54,12 +56,24 @@
 	// F-16: estado de enrolamiento en Account Recovery — sin esto no hay
 	// forma de saber si "Habilitar" ya se hizo antes en otro dispositivo.
 	let recoveryEnrolada = $state(false);
+	// QA-09: el escrow propio sellado contra una clave que ya no es la
+	// vigente (la organización rotó) — hay que re-sellarlo.
+	let recoveryDesactualizada = $state(false);
+	let claveOrg = $state<ClaveOrg | undefined>();
+	let huellaOrg = $state('');
 	let cargandoRecovery = $state(true);
 	let habilitandoRecovery = $state(false);
 	let errorRecovery = $state<string | undefined>();
 	onMount(async () => {
 		try {
-			recoveryEnrolada = (await accountRecoveryApi.miEstado()).enrolled;
+			const estado = await accountRecoveryApi.miEstado();
+			recoveryEnrolada = estado.enrolled;
+			recoveryDesactualizada =
+				estado.enrolled && estado.current_org_recovery_key_id !== null && estado.org_recovery_key_id !== estado.current_org_recovery_key_id;
+			if (estado.current_org_recovery_key_id !== null) {
+				claveOrg = await accountRecoveryApi.orgPublicKey();
+				huellaOrg = await huellaDeClave(claveOrg.public_key_x25519_b64);
+			}
 		} catch {
 			/* la sección simplemente no ofrece el botón si esto falla */
 		} finally {
@@ -76,10 +90,9 @@
 		}
 		habilitandoRecovery = true;
 		try {
-			const org = await accountRecoveryApi.orgPublicKey();
-			const sellado = await sellarMaterialParaOrg(org.public_key_x25519_b64, claves);
-			await accountRecoveryApi.enrolar(sellado);
+			await enrolarConClaveVigente(claves, claveOrg);
 			recoveryEnrolada = true;
+			recoveryDesactualizada = false;
 		} catch (err) {
 			errorRecovery = err instanceof ApiError ? err.message : get(t).settingsSecurity.recoveryErrorHabilitar;
 		} finally {
@@ -250,38 +263,84 @@
 		activandoLlaveroPaso = 'inicial';
 	}
 
-	// F-37: dispositivos de confianza propios — backend completo desde
-	// Fase 1.2, sin ninguna pantalla hasta ahora.
-	let dispositivos = $state<TrustedDevice[]>([]);
-	let cargandoDispositivos = $state(true);
-	let errorDispositivos = $state<string | undefined>();
-	let revocandoDispositivoId = $state<string | undefined>();
+	// QA-21: sesiones abiertas (como los dispositivos vinculados de WhatsApp):
+	// se ve dónde está abierta la cuenta y se cierran las otras. En el
+	// escritorio no aplica — la sesión es local.
+	let sesiones = $state<SesionAbierta[]>([]);
+	let cargandoSesiones = $state(true);
+	let errorSesiones = $state<string | undefined>();
+	let cerrandoSesionId = $state<string | undefined>();
+	let cerrandoOtras = $state(false);
 
-	async function cargarDispositivos() {
-		cargandoDispositivos = true;
-		try {
-			dispositivos = await devicesApi.listar();
-		} catch (err) {
-			errorDispositivos = err instanceof ApiError ? err.message : get(t).settingsSecurity.dispositivosError;
-		} finally {
-			cargandoDispositivos = false;
-		}
-	}
-	onMount(cargarDispositivos);
-
-	async function revocarDispositivo(id: string) {
-		revocandoDispositivoId = id;
-		try {
-			await devicesApi.revocar(id);
-			await cargarDispositivos();
-		} catch (err) {
-			errorDispositivos = err instanceof ApiError ? err.message : get(t).settingsSecurity.dispositivosError;
-		} finally {
-			revocandoDispositivoId = undefined;
-		}
+	function errorDeSesiones(err: unknown) {
+		errorSesiones = err instanceof ApiError ? err.message : get(t).settingsSecurity.sesionesError;
 	}
 
-	const dispositivosActivos = $derived(dispositivos.filter((d) => !d.revoked_at));
+	async function cargarSesiones() {
+		cargandoSesiones = true;
+		errorSesiones = undefined;
+		try {
+			sesiones = await sesionesApi.listar();
+		} catch (err) {
+			errorDeSesiones(err);
+		} finally {
+			cargandoSesiones = false;
+		}
+	}
+	onMount(() => {
+		if (!enModoEscritorio()) cargarSesiones();
+	});
+
+	async function cerrarSesion(id: string) {
+		cerrandoSesionId = id;
+		try {
+			await sesionesApi.cerrar(id);
+			await cargarSesiones();
+		} catch (err) {
+			errorDeSesiones(err);
+		} finally {
+			cerrandoSesionId = undefined;
+		}
+	}
+
+	// F-17 / QA-31 (pendiente #133): vincular esta cuenta al proveedor de la
+	// organización. Sólo se ofrece si la instancia tiene uno configurado.
+	let ssoHabilitado = $state(false);
+	let vinculandoSso = $state(false);
+	let errorSso = $state<string | undefined>();
+	onMount(() => {
+		if (enModoEscritorio()) return;
+		ssoApi
+			.habilitado()
+			.then((si) => (ssoHabilitado = si))
+			.catch(() => {});
+	});
+
+	async function vincularSso() {
+		vinculandoSso = true;
+		errorSso = undefined;
+		try {
+			// Navegación completa: el proveedor vuelve a `/sso/callback`.
+			window.location.assign((await ssoApi.vincular()).authorization_url);
+		} catch (err) {
+			errorSso = err instanceof ApiError ? err.message : get(t).sso.errorGenerico;
+			vinculandoSso = false;
+		}
+	}
+
+	async function cerrarOtrasSesiones() {
+		cerrandoOtras = true;
+		try {
+			await sesionesApi.cerrarOtras();
+			await cargarSesiones();
+		} catch (err) {
+			errorDeSesiones(err);
+		} finally {
+			cerrandoOtras = false;
+		}
+	}
+
+	const hayOtrasSesiones = $derived(sesiones.some((s) => !s.actual));
 </script>
 
 <svelte:head>
@@ -325,6 +384,8 @@
 	{/if}
 </Card>
 
+<!-- QA-08: F-38 sólo en el escritorio (la clave vive en el llavero del SO). -->
+{#if totpLocalDisponible()}
 <Card>
 	<h2>{$t.settingsSecurity.desbloqueoTitulo}</h2>
 	<p class="hint">{$t.settingsSecurity.desbloqueoHint}</p>
@@ -367,6 +428,7 @@
 		</form>
 	{/if}
 </Card>
+{/if}
 
 {#if enModoEscritorio()}
 <Card>
@@ -399,11 +461,26 @@
 <Card>
 	<h2>{$t.settingsSecurity.recoveryTitulo}</h2>
 	<p class="hint">{$t.settingsSecurity.recoveryHint}</p>
-	<!-- QA-09: el escrow lo custodia el servidor; se avisa antes de habilitar. -->
-	<p class="hint">{$t.settingsSecurity.recoveryAdvertencia}</p>
-
 	{#if cargandoRecovery}
 		<p class="hint">{$t.settingsSecurity.cargando}</p>
+	{:else if !claveOrg}
+		<p class="hint">{$t.settingsSecurity.recoverySinClaveOrg}</p>
+	{:else}
+		<!-- QA-09: quién custodia la clave de la organización, antes de habilitar. -->
+		<p class="hint">
+			{claveOrg.custody === 'client' ? $t.settingsSecurity.recoveryCustodiaAdmins : $t.settingsSecurity.recoveryAdvertencia}
+		</p>
+		<p class="hint">{$t.settingsSecurity.recoveryHuella.replace('{huella}', huellaOrg)}</p>
+	{/if}
+
+	{#if cargandoRecovery || !claveOrg}
+		<!-- nada que ofrecer -->
+	{:else if recoveryEnrolada && recoveryDesactualizada}
+		<p class="hint">{$t.settingsSecurity.recoveryDesactualizada}</p>
+		{#if errorRecovery}<p class="error">{errorRecovery}</p>{/if}
+		<Button variant="primary" onclick={habilitarRecovery} loading={habilitandoRecovery}>
+			{$t.settingsSecurity.recoveryActualizar}
+		</Button>
 	{:else if recoveryEnrolada}
 		<p class="ok">{$t.settingsSecurity.recoveryHabilitada}</p>
 	{:else}
@@ -437,32 +514,52 @@
 	{/if}
 </Card>
 
-<Card>
-	<h2>{$t.settingsSecurity.dispositivosTitulo}</h2>
-	<p class="hint">{$t.settingsSecurity.dispositivosHint}</p>
+{#if ssoHabilitado}
+	<Card>
+		<h2>{$t.sso.vincularTitulo}</h2>
+		<p class="hint">{$t.sso.vincularHint}</p>
+		<Button variant="secondary" onclick={vincularSso} loading={vinculandoSso}>{$t.sso.vincular}</Button>
+		{#if errorSso}<p class="error" role="alert">{errorSso}</p>{/if}
+	</Card>
+{/if}
 
-	{#if cargandoDispositivos}
-		<p class="hint">{$t.settingsSecurity.cargando}</p>
-	{:else if errorDispositivos}
-		<p class="error">{errorDispositivos}</p>
-	{:else if dispositivosActivos.length === 0}
-		<p class="hint">{$t.settingsSecurity.dispositivosSinDispositivos}</p>
-	{:else}
-		<ul class="lista-passkeys">
-			{#each dispositivosActivos as d (d.id)}
-				<li class="item-passkey">
-					<div class="info">
-						<strong>{d.label || $t.settingsSecurity.sinNombre}</strong>
-						<span class="secundario-dispositivo">{new Date(d.created_at).toLocaleString()}</span>
-					</div>
-					<Button variant="danger" onclick={() => revocarDispositivo(d.id)} loading={revocandoDispositivoId === d.id}>
-						{$t.settingsSecurity.dispositivosRevocar}
-					</Button>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</Card>
+{#if !enModoEscritorio()}
+	<Card>
+		<h2>{$t.settingsSecurity.sesionesTitulo}</h2>
+		<p class="hint">{$t.settingsSecurity.sesionesHint}</p>
+
+		{#if cargandoSesiones}
+			<p class="hint">{$t.settingsSecurity.cargando}</p>
+		{:else if errorSesiones}
+			<p class="error">{errorSesiones}</p>
+		{:else}
+			<ul class="lista-passkeys">
+				{#each sesiones as s (s.id)}
+					<li class="item-passkey">
+						<div class="info">
+							<strong>{s.dispositivo ?? $t.settingsSecurity.sesionDesconocida}</strong>
+							<span class="secundario-dispositivo">
+								{s.actual
+									? $t.settingsSecurity.sesionActual
+									: $t.settingsSecurity.sesionUltimoUso.replace('{fecha}', new Date(s.ultimo_uso ?? s.creada).toLocaleString())}
+							</span>
+						</div>
+						{#if !s.actual}
+							<Button variant="danger" onclick={() => cerrarSesion(s.id)} loading={cerrandoSesionId === s.id}>
+								{$t.settingsSecurity.sesionCerrar}
+							</Button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			{#if hayOtrasSesiones}
+				<Button variant="secondary" onclick={cerrarOtrasSesiones} loading={cerrandoOtras}>
+					{$t.settingsSecurity.sesionesCerrarOtras}
+				</Button>
+			{/if}
+		{/if}
+	</Card>
+{/if}
 
 <style>
 	h1 {

@@ -82,6 +82,16 @@ pub enum DomainEvent {
         email: String,
         codigo: String,
     },
+    /// QA-22: un contacto pidió acceso de emergencia — aviso al titular al
+    /// crearse la solicitud y, con `recordatorio`, a mitad del plazo si
+    /// todavía no respondió. Sin esto el job lo concedía en silencio.
+    EmergencyAccessRequested {
+        granter_email: String,
+        grantee_nombre: String,
+        grantee_email: String,
+        concede_el: time::OffsetDateTime,
+        recordatorio: bool,
+    },
     /// F-13: dispara el consumidor de `audit::consumidor`, que persiste la
     /// entrada de forma asíncrona — nunca dentro de la transacción de la
     /// acción que audita.

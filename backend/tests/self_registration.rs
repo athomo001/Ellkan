@@ -14,6 +14,7 @@ use ed25519_dalek::Signer;
 use ellkan_crypto::clave_privada;
 use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
+use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 use serde_json::{Value, json};
 
@@ -31,7 +32,15 @@ async fn registrar_crudo(entorno: &common::Entorno, email: &str) -> (u16, Value,
     privadas[..32].copy_from_slice(x25519.privada().to_bytes().as_slice());
     privadas[32..].copy_from_slice(&ed25519.firmante().to_bytes());
     let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let blob = clave_privada::cifrar_clave_privada(&passphrase, salt, &privadas, email.as_bytes()).unwrap();
+    let blob_sellado = clave_privada::cifrar_clave_privada(
+        &passphrase,
+        salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &privadas,
+        email.as_bytes(),
+    )
+    .unwrap();
+    let blob = &blob_sellado.blob;
 
     let resp = entorno
         .cliente
@@ -44,6 +53,8 @@ async fn registrar_crudo(entorno: &common::Entorno, email: &str) -> (u16, Value,
             "encrypted_private_key_blob_b64": B64.encode(&blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(blob_sellado.auth_key.expose_secret()),
         }))
         .send()
         .await

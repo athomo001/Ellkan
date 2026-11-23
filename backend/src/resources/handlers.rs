@@ -2,7 +2,7 @@
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, HeaderValue};
 use uuid::Uuid;
 
 use crate::auth::extractor::AuthenticatedUser;
@@ -12,11 +12,12 @@ use crate::folders::repository::{FolderItemRepository, FolderRepository};
 use crate::folders::service::FolderService;
 use crate::state::AppState;
 use crate::tags::service::TagService;
+use crate::validacion;
 
 use super::dto::{
     ActualizarRecursoRequest, CambiarNivelRequest, CambiarTipoRecursoRequest, CompartirLoteItemResultado, CompartirLoteRequest,
-    CompartirLoteResponse, CompartirRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery, MoverRecursoRequest,
-    PermisoGranteeResponse, RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
+    CompartirLoteResponse, CompartirRequest, CrearRecursoRequest, DestinatarioResponse, ListarQuery, MAX_PAGINA_RECURSOS,
+    MoverRecursoRequest, PermisoGranteeResponse, RecursoResponse, RekeyMetadataRequest, SecretoResponse, TotpResponse,
 };
 use super::models::{EnvelopeInput, NivelPermiso};
 use super::repository::ResourceTypeRepository;
@@ -76,15 +77,11 @@ pub async fn crear(
         .map_err(DomainError::from)?
         .ok_or_else(|| DomainError::ValidacionInvalida("resource_type_slug desconocido".into()))?;
 
-    let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce =
-        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
-    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-    let secret_ciphertext =
-        b64::decode(&req.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-    let secret_nonce =
-        b64::decode(&req.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+    let metadata_ciphertext = validacion::b64_acotado(&req.metadata_ciphertext_b64, "metadata_ciphertext_b64", validacion::MAX_METADATA)?;
+    let metadata_nonce = validacion::b64_exacto(&req.metadata_nonce_b64, "metadata_nonce_b64", validacion::LARGO_NONCE)?;
+    let sealed_dek = validacion::b64_exacto(&req.sealed_dek_b64, "sealed_dek_b64", validacion::LARGO_CLAVE_SELLADA)?;
+    let secret_ciphertext = validacion::b64_acotado(&req.secret_ciphertext_b64, "secret_ciphertext_b64", validacion::MAX_SECRETO)?;
+    let secret_nonce = validacion::b64_exacto(&req.secret_nonce_b64, "secret_nonce_b64", validacion::LARGO_NONCE)?;
 
     // El servidor rechaza un blob de metadata cuya envoltura no corresponda
     // a una clave declarada activa (F-06, criterio de aceptación literal) —
@@ -123,8 +120,23 @@ pub async fn listar(
     State(state): State<AppState>,
     auth: AuthenticatedUser,
     Query(q): Query<ListarQuery>,
-) -> Result<Json<Vec<RecursoResponse>>, ApiError> {
-    let recursos = servicio(&state).listar_visibles(auth.user_id).await?;
+) -> Result<(HeaderMap, Json<Vec<RecursoResponse>>), ApiError> {
+    // QA-12: paginación opcional por keyset sobre `id`. Sin filtros, la
+    // página sale de la base (`limit + 1` filas: la de más sólo dice que hay
+    // otra página). Con `tag_id`/`folder_id` se pagina la lista ya filtrada.
+    // El cliente se guía por la cabecera, nunca por el largo de la página.
+    let limite = match q.limit {
+        None => None,
+        Some(n) if (1..=MAX_PAGINA_RECURSOS).contains(&n) => Some(n as usize),
+        Some(_) => {
+            return Err(DomainError::ValidacionInvalida(format!("limit debe estar entre 1 y {MAX_PAGINA_RECURSOS}")).into());
+        }
+    };
+    let pagina_en_la_base = limite.is_some() && q.tag_id.is_none() && q.folder_id.is_none();
+    let recursos = match limite {
+        Some(n) if pagina_en_la_base => servicio(&state).listar_visibles_pagina(auth.user_id, q.after, n as i64 + 1).await?,
+        _ => servicio(&state).listar_visibles(auth.user_id).await?,
+    };
 
     let recursos = match q.tag_id {
         None => recursos,
@@ -184,8 +196,28 @@ pub async fn listar(
         }
     };
 
-    Ok(Json(recursos))
+    let mut cabeceras = HeaderMap::new();
+    let Some(limite) = limite else {
+        return Ok((cabeceras, Json(recursos)));
+    };
+    let mut recursos = recursos;
+    if !pagina_en_la_base {
+        recursos.sort_by_key(|r| r.id);
+        recursos.retain(|r| q.after.is_none_or(|despues| r.id > despues));
+    }
+    if recursos.len() > limite {
+        recursos.truncate(limite);
+        if let Some(ultimo) = recursos.last() {
+            let valor = HeaderValue::from_str(&ultimo.id.to_string()).expect("un UUID es un valor de cabecera válido");
+            cabeceras.insert(CABECERA_CURSOR, valor);
+        }
+    }
+    Ok((cabeceras, Json(recursos)))
 }
+
+/// QA-12: cursor de la página siguiente de `GET /resources?limit=`; si no
+/// viene, no hay más.
+const CABECERA_CURSOR: &str = "x-ellkan-next-cursor";
 
 pub async fn obtener(
     State(state): State<AppState>,
@@ -234,11 +266,9 @@ pub async fn compartir(
     Path(resource_id): Path<Uuid>,
     Json(req): Json<CompartirRequest>,
 ) -> Result<(), ApiError> {
-    let sealed_dek = b64::decode(&req.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-    let secret_ciphertext =
-        b64::decode(&req.secret_ciphertext_b64).map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-    let secret_nonce =
-        b64::decode(&req.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+    let sealed_dek = validacion::b64_exacto(&req.sealed_dek_b64, "sealed_dek_b64", validacion::LARGO_CLAVE_SELLADA)?;
+    let secret_ciphertext = validacion::b64_acotado(&req.secret_ciphertext_b64, "secret_ciphertext_b64", validacion::MAX_SECRETO)?;
+    let secret_nonce = validacion::b64_exacto(&req.secret_nonce_b64, "secret_nonce_b64", validacion::LARGO_NONCE)?;
     let nivel = nivel_de(req.level.as_deref())?;
 
     servicio(&state)
@@ -271,12 +301,9 @@ pub async fn compartir_lote(
 
     for item in req.items {
         let decodificado = (|| -> Result<_, DomainError> {
-            let sealed_dek =
-                b64::decode(&item.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?;
-            let secret_ciphertext = b64::decode(&item.secret_ciphertext_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?;
-            let secret_nonce =
-                b64::decode(&item.secret_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?;
+            let sealed_dek = validacion::b64_exacto(&item.sealed_dek_b64, "sealed_dek_b64", validacion::LARGO_CLAVE_SELLADA)?;
+            let secret_ciphertext = validacion::b64_acotado(&item.secret_ciphertext_b64, "secret_ciphertext_b64", validacion::MAX_SECRETO)?;
+            let secret_nonce = validacion::b64_exacto(&item.secret_nonce_b64, "secret_nonce_b64", validacion::LARGO_NONCE)?;
             let nivel = nivel_de(item.level.as_deref())?;
             Ok((sealed_dek, secret_ciphertext, secret_nonce, nivel))
         })();
@@ -373,10 +400,8 @@ pub async fn rekey_metadata(
     Path(resource_id): Path<Uuid>,
     Json(req): Json<RekeyMetadataRequest>,
 ) -> Result<(), ApiError> {
-    let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce =
-        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let metadata_ciphertext = validacion::b64_acotado(&req.metadata_ciphertext_b64, "metadata_ciphertext_b64", validacion::MAX_METADATA)?;
+    let metadata_nonce = validacion::b64_exacto(&req.metadata_nonce_b64, "metadata_nonce_b64", validacion::LARGO_NONCE)?;
 
     servicio(&state)
         .rekey_metadata(
@@ -424,20 +449,16 @@ pub async fn actualizar(
     let expected_updated_at = time::OffsetDateTime::parse(if_match, &time::format_description::well_known::Rfc3339)
         .map_err(|_| DomainError::ValidacionInvalida("If-Match debe ser una fecha RFC3339 válida".into()))?;
 
-    let metadata_ciphertext = b64::decode(&req.metadata_ciphertext_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("metadata_ciphertext_b64 inválido".into()))?;
-    let metadata_nonce =
-        b64::decode(&req.metadata_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("metadata_nonce_b64 inválido".into()))?;
+    let metadata_ciphertext = validacion::b64_acotado(&req.metadata_ciphertext_b64, "metadata_ciphertext_b64", validacion::MAX_METADATA)?;
+    let metadata_nonce = validacion::b64_exacto(&req.metadata_nonce_b64, "metadata_nonce_b64", validacion::LARGO_NONCE)?;
 
     let mut envelopes = Vec::with_capacity(req.envelopes.len());
     for e in req.envelopes {
         envelopes.push(EnvelopeInput {
             user_id: e.recipient_user_id,
-            sealed_dek: b64::decode(&e.sealed_dek_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_dek_b64 inválido".into()))?,
-            secret_ciphertext: b64::decode(&e.secret_ciphertext_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("secret_ciphertext_b64 inválido".into()))?,
-            secret_nonce: b64::decode(&e.secret_nonce_b64)
-                .map_err(|_| DomainError::ValidacionInvalida("secret_nonce_b64 inválido".into()))?,
+            sealed_dek: validacion::b64_exacto(&e.sealed_dek_b64, "sealed_dek_b64", validacion::LARGO_CLAVE_SELLADA)?,
+            secret_ciphertext: validacion::b64_acotado(&e.secret_ciphertext_b64, "secret_ciphertext_b64", validacion::MAX_SECRETO)?,
+            secret_nonce: validacion::b64_exacto(&e.secret_nonce_b64, "secret_nonce_b64", validacion::LARGO_NONCE)?,
         });
     }
 

@@ -10,11 +10,18 @@
 	import { goto } from '$app/navigation';
 	import { enlacePendiente } from '$lib/tauri/sistema';
 	import { instalarRegistroEnArchivo } from '$lib/tauri/registro';
+	import { limpiarRestosWeb } from '$lib/crypto/totp-local';
 
 	let { children } = $props();
 
 	// Escritorio: errores de la interfaz al `Ellkan.log` (no-op en la web).
 	instalarRegistroEnArchivo();
+
+	// QA-08: el desbloqueo rápido TOTP (F-38) ya no existe en la web; se borra
+	// lo que haya quedado guardado de antes (no-op en el escritorio).
+	$effect(() => {
+		limpiarRestosWeb();
+	});
 
 	// El backend emite `cierre-solicitado` cuando el usuario cierra la ventana
 	// y la preferencia es "preguntar" — ver `$lib/tauri/ventana.ts`.

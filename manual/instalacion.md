@@ -22,6 +22,16 @@ Con `image` y `build` juntos en el compose, `docker compose up` intenta primero 
 
 Antes de pasar a una versión nueva, hacé un [backup](#backup-y-restauración): las migraciones corren solas al arrancar y son sólo hacia adelante (volver a una versión anterior no deshace el esquema).
 
+#### Dirección pública (`ELLKAN_RP_ID` / `ELLKAN_RP_ORIGIN`)
+
+El servidor necesita saber con qué dirección se entra a él: las passkeys quedan atadas a ese dominio y los links de los emails (verificación, recuperación, invitaciones) se arman con él. **Sin las dos variables el servidor no arranca** — antes usaba `localhost` en silencio y las passkeys registradas en un servidor real dejaban de servir.
+
+- Con `docker-compose.yml` no hace falta nada para probar en la misma máquina: si no las definís, usa `localhost` y `http://localhost:${ELLKAN_PORT}`.
+- En un servidor, ponelas en `.env` con la dirección real: `ELLKAN_RP_ID=ellkan.tuempresa.com` y `ELLKAN_RP_ORIGIN=https://ellkan.tuempresa.com` (el ID es sólo el dominio; el origen lleva esquema y, si no es el estándar, puerto).
+- Con `docker run` sin compose, pasalas con `-e ELLKAN_RP_ID=... -e ELLKAN_RP_ORIGIN=...`.
+
+Cambiarlas después invalida las passkeys ya registradas (quedan atadas al dominio anterior): elegí la dirección definitiva antes de que la gente empiece a usarlo.
+
 Por defecto el backend sirve HTTP plano en `${ELLKAN_PORT:-8080}` — Ellkan nunca termina TLS él mismo salvo que se lo configures explícitamente (ver abajo). Sin nada delante, ese tráfico va sin cifrar en la red — aceptable sólo en `localhost`/una red ya confiable; para cualquier otro caso, elegí una de las dos opciones siguientes.
 
 ### TLS: dos formas de cerrar el canal, sin depender de un reverse proxy aparte
@@ -49,11 +59,25 @@ Las dos variables tienen que estar juntas — con sólo una, el binario falla al
 
 **Opción B — reverse proxy delante** (Caddy, nginx, Traefik) si preferís separar responsabilidades (WAF, renovación automática de Let's Encrypt sin gestionarla vos, etc.) — cualquiera de los tres sirve, no hay una integración especial de Ellkan con ninguno en particular; apuntalo al puerto HTTP interno de `ellkan` como backend.
 
+Con un reverse proxy delante, decile a Ellkan cuál es con `ELLKAN_TRUSTED_PROXIES` en `.env` (IPs o rangos CIDR separados por coma; por ejemplo, la red de Docker del proxy: `ELLKAN_TRUSTED_PROXIES=172.16.0.0/12`). Sin esto, los límites de solicitudes sin sesión (recuperación de cuenta, enlaces externos, login) ven a todos los usuarios con la IP del proxy y los cuentan como uno solo: alguien que abusa bloquea a todos. Con la variable, Ellkan toma la IP real de `X-Forwarded-For` sólo cuando la conexión viene de ese proxy (el proxy tiene que agregar esa cabecera; Caddy, nginx y Traefik lo hacen por defecto o con `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` en nginx). Un valor inválido hace que el servidor no arranque.
+
+Con `ELLKAN_RP_ORIGIN` en `https://…`, Ellkan manda además `Strict-Transport-Security` (un año): después de la primera visita, el navegador ya no intenta entrar por HTTP. Antes de ponerla, confirmá que el sitio responde bien por HTTPS.
+
 No hay una tercera opción real: el canal tiene que cerrarse en algún punto entre el navegador/extensión y el servidor. La Opción A es la más liviana porque no agrega contenedor ni proceso nuevo.
 
-## Primer administrador: token de instalación (recomendado)
+## Primer administrador: token de instalación
 
-En una instancia vacía, el primer usuario que se registra nace **admin**. Si la instancia queda expuesta antes de que vos te registres, cualquiera que llegue primero se queda con ese rol. Para cerrar esa ventana, configurá un token de instalación (mínimo 24 caracteres) en el `environment:` del servicio `ellkan`:
+En una instancia vacía, el primer usuario que se registra nace **admin**. Para que nadie que llegue antes que vos se quede con ese rol, ese primer registro **siempre pide un token de instalación**.
+
+> **Ojo con las versiones hasta la 0.1.70 (incluida):** ahí el token era opcional y, sin `ELLKAN_SETUP_TOKEN`, el primer registro nacía admin sin pedir nada. Si la pantalla de registro no muestra el campo «Token de instalación», estás en una de esas: creá tu cuenta antes de exponer la instancia, o pasá a una versión más nueva (`ELLKAN_VERSION=dev` y `docker compose pull`, o `docker compose up -d --build`).
+
+**Sin configurar nada:** mientras la base no tenga usuarios, el servidor genera un token al azar en cada arranque y lo escribe en su log. La pantalla de registro de la web lo pide y muestra el comando para verlo:
+
+```bash
+docker logs ellkan 2>&1 | grep "token de instalación"
+```
+
+**Con un token propio** (mínimo 24 caracteres), configuralo en el `environment:` del servicio `ellkan` y no se genera ninguno:
 
 ```yaml
 environment:
@@ -64,7 +88,7 @@ environment:
 openssl rand -base64 32   # genera un valor adecuado
 ```
 
-Con el token configurado, el primer registro sólo se acepta si la URL de registro lo trae en el fragmento: `https://tu-ellkan/register#setup=<token>` (el fragmento no viaja al servidor como parte de la URL ni queda en logs de proxy). Sin el token, o con uno incorrecto, el servidor responde 403. Los registros posteriores no lo usan. Si la variable no está configurada, el comportamiento es el histórico y el binario lo advierte en el log al registrarse el primer usuario.
+En los dos casos se puede pegar en el campo de la pantalla de registro o pasar en el fragmento de la URL: `https://tu-ellkan/register#setup=<token>` (el fragmento no viaja al servidor como parte de la URL ni queda en logs de proxy). Sin el token, o con uno incorrecto, el servidor responde 403. En cuanto existe la primera cuenta el token deja de servir y no se vuelve a generar. Crear el primer admin con la CLI (`ellkan-cli admin create-user`, con acceso directo a la base) no lo necesita.
 
 ## Compartir externo (F-26): el link no sirve de nada si nadie de afuera puede alcanzarlo
 
@@ -117,7 +141,11 @@ En la web y en la app de escritorio, el error real de una pantalla que no carga 
 | `ellkan-cli`/`docker` no ven el daemon aunque Docker Desktop esté corriendo (Linux con Docker Desktop instalado) | El contexto de Docker activo puede seguir apuntando al socket de Docker Desktop en vez del daemon real del sistema — nos pasó en desarrollo | `docker context ls` para confirmar, `docker context use default` para volver al daemon real |
 | `docker compose up` falla con el password de Postgres / la URL no parsea bien el puerto | `postgres_password.txt` generado con caracteres que rompen una URL (`+`, `/` — típico si se generó con `base64` en vez de `hex`) | Regenerar con `openssl rand -hex 24` (nunca `base64`) para ese archivo puntual — ver [secrets/README.md](../secrets/README.md) |
 | `docker compose up` falla en Windows con `invalid mount config for type "bind": bind source path does not exist: /run/desktop/mnt/host/e/.../secrets/postgres_password.txt`, aunque el archivo existe | Docker Desktop quedó con una vista vieja del disco (típico si el disco se montó o cambió después de que Docker arrancó): ve la carpeta `secrets/` **vacía**. Para confirmarlo: `docker run --rm -v "E:/ruta/a/Ellkan/secrets:/s" alpine ls /s` no lista nada | Reiniciar Docker Desktop (ícono de la bandeja → Restart). Si no alcanza, `wsl --shutdown` y volver a abrir Docker Desktop. Repetir el `docker run ... ls /s`: tiene que listar los tres archivos. Si sigue vacío, revisar que el disco esté habilitado en Docker Desktop → **Settings → Resources → File sharing / WSL integration** |
+| Con TLS activado en `/admin/smtp`, el envío falla en el handshake | Ellkan elige el modo por el puerto: 465 = TLS directo, cualquier otro (587) = STARTTLS obligatorio. Un relay que en 465 sólo habla STARTTLS, o en 587 no lo ofrece, no conecta | Usar el puerto que el proveedor documenta para cada modo (465 TLS, 587 STARTTLS) |
+| `docker stop` tarda unos segundos | Esperado: Ellkan termina las solicitudes en curso (hasta 20 s) antes de salir; `stop_grace_period: 30s` en el compose le da margen. Sin eso Docker lo mata a los 10 s | Nada que hacer; para un apagado inmediato, `docker kill` |
 | Login nuevo pide un código por email y nunca llega | SMTP no configurado todavía — el poller de envío es un stub hasta que se configure un relay real | Configurar SMTP en `/admin/smtp` (necesita un admin ya existente — para el primer admin, usar `ellkan-cli admin create-user --role admin`, que marca el dispositivo como conocido y no depende de email) |
+| El contenedor `ellkan` no arranca: "falta ELLKAN_RP_ID" (o `ELLKAN_RP_ORIGIN`) | El servidor no sabe con qué dirección se entra a él (típico con `docker run` sin el compose) | Definir las dos variables con la dirección real, ver [Dirección pública](#dirección-pública-ellkan_rp_id--ellkan_rp_origin) |
+| El contenedor `ellkan` no arranca al actualizar: "Hay cuentas cuyo email sólo difiere en mayúsculas" | Desde esta versión un email es una sola cuenta sin importar mayúsculas, y la base tiene dos (por ejemplo `Ana@x.com` y `ana@x.com`). El log las lista | Dejar una sola por email: desactivar o borrar la otra (o cambiarle el email) directo en Postgres, por ejemplo `docker compose exec ellkan-db psql -U ellkan -c "update users set email = 'ana+viejo@x.com' where email = 'Ana@x.com';"`, y volver a levantar. Ojo: la cuenta a la que se le cambia el email ya no puede abrir su clave privada (el email es parte del cifrado); usalo sólo para la que se va a descartar |
 | El puerto 8080 (u otro elegido) ya está ocupado al levantar | Otro proceso/contenedor usando el mismo puerto en el host | Cambiar `ELLKAN_PORT` en `.env` antes de `docker compose up`, o liberar el puerto |
 | TLS in-process no arranca, error menciona `ELLKAN_TLS_CERT_FILE`/`KEY_FILE` | Sólo una de las dos variables está seteada, o la ruta no es legible dentro del contenedor (volumen no montado) | Confirmar que las dos estén presentes y que el `volumes:` del compose realmente monte el directorio con los PEM — ver la Opción A de arriba |
 | Cliente de navegador rechaza el cert TLS in-process | Cert self-signed sin que el navegador/SO lo tenga como confiable | Esperado con self-signed — para producción real, usar un cert de una CA pública (certbot/Let's Encrypt es el camino más simple), o instalar el cert self-signed como confiable en cada cliente sólo para pruebas |

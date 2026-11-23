@@ -61,6 +61,14 @@ pub enum AuditEventType {
     /// aprobar — antes no existía ningún camino de código para esto.
     AccountRecoveryRejected,
     AccountRecoveryCompleted,
+    /// QA-09: clave organizacional generada en el navegador de un admin.
+    AccountRecoveryOrgKeyCreated,
+    /// QA-09: un custodio selló la clave vigente para otro admin.
+    AccountRecoveryCustodianAdded,
+    /// QA-09: un custodio re-selló una solicitud aprobada para el solicitante.
+    AccountRecoveryExecuted,
+    /// QA-09: se borró la clave que custodiaba el servidor.
+    AccountRecoveryServerKeyPurged,
     /// Recovery kit (self-held, sin escrow de admin — módulo nuevo, distinto
     /// de F-16): `PUT /me/recovery-kit`.
     RecoveryKitGenerated,
@@ -148,6 +156,12 @@ pub enum AuditEventType {
     /// Revocación remota: el servidor emitió el aviso firmado de cuenta
     /// revocada para las apps de escritorio vinculadas (docs/revocacion-remota.md).
     UserRemoteWipeSignaled,
+    /// Pendiente #133: primer par de claves de una cuenta creada por SSO.
+    UserKeysEnrolled,
+    /// Pendiente #89: un admin activó o apagó el aviso de versión nueva.
+    UpdateCheckUpdated,
+    /// Pendiente #57: un admin cambió los links de privacidad o términos.
+    LegalLinksUpdated,
 }
 
 impl AuditEventType {
@@ -186,6 +200,10 @@ impl AuditEventType {
             AuditEventType::AccountRecoveryApproved => "account_recovery.approved",
             AuditEventType::AccountRecoveryRejected => "account_recovery.rejected",
             AuditEventType::AccountRecoveryCompleted => "account_recovery.completed",
+            AuditEventType::AccountRecoveryOrgKeyCreated => "account_recovery.org_key_created",
+            AuditEventType::AccountRecoveryCustodianAdded => "account_recovery.custodian_added",
+            AuditEventType::AccountRecoveryExecuted => "account_recovery.executed",
+            AuditEventType::AccountRecoveryServerKeyPurged => "account_recovery.server_key_purged",
             AuditEventType::RecoveryKitGenerated => "recovery_kit.generated",
             AuditEventType::RecoveryKitResetRequested => "recovery_kit.reset_requested",
             AuditEventType::RecoveryKitResetCompleted => "recovery_kit.reset_completed",
@@ -242,6 +260,9 @@ impl AuditEventType {
             AuditEventType::GroupShareExemptChanged => "group.share_exempt_changed",
             AuditEventType::ResourceOwnershipTransferred => "resource.ownership_transferred",
             AuditEventType::UserRemoteWipeSignaled => "user.remote_wipe_signaled",
+            AuditEventType::UserKeysEnrolled => "user.keys_enrolled",
+            AuditEventType::UpdateCheckUpdated => "update_check.updated",
+            AuditEventType::LegalLinksUpdated => "legal_links.updated",
         }
     }
 
@@ -283,6 +304,10 @@ impl AuditEventType {
             "account_recovery.approved" => AuditEventType::AccountRecoveryApproved,
             "account_recovery.rejected" => AuditEventType::AccountRecoveryRejected,
             "account_recovery.completed" => AuditEventType::AccountRecoveryCompleted,
+            "account_recovery.org_key_created" => AuditEventType::AccountRecoveryOrgKeyCreated,
+            "account_recovery.custodian_added" => AuditEventType::AccountRecoveryCustodianAdded,
+            "account_recovery.executed" => AuditEventType::AccountRecoveryExecuted,
+            "account_recovery.server_key_purged" => AuditEventType::AccountRecoveryServerKeyPurged,
             "recovery_kit.generated" => AuditEventType::RecoveryKitGenerated,
             "recovery_kit.reset_requested" => AuditEventType::RecoveryKitResetRequested,
             "recovery_kit.reset_completed" => AuditEventType::RecoveryKitResetCompleted,
@@ -339,6 +364,9 @@ impl AuditEventType {
             "group.share_exempt_changed" => AuditEventType::GroupShareExemptChanged,
             "resource.ownership_transferred" => AuditEventType::ResourceOwnershipTransferred,
             "user.remote_wipe_signaled" => AuditEventType::UserRemoteWipeSignaled,
+            "user.keys_enrolled" => AuditEventType::UserKeysEnrolled,
+            "update_check.updated" => AuditEventType::UpdateCheckUpdated,
+            "legal_links.updated" => AuditEventType::LegalLinksUpdated,
             _ => return None,
         })
     }

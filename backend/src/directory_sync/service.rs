@@ -341,7 +341,16 @@ where
                 Some(_) => {}
                 None => {
                     let scim = crate::scim::service::ScimService { usuarios: self.usuarios, eventos: self.eventos.clone() };
-                    let resultado_alta = scim.crear_usuario(&entrada.external_id, &entrada.email, &entrada.display_name).await?;
+                    // QA-45: una entrada del directorio con email o nombre
+                    // inválidos se salta (y queda en el log); no frena el
+                    // alta del resto.
+                    let resultado_alta = match scim.crear_usuario(&entrada.external_id, &entrada.email, &entrada.display_name).await {
+                        Err(DomainError::ValidacionInvalida(motivo)) => {
+                            tracing::warn!(external_id = %entrada.external_id, %motivo, "directory sync: entrada inválida, se saltea");
+                            continue;
+                        }
+                        otro => otro?,
+                    };
                     // `ConflictoDeEmail` ya quedó contabilizado en
                     // `resultado.conflicts` por `calcular_diff` — no se
                     // toca esa cuenta acá.
@@ -352,7 +361,15 @@ where
 
         for external_id in &resultado.would_deactivate {
             if let Some(u) = self.usuarios.buscar_por_external_id(external_id).await? {
-                self.usuarios.actualizar_activo(u.id, false).await?;
+                // QA-38: el último admin activo no se desactiva (lo frena la
+                // base); se avisa y se sigue con el resto.
+                if let Err(e) = self.usuarios.actualizar_activo(u.id, false).await {
+                    if crate::error::es_ultimo_admin_repo(&e) {
+                        tracing::warn!(user_id = %u.id, "directory sync: no se desactiva al último administrador activo");
+                        continue;
+                    }
+                    return Err(e.into());
+                }
                 // Un evento por usuario (antes sólo el resumen `directory_sync.applied`):
                 // queda auditado quién se desactivó, y dispara la revocación
                 // remota en sus apps de escritorio vinculadas (`revocacion`).

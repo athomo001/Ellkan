@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update account_recovery_requests set status = 'rejected', resolved_at = now()\n               where id = $1 and status in ('pending', 'awaiting_custodian')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f02ecbaf6754b5054da61e9dd74dcf70774b30289c480744d67bea1a9d80ce5d"
+}

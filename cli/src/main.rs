@@ -9,7 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use clap::{Parser, Subcommand};
 use ellkan_crypto::clave_privada::EncryptedPrivateKeyBlob;
-use secrecy::SecretBox;
+use secrecy::{ExposeSecret, SecretBox};
 use serde_json::json;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -294,15 +294,27 @@ fn registrar(
 ) -> anyhow::Result<()> {
     let passphrase = leer_passphrase("Passphrase nueva: ")?;
     let keypar = crypto_local::NuevoKeypar::generar();
-    let blob = crypto_local::cifrar_para_registro(&keypar, &passphrase, email)?;
+    let sellada = crypto_local::cifrar_para_registro(&keypar, &passphrase, email)?;
+    let blob = &sellada.blob;
 
     let publica_x25519_b64 = B64.encode(keypar.x25519.publica().as_bytes());
     let publica_ed25519_b64 = B64.encode(keypar.ed25519.verificadora().to_bytes());
     let blob_b64 = B64.encode(&blob.envoltura.ciphertext);
     let nonce_b64 = B64.encode(blob.envoltura.nonce);
     let salt_b64 = B64.encode(blob.salt);
+    let auth_key_b64 = B64.encode(sellada.auth_key.expose_secret());
 
-    let resp = cliente.register(email, display_name, &publica_x25519_b64, &publica_ed25519_b64, &blob_b64, &nonce_b64, &salt_b64)?;
+    let resp = cliente.register(
+        email,
+        display_name,
+        &publica_x25519_b64,
+        &publica_ed25519_b64,
+        &blob_b64,
+        &nonce_b64,
+        &salt_b64,
+        blob.parametros,
+        &auth_key_b64,
+    )?;
 
     // Token de dispositivo persistente (F-02) — se genera una sola vez acá,
     // sólo su hash viaja al backend en cada `login` futuro.
@@ -317,6 +329,7 @@ fn registrar(
         encrypted_private_key_blob_b64: blob_b64,
         private_key_nonce_b64: nonce_b64,
         kdf_salt_b64: salt_b64,
+        kdf_params: blob.parametros,
         client_cert_path,
         client_key_path,
         ca_bundle_path,
@@ -329,6 +342,14 @@ fn registrar(
 
 fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
     let mut perfil = config::cargar_perfil()?;
+    // QA-16: el servidor no distingue mayúsculas en el email, pero el blob
+    // local se selló con el email tal como se registró (es su AAD): se usa el
+    // del perfil, no el tipeado.
+    if perfil.email.to_lowercase() != email.trim().to_lowercase() {
+        anyhow::bail!("el perfil local es de {}, no de {email}", perfil.email);
+    }
+    let email_perfil = perfil.email.clone();
+    let email = email_perfil.as_str();
     let passphrase = leer_passphrase("Passphrase: ")?;
 
     let blob = blob_desde_perfil(&perfil)?;
@@ -378,34 +399,8 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("respuesta de verify sin session_id (requiere_cambiar_passphrase)"))?;
             println!("Esta cuenta tiene una passphrase provisoria — hay que cambiarla antes de poder operar.");
             let nueva_passphrase = leer_passphrase("Passphrase nueva: ")?;
-            let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-            let nuevo_blob = ellkan_crypto::clave_privada::cifrar_clave_privada(
-                &nueva_passphrase,
-                nueva_salt,
-                &clave.privadas_concatenadas(),
-                email.as_bytes(),
-            )
-            .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
-            // QA-06: el servidor exige probar la posesión de la identidad
-            // sobre ESE blob, con un challenge nuevo (el del login ya se usó).
-            let desafio = cliente.challenge(email)?;
-            let nonce_desafio = B64.decode(&desafio.nonce_b64)?;
-            let firma_reemplazo = clave.firmar(&ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada(
-                &nonce_desafio,
-                &nuevo_blob.envoltura.ciphertext,
-                &nuevo_blob.envoltura.nonce,
-                &nueva_salt,
-            ));
-            cliente.change_passphrase(
-                session_parcial,
-                &api::CambiarPassphraseRequest {
-                    encrypted_private_key_blob_b64: B64.encode(&nuevo_blob.envoltura.ciphertext),
-                    private_key_nonce_b64: B64.encode(nuevo_blob.envoltura.nonce),
-                    kdf_salt_b64: B64.encode(nueva_salt),
-                    challenge_nonce_b64: desafio.nonce_b64,
-                    signature_b64: B64.encode(firma_reemplazo.to_bytes()),
-                },
-            )?;
+            let req = reemplazo_firmado(cliente, &clave, &nueva_passphrase, email)?;
+            cliente.change_passphrase(session_parcial, &req.0)?;
             println!(
                 "Passphrase cambiada — la sesión murió (mismo criterio que un cambio de passphrase normal). Corré 'ellkan-cli login --email {email}' de nuevo con la passphrase nueva."
             );
@@ -418,7 +413,67 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
 
     config::guardar_sesion(&config::Sesion { session_id })?;
     println!("Sesión iniciada: {session_id}");
+
+    // QA-03: si la cuenta del servidor sigue sellada con el esquema anterior
+    // (el servidor entrega su blob a cualquiera que sepa el email), se
+    // re-sella con la misma passphrase y los parámetros actuales. Si falla,
+    // la sesión ya está iniciada: se avisa y se reintenta en el próximo login.
+    if !cliente.prelogin(email)?.auth_key_required {
+        match reemplazo_firmado(cliente, &clave, &passphrase, email).and_then(|(req, sellada)| {
+            cliente.kdf_upgrade(session_id, &req)?;
+            Ok(sellada)
+        }) {
+            Ok(sellada) => {
+                perfil.encrypted_private_key_blob_b64 = B64.encode(&sellada.blob.envoltura.ciphertext);
+                perfil.private_key_nonce_b64 = B64.encode(sellada.blob.envoltura.nonce);
+                perfil.kdf_salt_b64 = B64.encode(sellada.blob.salt);
+                perfil.kdf_params = sellada.blob.parametros;
+                config::guardar_perfil(&perfil)?;
+                println!("Clave privada re-sellada con los parámetros actuales de Argon2id.");
+            }
+            Err(e) => eprintln!("Aviso: no se pudo re-sellar la clave con los parámetros nuevos ({e}); se reintenta en el próximo login."),
+        }
+    }
     Ok(())
+}
+
+/// QA-03/QA-06: sella la clave privada con `passphrase` (sal nueva,
+/// parámetros actuales) y firma el reemplazo con un challenge nuevo: el
+/// body de `change-passphrase` y de `kdf-upgrade`.
+fn reemplazo_firmado(
+    cliente: &Cliente,
+    clave: &crypto_local::ClavePrivadaReconstruida,
+    passphrase: &SecretBox<String>,
+    email: &str,
+) -> anyhow::Result<(api::CambiarPassphraseRequest, ellkan_crypto::clave_privada::ClavePrivadaSellada)> {
+    let sellada = crypto_local::sellar(passphrase, &clave.privadas_concatenadas(), email)
+        .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
+    let blob = &sellada.blob;
+    let auth_key = sellada.auth_key.expose_secret();
+    // QA-06: el servidor exige probar la posesión de la identidad sobre ESE
+    // blob, con un challenge nuevo (el del login ya se usó).
+    let desafio = cliente.challenge(email)?;
+    let nonce_desafio = B64.decode(&desafio.nonce_b64)?;
+    let firma = clave.firmar(&ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada(
+        &nonce_desafio,
+        &ellkan_crypto::clave_privada::Reemplazo {
+            blob: &blob.envoltura.ciphertext,
+            nonce: &blob.envoltura.nonce,
+            salt: &blob.salt,
+            parametros: &blob.parametros,
+            auth_key,
+        },
+    ));
+    let req = api::CambiarPassphraseRequest {
+        encrypted_private_key_blob_b64: B64.encode(&blob.envoltura.ciphertext),
+        private_key_nonce_b64: B64.encode(blob.envoltura.nonce),
+        kdf_salt_b64: B64.encode(blob.salt),
+        kdf_params: blob.parametros,
+        auth_key_b64: B64.encode(auth_key),
+        challenge_nonce_b64: desafio.nonce_b64,
+        signature_b64: B64.encode(firma.to_bytes()),
+    };
+    Ok((req, sellada))
 }
 
 fn leer_codigo_dispositivo() -> anyhow::Result<String> {
@@ -448,7 +503,7 @@ fn blob_desde_perfil(perfil: &config::Perfil) -> anyhow::Result<EncryptedPrivate
     let salt_vec = B64.decode(&perfil.kdf_salt_b64)?;
     let nonce: [u8; 24] = nonce_vec.try_into().map_err(|_| anyhow::anyhow!("nonce corrupto"))?;
     let salt: [u8; 16] = salt_vec.try_into().map_err(|_| anyhow::anyhow!("salt corrupto"))?;
-    Ok(EncryptedPrivateKeyBlob { salt, envoltura: Envoltura { nonce, ciphertext } })
+    Ok(EncryptedPrivateKeyBlob { salt, parametros: perfil.kdf_params, envoltura: Envoltura { nonce, ciphertext } })
 }
 
 fn crear(cliente: &Cliente, name: &str, username: &str, uri: &str, password: &str, notes: &str) -> anyhow::Result<()> {

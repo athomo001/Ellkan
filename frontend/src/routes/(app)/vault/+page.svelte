@@ -44,6 +44,7 @@
 		comandoDeConexion,
 		infoConexion,
 		resolverHostPuerto,
+		urlSegura,
 		eliminarRecurso,
 		salirDeRecurso,
 		type Recurso,
@@ -1859,32 +1860,29 @@
 					{/if}
 
 					{#if esModoDesktop}
-						<div class="lista-desktop-densa" role="listbox" aria-label={$t.vault.titulo}>
+						<!-- Pendiente #66 (WCAG 4.1.2): antes era un listbox con un botón
+						     de copiar dentro de cada opción (control interactivo anidado);
+						     ahora cada fila es un botón y el de copiar va al lado. -->
+						<ul class="lista-desktop-densa" aria-label={$t.vault.titulo}>
 							{#each recursosFiltrados as r (r.id)}
-								<div
-									class="item-desktop"
-									class:activo={seleccionado?.id === r.id}
-									onclick={() => seleccionarFila(r)}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											seleccionarFila(r);
-										}
-									}}
-									role="option"
-									tabindex="0"
-									aria-selected={seleccionado?.id === r.id}
-								>
-									<span class="icono-tipo">{iconoPorTipo(r.resourceTypeSlug)}</span>
-									<div class="info-item">
-										<div class="linea-principal">
-											<span class="nombre-item" title={r.nombre}>{r.nombre}</span>
-											{@render badgeVencimiento(r)}
-										</div>
-										<div class="linea-secundaria">
-											<span class="subtexto-item" title={r.usuario || r.uri || ''}>{r.usuario || r.uri || '—'}</span>
-										</div>
-									</div>
+								<li class="item-desktop" class:activo={seleccionado?.id === r.id}>
+									<button
+										type="button"
+										class="seleccion-item"
+										aria-current={seleccionado?.id === r.id ? 'true' : undefined}
+										onclick={() => seleccionarFila(r)}
+									>
+										<span class="icono-tipo" aria-hidden="true">{iconoPorTipo(r.resourceTypeSlug)}</span>
+										<span class="info-item">
+											<span class="linea-principal">
+												<span class="nombre-item" title={r.nombre}>{r.nombre}</span>
+												{@render badgeVencimiento(r)}
+											</span>
+											<span class="linea-secundaria">
+												<span class="subtexto-item" title={r.usuario || r.uri || ''}>{r.usuario || r.uri || '—'}</span>
+											</span>
+										</span>
+									</button>
 									{#if r.usuario}
 										<button
 											type="button"
@@ -1899,9 +1897,9 @@
 											⧉
 										</button>
 									{/if}
-								</div>
+								</li>
 							{/each}
-						</div>
+						</ul>
 					{:else}
 						<Table
 							columnas={[
@@ -1921,6 +1919,7 @@
 									<input
 										class="checkbox-seleccion"
 										type="checkbox"
+										aria-label={$t.vault.seleccionarRecurso.replace('{nombre}', r.nombre)}
 										checked={seleccionados.has(r.id)}
 										onchange={() => toggleSeleccion(r.id)}
 									/>
@@ -1990,7 +1989,11 @@
 							{#if seleccionado.uri}
 								<dt>{$t.vault.uri}</dt>
 								<dd>
-									<a href={seleccionado.uri} target="_blank" rel="noreferrer">{seleccionado.uri}</a>
+									{#if urlSegura(seleccionado.uri)}
+										<a href={urlSegura(seleccionado.uri)} target="_blank" rel="noreferrer">{seleccionado.uri}</a>
+									{:else}
+										<span>{seleccionado.uri}</span>
+									{/if}
 									<button
 										type="button"
 										class="icono-copiar"
@@ -2862,6 +2865,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 3px;
+		list-style: none;
+		margin: 0;
+		padding-left: 0;
 		overflow-y: auto;
 		flex: 1;
 		padding-right: var(--space-1);
@@ -2870,12 +2876,26 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
+		padding-right: var(--space-2);
 		border-radius: var(--radius-sm);
 		border: 1px solid transparent;
-		cursor: pointer;
 		user-select: none;
 		transition: background-color 0.12s ease, border-color 0.12s ease;
+	}
+	.seleccion-item {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex: 1;
+		min-width: 0;
+		padding: var(--space-2) var(--space-3);
+		background: none;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
 	}
 	.item-desktop:hover {
 		background-color: var(--bg-hover);
@@ -2931,7 +2951,8 @@
 		transition: opacity 0.15s ease, color 0.15s ease;
 	}
 	.item-desktop:hover .icono-copiar-rapido,
-	.item-desktop.activo .icono-copiar-rapido {
+	.item-desktop.activo .icono-copiar-rapido,
+	.icono-copiar-rapido:focus-visible {
 		opacity: 1;
 	}
 	.icono-copiar-rapido:hover {

@@ -71,8 +71,8 @@ export async function verificarTraspaso(): Promise<InformeTraspaso> {
 	const remoto = clienteRemoto(vinculacion.serverUrl, sessionId);
 
 	const [listadoRemoto, listadoLocal] = await Promise.all([
-		remoto.get<RecursoListado[]>('/resources'),
-		api.get<RecursoListado[]>('/resources')
+		remoto.getTodo<RecursoListado>('/resources'),
+		api.getTodo<RecursoListado>('/resources')
 	]);
 
 	const remotos: RecursoRemoto[] = await enLotes(listadoRemoto, 8, async (r) => {

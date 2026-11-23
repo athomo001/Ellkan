@@ -105,7 +105,8 @@ const es = {
 			'Esta bóveda no tiene un kit de recuperación registrado (o el correo no coincide), así que no se puede recuperar desde acá.',
 		pedirLink: 'Enviar link de recuperación',
 		sinKitLink: '¿No tenés tu kit de recuperación? Pedir aprobación de un admin',
-		esperandoEmailHint: 'Revisá tu email y abrí el link que te mandamos. Podés cerrar esta pantalla.',
+		esperandoEmailHint:
+			'Si ese email tiene una cuenta con kit de recuperación, te llega un link. Revisá tu correo (también el spam); podés cerrar esta pantalla.',
 		kitYPassphraseHint: 'Pegá tu kit de recuperación y elegí una contraseña nueva.',
 		pegarKit: 'Kit de recuperación',
 		pegarKitHint: 'El texto que guardaste cuando configuraste tu kit.',
@@ -129,6 +130,13 @@ const es = {
 		iniciaSesion: 'Iniciá sesión',
 		errorNoCoinciden: 'Las contraseñas no coinciden.',
 		errorGenerico: 'No se pudo completar el registro.',
+		// Pendiente #109: primer registro de una instancia nueva.
+		tokenInstalacion: 'Token de instalación',
+		tokenInstalacionAviso:
+			'Es la primera cuenta de este servidor y va a quedar como administradora. Para confirmar que sos quien lo instaló, pegá el token de instalación que el servidor escribió en su log al arrancar. Lo ves con:',
+		tokenInstalacionComando: 'docker logs ellkan 2>&1 | grep "token de instalación"',
+		tokenInstalacionNota: 'Deja de servir en cuanto esta cuenta existe.',
+		errorTokenInstalacion: 'El token de instalación no es correcto. Copialo de nuevo del log del servidor.',
 		verificacion: {
 			titulo: 'Verificá tu email',
 			hint: 'Te enviamos un código de 6 dígitos por email. Ingresalo para poder iniciar sesión.',
@@ -309,6 +317,7 @@ const es = {
 		errorExterno: 'No se pudo crear el link externo.',
 		seleccionarTodos: 'Seleccionar todos',
 		deseleccionarTodos: 'Deseleccionar todos',
+		seleccionarRecurso: 'Seleccionar {nombre}',
 		conteoSeleccionados: (n: number) => `${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
 		moverSeleccion: 'Mover a carpeta',
 		taggearSeleccion: 'Agregar tag',
@@ -533,16 +542,29 @@ const es = {
 		recoveryHint:
 			'Habilitá esto para poder recuperar el acceso a tu cuenta si perdés tu contraseña — un administrador tiene que aprobar la solicitud.',
 		recoveryAdvertencia:
-			'Importante: esta opción es una excepción al cifrado de conocimiento cero. Tu clave privada queda guardada en el servidor, cifrada con una clave de la organización que también vive en el servidor. Quien controle el servidor (su base de datos y su configuración) podría abrirla y leer tu bóveda. Si eso no es aceptable para vos, usá el kit de recuperación personal.',
+			'Importante: tu organización todavía usa la clave de recuperación anterior, que guarda el servidor. Mientras sea así, esta opción es una excepción al cifrado de conocimiento cero: quien controle el servidor (su base de datos y su configuración) podría abrir tu clave privada y leer tu bóveda. Si eso no es aceptable para vos, usá el kit de recuperación personal o esperá a que un administrador genere la clave nueva.',
+		recoveryCustodiaAdmins:
+			'Tu clave privada queda sellada con la clave de recuperación de la organización, que guardan sólo los administradores en sus propios navegadores: el servidor no puede abrirla. Varios administradores juntos (según el umbral que fije la organización) pueden restablecer tu acceso, y por lo tanto leer tu bóveda en ese momento.',
+		recoverySinClaveOrg: 'Tu organización todavía no generó su clave de recuperación. Pedile a un administrador que la configure.',
+		recoveryHuella: 'Huella de la clave de la organización: {huella}',
 		recoveryHabilitada: 'Habilitada en esta cuenta.',
+		recoveryDesactualizadaTitulo: 'Tu organización cambió su clave de recuperación',
+		recoveryDesactualizada:
+			'Para que los administradores puedan seguir recuperando tu cuenta, volvé a sellar tu clave con la nueva. La custodian los administradores en sus navegadores; el servidor no puede abrirla. Compará la huella con la que te pase tu administrador.',
+		recoveryActualizar: 'Actualizar mi recuperación',
+		recoveryAhoraNo: 'Ahora no',
+		recoveryActualizada: 'Listo: tu recuperación usa la clave nueva.',
 		recoveryHabilitar: 'Habilitar recuperación de cuenta',
 		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',
 		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.',
-		dispositivosTitulo: 'Dispositivos de confianza',
-		dispositivosHint: 'Dispositivos marcados como confiables — revocar uno acá borra la clave sellada para ese dispositivo, no afecta a los demás.',
-		dispositivosSinDispositivos: 'No tenés dispositivos de confianza activos.',
-		dispositivosRevocar: 'Revocar',
-		dispositivosError: 'No se pudo cargar la lista de dispositivos.'
+		sesionesTitulo: 'Sesiones abiertas',
+		sesionesHint: 'Dónde está abierta tu cuenta. Si no reconocés alguna, cerrala y cambiá tu contraseña.',
+		sesionActual: 'Esta sesión',
+		sesionDesconocida: 'Dispositivo desconocido',
+		sesionUltimoUso: 'Último uso: {fecha}',
+		sesionCerrar: 'Cerrar',
+		sesionesCerrarOtras: 'Cerrar todas las demás',
+		sesionesError: 'No se pudo cargar la lista de sesiones.'
 	},
 	revocacion: {
 		titulo: 'La cuenta fue revocada',
@@ -553,6 +575,69 @@ const es = {
 		borrado:
 			'Por seguridad, los datos de esta bóveda se borraron de este equipo. Al volver a abrir Ellkan, arranca como recién instalado.',
 		cerrar: 'Cerrar Ellkan'
+	},
+	settingsEmergency: {
+		navTitulo: 'Acceso de emergencia',
+		titulo: 'Acceso de emergencia',
+		intro: 'Elegí a personas de confianza de esta instancia que puedan pedir acceso a tu cuenta si un día no podés entrar. Si piden acceso y no respondés dentro del plazo, se concede solo; mientras tanto podés rechazarlo.',
+		cargando: 'Cargando…',
+		error: 'No se pudo completar la operación.',
+		misContactosTitulo: 'Mis contactos de emergencia',
+		sinContactos: 'Todavía no designaste a nadie.',
+		soyContactoTitulo: 'Soy contacto de emergencia de',
+		sinTitulares: 'Nadie te designó como contacto de emergencia.',
+		nivelView: 'Ver mis claves',
+		nivelTakeover: 'Tomar control de la cuenta',
+		plazo: 'plazo de {dias} días',
+		estadoInvitado: 'esperando que acepte',
+		estadoActivo: 'activo',
+		estadoPendiente: 'pidió acceso: pendiente',
+		estadoConcedido: 'acceso concedido',
+		estadoRechazado: 'último pedido rechazado',
+		aprobar: 'Aprobar ya',
+		rechazar: 'Rechazar',
+		revocar: 'Quitar',
+		aceptar: 'Aceptar',
+		solicitar: 'Pedir acceso',
+		concedidoNota: 'El acceso está concedido. Abrir la bóveda de esta persona desde Ellkan todavía no está disponible.',
+		altaTitulo: 'Agregar un contacto',
+		altaHint: 'La persona tiene que tener cuenta en esta instancia. Tus claves privadas se sellan para su clave pública: ni el servidor ni los administradores pueden leerlas.',
+		emailContacto: 'Email del contacto',
+		nivel: 'Qué puede hacer',
+		dias: 'Plazo de espera (días)',
+		diasHint: 'Si pide acceso y no respondés en este plazo, se concede solo. Entre 1 y 90.',
+		diasInvalidos: 'El plazo tiene que ser un número entero entre 1 y 90 días.',
+		buscar: 'Buscar',
+		huellaIntro: 'Pedile a esta persona que abra «Mi cuenta → Claves» y te lea la huella de su clave X25519. Tiene que ser exactamente esta:',
+		huellaConfirmo: 'Es la misma huella que ve mi contacto',
+		designar: 'Designar como contacto'
+	},
+	legales: {
+		privacidad: 'Privacidad',
+		terminos: 'Términos'
+	},
+	sso: {
+		titulo: 'Inicio de sesión de tu organización',
+		cargando: 'Verificando con tu organización…',
+		errorGenerico: 'No se pudo completar el inicio de sesión con tu organización.',
+		errorSinCodigo: 'El proveedor no devolvió un código. Volvé a intentarlo desde el inicio de sesión.',
+		mfaHint: 'Tu cuenta tiene un segundo factor: escribí el código de tu app de autenticación.',
+		codigo: 'Código',
+		continuar: 'Continuar',
+		enrolarHint: 'Es tu primer acceso con {email}. Elegí una contraseña: protege las claves que cifran tu bóveda y nunca sale de este equipo. Tu organización no puede recuperarla.',
+		passphrase: 'Contraseña nueva',
+		confirmar: 'Repetí la contraseña',
+		crearClaves: 'Crear mis claves',
+		errorNoCoinciden: 'Las contraseñas no coinciden.',
+		errorCorta: 'Usá al menos 12 caracteres.',
+		vinculado: 'Listo: tu cuenta quedó vinculada al inicio de sesión de tu organización.',
+		volver: 'Volver a Seguridad',
+		configurarMfa: 'Tu organización exige un segundo factor que todavía no configuraste. Entrá una vez con tu email y contraseña para configurarlo; después vas a poder usar el inicio de sesión de tu organización.',
+		irAlLogin: 'Ir al inicio de sesión',
+		entrarConOrganizacion: 'Entrar con tu organización',
+		vincularTitulo: 'Inicio de sesión de tu organización',
+		vincularHint: 'Vinculá esta cuenta con el proveedor de tu organización para poder entrar con él. Después igual se pide tu contraseña para abrir la bóveda.',
+		vincular: 'Vincular'
 	},
 	settingsSync: {
 		progresoBajando: 'Trayendo claves del servidor',
@@ -565,6 +650,7 @@ const es = {
 		modoYaTengoCuenta: 'Ya tengo una cuenta en ese servidor',
 		modoBovedaNueva: 'Es una bóveda local nueva — quiero respaldarla ahí',
 		nombreParaElServidor: 'Tu nombre en ese servidor',
+		passphraseParaElServidor: 'Tu frase de contraseña (la misma que usás acá)',
 		vincular: 'Conectar',
 		conectadaA: 'Conectada a',
 		sincronizarAhora: 'Sincronizar ahora',
@@ -727,6 +813,8 @@ const es = {
 		sistemaTitulo: 'Inicio y sistema',
 		conexionesTitulo: 'Conexiones (botón «Conectar»)',
 		conexionesPestanas: 'Abrir las conexiones como pestañas de una misma ventana',
+		sinWindowsTerminal:
+			'Windows Terminal no está instalado: las conexiones se abren en una consola de PowerShell, sin pestañas. Se instala desde Microsoft Store o con «winget install Microsoft.WindowsTerminal».',
 		conexionesHint: 'Con Windows Terminal, cada conexión SSH, FTP o de base de datos se abre como una pestaña nueva de la ventana «ellkan». Desmarcado, cada conexión abre su propia ventana. Sin Windows Terminal se usa una consola de PowerShell por conexión.',
 		sistemaNoSoportado: 'Estas opciones sólo están disponibles en Windows por ahora.',
 		autostartEtiqueta: 'Abrir Ellkan al iniciar sesión en Windows',
@@ -786,8 +874,14 @@ const es = {
 		gruposTitulo: 'Grupos',
 		sinGrupos: 'No pertenecés a ningún grupo.',
 		adminDeGrupo: 'Admin de grupo',
+		datosTitulo: 'Mis datos personales',
+		datosHint:
+			'Descargá en un archivo JSON todo lo que el servidor sabe de tu cuenta: correo, nombre, grupos, sesiones, dispositivos, passkeys, contactos de emergencia y tu historial de actividad. El contenido de tu bóveda no está ahí porque el servidor no puede leerlo: exportalo desde «Exportar».',
+		datosDescargar: 'Descargar mis datos',
+		datosError: 'No se pudieron descargar tus datos.',
 		avatarTitulo: 'Avatar',
 		avatarHint: 'PNG, JPEG o WEBP, hasta 2 MB.',
+		avatarElegir: 'Elegir imagen de avatar',
 		avatarSubir: 'Subir avatar',
 		avatarQuitar: 'Quitar avatar',
 		avatarSubiendo: 'Subiendo…',
@@ -841,10 +935,10 @@ const es = {
 			politicaMfa: 'Política MFA',
 			politicaPassword: 'Política de contraseña',
 			politicaRetencion: 'Retención de datos',
+			politicaLegal: 'Textos legales',
 			politicaRecovery: 'Recuperación de cuenta',
 			politicaSelfRegistration: 'Auto-registro',
 			politicaEmergencia: 'Acceso de emergencia',
-			politicaDispositivo: 'Aprobación de dispositivo',
 			politicaExport: 'Política de exportación',
 			politicaExternalShare: 'Compartir Externo',
 			smtp: 'SMTP',
@@ -911,6 +1005,7 @@ const es = {
 			errorBuscar: 'No se encontró un usuario con ese email.',
 			seleccionarTodos: 'Seleccionar todos',
 			deseleccionarTodos: 'Deseleccionar todos',
+			seleccionarUsuario: 'Seleccionar {email}',
 			purgarSeleccionados: (n: number) => `Purgar ${n} ${n === 1 ? 'seleccionado' : 'seleccionados'}`,
 			activarSeleccionados: 'Activar seleccionados',
 			desactivarSeleccionados: 'Desactivar seleccionados',
@@ -989,7 +1084,7 @@ const es = {
 			politicaTitulo: 'Visibilidad para compartir',
 			politicaRestringir: 'Restringir por grupo (sin esto, cualquiera ve y comparte con cualquiera)',
 			politicaHint:
-				'Con la restricción activa, cada usuario sólo ve y puede compartir con gente de su propio grupo; un admin de grupo ve además a otros admins de grupo. Los grupos marcados "exento" abajo se saltan esta regla sin desactivarla para el resto.',
+				'Con la restricción activa, al buscar a quién compartir cada usuario sólo encuentra a gente de su propio grupo; un admin de grupo ve además a otros admins de grupo. Es una regla de búsqueda, no un bloqueo: la API sigue aceptando compartir con cualquier usuario cuyo identificador se conozca por otro medio. Los grupos marcados "exento" abajo se saltan esta regla sin desactivarla para el resto.',
 			shareExempt: 'Exento — sus miembros ven y comparten con cualquiera',
 			shareExemptCol: 'Exento',
 			shareExemptSinEfecto: 'Sin efecto mientras "Restringir por grupo" esté apagado — ya ve todo el mundo a todo el mundo.',
@@ -1048,7 +1143,7 @@ const es = {
 			host: 'Host',
 			puerto: 'Puerto',
 			remitente: 'Remitente (From)',
-			tls: 'TLS (STARTTLS + autenticación)',
+			tls: 'TLS + autenticación (puerto 465: TLS directo; 587 u otro: STARTTLS obligatorio)',
 			usuario: 'Usuario (opcional)',
 			contrasena: 'Contraseña',
 			contrasenaHint: 'Dejar en blanco para no cambiarla. Ya hay una guardada si el estado dice "configurado".',
@@ -1071,6 +1166,12 @@ const es = {
 			techoPortapapeles: 'Techo de limpieza de portapapeles (minutos, vacío = sin techo)',
 			techoAutoBloqueo: 'Techo de auto-bloqueo (minutos, vacío = sin techo)'
 		},
+		politicaLegal: {
+			titulo: 'Textos legales',
+			hint: 'Direcciones de la política de privacidad y de los términos de uso de esta instancia. El registro y el login las muestran. Ellkan no redacta estos textos: publicalos donde quieras (hay una plantilla en el manual) y pegá acá los links. Vacío = sin link.',
+			privacidad: 'Política de privacidad',
+			terminos: 'Términos de uso'
+		},
 		politicaRetencion: {
 			titulo: 'Retención de datos',
 			datosDias: 'Retención de datos (días)',
@@ -1091,7 +1192,30 @@ const es = {
 			colFecha: 'Solicitada',
 			aprobar: 'Aprobar',
 			rechazar: 'Rechazar',
-			sinSolicitudes: 'No hay solicitudes pendientes.'
+			sinSolicitudes: 'No hay solicitudes pendientes.',
+			ejecutar: 'Re-sellar y entregar',
+			estadoEsperaCustodio: 'Aprobada: falta un custodio',
+			custodiaTitulo: 'Clave de recuperación de la organización',
+			custodiaServidor:
+				'La clave la guarda hoy el servidor (anterior a QA-09): quien controle el servidor podría abrir los escrows. Generala en tu navegador: queda sellada sólo para los administradores de abajo, y cada usuario re-sella su escrow con la nueva la próxima vez que entra.',
+			custodiaNinguna:
+				'Todavía no hay clave de recuperación. Generala en tu navegador: queda sellada sólo para los administradores de abajo; el servidor nunca la puede abrir.',
+			custodiaCliente: 'La clave la custodian los administradores en sus navegadores; el servidor no puede abrirla.',
+			custodiaHuella: 'Huella de la clave vigente: {huella}',
+			custodiaSeSellaPara: 'Se sellará para estos administradores (compará las huellas con cada uno):',
+			custodiaGenerar: 'Generar la clave en este navegador',
+			custodiaRotar: 'Generar una clave nueva (rotar)',
+			custodiaConfirmarRotar:
+				'Se genera una clave nueva sellada para todos los administradores actuales. Cada usuario re-sella su escrow al entrar; hasta entonces, su escrow sigue en la clave anterior. Úsalo si un administrador dejó de serlo. ¿Seguir?',
+			custodiaSinCopia: 'No tenés copia de la clave vigente: pedile a otro custodio que te la selle.',
+			custodiaPendientes: 'Administradores sin copia de la clave vigente:',
+			custodiaSellarPara: 'Sellar para {nombre}',
+			custodiaEscrowsServidor: '{n} usuario(s) siguen en la clave anterior del servidor. Se re-sellan solos al entrar; cuando no quede ninguno, el servidor la borra.',
+			custodiaPurgar: 'Borrar ya la clave del servidor',
+			custodiaConfirmarPurgar:
+				'Los usuarios que todavía no re-sellaron pierden la recuperación por administrador hasta que la vuelvan a habilitar. ¿Borrar la clave del servidor?',
+			custodiaPurgada: 'Clave del servidor borrada ({n} escrow(s) eliminados).',
+			custodiaClavesBloqueadas: 'Desbloqueá tu bóveda para operar con la clave de recuperación.'
 		},
 		politicaSelfRegistration: {
 			titulo: 'Auto-registro',
@@ -1103,11 +1227,6 @@ const es = {
 		politicaEmergencia: {
 			titulo: 'Acceso de emergencia',
 			habilitado: 'Habilitado'
-		},
-		politicaDispositivo: {
-			titulo: 'Aprobación de dispositivo',
-			peer: 'Permitir aprobación por otro dispositivo propio',
-			admin: 'Permitir aprobación por un admin'
 		},
 		politicaExternalShare: {
 			titulo: 'Política de Compartir Externo',
@@ -1190,6 +1309,16 @@ const es = {
 			emailMiembroNuevo: 'Email del miembro nuevo'
 		},
 		estadoSistema: {
+			versionTitulo: 'Versiones nuevas',
+			versionHint:
+				'Si lo activás, el servidor consulta una vez al día la página pública de versiones de Ellkan en GitHub y avisa acá cuando hay una nueva. Es la única conexión a internet que hace Ellkan por su cuenta; sólo pide el número de la última versión y no envía datos de tu instancia.',
+			versionActivar: 'Avisar cuando haya una versión nueva',
+			versionActual: (v: string) => `Versión instalada: ${v}`,
+			versionDesconocida: 'sin número (compilación de desarrollo)',
+			versionNueva: (v: string) => `Hay una versión nueva: ${v}.`,
+			versionVer: 'Ver novedades',
+			versionAlDia: (cuando: string) => `Al día (última consulta: ${cuando}).`,
+			versionSinConsultar: 'Todavía no se consultó; puede tardar un minuto.',
 			titulo: 'Estado del sistema',
 			hint: 'Autodiagnóstico de la organización — cada fila se revisa sola y sugiere cómo repararla si hace falta.',
 			error: 'No se pudo cargar el estado del sistema.',

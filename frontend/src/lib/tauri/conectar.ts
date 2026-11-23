@@ -45,6 +45,17 @@ export async function conectar(params: ParametrosConexion): Promise<void> {
 	await invoke<void>('conectar_recurso', params);
 }
 
+/** Pendiente #78: sin Windows Terminal, «Conectar» cae a una consola de
+ * PowerShell sin pestañas. `true` si no se puede saber (no molestar). */
+export async function hayWindowsTerminal(): Promise<boolean> {
+	try {
+		const { invoke } = await import('@tauri-apps/api/core');
+		return await invoke<boolean>('hay_windows_terminal');
+	} catch {
+		return true;
+	}
+}
+
 const CLAVE_PESTANAS = 'conexionesEnPestanas';
 
 /** Preferencia local de este equipo: abrir las conexiones como pestañas de

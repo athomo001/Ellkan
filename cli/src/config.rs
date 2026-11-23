@@ -19,6 +19,10 @@ pub struct Perfil {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob local. Un perfil guardado
+    /// antes de QA-03 no los tiene: son los de entonces.
+    #[serde(default = "parametros_legado")]
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
     /// mTLS opcional (F-35) — `#[serde(default)]` para que perfiles ya
     /// persistidos sin estos campos sigan cargando sin error.
     #[serde(default)]
@@ -50,31 +54,105 @@ fn dir_config() -> anyhow::Result<PathBuf> {
         base.join(".ellkan")
     };
     std::fs::create_dir_all(&dir)?;
+    // QA-46: la carpeta tampoco se lista para otros usuarios.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    }
     Ok(dir)
 }
 
-/// H-12 (auditoría 2026-08-12): `fs::write` + `chmod 0600` por separado
-/// dejaba una ventana TOCTOU — con el `umask` típico (022), el archivo
-/// nacía `0644` (legible por cualquier usuario del sistema) entre la
-/// creación y el chmod posterior. `sesion.json` guarda un `session_id`
-/// (bearer credential), así que esa ventana era una fuga real, no teórica.
-/// `OpenOptions::mode(0o600)` fija el modo en la misma syscall que crea el
-/// archivo — nunca existe un instante con permisos más laxos.
-#[cfg(unix)]
+/// H-12 + QA-46: `perfil.json` y `sesion.json` (un `session_id`, credencial
+/// bearer) sólo los puede leer su dueño, aunque ya existieran con permisos
+/// más laxos de una versión anterior. Escritura atómica: se escribe un
+/// archivo temporal nuevo, que NACE privado (nunca hay un instante con otro
+/// modo), y se renombra encima del definitivo. El rename reemplaza el
+/// archivo viejo entero, con sus permisos viejos incluidos — un `chmod` al
+/// archivo existente dejaría el contenido nuevo un instante con los
+/// permisos viejos. Además, un corte a mitad nunca deja un JSON a medias.
 fn escribir_archivo_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
+    let nombre = ruta
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| anyhow::anyhow!("ruta sin nombre de archivo"))?;
+    let temporal = ruta.with_file_name(format!(".{nombre}.{}.tmp", uuid::Uuid::now_v7()));
+    let resultado = crear_privado(&temporal, contenido).and_then(|()| reemplazar(&temporal, ruta));
+    if resultado.is_err() {
+        let _ = std::fs::remove_file(&temporal);
+    }
+    resultado
+}
+
+/// Crea `ruta` (no debe existir) ya en `0600`, con el contenido completo.
+#[cfg(unix)]
+fn crear_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut archivo = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(ruta)?;
+    let mut archivo = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(ruta)?;
     archivo.write_all(contenido)?;
+    archivo.sync_all()?;
     Ok(())
 }
 
-/// En Windows no existe el bit 0600 de POSIX — el ACL por defecto del
-/// perfil del usuario ya restringe el acceso a otras cuentas locales;
-/// endurecerlo más (ACL explícita) queda fuera de alcance de Fase 0.
-#[cfg(not(unix))]
-fn escribir_archivo_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
-    std::fs::write(ruta, contenido)?;
+#[cfg(unix)]
+fn reemplazar(origen: &std::path::Path, destino: &std::path::Path) -> anyhow::Result<()> {
+    std::fs::rename(origen, destino)?;
+    Ok(())
+}
+
+/// Crea `ruta` (no debe existir) con una DACL protegida que da acceso total
+/// sólo al dueño (`D:P(A;;FA;;;OW)`: sin herencia de la carpeta), en la misma
+/// llamada que lo crea.
+#[cfg(windows)]
+fn crear_privado(ruta: &std::path::Path, contenido: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::FromRawHandle;
+    use windows::Win32::Foundation::{GENERIC_WRITE, HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+    use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+    use windows::Win32::Storage::FileSystem::{CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_NONE};
+    use windows::core::PCWSTR;
+
+    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)".encode_utf16().chain(std::iter::once(0)).collect();
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: SDDL terminado en 0; el descriptor se libera con `LocalFree` abajo.
+    unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(PCWSTR(sddl.as_ptr()), SDDL_REVISION_1, &mut descriptor, None) }?;
+    let atributos = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: descriptor.0,
+        bInheritHandle: false.into(),
+    };
+    let nombre: Vec<u16> = ruta.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    // SAFETY: nombre terminado en 0 y atributos válidos durante la llamada.
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(nombre.as_ptr()),
+            GENERIC_WRITE.0,
+            FILE_SHARE_NONE,
+            Some(&atributos),
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    };
+    // SAFETY: `CreateFileW` ya copió el descriptor al objeto; no se usa más.
+    unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+    let handle = handle?;
+    // SAFETY: handle de archivo propio y válido; `File` lo cierra al soltarse.
+    let mut archivo = unsafe { std::fs::File::from_raw_handle(handle.0) };
+    archivo.write_all(contenido)?;
+    archivo.sync_all()?;
+    Ok(())
+}
+
+/// `rename` de std sobre un destino existente usa `MoveFileExW` con
+/// `MOVEFILE_REPLACE_EXISTING`: el archivo nuevo (con su ACL propia)
+/// reemplaza al viejo.
+#[cfg(windows)]
+fn reemplazar(origen: &std::path::Path, destino: &std::path::Path) -> anyhow::Result<()> {
+    std::fs::rename(origen, destino)?;
     Ok(())
 }
 
@@ -157,7 +235,20 @@ mod tests {
         let permisos = std::fs::metadata(dir.join("sesion.json")).unwrap().permissions();
         assert_eq!(permisos.mode() & 0o777, 0o600);
 
+        // QA-46: un `sesion.json` de una versión vieja, legible por todos,
+        // queda en 0600 al volver a guardarlo.
+        std::fs::set_permissions(dir.join("sesion.json"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        guardar_sesion(&Sesion { session_id: uuid::Uuid::now_v7() }).unwrap();
+        let permisos = std::fs::metadata(dir.join("sesion.json")).unwrap().permissions();
+        assert_eq!(permisos.mode() & 0o777, 0o600);
+        let carpeta = std::fs::metadata(&dir).unwrap().permissions();
+        assert_eq!(carpeta.mode() & 0o777, 0o700);
+
         unsafe { std::env::remove_var("ELLKAN_CONFIG_DIR") };
         std::fs::remove_dir_all(&dir).ok();
     }
+}
+
+fn parametros_legado() -> ellkan_crypto::derivacion::ParametrosKdf {
+    ellkan_crypto::derivacion::ParametrosKdf::LEGADO
 }

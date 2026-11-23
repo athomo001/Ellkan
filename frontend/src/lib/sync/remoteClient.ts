@@ -9,6 +9,7 @@
 // bóveda local, sólo fallar el sync puntual.
 
 import { fetchConReintento, parsearCuerpo } from '$lib/api/reintento';
+import { traerTodasLasPaginas } from '$lib/api/paginado';
 
 export class RemoteApiError extends Error {
 	constructor(
@@ -21,23 +22,34 @@ export class RemoteApiError extends Error {
 }
 
 async function pedido<T>(serverUrl: string, sessionId: string | null, path: string, init: RequestInit = {}): Promise<T> {
+	return (await pedidoConCabeceras<T>(serverUrl, sessionId, path, init)).cuerpo;
+}
+
+async function pedidoConCabeceras<T>(
+	serverUrl: string,
+	sessionId: string | null,
+	path: string,
+	init: RequestInit = {}
+): Promise<{ cuerpo: T; cabeceras: Headers }> {
 	const headers = new Headers(init.headers);
 	headers.set('Content-Type', 'application/json');
 	if (sessionId) headers.set('Authorization', `Bearer ${sessionId}`);
 
 	const resp = await fetchConReintento(`${serverUrl}${path}`, { ...init, headers });
-	if (resp.status === 204) return undefined as T;
+	if (resp.status === 204) return { cuerpo: undefined as T, cabeceras: resp.headers };
 
 	const cuerpo = parsearCuerpo(await resp.text());
 	if (!resp.ok) {
 		const err = cuerpo?.error ?? { code: 'UNKNOWN', message: resp.statusText };
 		throw new RemoteApiError(resp.status, err.code, err.message);
 	}
-	return cuerpo as T;
+	return { cuerpo: cuerpo as T, cabeceras: resp.headers };
 }
 
 export interface ClienteRemoto {
 	get<T>(path: string): Promise<T>;
+	/** QA-12: una lista paginada por cursor, entera. */
+	getTodo<T>(path: string): Promise<T[]>;
 	post<T>(path: string, body?: unknown): Promise<T>;
 	put<T>(path: string, body?: unknown, headers?: HeadersInit): Promise<T>;
 	delete<T>(path: string): Promise<T>;
@@ -46,6 +58,8 @@ export interface ClienteRemoto {
 export function clienteRemoto(serverUrl: string, sessionId: string | null): ClienteRemoto {
 	return {
 		get: <T>(path: string) => pedido<T>(serverUrl, sessionId, path, { method: 'GET' }),
+		getTodo: <T>(path: string) =>
+			traerTodasLasPaginas<T>(path, (ruta) => pedidoConCabeceras<T[]>(serverUrl, sessionId, ruta, { method: 'GET' })),
 		post: <T>(path: string, body?: unknown) =>
 			pedido<T>(serverUrl, sessionId, path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
 		put: <T>(path: string, body?: unknown, headers?: HeadersInit) =>

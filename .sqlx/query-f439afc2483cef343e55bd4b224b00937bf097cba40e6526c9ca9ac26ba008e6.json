@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into org_recovery_key_envelopes (org_recovery_key_id, admin_id, sealed_private_key, sealed_by)\n               values ($1, $2, $3, $4)\n               on conflict (org_recovery_key_id, admin_id) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid",
+        "Bytea",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f439afc2483cef343e55bd4b224b00937bf097cba40e6526c9ca9ac26ba008e6"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        with grupos_que_quedan_vacios as (\n            select gm.group_id\n            from group_members gm\n            where gm.user_id = $1\n              and not exists (\n                  select 1 from group_members gm2 where gm2.group_id = gm.group_id and gm2.user_id <> $1\n              )\n        ),\n        sobrevive as (\n            -- (recurso, nivel) de cada acceso que sigue existiendo sin el saliente\n            select p.subject_id, p.level\n            from permissions p\n            where p.subject_type = 'resource'\n              and (\n                  (p.grantee_type = 'user' and p.grantee_id <> $1)\n                  or (p.grantee_type = 'group' and exists (\n                      select 1 from group_members gm where gm.group_id = p.grantee_id and gm.user_id <> $1\n                  ))\n              )\n        )\n        select distinct p.subject_id as \"resource_id!\"\n        from permissions p\n        join resources r on r.id = p.subject_id and r.deleted_at is null\n        where p.subject_type = 'resource' and p.level = 'owner'\n          and (\n              (p.grantee_type = 'user' and p.grantee_id = $1)\n              or (p.grantee_type = 'group' and p.grantee_id in (select group_id from grupos_que_quedan_vacios))\n          )\n          and exists (select 1 from sobrevive s where s.subject_id = p.subject_id)\n          and not exists (select 1 from sobrevive s where s.subject_id = p.subject_id and s.level = 'owner')\n        order by 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "permissions",
+            "name": "subject_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dfaba6b6a37b158fcb7c45b038e1f57130edb86dcafaec5442a9654d18dbea48"
+}

@@ -333,9 +333,18 @@ async fn dos_owners_revocandose_mutuamente_en_simultaneo_nunca_deja_el_recurso_s
     let status_alice = resp_alice.unwrap().status();
 
     let exitos = [status_bob, status_alice].iter().filter(|s| **s == 200).count();
-    let rechazos = [status_bob, status_alice].iter().filter(|s| **s == 400).count();
+    // La otra se rechaza de una de dos formas, según el orden en que el lock
+    // las deje pasar: 400 si todavía es Owner (dejaría el recurso sin
+    // ninguno) o 403 si la primera ya le sacó el permiso (CI, 2026-11-20).
+    let rechazos = [status_bob, status_alice]
+        .iter()
+        .filter(|s| **s == reqwest::StatusCode::BAD_REQUEST || **s == reqwest::StatusCode::FORBIDDEN)
+        .count();
     assert_eq!(exitos, 1, "exactamente una de las dos revocaciones concurrentes debería aplicarse");
-    assert_eq!(rechazos, 1, "la otra debería rechazarse por dejar al recurso sin ningún Owner");
+    assert_eq!(
+        rechazos, 1,
+        "la otra debería rechazarse (400: sin Owner; 403: ya no es Owner): {status_bob} / {status_alice}"
+    );
 
     // El recurso nunca se quedó sin Owner: queda exactamente uno de los dos.
     let resp = entorno

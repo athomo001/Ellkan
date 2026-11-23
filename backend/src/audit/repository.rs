@@ -15,9 +15,8 @@ use super::models::{AuditLogEntry, EventoAuditoria, FiltroAuditLog};
 pub const LIMITE_PAGINA_MAXIMO: i64 = 200;
 pub const LIMITE_PAGINA_DEFAULT: i64 = 50;
 
-/// Techo de una exportación en una sola respuesta — por ahora sin streaming
-/// real (llega si un operador concreto lo necesita); un operador con más
-/// de 50k eventos en el rango pedido pagina el export por fecha.
+/// Eventos por respuesta del export; si hay más, la respuesta trae el cursor
+/// para seguir (QA-40, ver `AuditLogService::exportar`).
 pub const LIMITE_EXPORT_MAXIMO: i64 = 50_000;
 
 pub trait AuditLogRepository {
@@ -39,7 +38,12 @@ pub trait AuditLogRepository {
 
     /// Orden cronológico ascendente (a diferencia de `listar`) — lo que un
     /// colector externo espera al ingerir incrementalmente.
-    fn listar_para_exportar(&self, filtro: &FiltroAuditLog) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepoError>> + Send;
+    fn listar_para_exportar(
+        &self,
+        filtro: &FiltroAuditLog,
+        despues_de: Option<Uuid>,
+        limite: i64,
+    ) -> impl Future<Output = Result<Vec<AuditLogEntry>, RepoError>> + Send;
 }
 
 #[derive(Clone)]
@@ -119,7 +123,12 @@ impl AuditLogRepository for PgAuditLogRepository {
         Ok(filas.into_iter().map(AuditLogEntry::from).collect())
     }
 
-    async fn listar_para_exportar(&self, filtro: &FiltroAuditLog) -> Result<Vec<AuditLogEntry>, RepoError> {
+    async fn listar_para_exportar(
+        &self,
+        filtro: &FiltroAuditLog,
+        despues_de: Option<Uuid>,
+        limite: i64,
+    ) -> Result<Vec<AuditLogEntry>, RepoError> {
         let event_type = filtro.event_type.map(|e| e.as_db_str());
         let filas = sqlx::query_as!(
             FilaAuditLog,
@@ -132,14 +141,16 @@ impl AuditLogRepository for PgAuditLogRepository {
               and ($2::text is null or ael.event_type = $2)
               and ($3::timestamptz is null or ael.created_at >= $3)
               and ($4::timestamptz is null or ael.created_at <= $4)
+              and ($5::uuid is null or ael.id > $5)
             order by ael.id asc
-            limit $5
+            limit $6
             "#,
             filtro.actor_user_id,
             event_type,
             filtro.desde,
             filtro.hasta,
-            LIMITE_EXPORT_MAXIMO,
+            despues_de,
+            limite,
         )
         .fetch_all(&self.pool)
         .await?;

@@ -13,6 +13,7 @@
 		"build:firefox": "cross-env BROWSER=firefox node build.mjs",
 		"build:safari": "cross-env BROWSER=safari node build.mjs",
 		"check": "tsc --noEmit",
+		"test": "vitest run",
 		"check:self": "node run-self-check.mjs",
 		"package": "node cli.mjs",
 		"version:set": "node version.mjs --set"
@@ -26,6 +27,7 @@
 		"@types/zxcvbn": "^4.4.5",
 		"cross-env": "^10.1.0",
 		"typescript": "^6.0.3",
-		"vite": "^8.3.4"
+		"vite": "^8.3.4",
+		"vitest": "^5.1.0"
 	}
 }

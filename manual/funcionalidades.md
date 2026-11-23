@@ -7,8 +7,9 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 - **Registro y login sin contraseña en tránsito**: el keypar (X25519 + Ed25519) se genera en tu dispositivo; el login es una firma de un desafío del servidor, nunca viaja una contraseña por la red.
 - **Verificación de dispositivo nuevo por email**: el primer login desde un dispositivo no reconocido pide un código de 6 dígitos enviado por email antes de completar la sesión — aplica a cualquier usuario, incluido el primero.
 - **Passkeys (WebAuthn)**: alta y login sin volver a escribir la passphrase. Si el autenticador soporta la extensión PRF, la clave privada se desbloquea directo con la passkey; si no, la passkey sólo reemplaza el paso de login y la passphrase se sigue pidiendo para operar sobre recursos.
+- **Sesiones abiertas**: en «Mi cuenta → Seguridad» se ve en qué navegadores o equipos está abierta la cuenta (nombre corto como «Chrome · Windows» y último uso) y se puede cerrar cualquiera de las otras, o todas a la vez.
 - **Login desde un dispositivo nuevo aprobado por uno de confianza** ("login with device"): compara una huella corta entre ambos dispositivos antes de aprobar — evita re-tipear la passphrase sin transmitirla nunca.
-- **Desbloqueo rápido local con TOTP**: un código de 6 dígitos generado localmente reemplaza la passphrase completa en un dispositivo puntual, sin tráfico de red — se configura por dispositivo, revocable individualmente.
+- **Desbloqueo rápido local con TOTP** (sólo en la app de escritorio): un código de 6 dígitos generado localmente reemplaza la passphrase completa en ese equipo, sin tráfico de red — se configura por equipo, revocable individualmente. La clave que lo protege vive en el llavero del sistema (Administrador de credenciales de Windows / Secret Service), fuera de los archivos de la app. No existe en la web ni en la extensión: ahí no hay dónde guardar esa clave fuera del perfil del navegador, y quien copiara el perfil podría llegar a la contraseña maestra.
 - **Auto-bloqueo por inactividad y limpieza de portapapeles**, con techos opcionales fijables por política organizacional.
 
 ## Vault
@@ -31,16 +32,15 @@ Qué hace Ellkan hoy, organizado por área. Para instalar/levantar el sistema ve
 
 - Política de MFA (TOTP obligatorio u opcional, días de gracia).
 - Política de contraseña/passphrase (longitud, entropía mínima, reglas del generador).
-- Retención y purga automática de datos vencidos (nunca toca el audit log).
+- Retención y purga automática de datos vencidos. El registro de auditoría tiene su propio plazo (365 días por defecto, configurable).
 - Recuperación de cuenta con custodia y aprobación por umbral de administradores. Si se activa, es otra vía para recuperar el acceso además de la passphrase y del kit de recuperación propio: la organización custodia una copia sellada de las claves que sólo se abre con la aprobación de varios administradores.
-- Acceso de emergencia entre pares (designar un contacto de confianza, solicitar, aprobar, o resolución automática por tiempo agotado).
-- Política de aprobación de dispositivo nuevo (email vs. dispositivo de confianza).
+- Acceso de emergencia entre pares (designar un contacto de confianza, solicitar, aprobar, o resolución automática por tiempo agotado), en «Mi cuenta → Acceso de emergencia». Al designar se muestra la huella de la clave del contacto para compararla. Abrir la bóveda del titular una vez concedido el acceso todavía no está disponible.
 - Política de Compartir Externo (habilitar/deshabilitar, expiración máxima, exigir contraseña adicional).
 - Política de exportación (habilitar/deshabilitar por organización, con excepción para admins, formatos permitidos).
 
 ## Federación e identidad externa
 
-- **SSO** vía OpenID Connect, vinculado por email verificado del proveedor.
+- **SSO** vía OpenID Connect. Una cuenta que ya existe se vincula desde la propia sesión (nunca sola por coincidir el email); las cuentas nuevas se crean al entrar sólo si el admin activa el aprovisionamiento automático. En la web: «Entrar con tu organización» en el inicio de sesión y «Vincular» en «Mi cuenta → Seguridad». Una cuenta nueva elige su contraseña en el primer acceso y sus claves se generan en el navegador. En el proveedor se registra como URL de retorno `https://<tu-dominio>/sso/callback` (o la de `ELLKAN_SSO_REDIRECT_URL`). La extensión y la app de escritorio todavía no lo tienen.
 - **SCIM 2.0** para aprovisionamiento automático de usuarios desde un IdP externo.
 - **Directory Sync (LDAP)** con modo simulación (dry-run) antes de aplicar cambios.
 
@@ -59,15 +59,25 @@ Los tres requieren un proveedor externo real configurado (Keycloak, Azure AD, Op
 
 ## Administración
 
-Panel web con ~19 secciones: usuarios, roles, grupos, audit log, reportes, y una pantalla por política (MFA, contraseña, retención, recuperación de cuenta, acceso de emergencia, aprobación de dispositivo, exportación, compartir externo), configuración de SMTP, más SSO/SCIM/Directory Sync y claves de metadata.
+Panel web con ~19 secciones: usuarios, roles, grupos, audit log, reportes, y una pantalla por política (MFA, contraseña, retención, recuperación de cuenta, acceso de emergencia, exportación, compartir externo), configuración de SMTP, más SSO/SCIM/Directory Sync y claves de metadata.
 
 **El primer login de cualquier usuario desde un dispositivo nuevo exige un código por email** (F-02). **Si SMTP no está configurado, ese dispositivo se marca conocido automáticamente** (evento `auth.device_auto_verified_no_smtp` en el audit log, con warning en el log del servidor) en vez de bloquear para siempre — nadie queda encerrado afuera por falta de SMTP, ni el primer admin ni nadie más. En cuanto se configura un SMTP real, el próximo dispositivo nuevo de cualquier cuenta vuelve a pedir verificación de verdad — este auto-verify no es un interruptor global, se resuelve por intento de login. La config de SMTP vive cifrada en la base de datos (`/admin/smtp` en el panel, o `PUT /admin/smtp-config`; reemplaza el viejo esquema `ELLKAN_SMTP_*` por variable de entorno). Para el primer admin, `ellkan-cli admin create-user --role admin` (ver [cli.md](cli.md)) además marca ese dispositivo puntual como conocido de entrada, sin depender siquiera de este fallback. Usar `ellkan-cli admin send-test-email` para confirmar que la config de SMTP quedó bien una vez cargada.
+
+**Cuenta creada por un admin que nunca entró y perdió su frase temporal:** no hay un botón para regenerarla, a propósito (sería un endpoint que reemplaza las claves de otra persona). Purgar la cuenta y crearla de nuevo con el mismo correo da el mismo resultado, porque una cuenta que nunca entró no tiene nada guardado.
+
+**Mis datos personales** (en «Mi perfil»): cada usuario descarga un archivo con lo que el servidor sabe de su cuenta —correo, nombre, grupos, sesiones, dispositivos, passkeys, contactos de emergencia e historial de actividad—. La bóveda no está ahí porque el servidor no puede leerla; se exporta aparte.
+
+**Textos legales** (en «Políticas → Textos legales»): la dirección de la política de privacidad y la de los términos de uso de la instancia. El registro y el login las muestran como links. Ellkan no redacta esos textos: hay una plantilla para adaptar en [plantilla-privacidad.md](plantilla-privacidad.md).
+
+**Aviso de versión nueva** (en «Estado del sistema»): apagado por defecto. Si un admin lo activa, el servidor consulta una vez al día la página pública de versiones de Ellkan en GitHub y avisa cuando hay una nueva, con el link a las novedades. Es la única conexión a internet que Ellkan hace por su cuenta: sólo pide el número de la última versión, sin mandar datos de la instancia. Con `ELLKAN_UPDATE_CHECK_URL` se puede apuntar a otra dirección (por ejemplo, un espejo interno).
 
 ## Internacionalización y accesibilidad visual
 
 - Español e inglés, cambiable en cualquier momento sin perder sesión.
 - Tema claro/oscuro, con transición animada al cambiar.
 - Paleta densa y funcional pensada para uso prolongado, sin decoración fuera de los acentos de marca.
+- Objetivo WCAG 2.2 AA: cada cambio pasa por una revisión automática (axe) de todas las pantallas de la web y la app de escritorio, el popup de la extensión y el menú de autocompletar, en los dos temas.
+- El menú de autocompletar de la extensión se usa también con el teclado: flecha abajo desde el campo de contraseña, flechas para elegir la cuenta, Enter para rellenar y Escape para volver al campo.
 
 ## Qué todavía no existe
 

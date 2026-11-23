@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update server_keys set private_key_ed25519 = $1 where id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f855418f9f4cea6951279efece48eb92a630b033139ac92401b5aa98ca1bcf7"
+}

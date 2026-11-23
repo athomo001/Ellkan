@@ -1,0 +1,7 @@
+{% if recordatorio %}Recordatorio: todavía no respondiste.
+
+{% endif %}{{ grantee_nombre }} ({{ grantee_email }}), tu contacto de emergencia, pidió acceso de emergencia a tu bóveda de Ellkan.
+
+Si no respondés, el acceso se le concede automáticamente el {{ fecha }}.
+
+Si no lo esperabas, rechazá la solicitud o quitá a ese contacto antes de esa fecha.

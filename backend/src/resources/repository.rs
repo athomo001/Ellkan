@@ -13,6 +13,10 @@ use crate::error::RepoError;
 use super::models::{Destinatario, EnvelopeInput, Resource, SecretEnvelope};
 
 pub trait ResourceRepository {
+    /// QA-25: el recurso, el envelope del dueño y su permiso `owner` en una
+    /// sola transacción — antes eran tres escrituras sueltas y un fallo a
+    /// mitad dejaba un recurso sin dueño o sin envelope. `None` sólo en el
+    /// alta "sólo metadata" del escritorio, que no guarda secreto.
     #[allow(clippy::too_many_arguments)]
     async fn crear(
         &self,
@@ -22,7 +26,14 @@ pub trait ResourceRepository {
         metadata_nonce: &[u8],
         created_by: Uuid,
         metadata_key_id: Option<Uuid>,
+        envelope_dueno: Option<&EnvelopeInput>,
     ) -> Result<Resource, RepoError>;
+
+    /// QA-25: envelope + permiso del destinatario + `updated_at` (H-31) en
+    /// una sola transacción. Antes, un envelope que quedaba sin permiso
+    /// bloqueaba el reintento con "ya tiene acceso". `Conflict` si el
+    /// destinatario ya tiene envelope.
+    async fn compartir_con(&self, resource_id: Uuid, envelope: &EnvelopeInput, nivel: &str) -> Result<(), RepoError>;
 
     async fn buscar(&self, id: Uuid) -> Result<Option<Resource>, RepoError>;
 
@@ -45,6 +56,12 @@ pub trait ResourceRepository {
     /// Recursos donde `user_id` tiene al menos permiso `read` — join contra
     /// `permissions` (sin grupos todavía, F-11 básico).
     async fn listar_visibles_por(&self, user_id: Uuid) -> Result<Vec<Resource>, RepoError>;
+
+    /// QA-12: una página de `listar_visibles_por` por keyset sobre `id`
+    /// (orden total y estable, la clave primaria): los de `id > despues_de`,
+    /// a lo sumo `limite`. Un recurso creado o borrado entre páginas no
+    /// corre ni duplica a los demás.
+    async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, RepoError>;
 
     /// F-47 (sync): recursos VIVOS visibles para `user_id` cuyo contenido
     /// (`updated_at`) cambió desde `desde` — mismo criterio de visibilidad
@@ -268,8 +285,10 @@ impl ResourceRepository for PgResourceRepository {
         metadata_nonce: &[u8],
         created_by: Uuid,
         metadata_key_id: Option<Uuid>,
+        envelope_dueno: Option<&EnvelopeInput>,
     ) -> Result<Resource, RepoError> {
         let metadata_key_type = if metadata_key_id.is_some() { "shared_key" } else { "user_key" };
+        let mut tx = self.pool.begin().await?;
         let fila = sqlx::query!(
             r#"
             insert into resources (
@@ -288,7 +307,7 @@ impl ResourceRepository for PgResourceRepository {
             metadata_key_id,
             metadata_key_type,
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         // El id ya existe (típicamente un recurso borrado, soft-delete, que la
         // app de escritorio intenta volver a subir): conflicto, no 500.
@@ -297,6 +316,12 @@ impl ResourceRepository for PgResourceRepository {
             sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
             _ => RepoError::Database(e),
         })?;
+
+        if let Some(envelope) = envelope_dueno {
+            insertar_envelope(&mut tx, fila.id, envelope).await?;
+        }
+        otorgar_permiso(&mut tx, fila.id, created_by, "owner").await?;
+        tx.commit().await?;
 
         Ok(Resource {
             id: fila.id,
@@ -365,6 +390,45 @@ impl ResourceRepository for PgResourceRepository {
             order by r.created_at desc
             "#,
             user_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(filas
+            .into_iter()
+            .map(|f| Resource {
+                id: f.id,
+                resource_type_id: f.resource_type_id,
+                metadata_ciphertext: f.metadata_ciphertext,
+                metadata_nonce: f.metadata_nonce,
+                created_by: f.created_by,
+                created_at: f.created_at,
+                updated_at: f.updated_at,
+                metadata_key_type: f.metadata_key_type,
+                metadata_key_id: f.metadata_key_id,
+            })
+            .collect())
+    }
+
+    async fn listar_visibles_pagina(&self, user_id: Uuid, despues_de: Option<Uuid>, limite: i64) -> Result<Vec<Resource>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select r.id, r.resource_type_id, r.metadata_ciphertext, r.metadata_nonce,
+                   r.created_by, r.created_at, r.updated_at, r.metadata_key_type, r.metadata_key_id
+            from resources r
+            where r.deleted_at is null
+              and ($2::uuid is null or r.id > $2)
+              and exists (
+                  select 1 from permissions p
+                  where p.subject_type = 'resource' and p.subject_id = r.id
+                    and p.grantee_type = 'user' and p.grantee_id = $1
+              )
+            order by r.id
+            limit $3
+            "#,
+            user_id,
+            despues_de,
+            limite,
         )
         .fetch_all(&self.pool)
         .await?;
@@ -565,6 +629,18 @@ impl ResourceRepository for PgResourceRepository {
             .collect())
     }
 
+    async fn compartir_con(&self, resource_id: Uuid, envelope: &EnvelopeInput, nivel: &str) -> Result<(), RepoError> {
+        let mut tx = self.pool.begin().await?;
+        insertar_envelope(&mut tx, resource_id, envelope).await?;
+        otorgar_permiso(&mut tx, resource_id, envelope.user_id, nivel).await?;
+        sqlx::query("update resources set updated_at = now() where id = $1")
+            .bind(resource_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn tocar_updated_at(&self, resource_id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(r#"update resources set updated_at = now() where id = $1"#, resource_id)
             .execute(&self.pool)
@@ -599,6 +675,42 @@ impl ResourceTypeRepository for PgResourceTypeRepository {
             .await?;
         Ok(fila.map(|f| f.json_schema))
     }
+}
+
+/// QA-25: mismo insert que `SecretEnvelopeRepository::insertar`, dentro de
+/// una transacción ajena (`crear`, `compartir_con`).
+async fn insertar_envelope(tx: &mut sqlx::PgConnection, resource_id: Uuid, env: &EnvelopeInput) -> Result<(), RepoError> {
+    sqlx::query(
+        "insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce) values ($1, $2, $3, $4, $5)",
+    )
+    .bind(resource_id)
+    .bind(env.user_id)
+    .bind(&env.sealed_dek)
+    .bind(&env.secret_ciphertext)
+    .bind(&env.secret_nonce)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+        _ => RepoError::Database(e),
+    })?;
+    Ok(())
+}
+
+/// QA-25: mismo upsert que `PermissionRepository::otorgar` para un usuario
+/// sobre un recurso, dentro de una transacción ajena.
+async fn otorgar_permiso(tx: &mut sqlx::PgConnection, resource_id: Uuid, user_id: Uuid, nivel: &str) -> Result<(), RepoError> {
+    sqlx::query(
+        "insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level)
+         values ('resource', $1, 'user', $2, $3)
+         on conflict (subject_type, subject_id, grantee_type, grantee_id) do update set level = excluded.level",
+    )
+    .bind(resource_id)
+    .bind(user_id)
+    .bind(nivel)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
 }
 
 #[derive(Clone)]

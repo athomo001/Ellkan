@@ -18,11 +18,21 @@ use ellkan_backend::desktop::repositories::resources::{
 use ellkan_backend::error::DomainError;
 use ellkan_backend::eventos;
 use ellkan_backend::resources::models::EnvelopeInput;
-use ellkan_backend::resources::repository::{ResourceRepository, ResourceTypeRepository, SecretEnvelopeRepository};
+use ellkan_backend::resources::repository::{ResourceRepository, ResourceTypeRepository};
 use ellkan_backend::resources::service::ResourceService;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
+
+/// Sobre del dueño: `crear` lo guarda en la misma transacción (QA-25).
+fn sobre(user_id: Uuid) -> EnvelopeInput {
+    EnvelopeInput {
+        user_id,
+        sealed_dek: b"dek".to_vec(),
+        secret_ciphertext: b"secreto".to_vec(),
+        secret_nonce: b"nonce".to_vec(),
+    }
+}
 
 async fn pool_de_prueba() -> SqlitePool {
     let pool = SqlitePoolOptions::new().connect("sqlite::memory:").await.expect("conectar sqlite en memoria");
@@ -91,12 +101,9 @@ async fn editar_recurso_re_sella_metadata_y_secreto() {
 
     let recurso = repos
         .recursos
-        .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-v1", b"nonce-v1", user_id, None)
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"metadata-v1", b"nonce-v1", user_id, None, Some(&sobre(user_id)))
         .await
         .expect("crear recurso de prueba");
-    // Como el alta real: el creador queda con su sobre (QA-05 exige que
-    // la edición re-selle exactamente para los destinatarios vigentes).
-    repos.envolturas.insertar(recurso.id, user_id, b"dek", b"secreto", b"nonce").await.unwrap();
 
     let envelope = EnvelopeInput {
         user_id,
@@ -132,7 +139,11 @@ async fn eliminar_recurso_lo_saca_del_listado() {
     let servicio = repos.servicio();
     let user_id = Uuid::now_v7();
 
-    let recurso = repos.recursos.crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", user_id, None).await.unwrap();
+    let recurso = repos
+        .recursos
+        .crear(Uuid::now_v7(), Uuid::now_v7(), b"m", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
 
     servicio
         .eliminar(recurso.id, user_id)
@@ -168,7 +179,11 @@ async fn cambiar_tipo_entre_compatibles_funciona_y_rechaza_incompatibles() {
     let id_login_password = repos.tipos_recurso.id_por_slug("login-password").await.unwrap().expect("seed de migración");
     let id_totp = repos.tipos_recurso.id_por_slug("login-password-totp").await.unwrap().expect("seed de migración");
 
-    let recurso = repos.recursos.crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None).await.unwrap();
+    let recurso = repos
+        .recursos
+        .crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
 
     let cambiado = servicio
         .cambiar_tipo(recurso.id, user_id, "ssh")
@@ -203,14 +218,22 @@ async fn api_token_existe_y_no_es_intercambiable() {
     let id_token = repos.tipos_recurso.id_por_slug("api-token").await.unwrap().expect("seed de migración 0009");
     let id_login_password = repos.tipos_recurso.id_por_slug("login-password").await.unwrap().unwrap();
 
-    let token = repos.recursos.crear(Uuid::now_v7(), id_token, b"m", b"n", user_id, None).await.unwrap();
+    let token = repos
+        .recursos
+        .crear(Uuid::now_v7(), id_token, b"m", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
     let rechazado = servicio.cambiar_tipo(token.id, user_id, "login-password").await;
     assert!(
         matches!(rechazado, Err(DomainError::ValidacionInvalida(_))),
         "api-token -> login-password debe rechazarse"
     );
 
-    let login = repos.recursos.crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None).await.unwrap();
+    let login = repos
+        .recursos
+        .crear(Uuid::now_v7(), id_login_password, b"m", b"n", user_id, None, Some(&sobre(user_id)))
+        .await
+        .unwrap();
     let rechazado = servicio.cambiar_tipo(login.id, user_id, "api-token").await;
     assert!(
         matches!(rechazado, Err(DomainError::ValidacionInvalida(_))),

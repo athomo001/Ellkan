@@ -4,7 +4,18 @@
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Table from '$lib/components/Table.svelte';
-	import { accountRecoveryPolicyApi, accountRecoveryAdminApi, type SolicitudRecoveryAdmin } from '$lib/api/admin';
+	import { get } from 'svelte/store';
+	import {
+		accountRecoveryPolicyApi,
+		accountRecoveryAdminApi,
+		custodiaRecoveryApi,
+		type SolicitudRecoveryAdmin,
+		type EstadoCustodia,
+		type CustodioPendiente
+	} from '$lib/api/admin';
+	import { generarClaveOrg, sellarParaCustodio, resellarComoCustodio } from '$lib/crypto/accountRecovery';
+	import { huellaDeClave } from '$lib/crypto/emergencia';
+	import { clavesDesbloqueadas } from '$lib/state/session';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
 
@@ -51,11 +62,44 @@
 	}
 	onMount(cargarSolicitudes);
 
+	function mensajeDe(err: unknown): string {
+		return err instanceof ApiError ? err.message : get(t).admin.comun.error;
+	}
+
+	// QA-09: el custodio re-sella en este navegador el escrow para la clave
+	// efímera del solicitante — el servidor no puede hacerlo.
+	async function reSellar(id: string) {
+		const claves = get(clavesDesbloqueadas);
+		if (!claves) throw new Error(get(t).admin.politicaRecovery.custodiaClavesBloqueadas);
+		const material = await accountRecoveryAdminApi.materialParaCustodio(id);
+		const sellado = await resellarComoCustodio(material, claves.x25519Private);
+		await accountRecoveryAdminApi.ejecutar(id, sellado);
+	}
+
+	let ejecutandoId = $state<string | undefined>();
+	async function ejecutar(id: string) {
+		ejecutandoId = id;
+		errorSolicitudes = undefined;
+		try {
+			await reSellar(id);
+			await cargarSolicitudes();
+		} catch (err) {
+			errorSolicitudes = err instanceof Error && !(err instanceof ApiError) ? err.message : mensajeDe(err);
+		} finally {
+			ejecutandoId = undefined;
+		}
+	}
+
 	async function aprobar(id: string) {
 		aprobandoId = id;
 		errorSolicitudes = undefined;
 		try {
-			await accountRecoveryAdminApi.aprobar(id);
+			const r = await accountRecoveryAdminApi.aprobar(id);
+			// Si esta aprobación completó el umbral y este admin es custodio,
+			// re-sella acá mismo; si no, queda para otro custodio.
+			if (r.status === 'awaiting_custodian' && custodia?.my_envelope_b64 && get(clavesDesbloqueadas)) {
+				await reSellar(id).catch(() => undefined);
+			}
 			await cargarSolicitudes();
 		} catch (err) {
 			errorSolicitudes = err instanceof ApiError ? err.message : $t.admin.comun.error;
@@ -77,6 +121,71 @@
 		} finally {
 			rechazandoId = undefined;
 		}
+	}
+
+	// QA-09: custodia de la clave organizacional.
+	let custodia = $state<EstadoCustodia | undefined>();
+	let huellaVigente = $state('');
+	let huellas = $state<Record<string, string>>({});
+	let errorCustodia = $state<string | undefined>();
+	let avisoCustodia = $state<string | undefined>();
+	let operandoCustodia = $state<string | undefined>();
+
+	async function cargarCustodia() {
+		try {
+			const c = await custodiaRecoveryApi.estado();
+			const mapa: Record<string, string> = {};
+			for (const a of [...c.org_admins, ...c.pending_custodians]) mapa[a.user_id] = await huellaDeClave(a.public_key_x25519_b64);
+			huellas = mapa;
+			huellaVigente = c.current ? await huellaDeClave(c.current.public_key_x25519_b64) : '';
+			custodia = c;
+		} catch (err) {
+			errorCustodia = mensajeDe(err);
+		}
+	}
+	onMount(cargarCustodia);
+
+	async function operarCustodia(clave: string, accion: () => Promise<string | void>) {
+		errorCustodia = undefined;
+		avisoCustodia = undefined;
+		if (!get(clavesDesbloqueadas)) {
+			errorCustodia = get(t).admin.politicaRecovery.custodiaClavesBloqueadas;
+			return;
+		}
+		operandoCustodia = clave;
+		try {
+			avisoCustodia = (await accion()) || undefined;
+			await cargarCustodia();
+		} catch (err) {
+			errorCustodia = mensajeDe(err);
+		} finally {
+			operandoCustodia = undefined;
+		}
+	}
+
+	function generarClave(rotar: boolean) {
+		if (rotar && !confirm(get(t).admin.politicaRecovery.custodiaConfirmarRotar)) return;
+		return operarCustodia('generar', async () => {
+			const { publicaB64, sobres } = await generarClaveOrg(custodia?.org_admins ?? []);
+			await custodiaRecoveryApi.crearClave(publicaB64, sobres);
+		});
+	}
+
+	function sellarPara(c: CustodioPendiente) {
+		return operarCustodia(c.user_id, async () => {
+			const claves = get(clavesDesbloqueadas);
+			if (!claves || !custodia?.current || !custodia.my_envelope_b64) return;
+			const sellado = await sellarParaCustodio(custodia.my_envelope_b64, claves.x25519Private, c.public_key_x25519_b64);
+			await custodiaRecoveryApi.agregarCustodio(custodia.current.id, { admin_id: c.user_id, sealed_private_key_b64: sellado });
+		});
+	}
+
+	function purgar() {
+		if (!confirm(get(t).admin.politicaRecovery.custodiaConfirmarPurgar)) return;
+		return operarCustodia('purgar', async () => {
+			const r = await custodiaRecoveryApi.purgarClaveServidor();
+			return get(t).admin.politicaRecovery.custodiaPurgada.replace('{n}', String(r.escrows_deleted));
+		});
 	}
 
 	async function guardar(e: SubmitEvent) {
@@ -122,6 +231,61 @@
 </Card>
 
 <Card>
+	<h2>{$t.admin.politicaRecovery.custodiaTitulo}</h2>
+	{#if errorCustodia}<p class="error">{errorCustodia}</p>{/if}
+	{#if avisoCustodia}<p class="ok">{avisoCustodia}</p>{/if}
+	{#if !custodia}
+		<!-- Con error de carga no queda un "Cargando…" que nunca termina (#66). -->
+		{#if !errorCustodia}<p>{$t.admin.comun.cargando}</p>{/if}
+	{:else if !custodia.current || custodia.current.custody === 'server'}
+		<p class="secundario">
+			{custodia.current ? $t.admin.politicaRecovery.custodiaServidor : $t.admin.politicaRecovery.custodiaNinguna}
+		</p>
+		<p class="secundario">{$t.admin.politicaRecovery.custodiaSeSellaPara}</p>
+		<ul>
+			{#each custodia.org_admins as a (a.user_id)}
+				<li>{a.display_name} &lt;{a.email}&gt; — <code>{huellas[a.user_id]}</code></li>
+			{/each}
+		</ul>
+		<Button variant="primary" onclick={() => generarClave(false)} loading={operandoCustodia === 'generar'}>
+			{$t.admin.politicaRecovery.custodiaGenerar}
+		</Button>
+	{:else}
+		<p class="secundario">{$t.admin.politicaRecovery.custodiaCliente}</p>
+		<p class="secundario">{$t.admin.politicaRecovery.custodiaHuella.replace('{huella}', huellaVigente)}</p>
+		{#if !custodia.my_envelope_b64}
+			<p class="error">{$t.admin.politicaRecovery.custodiaSinCopia}</p>
+		{/if}
+		{#if custodia.pending_custodians.length > 0}
+			<p class="secundario">{$t.admin.politicaRecovery.custodiaPendientes}</p>
+			<ul>
+				{#each custodia.pending_custodians as c (c.user_id)}
+					<li>
+						{c.display_name} &lt;{c.email}&gt; — <code>{huellas[c.user_id]}</code>
+						{#if custodia.my_envelope_b64}
+							<Button variant="secondary" onclick={() => sellarPara(c)} loading={operandoCustodia === c.user_id}>
+								{$t.admin.politicaRecovery.custodiaSellarPara.replace('{nombre}', c.display_name)}
+							</Button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if custodia.escrows_on_server_key > 0}
+			<p class="secundario">
+				{$t.admin.politicaRecovery.custodiaEscrowsServidor.replace('{n}', String(custodia.escrows_on_server_key))}
+			</p>
+			<Button variant="danger" onclick={purgar} loading={operandoCustodia === 'purgar'}>
+				{$t.admin.politicaRecovery.custodiaPurgar}
+			</Button>
+		{/if}
+		<Button variant="ghost" onclick={() => generarClave(true)} loading={operandoCustodia === 'generar'}>
+			{$t.admin.politicaRecovery.custodiaRotar}
+		</Button>
+	{/if}
+</Card>
+
+<Card>
 	<h2>{$t.admin.politicaRecovery.solicitudesTitulo}</h2>
 	{#if errorSolicitudes}<p class="error">{errorSolicitudes}</p>{/if}
 	<Table
@@ -140,13 +304,19 @@
 	>
 		{#snippet fila(s)}
 			<td>{s.target_email}</td>
-			<td>{s.status}</td>
+			<td>{s.status === 'awaiting_custodian' ? $t.admin.politicaRecovery.estadoEsperaCustodio : s.status}</td>
 			<td>{s.approvals_count}/{s.approval_threshold}</td>
 			<td class="secundario">{new Date(s.created_at).toLocaleString()}</td>
 			<td class="acciones">
-				<Button variant="primary" onclick={() => aprobar(s.id)} loading={aprobandoId === s.id}>
-					{$t.admin.politicaRecovery.aprobar}
-				</Button>
+				{#if s.status === 'awaiting_custodian'}
+					<Button variant="primary" onclick={() => ejecutar(s.id)} loading={ejecutandoId === s.id}>
+						{$t.admin.politicaRecovery.ejecutar}
+					</Button>
+				{:else}
+					<Button variant="primary" onclick={() => aprobar(s.id)} loading={aprobandoId === s.id}>
+						{$t.admin.politicaRecovery.aprobar}
+					</Button>
+				{/if}
 				<Button variant="danger" onclick={() => rechazar(s.id)} loading={rechazandoId === s.id}>
 					{$t.admin.politicaRecovery.rechazar}
 				</Button>

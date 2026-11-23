@@ -48,6 +48,8 @@ struct RegisterRequest<'a> {
     encrypted_private_key_blob_b64: &'a str,
     private_key_nonce_b64: &'a str,
     kdf_salt_b64: &'a str,
+    kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    auth_key_b64: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -111,10 +113,19 @@ pub struct CambiarPassphraseRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id.
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    pub auth_key_b64: String,
     /// QA-06: challenge nuevo y firma de
     /// `clave_privada::mensaje_reemplazo_clave_privada` sobre el blob nuevo.
     pub challenge_nonce_b64: String,
     pub signature_b64: String,
+}
+
+/// QA-03: `POST /auth/prelogin`.
+#[derive(Deserialize)]
+pub struct PreloginResponse {
+    pub auth_key_required: bool,
 }
 
 #[derive(Deserialize)]
@@ -254,6 +265,8 @@ impl Cliente {
         encrypted_private_key_blob_b64: &str,
         private_key_nonce_b64: &str,
         kdf_salt_b64: &str,
+        kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+        auth_key_b64: &str,
     ) -> anyhow::Result<RegisterResponse> {
         let resp = self
             .http
@@ -266,9 +279,38 @@ impl Cliente {
                 encrypted_private_key_blob_b64,
                 private_key_nonce_b64,
                 kdf_salt_b64,
+                kdf_params,
+                auth_key_b64,
             })
             .send()?;
         a_resultado(resp)
+    }
+
+    /// QA-03: ¿la cuenta del servidor sigue sellada con el esquema anterior?
+    pub fn prelogin(&self, email: &str) -> anyhow::Result<PreloginResponse> {
+        let resp = self
+            .http
+            .post(format!("{}/auth/prelogin", self.base_url))
+            .json(&ChallengeRequest { email })
+            .send()?;
+        a_resultado(resp)
+    }
+
+    /// QA-03: `POST /me/kdf-upgrade` — mismo body que `change_passphrase`.
+    pub fn kdf_upgrade(&self, session_id: Uuid, req: &CambiarPassphraseRequest) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}/me/kdf-upgrade", self.base_url))
+            .bearer_auth(session_id)
+            .json(req)
+            .send()?;
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let texto = resp.text()?;
+            anyhow::bail!("error HTTP {status}: {texto}")
+        }
     }
 
     pub fn challenge(&self, email: &str) -> anyhow::Result<ChallengeResponse> {

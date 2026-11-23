@@ -12,6 +12,7 @@ use ed25519_dalek::Signer;
 use ellkan_crypto::clave_privada;
 use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
+use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -24,6 +25,11 @@ pub struct Entorno {
     pub base: String,
     pub pool: sqlx::PgPool,
     pub cliente: reqwest::Client,
+    /// Copia de `ELLKAN_SECRETS_KEY` de esta instancia — sólo para armar
+    /// estado anterior a QA-09 (clave organizacional custodiada por el
+    /// servidor).
+    #[allow(dead_code)]
+    pub secrets_key: [u8; 32],
     // Nunca se lee directo — mantiene el contenedor vivo mientras el test
     // corre (`testcontainers` lo detiene al hacer `drop`).
     _contenedor: ContainerAsync<Postgres>,
@@ -63,7 +69,8 @@ async fn levantar_interna(seedear_bootstrap_admin: bool, setup_token: Option<&st
     let puerto = contenedor.get_host_port_ipv4(5432).await.unwrap();
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
 
-    let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
+    let secrets_key_bytes: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+    let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(secrets_key_bytes));
     let mut estado = ellkan_backend::construir_estado(&database_url, secrets_key).await.expect("migrar y conectar");
     estado.setup_token = setup_token.map(|t| std::sync::Arc::new(SecretBox::new(Box::new(t.to_string()))));
     let pool = estado.pool.clone();
@@ -123,6 +130,7 @@ async fn levantar_interna(seedear_bootstrap_admin: bool, setup_token: Option<&st
         base: format!("http://{addr}"),
         pool,
         cliente: reqwest::Client::new(),
+        secrets_key: secrets_key_bytes,
         _contenedor: contenedor,
     }
 }
@@ -150,8 +158,10 @@ pub async fn prueba_de_posesion(
     entorno: &Entorno,
     email: &str,
     ed25519_privada: &[u8],
-    blob: &clave_privada::EncryptedPrivateKeyBlob,
+    sellada: &clave_privada::ClavePrivadaSellada,
 ) -> (String, String) {
+    use secrecy::ExposeSecret;
+    let blob = &sellada.blob;
     let resp = entorno
         .cliente
         .post(format!("{}/auth/challenge", entorno.base))
@@ -163,9 +173,51 @@ pub async fn prueba_de_posesion(
     let cuerpo: Value = resp.json().await.unwrap();
     let challenge = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
     let privada: [u8; 32] = ed25519_privada.try_into().unwrap();
-    let firma =
-        clave_privada::firmar_reemplazo_clave_privada(&privada, &challenge, &blob.envoltura.ciphertext, &blob.envoltura.nonce, &blob.salt);
+    let firma = clave_privada::firmar_reemplazo_clave_privada(
+        &privada,
+        &challenge,
+        &clave_privada::Reemplazo {
+            blob: &blob.envoltura.ciphertext,
+            nonce: &blob.envoltura.nonce,
+            salt: &blob.salt,
+            parametros: &blob.parametros,
+            auth_key: sellada.auth_key.expose_secret(),
+        },
+    );
     (B64.encode(&challenge), B64.encode(firma))
+}
+
+/// QA-03: `POST /auth/prelogin` (el body JSON, con el status esperado 200).
+#[allow(dead_code)]
+pub async fn prelogin(entorno: &Entorno, email: &str) -> Value {
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/prelogin", entorno.base))
+        .json(&json!({ "email": email }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.json().await.unwrap()
+}
+
+/// QA-03: lo que hace el cliente real para desbloquear: prelogin, Argon2id
+/// con la sal y los parámetros recibidos, y `key-material` con la `auth_key`.
+/// Devuelve la respuesta cruda (status y body) del último paso.
+#[allow(dead_code)]
+pub async fn key_material_con_passphrase(entorno: &Entorno, email: &str, passphrase: &PassphraseSecreta) -> reqwest::Response {
+    use secrecy::ExposeSecret;
+    let pre = prelogin(entorno, email).await;
+    let salt: [u8; 16] = B64.decode(pre["kdf_salt_b64"].as_str().unwrap()).unwrap().try_into().unwrap();
+    let params: ellkan_crypto::derivacion::ParametrosKdf = serde_json::from_value(pre["kdf_params"].clone()).unwrap();
+    let d = ellkan_crypto::derivacion::derivar_desbloqueo(passphrase, &salt, &params).unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/auth/key-material", entorno.base))
+        .json(&json!({ "email": email, "auth_key_b64": B64.encode(d.auth_key.expose_secret()) }))
+        .send()
+        .await
+        .unwrap()
 }
 
 #[allow(dead_code)]
@@ -178,7 +230,15 @@ pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
     privadas[..32].copy_from_slice(x25519.privada().to_bytes().as_slice());
     privadas[32..].copy_from_slice(&ed25519.firmante().to_bytes());
     let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let blob = clave_privada::cifrar_clave_privada(&passphrase, salt, &privadas, email.as_bytes()).unwrap();
+    let blob_sellado = clave_privada::cifrar_clave_privada(
+        &passphrase,
+        salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &privadas,
+        email.as_bytes(),
+    )
+    .unwrap();
+    let blob = &blob_sellado.blob;
 
     let resp = entorno
         .cliente
@@ -191,6 +251,8 @@ pub async fn registrar(entorno: &Entorno, email: &str) -> Usuario {
             "encrypted_private_key_blob_b64": B64.encode(&blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(blob_sellado.auth_key.expose_secret()),
         }))
         .send()
         .await
@@ -337,6 +399,40 @@ pub async fn login(entorno: &Entorno, usuario: &Usuario) -> Uuid {
     let texto = resp.text().await.unwrap();
     assert_eq!(status, 200, "verify-device debería aceptar el código correcto, body: {texto}");
     let cuerpo: Value = serde_json::from_str(&texto).unwrap();
+    cuerpo["session_id"].as_str().unwrap().parse().unwrap()
+}
+
+/// Otro login desde el mismo `device_token`, ya verificado por `login`: no
+/// vuelve a pedir el código y entrega la sesión directo. Sirve para tener
+/// varias sesiones abiertas de un mismo usuario.
+#[allow(dead_code)]
+pub async fn login_dispositivo_conocido(entorno: &Entorno, usuario: &Usuario) -> Uuid {
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/challenge", entorno.base))
+        .json(&json!({ "email": usuario.email }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    let nonce = B64.decode(cuerpo["nonce_b64"].as_str().unwrap()).unwrap();
+    let firma = usuario.ed25519.firmante().sign(&nonce);
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/verify", entorno.base))
+        .json(&json!({
+            "email": usuario.email,
+            "nonce_b64": B64.encode(&nonce),
+            "signature_b64": B64.encode(firma.to_bytes()),
+            "device_token_hash_b64": B64.encode(Sha256::digest(usuario.device_token)),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let cuerpo: Value = resp.json().await.unwrap();
+    assert_eq!(cuerpo["estado"], "completo", "{cuerpo:?}");
     cuerpo["session_id"].as_str().unwrap().parse().unwrap()
 }
 

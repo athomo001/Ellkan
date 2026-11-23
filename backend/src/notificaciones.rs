@@ -210,6 +210,12 @@ fn renderizar(plantillas: &Tera, locale: &str, nombre: &str, mut ctx: Context) -
     Ok((texto, html))
 }
 
+/// Fecha y hora en UTC, sin depender del locale: `2026-11-20 18:30 UTC`.
+fn fecha_utc(t: time::OffsetDateTime) -> String {
+    let t = t.to_offset(time::UtcOffset::UTC);
+    format!("{:04}-{:02}-{:02} {:02}:{:02} UTC", t.year(), u8::from(t.month()), t.day(), t.hour(), t.minute())
+}
+
 fn asunto(locale: &str, es: &'static str, en: &'static str) -> &'static str {
     if locale == "en" { en } else { es }
 }
@@ -359,6 +365,35 @@ where
                         }
                     }
                 }
+                DomainEvent::EmergencyAccessRequested { granter_email, grantee_nombre, grantee_email, concede_el, recordatorio } => {
+                    let locale = resolver_locale(&locales, &granter_email).await;
+                    let asunto = if recordatorio {
+                        asunto(
+                            &locale,
+                            "Ellkan: recordatorio — piden acceso de emergencia a tu bóveda",
+                            "Ellkan: reminder — emergency access to your vault was requested",
+                        )
+                    } else {
+                        asunto(
+                            &locale,
+                            "Ellkan: piden acceso de emergencia a tu bóveda",
+                            "Ellkan: emergency access to your vault was requested",
+                        )
+                    };
+                    let mut ctx = Context::new();
+                    ctx.insert("grantee_nombre", &grantee_nombre);
+                    ctx.insert("grantee_email", &grantee_email);
+                    ctx.insert("fecha", &fecha_utc(concede_el));
+                    ctx.insert("recordatorio", &recordatorio);
+                    match renderizar(&plantillas, &locale, "emergency_access_requested", ctx) {
+                        Ok((cuerpo, html)) => {
+                            if let Err(e) = emails.encolar(&granter_email, asunto, &cuerpo, Some(&html)).await {
+                                tracing::error!(error = %e, "no se pudo encolar el aviso de acceso de emergencia");
+                            }
+                        }
+                        Err(e) => tracing::error!(error = %e, "no se pudo renderizar la plantilla de acceso de emergencia"),
+                    }
+                }
                 // F-13: consumidor dedicado en `audit::consumidor`, no
                 // genera ninguna notificación por email.
                 DomainEvent::Auditoria(_) => {}
@@ -410,13 +445,26 @@ impl SmtpConfig {
     }
 }
 
+/// Puerto de SMTP con TLS implícito (submissions, RFC 8314).
+const PUERTO_TLS_IMPLICITO: u16 = 465;
+
 /// QA-07: un host inválido (lo escribe un admin en `PUT /admin/smtp-config`)
 /// es un error de configuración, no un estado imposible — antes era un
 /// `expect` que, con `panic = "abort"` en release, tiraba el proceso en
 /// cada tick del poller.
 fn construir_mailer(cfg: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, lettre::transport::smtp::Error> {
     if cfg.tls {
-        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)?.port(cfg.port);
+        // QA-43 (RFC 8314): 465 es TLS implícito; cualquier otro puerto (587,
+        // 25, 2525…) habla en claro y sube a TLS con STARTTLS. Antes se usaba
+        // TLS implícito siempre y con 587 el handshake fallaba. El STARTTLS
+        // de `starttls_relay` es obligatorio: si el servidor no lo ofrece, no
+        // se manda nada en claro.
+        let builder = if cfg.port == PUERTO_TLS_IMPLICITO {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&cfg.host)?
+        } else {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&cfg.host)?
+        };
+        let mut builder = builder.port(cfg.port);
         if let (Some(u), Some(p)) = (&cfg.username, &cfg.password) {
             builder = builder.credentials(Credentials::new(u.clone(), p.clone()));
         }

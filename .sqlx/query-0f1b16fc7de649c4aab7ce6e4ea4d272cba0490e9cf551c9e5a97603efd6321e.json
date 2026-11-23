@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update account_recovery_requests set status = 'awaiting_custodian' where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f1b16fc7de649c4aab7ce6e4ea4d272cba0490e9cf551c9e5a97603efd6321e"
+}

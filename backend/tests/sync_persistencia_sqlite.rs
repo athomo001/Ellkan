@@ -67,7 +67,7 @@ async fn test_sincronizacion_diferencial_deltas() {
     // 1. Crear recurso
     let res_id = Uuid::now_v7();
     let recurso = repo
-        .crear(res_id, tipo_id, b"meta_cifrada", b"nonce_123456", user_id, None)
+        .crear(res_id, tipo_id, b"meta_cifrada", b"nonce_123456", user_id, None, None)
         .await
         .expect("crear recurso");
 
@@ -125,7 +125,7 @@ async fn crear_metadata_only_no_persiste_secreto_pero_guarda_el_dek() {
     // `ResourceRepository::crear` (genérico, sin secreto) + guardar el DEK
     // aparte — nunca `SecretEnvelopeRepository::insertar`.
     let recurso = recursos
-        .crear(res_id, tipo_id, b"meta-cifrada", b"nonce-meta", user_id, None)
+        .crear(res_id, tipo_id, b"meta-cifrada", b"nonce-meta", user_id, None, None)
         .await
         .expect("crear metadata-only");
     metadata_deks.guardar(recurso.id, user_id, b"dek-sellada").await.expect("guardar metadata dek");
@@ -154,7 +154,7 @@ async fn actualizar_metadata_solo_respeta_concurrencia_optimista_y_no_toca_secre
     let user_id = Uuid::now_v7();
     let tipo_id = Uuid::parse_str("019a0000-0000-7000-8000-000000000001").unwrap();
     let recurso = recursos
-        .crear(Uuid::now_v7(), tipo_id, b"meta-v1", b"nonce-v1", user_id, None)
+        .crear(Uuid::now_v7(), tipo_id, b"meta-v1", b"nonce-v1", user_id, None, None)
         .await
         .expect("crear recurso");
     let updated_at_original = recurso.updated_at;

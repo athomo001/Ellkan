@@ -31,6 +31,7 @@
 	import { avatarCambiado } from '$lib/sync/avatar';
 	import { cuentaRevocada } from '$lib/sync/revocacion';
 	import CuentaRevocada from '$lib/components/CuentaRevocada.svelte';
+	import RecuperacionDesactualizada from '$lib/components/RecuperacionDesactualizada.svelte';
 
 	// F-47: bóveda de escritorio vinculada y desbloqueada → trae lo nuevo del
 	// servidor sola (al entrar, cada pocos minutos y al volver a la ventana).
@@ -387,6 +388,8 @@
 					/>
 				</div>
 			{/if}
+			<!-- QA-09: la organización rotó su clave de recuperación. -->
+			<RecuperacionDesactualizada />
 			{@render children()}
 		</main>
 	</div>

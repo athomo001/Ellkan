@@ -18,7 +18,8 @@ use zeroize::Zeroize;
 
 use crate::aead::{self, Envoltura};
 use crate::aleatoriedad::bytes_aleatorios;
-use crate::clave_privada::{EncryptedPrivateKeyBlob, cifrar_clave_privada, descifrar_clave_privada};
+use crate::clave_privada::{Reemplazo, cifrar_clave_privada, descifrar_con_clave_de_envoltura};
+use crate::derivacion::ParametrosKdf;
 use crate::prf;
 use crate::secretos::PassphraseSecreta;
 use crate::totp;
@@ -29,6 +30,18 @@ fn passphrase_de(valor: String) -> PassphraseSecreta {
 
 fn err_js(msg: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&msg.to_string())
+}
+
+fn parametros_de(m_cost_kib: u32, t_cost: u32, p_cost: u32) -> ParametrosKdf {
+    ParametrosKdf { m_cost_kib, t_cost, p_cost }
+}
+
+/// QA-03: parámetros de Argon2id con que se sella toda clave nueva
+/// (`[m_cost_kib, t_cost, p_cost]`). Los clientes no los repiten a mano.
+#[wasm_bindgen]
+pub fn parametros_kdf_actuales() -> Vec<u32> {
+    let p = ParametrosKdf::ACTUAL;
+    vec![p.m_cost_kib, p.t_cost, p.p_cost]
 }
 
 #[wasm_bindgen]
@@ -83,6 +96,7 @@ pub fn generar_salt_kdf() -> Vec<u8> {
 pub struct BlobClavePrivada {
     ciphertext: Vec<u8>,
     nonce: Vec<u8>,
+    auth_key: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -95,15 +109,31 @@ impl BlobClavePrivada {
     pub fn nonce(&self) -> Vec<u8> {
         self.nonce.clone()
     }
+    /// QA-03: la `auth_key` del mismo Argon2id, para registrar el verificador.
+    #[wasm_bindgen(getter)]
+    pub fn auth_key(&self) -> Vec<u8> {
+        self.auth_key.clone()
+    }
+}
+
+impl Drop for BlobClavePrivada {
+    fn drop(&mut self) {
+        self.auth_key.zeroize();
+    }
 }
 
 /// Cadena completa Argon2id→HKDF→XChaCha20-Poly1305 (F-01) — cifra los dos
 /// privados concatenados (64 bytes) con una clave derivada de la
-/// passphrase, nunca con el output de Argon2id directo.
+/// passphrase, nunca con el output de Argon2id directo. QA-03: con los
+/// parámetros que se indiquen (los de `parametros_kdf_actuales`).
 #[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
 pub fn sellar_clave_privada(
     passphrase: String,
     salt: Vec<u8>,
+    m_cost_kib: u32,
+    t_cost: u32,
+    p_cost: u32,
     mut x25519_private: Vec<u8>,
     mut ed25519_private: Vec<u8>,
     aad: Vec<u8>,
@@ -118,10 +148,59 @@ pub fn sellar_clave_privada(
     x25519_private.zeroize();
     ed25519_private.zeroize();
 
-    let resultado = cifrar_clave_privada(&passphrase_de(passphrase), salt, &privadas, &aad).map_err(err_js);
+    let resultado =
+        cifrar_clave_privada(&passphrase_de(passphrase), salt, parametros_de(m_cost_kib, t_cost, p_cost), &privadas, &aad).map_err(err_js);
     privadas.zeroize();
-    let blob = resultado?;
-    Ok(BlobClavePrivada { ciphertext: blob.envoltura.ciphertext, nonce: blob.envoltura.nonce.to_vec() })
+    let sellada = resultado?;
+    use secrecy::ExposeSecret;
+    Ok(BlobClavePrivada {
+        ciphertext: sellada.blob.envoltura.ciphertext,
+        nonce: sellada.blob.envoltura.nonce.to_vec(),
+        auth_key: sellada.auth_key.expose_secret().to_vec(),
+    })
+}
+
+/// QA-03: las dos claves del desbloqueo, de un solo Argon2id.
+#[wasm_bindgen]
+pub struct Desbloqueo {
+    auth_key: Vec<u8>,
+    clave_envoltura: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl Desbloqueo {
+    /// Se le prueba al servidor (`POST /auth/key-material`) para que entregue el blob.
+    #[wasm_bindgen(getter)]
+    pub fn auth_key(&self) -> Vec<u8> {
+        self.auth_key.clone()
+    }
+    /// Abre el blob (`abrir_clave_privada`). Nunca sale del cliente.
+    #[wasm_bindgen(getter)]
+    pub fn clave_envoltura(&self) -> Vec<u8> {
+        self.clave_envoltura.clone()
+    }
+}
+
+impl Drop for Desbloqueo {
+    fn drop(&mut self) {
+        self.auth_key.zeroize();
+        self.clave_envoltura.zeroize();
+    }
+}
+
+/// QA-03: el paso caro del desbloqueo (Argon2id con los parámetros que
+/// devolvió `/auth/prelogin`). Rechaza parámetros fuera de rango: un
+/// servidor hostil no puede pedir derivar con 4 GiB.
+#[wasm_bindgen]
+pub fn derivar_desbloqueo(passphrase: String, salt: Vec<u8>, m_cost_kib: u32, t_cost: u32, p_cost: u32) -> Result<Desbloqueo, JsValue> {
+    use secrecy::ExposeSecret;
+    let salt: [u8; 16] = salt.try_into().map_err(|_| err_js("salt debe ser de 16 bytes"))?;
+    let d = crate::derivacion::derivar_desbloqueo(&passphrase_de(passphrase), &salt, &parametros_de(m_cost_kib, t_cost, p_cost))
+        .map_err(err_js)?;
+    Ok(Desbloqueo {
+        auth_key: d.auth_key.expose_secret().to_vec(),
+        clave_envoltura: d.clave_envoltura.expose_secret().to_vec(),
+    })
 }
 
 #[wasm_bindgen]
@@ -142,23 +221,23 @@ impl ClavePrivadaAbierta {
     }
 }
 
-/// Reconstruye la clave privada a partir de la passphrase + el blob
-/// guardado en el servidor (F-01) — nunca se cachea el resultado, el
-/// llamador lo mantiene sólo en el store "memory" de la sesión.
+/// Reconstruye la clave privada a partir de la clave de envoltura (de
+/// `derivar_desbloqueo`) + el blob guardado en el servidor (F-01) — nunca se
+/// cachea el resultado, el llamador lo mantiene sólo en el store "memory"
+/// de la sesión.
 #[wasm_bindgen]
 pub fn abrir_clave_privada(
-    passphrase: String,
-    salt: Vec<u8>,
+    mut clave_envoltura: Vec<u8>,
     nonce: Vec<u8>,
     ciphertext: Vec<u8>,
     aad: Vec<u8>,
 ) -> Result<ClavePrivadaAbierta, JsValue> {
-    let salt: [u8; 16] = salt.try_into().map_err(|_| err_js("salt debe ser de 16 bytes"))?;
     let nonce: [u8; 24] = nonce.try_into().map_err(|_| err_js("nonce debe ser de 24 bytes"))?;
-    let blob = EncryptedPrivateKeyBlob { salt, envoltura: Envoltura { nonce, ciphertext } };
-
-    let privadas =
-        descifrar_clave_privada(&passphrase_de(passphrase), &blob, &aad).map_err(|_| err_js("passphrase incorrecta o blob inválido"))?;
+    let arreglo: Result<[u8; 32], _> = clave_envoltura.as_slice().try_into();
+    clave_envoltura.zeroize();
+    let clave = SecretBox::new(Box::new(arreglo.map_err(|_| err_js("clave de envoltura debe ser de 32 bytes"))?));
+    let privadas = descifrar_con_clave_de_envoltura(&clave, &Envoltura { nonce, ciphertext }, &aad)
+        .map_err(|_| err_js("passphrase incorrecta o blob inválido"))?;
     if privadas.len() != 64 {
         return Err(err_js("blob de clave privada corrupto"));
     }
@@ -181,15 +260,28 @@ pub fn firmar(ed25519_private: Vec<u8>, mensaje: Vec<u8>) -> Result<Vec<u8>, JsV
 /// sellado (`/me/change-passphrase`, reset por recovery kit, account
 /// recovery). Ver `clave_privada::mensaje_reemplazo_clave_privada`.
 #[wasm_bindgen]
+#[allow(clippy::too_many_arguments)]
 pub fn firmar_reemplazo_clave_privada(
     ed25519_private: Vec<u8>,
     challenge: Vec<u8>,
     blob: Vec<u8>,
     nonce: Vec<u8>,
     salt: Vec<u8>,
+    m_cost_kib: u32,
+    t_cost: u32,
+    p_cost: u32,
+    auth_key: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
     let mut arreglo: [u8; 32] = ed25519_private.try_into().map_err(|_| err_js("clave privada debe ser de 32 bytes"))?;
-    let firma = crate::clave_privada::firmar_reemplazo_clave_privada(&arreglo, &challenge, &blob, &nonce, &salt);
+    let parametros = parametros_de(m_cost_kib, t_cost, p_cost);
+    let r = Reemplazo {
+        blob: &blob,
+        nonce: &nonce,
+        salt: &salt,
+        parametros: &parametros,
+        auth_key: &auth_key,
+    };
+    let firma = crate::clave_privada::firmar_reemplazo_clave_privada(&arreglo, &challenge, &r);
     arreglo.zeroize();
     Ok(firma.to_vec())
 }
@@ -283,7 +375,11 @@ pub fn descifrar_aead(clave: Vec<u8>, nonce: Vec<u8>, ciphertext: Vec<u8>, aad: 
 pub fn combinar_clave_de_share_con_passphrase(clave_fragmento: Vec<u8>, passphrase: String, salt: Vec<u8>) -> Result<Vec<u8>, JsValue> {
     use secrecy::ExposeSecret;
     let salt: [u8; 16] = salt.try_into().map_err(|_| err_js("salt debe ser de 16 bytes"))?;
-    let derivada_passphrase = crate::derivacion::derivar_clave_maestra(&passphrase_de(passphrase), &salt).map_err(err_js)?;
+    // Parámetros fijos del protocolo de F-26: los links ya emitidos tienen que
+    // seguir abriendo. La capa de passphrase es adicional a la clave del
+    // fragmento (que nunca llega al servidor), no la única protección.
+    let derivada_passphrase =
+        crate::derivacion::derivar_clave_maestra(&passphrase_de(passphrase), &salt, &ParametrosKdf::LEGADO).map_err(err_js)?;
     let combinada = crate::derivacion::combinar_secretos(
         &clave_fragmento,
         derivada_passphrase.expose_secret(),

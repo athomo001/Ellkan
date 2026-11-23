@@ -10,14 +10,16 @@
 // completarla.
 
 import { api } from './client';
-import type { PruebaDePosesion } from '$lib/crypto/accountRecovery';
+import { camposDelBlob, type BlobClaveNueva, type PruebaDePosesion } from '$lib/crypto/desbloqueo';
 
 export const accountRecoveryApi = {
-	miEstado: () => api.get<{ enrolled: boolean }>('/account-recovery/status'),
-	orgPublicKey: () => api.get<{ public_key_x25519_b64: string }>('/account-recovery/org-public-key'),
-	enrolar: (sealedPrivateKeyForOrgB64: string) =>
+	miEstado: () => api.get<EstadoRecovery>('/account-recovery/status'),
+	/** 404 si la organización todavía no generó su clave (QA-09). */
+	orgPublicKey: () => api.get<ClaveOrg>('/account-recovery/org-public-key'),
+	enrolar: (sealedPrivateKeyForOrgB64: string, orgRecoveryKeyId: number) =>
 		api.post<{ id: string; created_at: string }>('/account-recovery/enroll', {
-			sealed_private_key_for_org_b64: sealedPrivateKeyForOrgB64
+			sealed_private_key_for_org_b64: sealedPrivateKeyForOrgB64,
+			org_recovery_key_id: orgRecoveryKeyId
 		}),
 	crearSolicitud: (email: string, requesterPublicKeyX25519B64: string) =>
 		api.post<SolicitudRecovery>('/account-recovery/requests', {
@@ -28,22 +30,30 @@ export const accountRecoveryApi = {
 		api.post<{ requester_token_b64: string }>(`/account-recovery/requests/${id}/confirm`, { code }),
 	estadoSolicitud: (id: string, tokenB64: string) =>
 		api.get<SolicitudRecovery>(`/account-recovery/requests/${id}`, { 'X-Ellkan-Recovery-Token': tokenB64 }),
-	completar: (
-		id: string,
-		tokenB64: string,
-		blobB64: string,
-		nonceB64: string,
-		saltB64: string,
-		prueba: PruebaDePosesion
-	) =>
+	completar: (id: string, tokenB64: string, blob: BlobClaveNueva, prueba: PruebaDePosesion) =>
 		api.post<void>(`/account-recovery/requests/${id}/complete`, {
 			requester_token_b64: tokenB64,
-			encrypted_private_key_blob_b64: blobB64,
-			private_key_nonce_b64: nonceB64,
-			kdf_salt_b64: saltB64,
+			...camposDelBlob(blob),
 			...prueba
 		})
 };
+
+/** QA-09: si `org_recovery_key_id` difiere de la vigente, la organización
+ * rotó su clave y el escrow propio hay que re-sellarlo. */
+export interface EstadoRecovery {
+	enrolled: boolean;
+	org_recovery_key_id: number | null;
+	current_org_recovery_key_id: number | null;
+}
+
+/** `custody`: `client` = la custodian los admins en su navegador; `server`
+ * = la clave anterior a QA-09, que el servidor puede abrir. */
+export interface ClaveOrg {
+	id: number;
+	public_key_x25519_b64: string;
+	custody: 'client' | 'server';
+	created_at: string;
+}
 
 export interface SolicitudRecovery {
 	id: string;

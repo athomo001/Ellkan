@@ -6,11 +6,25 @@
 // UI visible. RPC simple por `id` de correlación, mismo criterio que
 // cualquier cola de pedidos concurrentes contra un único worker.
 
-interface ResultadoSellar {
+/** QA-03: parámetros de Argon2id de un blob (`user_keys.kdf_params`). */
+export interface ParametrosKdf {
+	m_cost_kib: number;
+	t_cost: number;
+	p_cost: number;
+}
+export interface ResultadoSellar {
 	ciphertext: Uint8Array;
 	nonce: Uint8Array;
+	/** QA-03: `auth_key` del mismo Argon2id, para registrar el verificador. */
+	authKey: Uint8Array;
+	/** Los parámetros actuales con que se selló. */
+	kdfParams: ParametrosKdf;
 }
-interface ResultadoAbrir {
+interface ResultadoDerivar {
+	authKey: Uint8Array;
+	claveEnvoltura: Uint8Array;
+}
+export interface ResultadoAbrir {
 	x25519Private: Uint8Array;
 	ed25519Private: Uint8Array;
 }
@@ -28,7 +42,7 @@ function obtenerWorker(): Worker {
 			pendientes.delete(evento.data.id);
 			if (evento.data.ok) pedido.resolve(evento.data.resultado);
 			else pedido.reject(new Error(evento.data.error ?? 'error desconocido en argon2Worker'));
-			// Sin pedidos en curso se cierra: la memoria wasm de Argon2 (19 MiB que
+			// Sin pedidos en curso se cierra: la memoria wasm de Argon2 (64 MiB que
 			// nunca se devuelven mientras el worker vive) se libera entera, y con
 			// ella los restos de la derivación. Desbloquear es poco frecuente;
 			// recrearlo cuesta unos milisegundos.
@@ -59,12 +73,22 @@ export function sellarClavePrivadaEnWorker(
 	return pedir<ResultadoSellar>({ tipo: 'sellar', passphrase, salt, x25519Private, ed25519Private, aad });
 }
 
-export function abrirClavePrivadaEnWorker(
+/** QA-03: el paso caro del desbloqueo, con la sal y los parámetros del
+ * servidor (el WASM rechaza parámetros fuera de rango). */
+export function derivarDesbloqueoEnWorker(
 	passphrase: string,
 	salt: Uint8Array,
+	parametros: ParametrosKdf
+): Promise<ResultadoDerivar> {
+	return pedir<ResultadoDerivar>({ tipo: 'derivar', passphrase, salt, parametros });
+}
+
+/** Abre el blob con la clave de envoltura de `derivarDesbloqueoEnWorker`. */
+export function abrirClavePrivadaEnWorker(
+	claveEnvoltura: Uint8Array,
 	nonce: Uint8Array,
 	ciphertext: Uint8Array,
 	aad: Uint8Array
 ): Promise<ResultadoAbrir> {
-	return pedir<ResultadoAbrir>({ tipo: 'abrir', passphrase, salt, nonce, ciphertext, aad });
+	return pedir<ResultadoAbrir>({ tipo: 'abrir', claveEnvoltura, nonce, ciphertext, aad });
 }

@@ -13,13 +13,11 @@ use super::models::{
     ResultadoPurgaUsuario, ResumenUsuario, Transferencia, UsuarioConAcceso, sugerir_destino,
 };
 
-/// Alcance documentado: la detección de "único Owner" resuelve sólo
-/// ownership *directa* (`permissions.grantee_type = 'user'`) — ownership
-/// indirecta vía un grupo del que el usuario sea el único manager queda
-/// fuera de este primer corte (el propio bloqueo de grupo ya cubre el caso
-/// más común: sin manager, nadie administra ese acceso de grupo de todos
-/// modos). Documentado como límite real, no oculto — mismo criterio que el
-/// resto de las simplificaciones de esta fase.
+/// La detección de "único Owner" cuenta la propiedad directa y la indirecta:
+/// un grupo dueño cuyo único miembro es el saliente queda vacío con la purga,
+/// así que no cuenta como "otro Owner" (pendiente #51). Un grupo con otros
+/// miembros sí, y si el saliente era su único manager eso ya lo bloquea
+/// `grupos_bloqueados_en`.
 pub trait UserPurgeRepository {
     async fn calcular_bloqueos(&self, user_id: Uuid) -> Result<Bloqueos, RepoError>;
 
@@ -127,29 +125,48 @@ async fn grupos_bloqueados_en(user_id: Uuid, con: &mut sqlx::PgConnection) -> Re
         .collect())
 }
 
-/// Un recurso sólo bloquea si el saliente es su **único** Owner y **alguien
-/// más** (otro usuario u otro grupo) tiene algún acceso real sobre él. Si
-/// nadie más tiene acceso, el recurso queda huérfano y `purgar()` lo borra
-/// solo; si ya hay otro Owner (por ejemplo, porque se transfirió al
+/// Un recurso sólo bloquea si el saliente es su **único** Owner efectivo y
+/// **alguien más** sigue teniendo acceso real después de la purga. "Efectivo"
+/// incluye la propiedad vía un grupo dueño del que el saliente es el único
+/// miembro (pendiente #51): ese grupo queda vacío. Un acceso "que sobrevive"
+/// es el de otro usuario o el de un grupo con algún otro miembro. Si nadie
+/// más tiene acceso, el recurso queda huérfano y `purgar()` lo borra solo; si
+/// ya hay otro Owner que sobrevive (por ejemplo, porque se transfirió al
 /// bloquearlo), no hace falta transferir nada más.
 async fn recursos_bloqueados_en(user_id: Uuid, con: &mut sqlx::PgConnection) -> Result<Vec<Uuid>, RepoError> {
     let filas = sqlx::query!(
         r#"
-        select p.subject_id as resource_id
+        with grupos_que_quedan_vacios as (
+            select gm.group_id
+            from group_members gm
+            where gm.user_id = $1
+              and not exists (
+                  select 1 from group_members gm2 where gm2.group_id = gm.group_id and gm2.user_id <> $1
+              )
+        ),
+        sobrevive as (
+            -- (recurso, nivel) de cada acceso que sigue existiendo sin el saliente
+            select p.subject_id, p.level
+            from permissions p
+            where p.subject_type = 'resource'
+              and (
+                  (p.grantee_type = 'user' and p.grantee_id <> $1)
+                  or (p.grantee_type = 'group' and exists (
+                      select 1 from group_members gm where gm.group_id = p.grantee_id and gm.user_id <> $1
+                  ))
+              )
+        )
+        select distinct p.subject_id as "resource_id!"
         from permissions p
         join resources r on r.id = p.subject_id and r.deleted_at is null
-        where p.subject_type = 'resource' and p.grantee_type = 'user' and p.grantee_id = $1 and p.level = 'owner'
-          and exists (
-              select 1 from permissions p2
-              where p2.subject_type = 'resource' and p2.subject_id = p.subject_id
-                and not (p2.grantee_type = 'user' and p2.grantee_id = $1)
+        where p.subject_type = 'resource' and p.level = 'owner'
+          and (
+              (p.grantee_type = 'user' and p.grantee_id = $1)
+              or (p.grantee_type = 'group' and p.grantee_id in (select group_id from grupos_que_quedan_vacios))
           )
-          and not exists (
-              select 1 from permissions p3
-              where p3.subject_type = 'resource' and p3.subject_id = p.subject_id and p3.level = 'owner'
-                and not (p3.grantee_type = 'user' and p3.grantee_id = $1)
-          )
-        order by p.subject_id
+          and exists (select 1 from sobrevive s where s.subject_id = p.subject_id)
+          and not exists (select 1 from sobrevive s where s.subject_id = p.subject_id and s.level = 'owner')
+        order by 1
         "#,
         user_id,
     )

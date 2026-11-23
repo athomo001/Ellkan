@@ -12,11 +12,12 @@ use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
 use super::dto::{
-    AccountRecoveryPolicyResponse, ActualizarAccountRecoveryPolicyRequest, CompletarSolicitudRequest, ConfirmarSolicitudRequest,
-    ConfirmarSolicitudResponse, CrearSolicitudRequest, EnrolarRequest, EscrowResponse, MiEstadoResponse, OrgPublicKeyResponse,
-    SolicitudAdminResponse, SolicitudResponse,
+    AccountRecoveryPolicyResponse, ActualizarAccountRecoveryPolicyRequest, AgregarCustodioRequest, CompletarSolicitudRequest,
+    ConfirmarSolicitudRequest, ConfirmarSolicitudResponse, CrearClaveOrgRequest, CrearClaveOrgResponse, CrearSolicitudRequest,
+    CustodioPendienteResponse, EjecutarRequest, EnrolarRequest, EscrowResponse, EstadoCustodiaResponse, MaterialCustodioResponse,
+    MiEstadoResponse, OrgPublicKeyResponse, PurgaResponse, SolicitudAdminResponse, SolicitudResponse,
 };
-use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
+use super::models::{AccountRecoveryPolicy, CustodioPendiente, Escrow, OrgRecoveryKey, RecoveryRequest, SolicitudPendiente};
 use super::repository::{PgAccountRecoveryPolicyRepository, PgEscrowRepository, PgOrgRecoveryKeyRepository, PgRecoveryRequestRepository};
 use super::service::AccountRecoveryService;
 use crate::admin::repository::PgRoleRepository;
@@ -99,13 +100,28 @@ pub async fn actualizar_politica(
 }
 
 pub async fn mi_estado(State(state): State<AppState>, auth: AuthenticatedUser) -> Result<Json<MiEstadoResponse>, ApiError> {
-    let enrolled = servicio(&state).mi_estado(auth.user_id).await?;
-    Ok(Json(MiEstadoResponse { enrolled }))
+    let e = servicio(&state).mi_estado(auth.user_id).await?;
+    Ok(Json(MiEstadoResponse {
+        enrolled: e.enrolled,
+        org_recovery_key_id: e.org_recovery_key_id,
+        current_org_recovery_key_id: e.current_org_recovery_key_id,
+    }))
 }
 
+fn clave_a_response(k: OrgRecoveryKey) -> OrgPublicKeyResponse {
+    OrgPublicKeyResponse {
+        id: k.id,
+        public_key_x25519_b64: B64.encode(k.public_key_x25519),
+        custody: k.custodia.as_str(),
+        created_at: k.created_at,
+    }
+}
+
+/// `GET /account-recovery/org-public-key` — 404 si la organización todavía
+/// no generó su clave (QA-09: el servidor ya no la crea solo).
 pub async fn org_public_key(State(state): State<AppState>, _auth: AuthenticatedUser) -> Result<Json<OrgPublicKeyResponse>, ApiError> {
-    let publica = servicio(&state).obtener_org_public_key().await?;
-    Ok(Json(OrgPublicKeyResponse { public_key_x25519_b64: B64.encode(publica) }))
+    let clave = servicio(&state).org_key_vigente().await?;
+    Ok(Json(clave_a_response(clave)))
 }
 
 pub async fn enrolar(
@@ -114,8 +130,90 @@ pub async fn enrolar(
     Json(req): Json<EnrolarRequest>,
 ) -> Result<Json<EscrowResponse>, ApiError> {
     let sellado = decodificar_b64("sealed_private_key_for_org_b64", &req.sealed_private_key_for_org_b64)?;
-    let escrow = servicio(&state).enrolar(auth.user_id, sellado).await?;
+    let escrow = servicio(&state).enrolar(auth.user_id, sellado, req.org_recovery_key_id).await?;
     Ok(Json(escrow_a_response(escrow)))
+}
+
+fn custodio_a_response(c: CustodioPendiente) -> CustodioPendienteResponse {
+    CustodioPendienteResponse {
+        user_id: c.user_id,
+        email: c.email,
+        display_name: c.display_name,
+        public_key_x25519_b64: B64.encode(c.public_key_x25519),
+    }
+}
+
+/// `GET /admin/account-recovery/custody` (QA-09).
+pub async fn estado_custodia(State(state): State<AppState>, admin: AdminUser) -> Result<Json<EstadoCustodiaResponse>, ApiError> {
+    let e = servicio(&state).estado_custodia(admin.user_id).await?;
+    Ok(Json(EstadoCustodiaResponse {
+        current: e.vigente.map(clave_a_response),
+        my_envelope_b64: e.mi_sobre.map(|b| B64.encode(b)),
+        pending_custodians: e.pendientes.into_iter().map(custodio_a_response).collect(),
+        org_admins: e.admins.into_iter().map(custodio_a_response).collect(),
+        escrows_on_server_key: e.escrows_en_servidor,
+    }))
+}
+
+/// `POST /admin/account-recovery/org-keys` (QA-09) — clave generada en el
+/// navegador del admin, con la privada ya sellada para cada custodio.
+pub async fn crear_clave_org(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Json(req): Json<CrearClaveOrgRequest>,
+) -> Result<Json<CrearClaveOrgResponse>, ApiError> {
+    let publica = decodificar_b64("public_key_x25519_b64", &req.public_key_x25519_b64)?;
+    let mut sobres = Vec::with_capacity(req.envelopes.len());
+    for s in req.envelopes {
+        sobres.push((s.admin_id, decodificar_b64("sealed_private_key_b64", &s.sealed_private_key_b64)?));
+    }
+    let id = servicio(&state).crear_clave_de_cliente(admin.user_id, publica, sobres).await?;
+    Ok(Json(CrearClaveOrgResponse { id }))
+}
+
+/// `POST /admin/account-recovery/org-keys/{id}/envelopes` (QA-09).
+pub async fn agregar_custodio(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<i32>,
+    Json(req): Json<AgregarCustodioRequest>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    let sellado = decodificar_b64("sealed_private_key_b64", &req.sealed_private_key_b64)?;
+    servicio(&state).agregar_custodio(admin.user_id, id, req.admin_id, sellado).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /admin/account-recovery/server-key` (QA-09).
+pub async fn purgar_clave_servidor(State(state): State<AppState>, admin: AdminUser) -> Result<Json<PurgaResponse>, ApiError> {
+    let borrados = servicio(&state).purgar_clave_servidor(admin.user_id).await?;
+    Ok(Json(PurgaResponse { escrows_deleted: borrados }))
+}
+
+/// `GET /admin/account-recovery/requests/{id}/custody-material` (QA-09).
+pub async fn material_para_custodio(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<MaterialCustodioResponse>, ApiError> {
+    let m = servicio(&state).material_para_custodio(admin.user_id, id).await?;
+    Ok(Json(MaterialCustodioResponse {
+        sealed_private_key_for_org_b64: B64.encode(m.sealed_private_key_for_org),
+        requester_public_key_x25519_b64: B64.encode(m.requester_public_key_x25519),
+        org_recovery_key_id: m.org_recovery_key_id,
+        envelope_b64: B64.encode(m.sobre),
+    }))
+}
+
+/// `POST /admin/account-recovery/requests/{id}/execute` (QA-09).
+pub async fn ejecutar(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<EjecutarRequest>,
+) -> Result<Json<SolicitudResponse>, ApiError> {
+    let sellado = decodificar_b64("sealed_private_key_for_requester_b64", &req.sealed_private_key_for_requester_b64)?;
+    let solicitud = servicio(&state).ejecutar(admin.user_id, id, sellado).await?;
+    Ok(Json(solicitud_a_response(solicitud)))
 }
 
 /// Header con el token del solicitante (QA-10). Header y no query string:
@@ -151,8 +249,7 @@ pub async fn confirmar_solicitud(
     Ok(Json(ConfirmarSolicitudResponse { requester_token_b64: B64.encode(token) }))
 }
 
-/// `GET /account-recovery/requests/{id}` — poll sin sesión, mismo criterio
-/// que `GET /auth/device-approval/{id}` (F-37), pero con el token del
+/// `GET /account-recovery/requests/{id}` — poll sin sesión, con el token del
 /// solicitante en `X-Ellkan-Recovery-Token`: conocer el id no alcanza.
 pub async fn estado_solicitud(
     State(state): State<AppState>,
@@ -202,7 +299,14 @@ pub async fn completar(
     let blob = decodificar_b64("encrypted_private_key_blob_b64", &req.encrypted_private_key_blob_b64)?;
     let nonce = decodificar_b64("private_key_nonce_b64", &req.private_key_nonce_b64)?;
     let salt = decodificar_b64("kdf_salt_b64", &req.kdf_salt_b64)?;
-    let nueva = NuevaClavePrivada { encrypted_private_key_blob: blob, private_key_nonce: nonce, kdf_salt: salt };
+    let auth_key = crate::validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
+    let nueva = NuevaClavePrivada {
+        encrypted_private_key_blob: blob,
+        private_key_nonce: nonce,
+        kdf_salt: salt,
+        kdf_params: req.kdf_params,
+        auth_key,
+    };
     let prueba = PruebaDePosesion {
         challenge: decodificar_b64("challenge_nonce_b64", &req.challenge_nonce_b64)?,
         firma: decodificar_b64("signature_b64", &req.signature_b64)?,

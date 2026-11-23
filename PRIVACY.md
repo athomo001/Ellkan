@@ -24,7 +24,9 @@
 
 **Excepción a conocimiento cero:** si el operador activa la *recuperación de cuenta aprobada por administradores*, quienes administren esa instancia pueden, con la aprobación requerida, devolverte el acceso a tu bóveda. Esa función es opcional y la interfaz lo avisa al activarla.
 
-**Dirección IP:** no se guarda en la base de datos. Los logs del servidor pueden incluirla; cuánto tiempo se conservan depende del operador.
+**Dirección IP:** no se guarda en la base de datos. Los logs del servidor sólo la incluyen cuando una solicitud se rechaza por exceso de solicitudes (para detectar abuso); cuánto tiempo se conservan esos logs depende del operador.
+
+**Sesiones abiertas:** de cada sesión se guarda sólo un nombre corto del navegador y el sistema (por ejemplo «Chrome · Windows») y la hora del último uso, para que puedas ver dónde está abierta tu cuenta y cerrar las otras. No se guarda el identificador completo del navegador (User-Agent).
 
 ## Servicios de terceros
 
@@ -32,7 +34,7 @@ Ellkan sólo se conecta con servicios externos en estos casos:
 
 - **Correo (SMTP), inicio de sesión único (SSO/OIDC), LDAP y SCIM:** sólo los que configure el operador de la instancia.
 - **Have I Been Pwned (opcional, apagado por defecto):** para avisar si una contraseña aparece en filtraciones. Se envían sólo los primeros 5 caracteres del hash SHA-1 de la contraseña (modelo *k-anonymity*); ni el servicio ni Ellkan ven la contraseña.
-- **Íconos de sitios en la extensión:** al mostrar la lista, el popup de la extensión pide el ícono de cada sitio al servicio de favicons de Google, con el **nombre del dominio** (por ejemplo `github.com`). Nunca se envían usuarios, contraseñas ni la ruta completa. Si no hay red, se muestra un ícono genérico.
+- **Íconos de sitios en la extensión:** **apagado por defecto**: el popup muestra la inicial de cada sitio y no se conecta a nadie. Si activás «Íconos de los sitios» (Mi cuenta, en el popup), pide el ícono de cada sitio al servicio de favicons de Google con el **nombre del dominio** (por ejemplo `github.com`); nunca usuarios, contraseñas ni la ruta completa.
 - **Telemetría para el operador (OpenTelemetry):** apagada por defecto. Si el operador la activa, los datos van a su propio colector, nunca al autor, y no incluyen encabezados, cuerpos de solicitudes ni consultas SQL.
 
 ## Qué queda en tu dispositivo
@@ -69,7 +71,9 @@ Para dudas sobre el software, abrí un issue en el repositorio. Para datos guard
 
 **Zero-knowledge exception:** if the operator enables *administrator-approved account recovery*, the administrators of that instance can, with the required approval, restore your access to your vault. It is optional and the interface warns about it when enrolling.
 
-**IP address:** not stored in the database. Server logs may include it; how long they are kept is up to the operator.
+**IP address:** not stored in the database. Server logs only include it when a request is rejected for exceeding the rate limit (to detect abuse); how long those logs are kept is up to the operator.
+
+**Open sessions:** for each session only a short browser and system name (for example "Chrome · Windows") and the time it was last used are stored, so you can see where your account is signed in and close the others. The full browser identifier (User-Agent) is not stored.
 
 ### Third-party services
 
@@ -77,7 +81,7 @@ Ellkan only contacts external services in these cases:
 
 - **Email (SMTP), single sign-on (SSO/OIDC), LDAP and SCIM:** only those the instance operator configures.
 - **Have I Been Pwned (optional, off by default):** to warn about passwords found in breaches. Only the first 5 characters of the password's SHA-1 hash are sent (*k-anonymity*); neither the service nor Ellkan sees the password.
-- **Site icons in the extension:** when the list is shown, the extension popup requests each site's icon from Google's favicon service using the **domain name** (e.g. `github.com`). Usernames, passwords and full paths are never sent. Without network access a generic icon is shown.
+- **Site icons in the extension:** **off by default**: the popup shows each site's initial and contacts no one. If you turn on "Íconos de los sitios" (site icons, under My account in the popup), it requests each site's icon from Google's favicon service using the **domain name** (e.g. `github.com`); never usernames, passwords or full paths.
 - **Operator telemetry (OpenTelemetry):** off by default. If the operator enables it, data goes to their own collector, never to the author, and excludes headers, request bodies and SQL queries.
 
 ### What stays on your device

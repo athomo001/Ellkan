@@ -102,7 +102,7 @@ async function main() {
 	const resultado = await AuthController.login({ serverUrl: SERVER_URL, email: EMAIL, passphrase: PASSPHRASE });
 	assert.equal(resultado.estado, 'pendiente_dispositivo', `se esperaba pendiente_dispositivo, vino "${resultado.estado}"`);
 	assert.ok(resultado.deviceChallengeId, 'debe venir un deviceChallengeId para poder verificar el dispositivo');
-	console.log('OK: login real (key-material→Argon2id→challenge→firma→verify) contra el backend real');
+	console.log('OK: login real (prelogin→Argon2id→key-material con auth_key→challenge→firma→verify) contra el backend real');
 
 	// --- Las claves ya se guardaron en `storage.session` aunque falte el
 	// dispositivo — confirma que el login no se pierde a mitad de camino. ---

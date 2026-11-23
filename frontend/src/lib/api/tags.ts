@@ -23,7 +23,7 @@ export const tagsApi = {
 	 * `listarRecursos` (`recursos.ts`) — nunca se vuelve a descifrar nada.
 	 */
 	async idsConTag(tagId: string): Promise<string[]> {
-		const recursos = await api.get<{ id: string }[]>(`/resources?tag_id=${tagId}`);
+		const recursos = await api.getTodo<{ id: string }>(`/resources?tag_id=${tagId}`);
 		return recursos.map((r) => r.id);
 	},
 	aplicar: (resourceId: string, tagId: string) => api.post<void>(`/resources/${resourceId}/tags/${tagId}`),

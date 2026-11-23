@@ -6,8 +6,9 @@ use uuid::Uuid;
 
 use crate::auth::extractor::{AdminUser, AuthenticatedUser};
 use crate::b64;
-use crate::error::{ApiError, DomainError};
+use crate::error::ApiError;
 use crate::state::AppState;
+use crate::validacion;
 
 use super::dto::{AgregarDestinatarioRequest, CrearMetadataKeyRequest, DestinatarioEnvelope, MetadataKeyResponse, RotationStatusResponse};
 use super::service::MetadataKeyService;
@@ -43,8 +44,7 @@ pub async fn listar(State(state): State<AppState>, auth: AuthenticatedUser) -> R
 fn decodificar_destinatarios(destinatarios: Vec<DestinatarioEnvelope>) -> Result<Vec<(uuid::Uuid, Vec<u8>)>, ApiError> {
     let mut resultado = Vec::with_capacity(destinatarios.len());
     for d in destinatarios {
-        let sellado = b64::decode(&d.sealed_private_key_b64)
-            .map_err(|_| DomainError::ValidacionInvalida("sealed_private_key_b64 inválido".into()))?;
+        let sellado = validacion::b64_exacto(&d.sealed_private_key_b64, "sealed_private_key_b64", validacion::LARGO_CLAVE_SELLADA)?;
         resultado.push((d.user_id, sellado));
     }
     Ok(resultado)
@@ -55,8 +55,7 @@ pub async fn crear(
     admin: AdminUser,
     Json(req): Json<CrearMetadataKeyRequest>,
 ) -> Result<Json<MetadataKeyResponse>, ApiError> {
-    let public_key =
-        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
+    let public_key = validacion::b64_exacto(&req.public_key_x25519_b64, "public_key_x25519_b64", validacion::LARGO_CLAVE_PUBLICA)?;
     let destinatarios = decodificar_destinatarios(req.destinatarios)?;
 
     let clave = servicio(&state)
@@ -82,8 +81,7 @@ pub async fn agregar_destinatario(
     Path(metadata_key_id): Path<Uuid>,
     Json(req): Json<AgregarDestinatarioRequest>,
 ) -> Result<(), ApiError> {
-    let sealed =
-        b64::decode(&req.sealed_private_key_b64).map_err(|_| DomainError::ValidacionInvalida("sealed_private_key_b64 inválido".into()))?;
+    let sealed = validacion::b64_exacto(&req.sealed_private_key_b64, "sealed_private_key_b64", validacion::LARGO_CLAVE_SELLADA)?;
 
     servicio(&state).agregar_destinatario(admin.user_id, metadata_key_id, req.user_id, &sealed).await?;
 
@@ -95,8 +93,7 @@ pub async fn rotar(
     admin: AdminUser,
     Json(req): Json<CrearMetadataKeyRequest>,
 ) -> Result<Json<MetadataKeyResponse>, ApiError> {
-    let public_key =
-        b64::decode(&req.public_key_x25519_b64).map_err(|_| DomainError::ValidacionInvalida("public_key_x25519_b64 inválido".into()))?;
+    let public_key = validacion::b64_exacto(&req.public_key_x25519_b64, "public_key_x25519_b64", validacion::LARGO_CLAVE_PUBLICA)?;
     let destinatarios = decodificar_destinatarios(req.destinatarios)?;
 
     let entrante = servicio(&state)

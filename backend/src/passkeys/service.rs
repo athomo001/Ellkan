@@ -189,7 +189,7 @@ where
     }
 
     /// `DELETE /me/passkeys/{id}` — sólo el dueño puede revocar su propia
-    /// passkey, mismo guard que `devices::service::revocar`.
+    /// passkey.
     pub async fn revocar(&self, user_id: Uuid, passkey_id: Uuid) -> Result<(), DomainError> {
         let passkey = self.passkeys.buscar(passkey_id).await?.ok_or(DomainError::NotFound)?;
         if passkey.user_id != user_id {

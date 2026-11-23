@@ -28,9 +28,43 @@ pub fn bytes_aleatorios<const N: usize>() -> [u8; N] {
     buf
 }
 
+/// Código de un solo uso de `digitos` cifras (1 a 9), uniforme. QA-41:
+/// `u32 % 10^n` favorece los valores bajos (2^32 no es múltiplo de 10^n);
+/// con muestreo por rechazo se descarta la franja final incompleta y cada
+/// código tiene exactamente la misma probabilidad.
+pub fn codigo_numerico(digitos: u32) -> String {
+    assert!((1..=9).contains(&digitos), "un código numérico va de 1 a 9 dígitos");
+    let modulo = 10u64.pow(digitos);
+    // Mayor múltiplo de `modulo` que cabe en el rango de un u32.
+    let zona_uniforme = ((1u64 << 32) / modulo) * modulo;
+    loop {
+        let n = u64::from(u32::from_be_bytes(bytes_aleatorios::<4>()));
+        if n < zona_uniforme {
+            return format!("{:0ancho$}", n % modulo, ancho = digitos as usize);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codigo_numerico_tiene_el_largo_pedido_y_solo_digitos() {
+        for digitos in [1, 6, 8, 9] {
+            for _ in 0..200 {
+                let c = codigo_numerico(digitos);
+                assert_eq!(c.len(), digitos as usize, "{c}");
+                assert!(c.bytes().all(|b| b.is_ascii_digit()), "{c}");
+            }
+        }
+    }
+
+    #[test]
+    fn codigo_numerico_de_un_digito_cubre_todos_los_valores() {
+        let vistos: std::collections::HashSet<String> = (0..1000).map(|_| codigo_numerico(1)).collect();
+        assert_eq!(vistos.len(), 10);
+    }
 
     #[test]
     fn bytes_aleatorios_no_son_todos_cero() {

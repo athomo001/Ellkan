@@ -86,11 +86,14 @@ pub fn validar_host(host: &str) -> Result<(), String> {
 }
 
 /// Un `usuario` aceptable: sin control ni saltos de línea, sin `-` inicial.
+/// Tampoco `;`: Windows Terminal (`wt … -- ssh usuario@host`) lo toma como
+/// separador de sus propios subcomandos aun después de `--`, así que
+/// `x;new-tab calc` abriría otro programa (pendiente #26).
 pub fn validar_usuario(usuario: &str) -> Result<(), String> {
     let ok = !usuario.is_empty()
         && usuario.len() <= 128
         && !usuario.starts_with('-')
-        && !usuario.chars().any(|c| c.is_control() || c == '"' || c == '\'');
+        && !usuario.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | ';'));
     if ok {
         Ok(())
     } else {

@@ -282,6 +282,8 @@ async fn sesion_pendiente_de_mfa_no_puede_reemplazar_el_totp_ni_cambiar_la_passp
             "encrypted_private_key_blob_b64": B64.encode([0u8; 96]),
             "private_key_nonce_b64": B64.encode([0u8; 24]),
             "kdf_salt_b64": B64.encode([0u8; 16]),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode([7u8; 32]),
             "challenge_nonce_b64": B64.encode([0u8; 32]),
             "signature_b64": B64.encode([0u8; 64]),
         }))

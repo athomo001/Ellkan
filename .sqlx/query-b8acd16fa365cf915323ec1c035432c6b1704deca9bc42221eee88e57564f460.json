@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update account_recovery_requests\n            set confirmation_failed_attempts = confirmation_failed_attempts + 1,\n                status = case when confirmation_failed_attempts + 1 >= $2 then 'expired' else status end,\n                resolved_at = case when confirmation_failed_attempts + 1 >= $2 then now() else resolved_at end\n            where id = $1 and status = 'unconfirmed'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b8acd16fa365cf915323ec1c035432c6b1704deca9bc42221eee88e57564f460"
+}

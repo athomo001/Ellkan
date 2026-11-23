@@ -65,7 +65,7 @@ stateDiagram-v2
 - las contraseñas que revelaste o copiaste;
 - en el modo "sólo memoria" de la app conectada, las contraseñas que se pidieron al servidor.
 
-Al bloquear se descartan. Como la web y la extensión corren en JavaScript, el navegador decide cuándo reutiliza esa memoria, así que pueden quedar restos un tiempo. Por eso conviene **bloquear al alejarte** y dejar activos el bloqueo por inactividad y el bloqueo con Windows.
+Al bloquear se descartan: en la web y la app, los bytes de las claves privadas se sobrescriben con ceros en ese momento, no sólo se sueltan. Las copias que hacen el motor de JavaScript o la parte en WebAssembly al usarlas, y las contraseñas reveladas (texto), no se pueden borrar así: el navegador decide cuándo reutiliza esa memoria, así que pueden quedar restos un tiempo. Por eso conviene **bloquear al alejarte** y dejar activos el bloqueo por inactividad y el bloqueo con Windows.
 
 ---
 
@@ -74,8 +74,9 @@ Al bloquear se descartan. Como la web y la extensión corren en JavaScript, el n
 | # | Quién / cómo | ¿Obtiene contraseñas? | Por qué |
 | --- | --- | --- | --- |
 | 1 | Roba la **base de datos del servidor** o una copia de seguridad | ❌ No | Sólo hay texto cifrado y claves privadas envueltas con contraseñas que el servidor nunca recibe. Ve correos, nombres, tags, grupos y fechas. |
-| 2 | El **administrador del servidor**, curioso | ❌ No | Mismo caso que el 1: administra cuentas y políticas, pero no tiene tus claves. *Excepción:* si la organización activó la recuperación de cuenta con custodia, varios administradores juntos pueden restablecer tu acceso. |
+| 2 | El **administrador del servidor**, curioso | ❌ No | Mismo caso que el 1: administra cuentas y políticas, pero no tiene tus claves. *Excepción:* si habilitaste la recuperación de cuenta por administradores, varios administradores juntos pueden restablecer tu acceso. La clave de esa recuperación la guardan ellos en sus navegadores, no el servidor. |
 | 3 | Escucha la **red** (Wi-Fi pública, proxy) | ❌ No | Entre tu equipo y el servidor viaja texto cifrado, y además va por HTTPS si el servidor lo tiene configurado. El login es una firma: tu contraseña nunca viaja. |
+| 3b | Conoce tu **correo** y pide tu clave al servidor | ❌ No | El servidor sólo entrega tu clave privada (cifrada) a quien prueba que conoce la contraseña maestra, con una prueba derivada de ella que no sirve para descifrar. Un intento equivocado recibe la misma respuesta que un correo que no existe, y hay un cupo de 10 intentos por minuto. |
 | 4 | Roba tu **notebook apagada o con la bóveda bloqueada** | ❌ No, salvo que adivine tu contraseña maestra | La base local tiene sólo texto cifrado. Argon2id hace lento probar contraseñas, pero una contraseña maestra débil se puede adivinar sin conexión: usá una frase larga. |
 | 5 | **Malware en tu sesión**, o alguien que hace un **volcado de memoria** con la bóveda **desbloqueada** | ⚠️ Sí | Las claves están en memoria. Ningún gestor de contraseñas protege contra esto: un programa con tu nivel de acceso también puede leer la pantalla y el teclado. |
 | 6 | Una **página web** maliciosa intenta hablarle a la app de escritorio | ❌ No | La extensión habla con la app por *native messaging* (sin puerto de red). El puerto local que sigue abierto para la ventana de la app rechaza a cualquier página web (403) y exige una sesión. |

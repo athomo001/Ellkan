@@ -6,16 +6,17 @@ pub mod audit;
 pub mod auth;
 pub mod b64;
 pub mod config;
+pub mod csv_seguro;
 // El código del módulo `desktop` vive físicamente en `app-escritorio/backend-desktop/`
 // (fuera de `backend/src/`) — pedido explícito del usuario, 2026-09-16: todo el
 // código del modo escritorio junto en `app-escritorio/`, no repartido por el resto
 // del código. `#[path]` lo mantiene lógicamente parte de este crate (sigue
 // resolviendo `crate::auth::...`, `crate::resources::...`, etc. con normalidad)
 // aunque el archivo no esté en la ubicación que Rust asume por default.
+pub mod datos_personales;
 #[cfg(feature = "desktop")]
 #[path = "../../app-escritorio/backend-desktop/mod.rs"]
 pub mod desktop;
-pub mod devices;
 pub mod directory_sync;
 pub mod emergency_access;
 pub mod error;
@@ -24,6 +25,8 @@ pub mod export;
 pub mod external_shares;
 pub mod folders;
 pub mod groups;
+pub mod ip_cliente;
+pub mod legal_links;
 pub mod me;
 pub mod metadata;
 pub mod mfa;
@@ -39,6 +42,7 @@ pub mod retention;
 pub mod revocacion;
 pub mod scim;
 pub mod self_registration;
+pub mod sesiones;
 pub mod sharing_policy;
 pub mod smtp_config;
 pub mod sso;
@@ -46,7 +50,9 @@ pub mod state;
 pub mod sync;
 pub mod system_status;
 pub mod tags;
+pub mod update_check;
 pub mod users_admin;
+pub mod validacion;
 
 use std::time::Duration;
 
@@ -85,7 +91,27 @@ use state::AppState;
 /// gobernado por ese `<meta>`, nunca por este header. El resto de las
 /// directivas sí puede (y debe) seguir acá: `frame-ancestors` en particular
 /// **tiene que** ser un header, un `<meta>` lo ignora por especificación.
-const CSP: &str = "object-src 'none'; frame-ancestors 'none'; base-uri 'self'";
+///
+/// QA-27: las dos políticas (header y `<meta>`) se aplican a la vez, así que
+/// acá NO puede ir `default-src`: valdría también para scripts y bloquearía
+/// el `<script>` inline, cuyo hash sólo conoce el `<meta>`. En su lugar, cada
+/// tipo de carga por separado, para que un XSS no pueda sacar datos a otro
+/// sitio (`connect-src`, `img-src`, `form-action`). El único destino externo
+/// es HIBP (comprobación opcional de contraseñas filtradas, `lib/salud`).
+/// `style-src` queda sin restringir: Svelte usa atributos `style` inline. La
+/// app de escritorio no pasa por acá: su CSP está en `tauri.conf.json`.
+const CSP: &str = "object-src 'none'; frame-ancestors 'none'; base-uri 'self'; connect-src 'self' https://api.pwnedpasswords.com; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'none'; frame-src 'none'; form-action 'self'";
+
+/// QA-27: la app no usa ninguna de estas APIs; negarlas acota lo que podría
+/// pedir un script inyectado. WebAuthn y el portapapeles quedan con su valor
+/// por defecto (sólo el propio origen).
+const PERMISSIONS_POLICY: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=()";
+
+/// QA-27: HSTS sólo si la dirección pública es `https://`. Sobre HTTP el
+/// navegador lo ignora igual (RFC 6797 §8.1), y una instalación local por
+/// `http://localhost` no debe quedar pegada a HTTPS. Sin `includeSubDomains`:
+/// Ellkan no sabe qué otros servicios viven en los subdominios.
+const HSTS: &str = "max-age=31536000";
 
 fn header_estatico(nombre: &'static str, valor: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
     SetResponseHeaderLayer::overriding(HeaderName::from_static(nombre), HeaderValue::from_static(valor))
@@ -96,7 +122,23 @@ fn header_estatico(nombre: &'static str, valor: &'static str) -> SetResponseHead
 /// `JSON.parse` sobre eso y mostraban un error genérico, y no quedaba nada en
 /// el log. Ahora es el mismo envelope JSON que cualquier otro error de la API,
 /// con los headers `retry-after`/`x-ratelimit-after` que trae el limitador, y
-/// el rechazo se registra con la ruta y la IP del span de `TraceLayer`.
+/// el rechazo se registra con la ruta y la IP del span de `TraceLayer` (la IP
+/// la agrega `ip_solo_en_abuso`).
+/// Pendiente #21 (minimización): la IP del cliente no va en los logs de cada
+/// solicitud, sólo en los rechazos por límite de solicitudes (429), donde
+/// hace falta para saber quién abusa. Se anota en el span `http_request`, así
+/// la lleva el WARN «solicitud rechazada por límite de solicitudes».
+async fn ip_solo_en_abuso(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    let ip = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0.ip());
+    let respuesta = next.run(req).await;
+    if respuesta.status() == axum::http::StatusCode::TOO_MANY_REQUESTS
+        && let Some(ip) = ip
+    {
+        tracing::Span::current().record("ip", tracing::field::display(ip));
+    }
+    respuesta
+}
+
 fn respuesta_limite_por_ip(err: tower_governor::GovernorError) -> axum::response::Response {
     use axum::response::IntoResponse;
     let (espera_s, headers) = match err {
@@ -116,8 +158,15 @@ fn respuesta_limite_por_ip(err: tower_governor::GovernorError) -> axum::response
 /// un set de headers. Aplicado globalmente (incluida la API JSON) — inerte
 /// ahí, pero evita duplicar la capa entre rutas de API y estáticas.
 fn capa_headers_seguridad(router: Router) -> Router {
+    let con_https = std::env::var("ELLKAN_RP_ORIGIN").is_ok_and(|o| o.trim().starts_with("https://"));
+    let router = if con_https {
+        router.layer(header_estatico("strict-transport-security", HSTS))
+    } else {
+        router
+    };
     router
         .layer(header_estatico("content-security-policy", CSP))
+        .layer(header_estatico("permissions-policy", PERMISSIONS_POLICY))
         .layer(header_estatico("x-content-type-options", "nosniff"))
         .layer(header_estatico("referrer-policy", "same-origin"))
         .layer(header_estatico("cross-origin-opener-policy", "same-origin"))
@@ -388,9 +437,31 @@ pub async fn construir_estado(database_url: &str, secrets_key: ellkan_crypto::se
     Ok(estado)
 }
 
+/// Pendiente #109 (QA-11): en una instancia nueva (sin usuarios) el token de
+/// instalación es obligatorio. Si el operador no configuró
+/// `ELLKAN_SETUP_TOKEN[_FILE]`, se genera uno al azar en cada arranque
+/// mientras no exista ningún usuario y se escribe en el log como WARN (se ve
+/// con el filtro por defecto). La pantalla de registro de la web pide el
+/// token y dice con qué comando leerlo. Con usuarios ya creados no cambia
+/// nada. Se llama desde `main` (los tests arman su propio estado).
+pub async fn asegurar_token_de_instalacion(estado: &mut AppState) -> anyhow::Result<()> {
+    use auth::repository::UserRepository;
+    if estado.setup_token.is_some() || estado.usuarios.existe_alguno().await? {
+        return Ok(());
+    }
+    let token: String = ellkan_crypto::aleatoriedad::bytes_aleatorios::<24>().iter().map(|b| format!("{b:02x}")).collect();
+    tracing::warn!(
+        "token de instalación: {token} — la web lo pide para crear la primera cuenta (que nace admin); deja de servir en cuanto esa cuenta existe"
+    );
+    estado.setup_token = Some(std::sync::Arc::new(secrecy::SecretBox::new(Box::new(token))));
+    Ok(())
+}
+
 /// Arma el router completo — separado de `main()` para que los tests de
 /// integración puedan levantar el mismo árbol de rutas sin duplicar nada.
 pub fn construir_router(estado: AppState) -> Router {
+    // QA-26: `Config::desde_entorno` ya rechazó un valor inválido al arrancar.
+    let proxies = ip_cliente::ProxiesConfiables::desde_entorno().unwrap_or_default();
     // Hallazgo real de uso: `/vault` sólo en el mount ya dispara ~9-10
     // llamadas reales (layout: permisos/perfil/avatar/preferencias; vault:
     // recursos, metadata-keys, carpetas, tags, password-policy) — con
@@ -409,12 +480,14 @@ pub fn construir_router(estado: AppState) -> Router {
     // `AppState::nuevo`). Acá sólo se limpian las claves viejas de los dos.
     let por_ip = estado.limitador_por_ip.clone();
     let por_usuario = estado.limitador_por_usuario.clone();
+    let por_auth_key = estado.limitador_auth_key.clone();
     tokio::spawn(async move {
         let mut intervalo = tokio::time::interval(Duration::from_secs(60));
         loop {
             intervalo.tick().await;
             por_ip.retain_recent();
             por_usuario.retain_recent();
+            por_auth_key.retain_recent();
         }
     });
 
@@ -467,16 +540,15 @@ pub fn construir_router(estado: AppState) -> Router {
     // `external_shares::job`.
     external_shares::job::spawn(&estado.eventos, estado.external_shares.clone(), Duration::from_secs(300));
 
+    // Pendiente #89: aviso de versión nueva — diario, y sin salir a la red
+    // mientras esté apagado (el default).
+    update_check::job::lanzar(estado.update_check.clone(), estado.eventos.clone());
+
     let webauthn_router = Router::new()
         .route("/register/options", post(passkeys::handlers::register_options))
         .route("/register/verify", post(passkeys::handlers::register_verify))
         .route("/login/options", post(passkeys::handlers::login_options))
         .route("/login/verify", post(passkeys::handlers::login_verify));
-
-    let device_approval_router = Router::new()
-        .route("/request", post(devices::handlers::solicitar_aprobacion))
-        .route("/{id}", get(devices::handlers::estado_aprobacion))
-        .route("/{id}/approve", post(devices::handlers::aprobar));
 
     // F-14: rate limit dedicado, keyed por sesión parcial — más estricto que
     // el general, ver `rate_limit::limitar_mfa_por_sesion`.
@@ -490,8 +562,11 @@ pub fn construir_router(estado: AppState) -> Router {
 
     let auth_router = Router::new()
         .route("/register", post(auth::handlers::register))
+        .route("/setup-status", get(auth::handlers::setup_status))
         .route("/server-key", get(auth::handlers::server_key))
         .route("/challenge", post(auth::handlers::challenge))
+        // QA-03: sal y parámetros primero; el blob, sólo contra la auth_key.
+        .route("/prelogin", post(auth::handlers::prelogin))
         .route("/key-material", post(auth::handlers::key_material))
         .route("/verify", post(auth::handlers::verify))
         .route("/verify-device", post(auth::handlers::verify_device))
@@ -502,32 +577,36 @@ pub fn construir_router(estado: AppState) -> Router {
         // de la cuenta (ver `revocacion`).
         .route("/estado-cuenta", post(revocacion::estado_cuenta))
         .nest("/webauthn", webauthn_router)
-        .nest("/device-approval", device_approval_router)
         .nest("/mfa", auth_mfa_router)
         .nest("/sso", sso_router);
 
-    let me_devices_router = Router::new()
-        .route("/", get(devices::handlers::listar_confiables))
-        .route("/trust", post(devices::handlers::marcar_confiable))
-        .route("/{id}", axum::routing::delete(devices::handlers::revocar))
-        .route("/pending-approvals", get(devices::handlers::listar_pendientes));
+    // QA-21: sesiones abiertas del usuario (reemplaza la aprobación de
+    // dispositivos y los dispositivos de confianza).
+    let me_sessions_router = Router::new()
+        .route("/", get(sesiones::listar))
+        .route("/close-others", post(sesiones::cerrar_otras))
+        .route("/{id}", axum::routing::delete(sesiones::cerrar));
 
     // F-03 (PRF): listar/revocar passkeys propias — a diferencia de
     // `/auth/webauthn/*` (sin sesión, ceremonia de alta/login), esto exige
-    // sesión activa, mismo criterio que `/me/devices`.
+    // sesión activa, mismo criterio que `/me/sessions`.
     let me_passkeys_router = Router::new()
         .route("/", get(passkeys::handlers::listar))
         .route("/{id}", axum::routing::delete(passkeys::handlers::revocar));
-
-    let admin_device_approval_policy_router =
-        Router::new().route("/", get(devices::handlers::politica).put(devices::handlers::actualizar_politica));
 
     let me_preferences_router = Router::new().route("/", get(me::handlers::obtener).put(me::handlers::actualizar));
 
     let me_router = Router::new()
         .route("/", get(me::handlers::perfil))
         .route("/permissions", get(me::handlers::permisos))
-        .route("/groups", get(me::handlers::grupos));
+        .route("/groups", get(me::handlers::grupos))
+        // Pendiente #58: derecho de acceso a los datos personales propios.
+        .route("/personal-data", get(datos_personales::handlers::exportar))
+        // Pendiente #133: primer par de claves de una cuenta creada por SSO.
+        .route("/keys/enroll", post(me::handlers::enrolar_claves))
+        // QA-03: re-sellar con los parámetros actuales una cuenta sellada
+        // antes de QA-03, con la misma passphrase y sin cerrar sesiones.
+        .route("/kdf-upgrade", post(me::handlers::mejorar_kdf));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
     // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
     // en base64 dentro de un JSON (~33% más grande que los bytes crudos),
@@ -692,7 +771,16 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_account_recovery_requests_router = Router::new()
         .route("/", get(account_recovery::handlers::listar_solicitudes_pendientes))
         .route("/{id}/approve", post(account_recovery::handlers::aprobar))
-        .route("/{id}/reject", post(account_recovery::handlers::rechazar));
+        .route("/{id}/reject", post(account_recovery::handlers::rechazar))
+        // QA-09: el custodio re-sella en su navegador.
+        .route("/{id}/custody-material", get(account_recovery::handlers::material_para_custodio))
+        .route("/{id}/execute", post(account_recovery::handlers::ejecutar));
+    // QA-09: custodia de la clave organizacional en el navegador de los admins.
+    let admin_account_recovery_custody_router = Router::new()
+        .route("/custody", get(account_recovery::handlers::estado_custodia))
+        .route("/org-keys", post(account_recovery::handlers::crear_clave_org))
+        .route("/org-keys/{id}/envelopes", post(account_recovery::handlers::agregar_custodio))
+        .route("/server-key", delete(account_recovery::handlers::purgar_clave_servidor));
 
     let me_recovery_kit_router = Router::new()
         .route("/", get(recovery_kit::handlers::estado).put(recovery_kit::handlers::generar_o_regenerar))
@@ -781,6 +869,8 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_groups_export_router = Router::new().route("/", get(export::handlers::exportar_grupos));
     let admin_reports_router = Router::new().route("/{reportId}", get(reports::handlers::obtener));
     let admin_system_status_router = Router::new().route("/", get(system_status::handlers::obtener));
+    let admin_legal_links_router = Router::new().route("/", get(legal_links::handlers::obtener).put(legal_links::handlers::actualizar));
+    let admin_update_check_router = Router::new().route("/", get(update_check::handlers::obtener).put(update_check::handlers::fijar));
 
     let admin_external_share_policy_router = Router::new().route(
         "/",
@@ -847,10 +937,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/me/preferences", me_preferences_router)
         .nest("/me/avatar", me_avatar_router)
         .nest("/me/change-passphrase", me_change_passphrase_router)
-        .nest("/me/devices", me_devices_router)
+        .nest("/me/sessions", me_sessions_router)
         .nest("/me/passkeys", me_passkeys_router)
         .nest("/me/mfa/totp", me_mfa_totp_router)
-        .nest("/admin/device-approval-policy", admin_device_approval_policy_router)
         .nest("/admin/mfa-policy", admin_mfa_policy_router)
         .nest("/admin/smtp-config", admin_smtp_config_router)
         .nest("/admin/password-policy", admin_password_policy_router)
@@ -860,9 +949,12 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/account-recovery-policy", admin_account_recovery_policy_router)
         .nest("/account-recovery", account_recovery_router)
         .nest("/admin/account-recovery/requests", admin_account_recovery_requests_router)
+        .nest("/admin/account-recovery", admin_account_recovery_custody_router)
         .nest("/me/recovery-kit", me_recovery_kit_router)
         .nest("/recovery-kit/reset", recovery_kit_reset_router)
         .nest("/me/emergency-access", me_emergency_access_router)
+        // QA-31: vincular el SSO de la organización a la cuenta propia.
+        .route("/me/sso/link", post(sso::handlers::vincular))
         .nest("/admin/emergency-access-policy", admin_emergency_access_policy_router)
         .nest("/admin/sso-config", admin_sso_config_router)
         .nest("/admin/scim-tokens", admin_scim_tokens_router)
@@ -879,6 +971,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/groups/export", admin_groups_export_router)
         .nest("/admin/reports", admin_reports_router)
         .nest("/admin/system-status", admin_system_status_router)
+        .nest("/admin/update-check", admin_update_check_router)
+        .nest("/admin/legal-links", admin_legal_links_router)
         .fallback(fallback_frontend)
         // `route_layer` (no `layer`): a diferencia de `layer`, no envuelve al
         // `fallback` — el rate limit general es para proteger la API contra
@@ -896,23 +990,22 @@ pub fn construir_router(estado: AppState) -> Router {
         // nunca pasa por el limitador de la API, es tráfico de assets
         // estáticos igual que un 404 normal contra el bundle.
         .layer(axum::middleware::from_fn(rescate_spa_en_recarga))
+        // Dentro del `TraceLayer` (se agrega antes), así el span actual es el
+        // de la solicitud.
+        .layer(axum::middleware::from_fn(ip_solo_en_abuso))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|req: &axum::http::Request<_>| {
                     // Sólo método + ruta (sin query string) — nunca headers ni
                     // body. `actor_id` se completa después, si la ruta exige
                     // sesión, en `AuthenticatedUser::from_request_parts`.
-                    // `ip`: la que ve el limitador por IP — sin ella no había
-                    // forma de saber quién agotaba el cupo (2026-10-17).
-                    let ip = req
-                        .extensions()
-                        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-                        .map(|c| c.0.ip().to_string());
+                    // `ip` queda vacía: sólo la completa `ip_solo_en_abuso`
+                    // cuando la respuesta es 429 (pendiente #21).
                     tracing::info_span!(
                         "http_request",
                         method = %req.method(),
                         path = %req.uri().path(),
-                        ip = ip.as_deref().unwrap_or("-"),
+                        ip = Empty,
                         status = Empty,
                         actor_id = Empty,
                     )
@@ -935,6 +1028,8 @@ pub fn construir_router(estado: AppState) -> Router {
                     }
                 }),
         )
+        // QA-26: la capa más externa, antes de cualquier límite por IP.
+        .layer(axum::middleware::from_fn_with_state(proxies, ip_cliente::reemplazar_peer_por_cliente))
         .with_state(estado);
 
     capa_headers_seguridad(router).layer(capa_cors())

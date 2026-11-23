@@ -13,3 +13,12 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+
+# QA-03: Argon2id con 64 MiB / t=3 sin optimizar tarda segundos por
+# derivación y cada test de integración registra varias cuentas. Sólo estos
+# crates se compilan optimizados en dev; el resto queda igual de depurable.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

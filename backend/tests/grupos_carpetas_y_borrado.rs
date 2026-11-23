@@ -55,7 +55,7 @@ async fn crear_carpeta(entorno: &common::Entorno, sesion: Uuid, parent: Option<U
         .cliente
         .post(format!("{}/folders", entorno.base))
         .bearer_auth(sesion)
-        .json(&json!({ "id": id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==", "parent_folder_id": parent }))
+        .json(&json!({ "id": id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "parent_folder_id": parent }))
         .send()
         .await
         .unwrap()
@@ -78,10 +78,10 @@ async fn crear_recurso(entorno: &common::Entorno, sesion: Uuid) -> Uuid {
             "id": id,
             "resource_type_slug": "login-password",
             "metadata_ciphertext_b64": "eA==",
-            "metadata_nonce_b64": "eA==",
-            "sealed_dek_b64": "eA==",
+            "metadata_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -212,9 +212,9 @@ async fn compartir_recurso_funciona_aunque_la_busqueda_este_restringida_por_grup
         .bearer_auth(sesion_alice)
         .json(&json!({
             "recipient_user_id": bob.user_id,
-            "sealed_dek_b64": "eA==",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         }))
         .send()
         .await
@@ -402,8 +402,8 @@ async fn cualquier_miembro_agrega_recursos_a_carpeta_de_grupo_pero_no_un_ajeno()
             "grantee_id": g1,
             "level": "read",
             "member_envelopes": [
-                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
-                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
             ],
         }))
         .send()
@@ -474,7 +474,7 @@ async fn mover_recurso_ajeno_a_carpeta_de_grupo_propio_es_rechazado() {
             "grantee_id": g_mallory,
             "level": "read",
             "member_envelopes": [
-                { "user_id": mallory.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                { "user_id": mallory.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
             ],
         }))
         .send()
@@ -542,8 +542,8 @@ async fn borrar_recurso_en_carpeta_de_grupo_exige_admin_de_ese_grupo_o_de_organi
             "grantee_id": g1,
             "level": "read",
             "member_envelopes": [
-                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
-                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
             ],
         }))
         .send()
@@ -747,9 +747,9 @@ async fn usuario_con_read_y_admin_de_grupo_no_puede_borrar_recurso_ajeno() {
         .bearer_auth(sesion_victima)
         .json(&json!({
             "recipient_user_id": mallory.user_id,
-            "sealed_dek_b64": "eA==",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "level": "read",
         }))
         .send()
@@ -769,7 +769,7 @@ async fn usuario_con_read_y_admin_de_grupo_no_puede_borrar_recurso_ajeno() {
                     "grantee_id": g_mallory,
                     "level": "read",
                     "member_envelopes": [
-                        { "user_id": mallory.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                        { "user_id": mallory.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
                     ],
                 }))
                 .send()
@@ -850,8 +850,8 @@ async fn puede_borrar_del_listado_coincide_con_delete() {
             "grantee_id": g1,
             "level": "read",
             "member_envelopes": [
-                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
-                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "eA==" },
+                { "user_id": dave.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+                { "user_id": carol.user_id, "name_ciphertext_b64": "eA==", "name_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
             ],
         }))
         .send()
@@ -871,9 +871,9 @@ async fn puede_borrar_del_listado_coincide_con_delete() {
         .bearer_auth(sesion_dave)
         .json(&json!({
             "recipient_user_id": carol.user_id,
-            "sealed_dek_b64": "eA==",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "level": "read",
         }))
         .send()
@@ -1007,9 +1007,9 @@ async fn recurso_borrado_no_sirve_su_secreto_a_los_destinatarios() {
         .bearer_auth(sesion_duena)
         .json(&json!({
             "recipient_user_id": lector.user_id,
-            "sealed_dek_b64": "eA==",
+            "sealed_dek_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             "secret_ciphertext_b64": "eA==",
-            "secret_nonce_b64": "eA==",
+            "secret_nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "level": "read",
         }))
         .send()

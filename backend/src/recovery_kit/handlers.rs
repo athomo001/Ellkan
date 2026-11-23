@@ -123,7 +123,14 @@ pub async fn completar_reset(
     let blob = decodificar_b64("encrypted_private_key_blob_b64", &req.encrypted_private_key_blob_b64)?;
     let nonce = decodificar_b64("private_key_nonce_b64", &req.private_key_nonce_b64)?;
     let salt = decodificar_b64("kdf_salt_b64", &req.kdf_salt_b64)?;
-    let nueva = NuevaClavePrivada { encrypted_private_key_blob: blob, private_key_nonce: nonce, kdf_salt: salt };
+    let auth_key = crate::validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
+    let nueva = NuevaClavePrivada {
+        encrypted_private_key_blob: blob,
+        private_key_nonce: nonce,
+        kdf_salt: salt,
+        kdf_params: req.kdf_params,
+        auth_key,
+    };
     let prueba = PruebaDePosesion {
         challenge: decodificar_b64("challenge_nonce_b64", &req.challenge_nonce_b64)?,
         firma: decodificar_b64("signature_b64", &req.signature_b64)?,

@@ -44,9 +44,29 @@ pub struct UsuarioBusqueda {
 /// `user_keys`, nunca la clave privada en claro.
 #[derive(Debug, Clone)]
 pub struct MaterialDesbloqueo {
+    /// QA-16: el email tal como quedó guardado, que es el AAD del blob. La
+    /// búsqueda no distingue mayúsculas: el cliente tiene que abrir el blob
+    /// con éste, no con lo que tipeó.
+    pub email: String,
     pub encrypted_private_key_blob: Vec<u8>,
     pub private_key_nonce: Vec<u8>,
     pub kdf_salt: Vec<u8>,
+    /// QA-03: parámetros de Argon2id con que se selló el blob.
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    /// QA-03: verificador de la `auth_key`; `None` = cuenta sellada antes
+    /// de QA-03, que todavía recibe el blob sin probar nada.
+    pub auth_verifier: Option<Vec<u8>>,
+}
+
+/// QA-03: lo que devuelve `POST /auth/prelogin` — lo necesario para derivar
+/// la `auth_key` antes de pedir el blob.
+#[derive(Debug, Clone)]
+pub struct Prelogin {
+    pub email: String,
+    pub kdf_salt: Vec<u8>,
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    /// `false` sólo para una cuenta sellada antes de QA-03.
+    pub auth_key_required: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +78,10 @@ pub struct NuevoUsuario<'a> {
     pub encrypted_private_key_blob: &'a [u8],
     pub private_key_nonce: &'a [u8],
     pub kdf_salt: &'a [u8],
+    /// QA-03: parámetros de Argon2id y `auth_key` del mismo Argon2id.
+    /// `None` sólo para la cuenta SSO que todavía no enroló claves.
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    pub auth_key: Option<&'a [u8]>,
 }
 
 #[derive(Debug, Clone)]

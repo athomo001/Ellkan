@@ -41,8 +41,8 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use uuid::Uuid;
 
 use crate::auth::dto::{
-    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, RegisterRequest, RegisterResponse, ServerKeyResponse,
-    VerifyDeviceRequest, VerifyRequest, VerifyResponse,
+    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PreloginRequest, PreloginResponse, RegisterRequest,
+    RegisterResponse, ServerKeyResponse, VerifyDeviceRequest, VerifyRequest, VerifyResponse,
 };
 use crate::auth::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
 use crate::auth::repository::{SessionRepository, UserRepository};
@@ -202,6 +202,7 @@ async fn register(State(state): State<AppStateDesktop>, Json(req): Json<Register
     let nonce =
         b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
     let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
+    let auth_key = crate::validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -211,6 +212,8 @@ async fn register(State(state): State<AppStateDesktop>, Json(req): Json<Register
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: req.kdf_params,
+        auth_key: Some(&auth_key),
     };
 
     // Sin token de instalación: el backend de escritorio sólo escucha en
@@ -257,6 +260,7 @@ async fn register_desde_servidor(
     let blob = decodificar(&r.encrypted_private_key_blob_b64, "encrypted_private_key_blob_b64")?;
     let nonce = decodificar(&r.private_key_nonce_b64, "private_key_nonce_b64")?;
     let salt = decodificar(&r.kdf_salt_b64, "kdf_salt_b64")?;
+    let auth_key = crate::validacion::sello_nuevo(&r.kdf_params, &r.auth_key_b64)?;
 
     let nuevo = NuevoUsuario {
         email: &r.email,
@@ -266,6 +270,8 @@ async fn register_desde_servidor(
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: r.kdf_params,
+        auth_key: Some(&auth_key),
     };
     let usuario = state.usuarios.crear_con_id(nuevo, req.user_id).await.map_err(|e| match e {
         RepoError::Conflict => DomainError::Conflict,
@@ -297,6 +303,7 @@ async fn adoptar_identidad(
     let blob = decodificar(&r.encrypted_private_key_blob_b64, "encrypted_private_key_blob_b64")?;
     let nonce = decodificar(&r.private_key_nonce_b64, "private_key_nonce_b64")?;
     let salt = decodificar(&r.kdf_salt_b64, "kdf_salt_b64")?;
+    let auth_key = crate::validacion::sello_nuevo(&r.kdf_params, &r.auth_key_b64)?;
     let nuevo = NuevoUsuario {
         email: &r.email,
         display_name: &r.display_name,
@@ -305,6 +312,8 @@ async fn adoptar_identidad(
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: r.kdf_params,
+        auth_key: Some(&auth_key),
     };
     let usuario = state.usuarios.reemplazar_identidad(nuevo, req.user_id).await.map_err(DomainError::from)?;
     Ok(Json(RegisterResponse { user_id: usuario.id, pending_verification: false }))
@@ -451,16 +460,74 @@ async fn challenge(State(state): State<AppStateDesktop>, Json(req): Json<Challen
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
 }
 
+/// QA-03: mismo protocolo que el servidor (`auth::handlers::prelogin`), así
+/// el cliente desbloquea igual contra los dos.
+async fn prelogin(State(state): State<AppStateDesktop>, Json(req): Json<PreloginRequest>) -> Result<Json<PreloginResponse>, ApiError> {
+    let p = servicio(&state).prelogin(&req.email, &state.secrets_key).await?;
+    Ok(Json(PreloginResponse {
+        email: p.email,
+        kdf_salt_b64: b64::encode(&p.kdf_salt),
+        kdf_params: p.kdf_params,
+        auth_key_required: p.auth_key_required,
+    }))
+}
+
 async fn key_material(
     State(state): State<AppStateDesktop>,
     Json(req): Json<KeyMaterialRequest>,
 ) -> Result<Json<KeyMaterialResponse>, ApiError> {
-    let material = servicio(&state).material_desbloqueo(&req.email, &state.secrets_key).await?;
+    let auth_key = req
+        .auth_key_b64
+        .as_deref()
+        .map(|v| crate::validacion::b64_exacto(v, "auth_key_b64", crate::validacion::LARGO_AUTH_KEY))
+        .transpose()?;
+    let material = servicio(&state).material_desbloqueo(&req.email, auth_key.as_deref()).await?;
     Ok(Json(KeyMaterialResponse {
+        email: material.email,
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),
         kdf_salt_b64: b64::encode(&material.kdf_salt),
+        kdf_params: material.kdf_params,
     }))
+}
+
+/// `POST /me/kdf-upgrade` (QA-03): igual que en el servidor
+/// (`me::handlers::mejorar_kdf`), contra la bóveda local.
+async fn mejorar_kdf_local(
+    State(state): State<AppStateDesktop>,
+    auth: AuthenticatedUserDesktop,
+    Json(req): Json<crate::me::dto::CambiarPassphraseRequest>,
+) -> Result<StatusCode, ApiError> {
+    let (nueva, prueba) = crate::me::handlers::reemplazo_desde(&req)?;
+    let verificado = crate::me::service::verificar_posesion(&state.usuarios, &state.challenges, auth.user_id, nueva, &prueba).await?;
+    let (user_id, nueva) = verificado.en_partes();
+    if !state.usuarios.mejorar_sello_legado(user_id, &nueva).await.map_err(DomainError::from)? {
+        return Err(DomainError::Conflict.into());
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// QA-03: el blob re-sellado de los flujos propios del escritorio (cambio
+/// de correo, recuperación con el kit), con sus parámetros y `auth_key`.
+fn nueva_clave_local(
+    blob_b64: &str,
+    nonce_b64: &str,
+    salt_b64: &str,
+    kdf_params: &ellkan_crypto::derivacion::ParametrosKdf,
+    auth_key_b64: &str,
+) -> Result<crate::me::models::NuevaClavePrivada, DomainError> {
+    use crate::validacion;
+    Ok(crate::me::models::NuevaClavePrivada {
+        encrypted_private_key_blob: validacion::b64_exacto(
+            blob_b64,
+            "encrypted_private_key_blob_b64",
+            validacion::LARGO_BLOB_CLAVE_PRIVADA,
+        )?,
+        private_key_nonce: validacion::b64_exacto(nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?,
+        kdf_salt: validacion::b64_exacto(salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?,
+        auth_key: validacion::sello_nuevo(kdf_params, auth_key_b64)?,
+        kdf_params: *kdf_params,
+    })
 }
 
 async fn verify(State(state): State<AppStateDesktop>, Json(req): Json<VerifyRequest>) -> Result<Json<VerifyResponse>, ApiError> {
@@ -1182,7 +1249,15 @@ async fn crear_recurso_metadata_only(
 
     let recurso = state
         .recursos
-        .crear(req.id, resource_type_id, &metadata_ciphertext, &metadata_nonce, auth.user_id, req.metadata_key_id)
+        .crear(
+            req.id,
+            resource_type_id,
+            &metadata_ciphertext,
+            &metadata_nonce,
+            auth.user_id,
+            req.metadata_key_id,
+            None,
+        )
         .await
         .map_err(DomainError::from)?;
 
@@ -1288,6 +1363,9 @@ pub struct CambiarEmailRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id.
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    pub auth_key_b64: String,
 }
 
 #[derive(serde::Serialize)]
@@ -1328,16 +1406,15 @@ async fn cambiar_email_local(
         return Err(DomainError::ValidacionInvalida("el correo no tiene una forma válida (algo@dominio)".into()).into());
     }
 
-    let blob = b64::decode(&req.encrypted_private_key_blob_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce =
-        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
-    if blob.is_empty() || nonce.len() != 24 || salt.is_empty() {
-        return Err(DomainError::ValidacionInvalida("el blob re-sellado de la clave privada es inválido".into()).into());
-    }
+    let nueva = nueva_clave_local(
+        &req.encrypted_private_key_blob_b64,
+        &req.private_key_nonce_b64,
+        &req.kdf_salt_b64,
+        &req.kdf_params,
+        &req.auth_key_b64,
+    )?;
 
-    match state.usuarios.actualizar_email_y_blob(auth.user_id, nuevo, &blob, &nonce, &salt).await {
+    match state.usuarios.actualizar_email_y_blob(auth.user_id, nuevo, &nueva).await {
         Ok(true) => Ok(Json(CambiarEmailResponse { email: nuevo.to_string() })),
         Ok(false) => Err(DomainError::NotFound.into()),
         Err(RepoError::Conflict) => Err(DomainError::ValidacionInvalida("ese correo ya está en uso".into()).into()),
@@ -1476,6 +1553,9 @@ pub struct RecuperarLocalRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id.
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
+    pub auth_key_b64: String,
 }
 
 /// `POST /auth/recovery-kit/local/complete` — el cliente ya desselló el
@@ -1522,21 +1602,15 @@ async fn recovery_kit_local_completar(
         .verify(&nonce, &Signature::from_bytes(&firma))
         .map_err(|_| DomainError::InvalidCredentials)?;
 
-    let blob = b64::decode(&req.encrypted_private_key_blob_b64)
-        .map_err(|_| DomainError::ValidacionInvalida("encrypted_private_key_blob_b64 inválido".into()))?;
-    let nonce_blob =
-        b64::decode(&req.private_key_nonce_b64).map_err(|_| DomainError::ValidacionInvalida("private_key_nonce_b64 inválido".into()))?;
-    let salt = b64::decode(&req.kdf_salt_b64).map_err(|_| DomainError::ValidacionInvalida("kdf_salt_b64 inválido".into()))?;
-    if blob.is_empty() || nonce_blob.len() != 24 || salt.is_empty() {
-        return Err(DomainError::ValidacionInvalida("el blob re-sellado de la clave privada es inválido".into()).into());
-    }
+    let nueva = nueva_clave_local(
+        &req.encrypted_private_key_blob_b64,
+        &req.private_key_nonce_b64,
+        &req.kdf_salt_b64,
+        &req.kdf_params,
+        &req.auth_key_b64,
+    )?;
 
-    if !state
-        .usuarios
-        .reemplazar_clave_por_recuperacion(user.id, &blob, &nonce_blob, &salt)
-        .await
-        .map_err(DomainError::from)?
-    {
+    if !state.usuarios.reemplazar_clave_por_recuperacion(user.id, &nueva).await.map_err(DomainError::from)? {
         return Err(DomainError::NotFound.into());
     }
 
@@ -1726,6 +1800,7 @@ pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
         .route("/auth/server-key", get(server_key))
         .route("/auth/existe-usuario", get(existe_usuario))
         .route("/auth/challenge", post(challenge))
+        .route("/auth/prelogin", post(prelogin))
         .route("/auth/key-material", post(key_material))
         .route("/auth/verify", post(verify))
         .route("/auth/verify-device", post(verify_device))
@@ -1750,6 +1825,7 @@ pub fn construir_router_desktop(estado: AppStateDesktop) -> Router {
         .route("/me/permissions", get(me_permisos))
         .route("/me/preferences", get(preferencias_default).put(preferencias_actualizar))
         .route("/me/email", put(cambiar_email_local))
+        .route("/me/kdf-upgrade", post(mejorar_kdf_local))
         // 2 MB de imagen pasan de 2.6 MB en base64, más que el límite por
         // defecto de axum — mismo límite que la versión servidor.
         .route(

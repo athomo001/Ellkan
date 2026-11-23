@@ -58,7 +58,7 @@
 		][fortaleza.score]
 	);
 
-	let blobListo: { blobB64: string; nonceB64: string; saltB64: string } | undefined;
+	let blobListo: BlobClaveNueva | undefined;
 	/** Material desellado del kit (x25519 || ed25519): hace falta para la
 	 * prueba de posesión del paso MFA (QA-06); se borra al completar. */
 	let materialListo: Uint8Array | undefined;
@@ -112,7 +112,7 @@
 	async function recuperarLocal(material: Uint8Array, blob: BlobClaveNueva) {
 		const desafio = await api.post<{ nonce_b64: string }>('/auth/challenge', { email });
 		const firma = await firmarChallengeConMaterial(material, base64ABytes(desafio.nonce_b64));
-		await recoveryKitApi.completarLocal(email, desafio.nonce_b64, firma, blob.blobB64, blob.nonceB64, blob.saltB64);
+		await recoveryKitApi.completarLocal(email, desafio.nonce_b64, firma, blob);
 	}
 
 	async function confirmarKitYPassphrase(e: SubmitEvent) {
@@ -161,14 +161,7 @@
 			if (!materialListo) return;
 			// QA-06: firma con la identidad desellada del kit.
 			const prueba = await pruebaDePosesion(api.post, email, materialListo.slice(32, 64), blobListo);
-			await recoveryKitApi.completar(
-				token,
-				codigoMfa,
-				blobListo.blobB64,
-				blobListo.nonceB64,
-				blobListo.saltB64,
-				prueba
-			);
+			await recoveryKitApi.completar(token, codigoMfa, blobListo, prueba);
 			materialListo.fill(0);
 			materialListo = undefined;
 			paso = 'lista';

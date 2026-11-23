@@ -101,7 +101,7 @@ async function main() {
 	console.log('OK: sin clave efímera, el residuo cifrado se purga en vez de reintentarse');
 
 	// --- F-38 (desbloqueo rápido local con TOTP): round-trip criptográfico
-	// real con el mismo wasm que usa `TotpLocalService`. No se ejercita el
+	// real con el mismo wasm que usa `frontend/src/lib/crypto/totp-local.ts` (sólo escritorio desde QA-08). No se ejercita el
 	// service completo porque `device-key.ts` necesita IndexedDB (no hay en
 	// Node) — pero la parte crítica es esta: envolver/desenvolver la
 	// passphrase con el secreto TOTP, y que un código o secreto equivocado

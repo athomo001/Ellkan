@@ -25,6 +25,10 @@ where
     /// gestionada por otro `externalId` (o creada manualmente) falla
     /// explícito, nunca fusiona ni pisa silenciosamente.
     pub async fn crear_usuario(&self, external_id: &str, email: &str, display_name: &str) -> Result<ResultadoCrearUsuario, DomainError> {
+        // QA-45: el IdP es confiable pero no infalible; un email o nombre
+        // roto se rechaza igual que en el registro.
+        crate::validacion::email(email)?;
+        crate::validacion::nombre_visible(display_name)?;
         if let Some(existente) = self.usuarios.buscar_por_external_id(external_id).await? {
             return Ok(ResultadoCrearUsuario::YaExistiaPorExternalId(existente));
         }

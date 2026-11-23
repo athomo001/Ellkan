@@ -23,7 +23,7 @@ A self-hosted password manager with a zero-knowledge architecture: the server ne
 
 | App | What it is for | More information |
 | --- | --- | --- |
-| **Web + server** | The Ellkan server for a team: users, groups, sharing and administration. It is what the [quickstart](#quickstart) sets up. | [Installation manual](manual/instalacion.md) |
+| **Web + server** | The Ellkan server for a team: users, groups, sharing and administration. It is what the [server installation](#installing-the-server-docker) sets up. | [Installation manual](manual/instalacion.md) |
 | **Desktop (Windows)** | A password manager for **one person**. Everything stays encrypted on your PC: it works offline, with no server and no cloud account, and can optionally connect to an Ellkan server. It ships with an MSI installer, a tray icon with a global shortcut, a «Connect» button (SSH, RDP, PostgreSQL, MySQL, MongoDB, FTP, Telnet, VNC), vault health checks, automatic backups and the browser extension built in. | [Desktop app guide](app-escritorio/GUIA.md) (Spanish) |
 | **Browser extension** | Autofills your credentials in Chrome, Edge, Brave, Opera and Firefox. It works with the server or with the desktop app, which can also install it. | [Browser extension](extension/README.md) (Spanish) |
 
@@ -69,7 +69,7 @@ How to load the extension by hand in each browser: [extension/README.md](extensi
 
 ### Team or company: the server (Docker)
 
-The server is **not among the Release files**: it is published as a Docker image at `ghcr.io/athomo001/ellkan`, tagged `latest` (newest version), `X.Y` and `X.Y.Z`. The [quickstart](#quickstart) pulls it for you. It contains the server and the web app, but **not the desktop app**.
+The server is **not among the Release files**: it is published as a Docker image at `ghcr.io/athomo001/ellkan`, tagged `latest` (newest version), `X.Y` and `X.Y.Z`. The [server installation](#installing-the-server-docker) pulls it for you. It contains the server and the web app, but **not the desktop app**.
 
 Once it is running, everyone signs in from the browser. The extension and, optionally, the desktop app connect to that server. To administer it (create the first admin, backups) there is the CLI, which is downloaded from Releases: `ellkan-cli_X.Y.Z_windows_x64.exe` · `ellkan-cli_X.Y.Z_linux_x64`.
 
@@ -135,53 +135,128 @@ To verify a download: `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, o
 | zeroize / secrecy | Secure wiping and redaction of secrets in memory |
 | subtle | Constant-time comparisons (timing-attack mitigation) |
 
-## Quickstart
+## Installing the server (Docker)
 
-Requires Docker and Docker Compose. Nothing needs to be compiled: the server is pulled ready-made from `ghcr.io` (see [Downloads](#downloads)).
+Nothing needs to be compiled: the server is pulled ready-made from `ghcr.io` (see [Downloads](#downloads)). There are five steps; each one has the commands for **Linux/macOS** (`bash`) and for **Windows** (PowerShell).
+
+### 1. Install the prerequisites
+
+**Linux/macOS:** Docker and Docker Compose, plus `git` and `openssl`.
+
+**Windows** (once; sign out and back in when done):
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Docker.DockerDesktop -e
+```
+
+Open Docker Desktop and wait until it says the engine is running.
+
+### 2. Clone and load the `.env`
 
 ```bash
 git clone https://github.com/athomo001/Ellkan.git
 cd Ellkan
 cp .env.example .env
 set -a && source .env && set +a
+```
 
-# Deployment secrets — see secrets/README.md for details on each one.
-# Reads POSTGRES_USER/POSTGRES_DB from the .env you just loaded — if you
-# changed them above, this builds the right DATABASE_URL on its own,
-# instead of you having to keep two places in sync by hand.
+```powershell
+git clone https://github.com/athomo001/Ellkan.git
+cd Ellkan
+Copy-Item .env.example .env
+
+# Same as `set -a && source .env`: only lasts in this window.
+Get-Content .env | Where-Object { $_ -match '^\s*[^#\s][^=]*=' } | ForEach-Object {
+    $k, $v = $_ -split '=', 2
+    Set-Item "env:$($k.Trim())" $v.Trim()
+}
+```
+
+The `.env` is only loaded in that terminal: if you open another one, repeat the last line (bash) or the `Get-Content` block (PowerShell).
+
+### 3. Generate the secrets
+
+**First time only.** If you already started the server, don't regenerate them: the database keeps the password in its volume and the secrets key protects data that is already encrypted. Each file is described in [secrets/README.md](secrets/README.md).
+
+```bash
 openssl rand -hex 24 > secrets/postgres_password.txt
 openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
 echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
+```
 
-# Pulls the image for the version set in ELLKAN_VERSION (.env; the latest
-# by default). If it can't find it, it builds it from this source tree.
+```powershell
+function Aleatorio([int]$n) {
+    $b = New-Object byte[] $n
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+    return ,$b
+}
+
+# Same as `openssl rand -hex 24` and `openssl rand -base64 32`.
+$pass = -join ((Aleatorio 24) | ForEach-Object { $_.ToString('x2') })
+Set-Content secrets/postgres_password.txt $pass -NoNewline -Encoding ascii
+Set-Content secrets/ellkan_secrets_key.txt ([Convert]::ToBase64String((Aleatorio 32))) -NoNewline -Encoding ascii
+Set-Content secrets/database_url.txt "postgres://$($env:POSTGRES_USER):$pass@ellkan-db:5432/$($env:POSTGRES_DB)" -NoNewline -Encoding ascii
+```
+
+In PowerShell, `-NoNewline -Encoding ascii` matters: `>` or `echo` write UTF-16 or append `\r\n`, and that `\r` ends up stuck to the password inside the Linux container.
+
+### 4. Start it
+
+```bash
 docker compose up -d
 ```
 
-> To build the server from source instead of pulling it: `docker compose up -d --build`. To move to a newer version later, see [Updating / rebuilding after a change](#updating--rebuilding-after-a-change).
+This pulls the image for the version set in `ELLKAN_VERSION` (`.env`; `latest` by default, the latest official release) and, if it can't find it, builds it from this source tree (takes several minutes). To always build from source: `docker compose up -d --build`.
 
-The app is now at `http://localhost:${ELLKAN_PORT:-8080}`. The first admin is created with the CLI: download `ellkan-cli_X.Y.Z_linux_x64` (or the `windows_x64.exe`) from [Releases](https://github.com/athomo001/Ellkan/releases/latest) and save it in this folder as `ellkan-cli` (or build it with `cargo build --release -p ellkan-cli` and copy `target/release/ellkan-cli`):
+The app is now at `http://localhost:8080` (or the port in `ELLKAN_PORT`).
+
+> On Windows, if it fails with `bind source path does not exist: .../secrets/postgres_password.txt` even though the file exists, Docker Desktop can't see the drive: restart it (or `wsl --shutdown`) and start again. Details in [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos) (Spanish).
+
+### 5. Create the first administrator (setup token)
+
+The first account created on an empty instance becomes **admin**. So that nobody who reaches the web before you takes that role, that first account **asks for a setup token**:
+
+1. **Get the token.** While there are no accounts, the server generates a random one on every start and writes it to its log:
+
+   ```bash
+   docker logs ellkan 2>&1 | grep "token de instalación"
+   ```
+
+   ```powershell
+   docker logs ellkan 2>&1 | Select-String "token de instalación"
+   ```
+
+2. **Create the account.** Open `http://localhost:8080`, go to "Create account" and paste the token into the "Setup token" field. You can also open `http://localhost:8080/register#setup=<token>` directly.
+
+3. Done: as soon as the first account exists, the token stops working and is never generated again. If you restart the container before creating it, it changes: check the log again.
+
+To set your own token instead of the generated one (`ELLKAN_SETUP_TOKEN` or `ELLKAN_SETUP_TOKEN_FILE`, at least 24 characters), see the [manual](manual/instalacion.md#primer-administrador-token-de-instalación) (Spanish).
+
+> [!IMPORTANT]
+> **Versions up to and including 0.1.70 don't ask for the token:** the first sign-up becomes admin with nothing else. If the "Create account" screen has no setup token field, you are on one of those. Create your account before exposing the instance to the network, or use a newer version (`ELLKAN_VERSION=dev` in `.env` and `docker compose pull`, or build with `docker compose up -d --build`).
+
+**Alternative: with the CLI.** It doesn't need the token because it talks to the database directly. Download `ellkan-cli_X.Y.Z_linux_x64` or `ellkan-cli_X.Y.Z_windows_x64.exe` from [Releases](https://github.com/athomo001/Ellkan/releases/latest) and save it in this folder as `ellkan-cli` / `ellkan-cli.exe` (or build it with `cargo build --release -p ellkan-cli`). The `DATABASE_URL` here points at `localhost`, not `ellkan-db` like the one in `secrets/`: the CLI runs outside the Docker network.
 
 ```bash
 chmod +x ellkan-cli
-
-# DATABASE_URL here is DIFFERENT from the one in secrets/database_url.txt:
-# that one uses Docker's internal hostname (ellkan-db), which only
-# resolves inside the container network — this one points at the port
-# docker-compose exposes on 127.0.0.1 so the CLI (running on the host)
-# can reach it.
 DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
-  ./ellkan-cli admin create-user \
-  --email you@example.com --display-name "Your name" --role admin
-
+  ./ellkan-cli admin create-user --email you@example.com --display-name "Your name" --role admin
 ./ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email you@example.com
 ```
 
-`--role admin` promotes directly (over SQL, never through HTTP — no HTTP route lets an account self-assign admin) and marks this device as known, so the `login` above works right away without waiting on any email — no SMTP needed to get started. Once inside, configure a real relay at `/admin/smtp` so device verification for any other login/user arrives by email for real.
+```powershell
+$pass = (Get-Content secrets/postgres_password.txt -Raw).Trim()
+$env:DATABASE_URL = "postgres://$($env:POSTGRES_USER):$pass@localhost:$($env:POSTGRES_PORT)/$($env:POSTGRES_DB)"
+.\ellkan-cli.exe admin create-user --email you@example.com --display-name "Your name" --role admin
+.\ellkan-cli.exe --server-url "http://localhost:$($env:ELLKAN_PORT)" login --email you@example.com
+```
 
-See [manual/cli.md](manual/cli.md#comandos) for the rest of the commands.
+`--role admin` promotes directly over SQL (no HTTP route lets an account self-assign admin) and marks this device as known, so the `login` works without waiting on any email: no SMTP needed to get started. Once inside, configure a real relay at `/admin/smtp` so verification codes for other logins arrive by email. The rest of the commands: [manual/cli.md](manual/cli.md#comandos).
 
-By default the backend serves plain HTTP — for TLS (terminated by Ellkan itself, no reverse proxy needed, or with one), backup/restore, and troubleshooting, see [manual/instalacion.md](manual/instalacion.md) (Spanish only, see disclaimer below).
+### After installing
+
+By default the server serves plain HTTP. For TLS (terminated by Ellkan itself or by a reverse proxy), backup/restore and troubleshooting, see [manual/instalacion.md](manual/instalacion.md) (Spanish only, see disclaimer below).
 
 ### Updating / rebuilding after a change
 
@@ -234,10 +309,10 @@ What the server does see is the account data it needs to work: your email, your 
 **What happens if someone steals the server's database?**
 They don't get your passwords — they only get locked safes. Without your master password (which the server never receives), there's no way to open them with what's in the database. The only other ways in are account recovery, which you or your organization turn on: your own recovery kit (a file only you keep) or, if your organization set it up, admin-approved recovery.
 
-**Zero-knowledge exception: admin-approved recovery.** If you enable it on your account, your private key is stored on the server sealed with an organization recovery key, and that key is held by the server itself (encrypted with its deployment secret). Whoever controls the whole server —database **and** configuration— or its operator can open those keys. It is opt-in per user; if that is not acceptable to you, don't enable it and use the personal recovery kit, which has no such exception.
+**Admin-approved recovery.** If you enable it on your account, your private key is sealed with your organization's recovery key. That key is generated and held by the administrators in their own browsers: the server only stores copies it cannot open and enforces the number of approvals your organization sets. Several administrators together can restore your access, and at that moment could read your vault; it is opt-in per user, and if that is not acceptable to you, use the personal recovery kit. On earlier installations the old key was held by the server: each user re-seals their recovery with the new key when they sign in, and once none are left (or when an administrator decides) the server deletes it.
 
 **How do you protect my keys in the computer's memory (RAM) while they're being used?**
-While the vault is **locked**, there are no keys in your device's memory: only encrypted data on disk, and your master password is not stored anywhere (if you turn on quick unlock — with a TOTP code or Windows Hello — it's stored **encrypted** on that device). While it's **unlocked**, your private keys are in memory, because they're needed to decrypt: malware already running in your session, or a memory dump taken at that moment, could read them. Locking (manually, after inactivity or when you lock Windows) discards them. No password manager can protect you from an already compromised machine, so lock it when you step away. Details, with scenarios of what happens if someone tries to extract the data, are in [manual/seguridad.md](manual/seguridad.md) (Spanish).
+While the vault is **locked**, there are no keys in your device's memory: only encrypted data on disk, and your master password is not stored anywhere (if you turn on the desktop app's quick unlock — with a TOTP code or Windows Hello — it's stored **encrypted** on that computer, with the key in the system keychain). While it's **unlocked**, your private keys are in memory, because they're needed to decrypt: malware already running in your session, or a memory dump taken at that moment, could read them. Locking (manually, after inactivity or when you lock Windows) discards them. No password manager can protect you from an already compromised machine, so lock it when you step away. Details, with scenarios of what happens if someone tries to extract the data, are in [manual/seguridad.md](manual/seguridad.md) (Spanish).
 
 ## Status
 

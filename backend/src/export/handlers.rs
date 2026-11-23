@@ -79,23 +79,6 @@ pub async fn reportar_evento(
     Ok(())
 }
 
-/// Neutraliza CSV injection (PBL-13-002, hallazgo real en Passbolt): un
-/// campo que empiece con `=`/`+`/`-`/`@`/tab/CR se interpreta como fórmula
-/// al abrir en Excel/Sheets — se antepone `'` sin excepción, además del
-/// escapado RFC 4180 normal (comillas si hay coma/comilla/salto de línea).
-fn csv_campo_seguro(valor: &str) -> String {
-    let neutralizado = if valor.starts_with(['=', '+', '-', '@', '\t', '\r']) {
-        format!("'{valor}")
-    } else {
-        valor.to_string()
-    };
-    if neutralizado.contains(',') || neutralizado.contains('"') || neutralizado.contains('\n') {
-        format!("\"{}\"", neutralizado.replace('"', "\"\""))
-    } else {
-        neutralizado
-    }
-}
-
 fn resolver_formato(raw: Option<&str>) -> Result<&'static str, ApiError> {
     match raw {
         None | Some("ndjson") => Ok("ndjson"),
@@ -137,18 +120,18 @@ pub async fn exportar_usuarios(
             let r = a_response_usuario(f);
             cuerpo.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{},{},{},{}\n",
-                csv_campo_seguro(&r.id.to_string()),
-                csv_campo_seguro(&r.email),
-                csv_campo_seguro(&r.display_name),
-                csv_campo_seguro(&r.role),
+                crate::csv_seguro::campo(&r.id.to_string()),
+                crate::csv_seguro::campo(&r.email),
+                crate::csv_seguro::campo(&r.display_name),
+                crate::csv_seguro::campo(&r.role),
                 r.active,
-                csv_campo_seguro(&r.deleted_at.map(|d| d.to_string()).unwrap_or_default()),
-                csv_campo_seguro(&r.created_at.to_string()),
-                csv_campo_seguro(&r.updated_at.to_string()),
+                crate::csv_seguro::campo(&r.deleted_at.map(|d| d.to_string()).unwrap_or_default()),
+                crate::csv_seguro::campo(&r.created_at.to_string()),
+                crate::csv_seguro::campo(&r.updated_at.to_string()),
                 r.mfa_configured,
                 r.passkey_count,
-                csv_campo_seguro(&r.groups.join(";")),
-                csv_campo_seguro(&r.public_key_x25519_b64.unwrap_or_default()),
+                crate::csv_seguro::campo(&r.groups.join(";")),
+                crate::csv_seguro::campo(&r.public_key_x25519_b64.unwrap_or_default()),
             ));
         }
         Ok(([(header::CONTENT_TYPE, "text/csv; charset=utf-8")], cuerpo).into_response())
@@ -197,11 +180,11 @@ pub async fn exportar_grupos(
                 .join(";");
             cuerpo.push_str(&format!(
                 "{},{},{},{},{}\n",
-                csv_campo_seguro(&r.id.to_string()),
-                csv_campo_seguro(&r.name),
-                csv_campo_seguro(&r.parent_group_id.map(|p| p.to_string()).unwrap_or_default()),
-                csv_campo_seguro(&r.deleted_at.map(|d| d.to_string()).unwrap_or_default()),
-                csv_campo_seguro(&miembros),
+                crate::csv_seguro::campo(&r.id.to_string()),
+                crate::csv_seguro::campo(&r.name),
+                crate::csv_seguro::campo(&r.parent_group_id.map(|p| p.to_string()).unwrap_or_default()),
+                crate::csv_seguro::campo(&r.deleted_at.map(|d| d.to_string()).unwrap_or_default()),
+                crate::csv_seguro::campo(&miembros),
             ));
         }
         Ok(([(header::CONTENT_TYPE, "text/csv; charset=utf-8")], cuerpo).into_response())

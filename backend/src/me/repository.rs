@@ -15,6 +15,12 @@ pub trait PreferenciasRepository {
 
 pub trait PerfilRepository {
     async fn obtener(&self, user_id: Uuid) -> Result<Perfil, RepoError>;
+
+    /// Pendiente #133: guarda el primer par de claves de una cuenta que no
+    /// tiene (blob vacío, alta por SSO). `false` si ya tenía: nunca pisa
+    /// claves existentes (eso es cambiar la contraseña, con prueba de
+    /// posesión).
+    async fn enrolar_claves(&self, user_id: Uuid, claves: &super::models::ClavesIniciales) -> Result<bool, RepoError>;
 }
 
 pub trait AvatarRepository {
@@ -29,6 +35,10 @@ pub trait ClavePrivadaRepository {
     /// mismo cambio), mismo idioma exacto que `users_admin::repository`/
     /// `scim::repository` para "desactivar invalida sesiones ya abiertas".
     async fn actualizar(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<(), RepoError>;
+    /// QA-03: reemplaza el blob sólo si la cuenta todavía no tiene
+    /// verificador (`auth_verifier is null`), sin rotar `security_stamp`.
+    /// `false` si no había nada que mejorar.
+    async fn mejorar_sello_legado(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError>;
 }
 
 #[derive(Clone)]
@@ -71,10 +81,32 @@ impl PreferenciasRepository for PgPreferenciasRepository {
 }
 
 impl PerfilRepository for PgPreferenciasRepository {
+    async fn enrolar_claves(&self, user_id: Uuid, claves: &super::models::ClavesIniciales) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update user_keys
+               set public_key_x25519 = $2, public_key_ed25519 = $3, encrypted_private_key_blob = $4,
+                   private_key_nonce = $5, kdf_salt = $6, kdf_params = $7, auth_verifier = $8,
+                   created_at = now(), updated_at = now()
+               where user_id = $1 and octet_length(encrypted_private_key_blob) = 0"#,
+            user_id,
+            claves.public_key_x25519,
+            claves.public_key_ed25519,
+            claves.encrypted_private_key_blob,
+            claves.private_key_nonce,
+            claves.kdf_salt,
+            sqlx::types::Json(claves.kdf_params) as _,
+            claves.auth_verifier(),
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
+    }
+
     async fn obtener(&self, user_id: Uuid) -> Result<Perfil, RepoError> {
         let fila = sqlx::query!(
             r#"select u.email, u.display_name, r.name as role, u.created_at, u.updated_at,
-                      uk.created_at as keys_created_at
+                      uk.created_at as keys_created_at,
+                      octet_length(uk.encrypted_private_key_blob) = 0 as "necesita_enrolar_claves!"
                from users u
                join roles r on r.id = u.role_id
                join user_keys uk on uk.user_id = u.id
@@ -91,6 +123,7 @@ impl PerfilRepository for PgPreferenciasRepository {
             created_at: fila.created_at,
             updated_at: fila.updated_at,
             keys_created_at: fila.keys_created_at,
+            necesita_enrolar_claves: fila.necesita_enrolar_claves,
         })
     }
 }
@@ -132,11 +165,13 @@ impl ClavePrivadaRepository for PgPreferenciasRepository {
         let mut tx = self.pool.begin().await?;
         sqlx::query!(
             r#"update user_keys set encrypted_private_key_blob = $1, private_key_nonce = $2,
-               kdf_salt = $3, updated_at = now() where user_id = $4"#,
+               kdf_salt = $3, kdf_params = $5, auth_verifier = $6, updated_at = now() where user_id = $4"#,
             nueva.encrypted_private_key_blob,
             nueva.private_key_nonce,
             nueva.kdf_salt,
             user_id,
+            sqlx::types::Json(nueva.kdf_params) as _,
+            nueva.auth_verifier(),
         )
         .execute(&mut *tx)
         .await?;
@@ -152,5 +187,22 @@ impl ClavePrivadaRepository for PgPreferenciasRepository {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn mejorar_sello_legado(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update user_keys set encrypted_private_key_blob = $1, private_key_nonce = $2,
+               kdf_salt = $3, kdf_params = $5, auth_verifier = $6, updated_at = now()
+               where user_id = $4 and auth_verifier is null"#,
+            nueva.encrypted_private_key_blob,
+            nueva.private_key_nonce,
+            nueva.kdf_salt,
+            user_id,
+            sqlx::types::Json(nueva.kdf_params) as _,
+            nueva.auth_verifier(),
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
     }
 }

@@ -95,19 +95,52 @@ export const AuthService = {
 	async login(serverUrl: string, email: string, passphrase: string, forceMfa = false): Promise<ResultadoLogin> {
 		const wasm = await cargarCrypto();
 
-		const material = await post<{
+		// QA-03: el blob sólo se entrega contra la `auth_key`, que sale del
+		// mismo Argon2id (sal y parámetros del prelogin) que la clave de
+		// envoltura. Una cuenta sellada antes de QA-03 (`auth_key_required:
+		// false`) lo recibe sin ella; la re-sellan la web, el escritorio o la
+		// CLI en su próximo login (la extensión sólo desbloquea).
+		const pre = await post<{
+			email?: string;
+			kdf_salt_b64: string;
+			kdf_params: { m_cost_kib: number; t_cost: number; p_cost: number };
+			auth_key_required: boolean;
+		}>(serverUrl, '/auth/prelogin', { email });
+		const { m_cost_kib, t_cost, p_cost } = pre.kdf_params;
+		const desbloqueo = wasm.derivar_desbloqueo(passphrase, base64ABytes(pre.kdf_salt_b64), m_cost_kib, t_cost, p_cost);
+		const claveEnvoltura = desbloqueo.clave_envoltura;
+		const cuerpo: Record<string, string> = { email };
+		if (pre.auth_key_required) cuerpo.auth_key_b64 = bytesABase64(desbloqueo.auth_key);
+		desbloqueo.free();
+
+		let material: {
+			email?: string;
 			encrypted_private_key_blob_b64: string;
 			private_key_nonce_b64: string;
-			kdf_salt_b64: string;
-		}>(serverUrl, '/auth/key-material', { email });
+		};
+		try {
+			material = await post(serverUrl, '/auth/key-material', cuerpo);
+		} catch (e) {
+			claveEnvoltura.fill(0);
+			throw e;
+		}
+		// QA-16: el servidor busca el email sin distinguir mayúsculas y
+		// devuelve el guardado, que es el AAD del blob — de acá en adelante
+		// (apertura, claves y cuenta guardadas) va ése, no el tipeado. Un
+		// servidor anterior no lo manda.
+		email = material.email ?? pre.email ?? email.trim();
 
-		const abierta = wasm.abrir_clave_privada(
-			passphrase,
-			base64ABytes(material.kdf_salt_b64),
-			base64ABytes(material.private_key_nonce_b64),
-			base64ABytes(material.encrypted_private_key_blob_b64),
-			aadClavePrivada(email)
-		);
+		let abierta: ReturnType<typeof wasm.abrir_clave_privada>;
+		try {
+			abierta = wasm.abrir_clave_privada(
+				claveEnvoltura,
+				base64ABytes(material.private_key_nonce_b64),
+				base64ABytes(material.encrypted_private_key_blob_b64),
+				aadClavePrivada(email)
+			);
+		} finally {
+			claveEnvoltura.fill(0);
+		}
 
 		const challenge = await post<{ nonce_b64: string }>(serverUrl, '/auth/challenge', { email });
 		const nonce = base64ABytes(challenge.nonce_b64);

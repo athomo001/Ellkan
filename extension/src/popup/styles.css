@@ -496,6 +496,20 @@ button[type='submit']:disabled {
 	object-fit: cover;
 }
 
+/* Pendiente #126: inicial del sitio cuando los favicons externos están
+   apagados (el valor por defecto). */
+.item-vault-icono-inicial {
+	font-weight: 600;
+	color: var(--ellkan-texto);
+}
+
+.casilla-ajuste {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+}
+
 .item-vault-info {
 	flex: 1;
 	min-width: 0;
@@ -852,26 +866,6 @@ button[type='submit']:disabled {
 }
 
 /* F-38: desbloqueo rápido local con TOTP (bloque en "Mi cuenta"). */
-.f38-bloque {
-	gap: 6px;
-}
-.f38-secreto {
-	display: block;
-	font-family: var(--ellkan-mono);
-	font-size: 12px;
-	background: var(--ellkan-fondo);
-	border: 1px solid var(--ellkan-borde);
-	border-radius: 6px;
-	padding: 8px 10px;
-	margin: 4px 0 8px;
-	word-break: break-all;
-	user-select: all;
-}
-.f38-botones {
-	display: flex;
-	gap: 8px;
-}
-
 /* Regla genérica de ocultamiento — a propósito al final del archivo: mismo
    nivel de especificidad (una sola clase) que `.error`/`.texto-secundario`/
    otras que también pueden llevar `oculto` combinada, así que el orden de
@@ -974,4 +968,14 @@ button[type='submit']:disabled {
 .boton-lectura:focus-visible {
 	outline: 2px solid currentColor;
 	outline-offset: 2px;
+}
+
+/* Pendiente #77: link al código fuente (AGPL-3.0 §13), discreto. */
+.codigo-fuente {
+	display: block;
+	margin-top: 12px;
+	text-align: center;
+	font-size: 0.75rem;
+	color: var(--ellkan-texto-secundario);
+	text-decoration: underline;
 }

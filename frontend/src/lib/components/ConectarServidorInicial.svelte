@@ -51,7 +51,7 @@
 			paso = textos.pasoLocal;
 			const login = await iniciarSesion(email, pedirFraseNueva ? passphraseNueva : passphrase);
 			if (login.estado !== 'completo' || !login.claves) throw new Error(textos.errorLoginLocal);
-			sesion.set({ sessionId: login.sessionId ?? null, userId: login.userId ?? null, email });
+			sesion.set({ sessionId: login.sessionId ?? null, userId: login.userId ?? null, email: login.email });
 			clavesDesbloqueadas.set(login.claves);
 
 			await cambiarPersistencia(modo);

@@ -1,5 +1,6 @@
 // Autor: Athan Espinoza
 
+use ellkan_crypto::derivacion::ParametrosKdf;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -44,6 +45,21 @@ pub struct PerfilResponse {
     pub updated_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub keys_created_at: OffsetDateTime,
+    /// Pendiente #133: cuenta creada por SSO sin claves todavía.
+    pub needs_key_enrollment: bool,
+}
+
+/// Pendiente #133: `POST /me/keys/enroll`, mismo armado que el registro.
+#[derive(Debug, Deserialize)]
+pub struct EnrolarClavesRequest {
+    pub public_key_x25519_b64: String,
+    pub public_key_ed25519_b64: String,
+    pub encrypted_private_key_blob_b64: String,
+    pub private_key_nonce_b64: String,
+    pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id.
+    pub kdf_params: ParametrosKdf,
+    pub auth_key_b64: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +73,10 @@ pub struct CambiarPassphraseRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id
+    /// (los dos entran en la firma).
+    pub kdf_params: ParametrosKdf,
+    pub auth_key_b64: String,
     /// QA-06: nonce de `POST /auth/challenge` (un solo uso) y firma Ed25519
     /// de `ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada`
     /// sobre ese nonce y el blob nuevo — prueba de que quien lo sube tiene

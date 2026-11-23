@@ -1,14 +1,17 @@
 // Autor: Athan Espinoza
 
-//! Service de Account Recovery (F-16) — nunca importa `axum`. El servidor
-//! sólo desella el escrow en el momento exacto en que una solicitud junta
-//! el umbral de aprobaciones, y únicamente para re-sellarlo contra la clave
-//! efímera del propio solicitante — nunca lo devuelve en claro, ni lo
-//! retiene desellado más que el instante del re-sellado (`zeroize`
-//! inmediato). El pinning de fingerprint contra un re-sellado silencioso de
-//! la clave pública organizacional es responsabilidad del cliente (F-16,
-//! sección de seguridad); acá sólo se sirve la clave vigente de forma
-//! consistente.
+//! Service de Account Recovery (F-16) — nunca importa `axum`.
+//!
+//! QA-09: la clave privada organizacional la custodian los admins de
+//! organización en su navegador (`org_recovery_key_envelopes`); el servidor
+//! guarda bytes opacos, aplica el umbral y, al alcanzarlo, deja la solicitud
+//! `awaiting_custodian` para que un custodio re-selle el escrow contra la
+//! clave efímera del solicitante. Sólo los escrows sellados contra la clave
+//! anterior a QA-09 (custodiada por el servidor con `secrets_key`, hasta que
+//! se re-sellan o se purga) los sigue desellando el servidor, en el instante
+//! del re-sellado y con `zeroize` inmediato. El pinning de fingerprint
+//! contra un re-sellado silencioso de la clave pública organizacional es
+//! responsabilidad del cliente (F-16, sección de seguridad).
 
 use sha2::{Digest, Sha256};
 use time::{Duration, OffsetDateTime};
@@ -20,7 +23,7 @@ use ellkan_crypto::aead::{self, Envoltura};
 use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 use ellkan_crypto::comparacion::secreto_coincide;
 use ellkan_crypto::secretos::ClaveSecreta32;
-use ellkan_crypto::{claves::KeypairAcuerdo, sellado};
+use ellkan_crypto::sellado;
 
 use crate::admin::repository::RoleRepository;
 use crate::audit::models::{AuditEventType, EventoAuditoria};
@@ -32,7 +35,9 @@ use crate::me::models::NuevaClavePrivada;
 use crate::me::repository::ClavePrivadaRepository;
 use crate::me::service::{CambiarPassphraseService, PruebaDePosesion, verificar_posesion};
 
-use super::models::{AccountRecoveryPolicy, Escrow, RecoveryRequest, SolicitudPendiente};
+use super::models::{
+    AccountRecoveryPolicy, Custodia, CustodioPendiente, Escrow, MaterialParaCustodio, OrgRecoveryKey, RecoveryRequest, SolicitudPendiente,
+};
 use super::repository::{AccountRecoveryPolicyRepository, EscrowRepository, OrgRecoveryKeyRepository, RecoveryRequestRepository};
 
 pub struct AccountRecoveryService<'a, P, K, E, R, U, C, RR, GM, CH> {
@@ -65,11 +70,42 @@ const MAX_INTENTOS_CONFIRMACION: i32 = 5;
 /// un solo manager de grupo nunca alcanza para entregar la clave de otro.
 const UMBRAL_MINIMO_SIN_ADMIN_ORG: i32 = 2;
 
-/// Código de 8 dígitos — CSPRNG (`OsRng` vía `bytes_aleatorios`). El sesgo
-/// del módulo sobre 2^64 es despreciable.
+/// Tope del sellado de 32 o 64 bytes contra una X25519 (con holgura).
+const MAX_SELLADO: usize = 512;
+
+/// `GET /account-recovery/status`.
+pub struct MiEstado {
+    pub enrolled: bool,
+    /// Clave contra la que está sellado el escrow propio.
+    pub org_recovery_key_id: Option<i32>,
+    /// Clave vigente: si difiere de la del escrow, el cliente re-sella.
+    pub current_org_recovery_key_id: Option<i32>,
+}
+
+/// `GET /admin/account-recovery/custody`.
+pub struct EstadoCustodia {
+    pub vigente: Option<OrgRecoveryKey>,
+    /// La privada vigente sellada para quien pregunta (si es custodio).
+    pub mi_sobre: Option<Vec<u8>>,
+    /// Admins sin copia de la vigente — todos, si la vigente no es de cliente.
+    pub pendientes: Vec<CustodioPendiente>,
+    /// Todos los admins de organización con claves: para quiénes se sella
+    /// una clave nueva al generarla o rotarla.
+    pub admins: Vec<CustodioPendiente>,
+    /// Escrows todavía sellados contra la clave del servidor.
+    pub escrows_en_servidor: i64,
+}
+
+fn validar_sellado(campo: &str, bytes: &[u8]) -> Result<(), DomainError> {
+    if bytes.is_empty() || bytes.len() > MAX_SELLADO {
+        return Err(DomainError::ValidacionInvalida(format!("{campo} tiene un largo inválido")));
+    }
+    Ok(())
+}
+
+/// Código de 8 dígitos — CSPRNG y sin sesgo (QA-41).
 fn generar_codigo_confirmacion() -> String {
-    let n = u64::from_be_bytes(bytes_aleatorios::<8>()) % 100_000_000;
-    format!("{n:08}")
+    ellkan_crypto::aleatoriedad::codigo_numerico(8)
 }
 
 fn sha256(bytes: &[u8]) -> Vec<u8> {
@@ -178,54 +214,166 @@ where
         Ok(nueva)
     }
 
-    /// El cliente necesita la clave pública organizacional antes de poder
-    /// enrolarse (sella su clave privada contra ella localmente) — se
-    /// genera server-side una sola vez, lazy, la primera vez que se pide.
-    pub async fn obtener_org_public_key(&self) -> Result<Vec<u8>, DomainError> {
-        let clave = self
-            .org_key
-            .obtener_o_crear(|| {
-                let par = KeypairAcuerdo::generar();
-                let privada_bytes = par.privada().to_bytes();
-                let envoltura = aead::cifrar(self.secrets_key, &privada_bytes, b"org_recovery_key").expect("cifrar no falla");
-                (par.publica().as_bytes().to_vec(), envoltura.ciphertext, envoltura.nonce.to_vec())
-            })
-            .await?;
-        Ok(clave.public_key_x25519)
+    /// El cliente necesita la clave pública organizacional vigente antes de
+    /// poder enrolarse (sella su clave privada contra ella localmente).
+    /// QA-09: el servidor ya no la genera; hasta que un admin la cree desde
+    /// su navegador no hay recuperación por admin (404).
+    pub async fn org_key_vigente(&self) -> Result<OrgRecoveryKey, DomainError> {
+        self.org_key.vigente().await?.ok_or(DomainError::NotFound)
     }
 
     /// `GET /account-recovery/status` — la UI de "Mi cuenta" necesita saber
-    /// si ya hay un escrow antes de mostrar "Habilitar" vs. el estado actual.
-    pub async fn mi_estado(&self, user_id: Uuid) -> Result<bool, DomainError> {
-        Ok(self.escrow.buscar_por_usuario(user_id).await?.is_some())
+    /// si ya hay un escrow y si está sellado contra la clave vigente.
+    pub async fn mi_estado(&self, user_id: Uuid) -> Result<MiEstado, DomainError> {
+        let escrow = self.escrow.buscar_por_usuario(user_id).await?;
+        let vigente = self.org_key.vigente().await?;
+        Ok(MiEstado {
+            enrolled: escrow.is_some(),
+            org_recovery_key_id: escrow.map(|e| e.org_recovery_key_id),
+            current_org_recovery_key_id: vigente.map(|k| k.id),
+        })
     }
 
     /// `POST /account-recovery/enroll` (F-16) — el cliente ya selló su clave
-    /// privada contra la pública organizacional (`sealed_private_key_for_org`,
-    /// bytes opacos para el servidor en este punto). Re-enrolar reemplaza el
-    /// escrow anterior.
-    pub async fn enrolar(&self, user_id: Uuid, sealed_private_key_for_org: Vec<u8>) -> Result<Escrow, DomainError> {
-        let clave = self
-            .org_key
-            .obtener_o_crear(|| {
-                let par = KeypairAcuerdo::generar();
-                let privada_bytes = par.privada().to_bytes();
-                let envoltura = aead::cifrar(self.secrets_key, &privada_bytes, b"org_recovery_key").expect("cifrar no falla");
-                (par.publica().as_bytes().to_vec(), envoltura.ciphertext, envoltura.nonce.to_vec())
-            })
-            .await?;
+    /// privada contra la pública organizacional `org_recovery_key_id`
+    /// (`sealed_private_key_for_org`, bytes opacos para el servidor).
+    /// Re-enrolar reemplaza el escrow anterior. QA-09: sólo contra la clave
+    /// vigente (409 si rotó mientras tanto); si con esto ya no queda ningún
+    /// escrow en la clave del servidor, se purga.
+    pub async fn enrolar(
+        &self,
+        user_id: Uuid,
+        sealed_private_key_for_org: Vec<u8>,
+        org_recovery_key_id: i32,
+    ) -> Result<Escrow, DomainError> {
+        validar_sellado("sealed_private_key_for_org", &sealed_private_key_for_org)?;
+        let vigente = self.org_key.vigente().await?.ok_or(DomainError::NotFound)?;
+        if vigente.id != org_recovery_key_id {
+            return Err(DomainError::Conflict);
+        }
         let politica = self.policy.obtener().await?;
 
         let escrow = self
             .escrow
-            .upsert(user_id, &sealed_private_key_for_org, clave.id, politica.default_approval_threshold)
+            .upsert(user_id, &sealed_private_key_for_org, vigente.id, politica.default_approval_threshold)
             .await?;
 
         let _ = self.eventos.send(DomainEvent::Auditoria(
-            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryEnrolled, Some(user_id)).con_sujeto("user", user_id),
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryEnrolled, Some(user_id))
+                .con_sujeto("user", user_id)
+                .con_metadata(serde_json::json!({ "org_recovery_key_id": vigente.id })),
         ));
 
+        if vigente.custodia == Custodia::Cliente
+            && self.org_key.escrows_en_servidor().await? == 0
+            && self.org_key.servidor_tiene_privada().await?
+        {
+            self.org_key.purgar_servidor().await?;
+            let _ = self.eventos.send(DomainEvent::Auditoria(
+                EventoAuditoria::nuevo(AuditEventType::AccountRecoveryServerKeyPurged, None)
+                    .con_metadata(serde_json::json!({ "escrows_borrados": 0, "automatico": true })),
+            ));
+        }
+
         Ok(escrow)
+    }
+
+    /// `GET /admin/account-recovery/custody` (QA-09) — lo que el navegador de
+    /// un admin necesita para generar la clave, sumar custodios o ejecutar.
+    pub async fn estado_custodia(&self, actor_id: Uuid) -> Result<EstadoCustodia, DomainError> {
+        let vigente = self.org_key.vigente().await?;
+        let (mi_sobre, pendientes) = match &vigente {
+            Some(k) if k.custodia == Custodia::Cliente => {
+                (self.org_key.sobre(k.id, actor_id).await?, self.org_key.custodios_pendientes(Some(k.id)).await?)
+            }
+            _ => (None, self.org_key.custodios_pendientes(None).await?),
+        };
+        Ok(EstadoCustodia {
+            vigente,
+            mi_sobre,
+            pendientes,
+            admins: self.org_key.custodios_pendientes(None).await?,
+            escrows_en_servidor: self.org_key.escrows_en_servidor().await?,
+        })
+    }
+
+    /// `POST /admin/account-recovery/org-keys` (QA-09) — alta de una clave
+    /// generada en el navegador de `actor_id`, que pasa a ser la vigente. La
+    /// privada llega sellada para cada custodio elegido; tiene que incluir
+    /// al propio actor, y cada custodio tiene que ser admin de organización
+    /// con claves. Sirve también para rotar.
+    pub async fn crear_clave_de_cliente(&self, actor_id: Uuid, publica: Vec<u8>, sobres: Vec<(Uuid, Vec<u8>)>) -> Result<i32, DomainError> {
+        parsear_public_key_x25519(&publica)?;
+        if !sobres.iter().any(|(id, _)| *id == actor_id) {
+            return Err(DomainError::ValidacionInvalida(
+                "la clave tiene que quedar sellada también para quien la crea".into(),
+            ));
+        }
+        let mut vistos = std::collections::HashSet::new();
+        for (admin_id, sellado) in &sobres {
+            if !vistos.insert(*admin_id) {
+                return Err(DomainError::ValidacionInvalida("custodio repetido".into()));
+            }
+            validar_sellado("sealed_private_key", sellado)?;
+            if self.org_key.x25519_de_admin(*admin_id).await?.is_none() {
+                return Err(DomainError::ValidacionInvalida(
+                    "cada custodio tiene que ser admin de organización con claves".into(),
+                ));
+            }
+        }
+
+        let id = self.org_key.crear_de_cliente(&publica, actor_id, &sobres).await?;
+        let custodios: Vec<Uuid> = sobres.iter().map(|(id, _)| *id).collect();
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryOrgKeyCreated, Some(actor_id))
+                .con_metadata(serde_json::json!({ "org_recovery_key_id": id, "custodians": custodios })),
+        ));
+        Ok(id)
+    }
+
+    /// `POST /admin/account-recovery/org-keys/{id}/envelopes` (QA-09) — un
+    /// custodio de la clave vigente se la sella a otro admin de
+    /// organización. Nunca automático: un operador que se agregue como admin
+    /// en la base no recibe la clave hasta que un custodio lo confirme.
+    pub async fn agregar_custodio(&self, actor_id: Uuid, key_id: i32, admin_id: Uuid, sellado: Vec<u8>) -> Result<(), DomainError> {
+        validar_sellado("sealed_private_key", &sellado)?;
+        let vigente = self.org_key.vigente().await?.ok_or(DomainError::NotFound)?;
+        if vigente.id != key_id || vigente.custodia != Custodia::Cliente {
+            return Err(DomainError::Conflict);
+        }
+        if self.org_key.sobre(key_id, actor_id).await?.is_none() {
+            return Err(DomainError::PermissionDenied);
+        }
+        if self.org_key.x25519_de_admin(admin_id).await?.is_none() {
+            return Err(DomainError::ValidacionInvalida("el custodio tiene que ser admin de organización con claves".into()));
+        }
+        if !self.org_key.agregar_sobre(key_id, admin_id, &sellado, actor_id).await? {
+            return Err(DomainError::Conflict);
+        }
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryCustodianAdded, Some(actor_id))
+                .con_sujeto("user", admin_id)
+                .con_metadata(serde_json::json!({ "org_recovery_key_id": key_id })),
+        ));
+        Ok(())
+    }
+
+    /// `DELETE /admin/account-recovery/server-key` (QA-09) — el admin decide
+    /// no esperar a que todos re-sellen: se borra la privada que custodiaba
+    /// el servidor y los escrows que seguían en ella (esos usuarios tienen
+    /// que volver a habilitar la recuperación). Sólo con una clave de
+    /// cliente vigente.
+    pub async fn purgar_clave_servidor(&self, actor_id: Uuid) -> Result<i64, DomainError> {
+        let vigente = self.org_key.vigente().await?.ok_or(DomainError::Conflict)?;
+        if vigente.custodia != Custodia::Cliente {
+            return Err(DomainError::Conflict);
+        }
+        let borrados = self.org_key.purgar_servidor().await?;
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryServerKeyPurged, Some(actor_id))
+                .con_metadata(serde_json::json!({ "escrows_borrados": borrados, "automatico": false })),
+        ));
+        Ok(borrados)
     }
 
     /// `POST /account-recovery/requests` — sin sesión, a propósito: cubre el
@@ -340,7 +488,7 @@ where
     pub async fn estado_solicitud(&self, id: Uuid, token: &[u8]) -> Result<RecoveryRequest, DomainError> {
         let mut solicitud = self.requests.buscar(id).await?.ok_or(DomainError::NotFound)?;
         verificar_token(&solicitud, token)?;
-        if solicitud.vencida() && matches!(solicitud.status.as_str(), "unconfirmed" | "pending" | "approved") {
+        if solicitud.vencida() && matches!(solicitud.status.as_str(), "unconfirmed" | "pending" | "awaiting_custodian" | "approved") {
             solicitud.status = "expired".to_string();
             solicitud.sealed_private_key_for_requester = None;
         }
@@ -348,12 +496,11 @@ where
     }
 
     /// `POST /admin/account-recovery/requests/{id}/approve` — idempotente
-    /// por admin (aprobar dos veces no duplica su entrada); recién al
-    /// alcanzar el umbral desella el escrow con la clave privada
-    /// organizacional (descifrada con `secrets_key`) y lo re-sella contra la
-    /// clave efímera que el solicitante mandó al crear la solicitud —
-    /// `zeroize` inmediato de los bytes en claro, nunca persistidos ni
-    /// devueltos tal cual.
+    /// por admin (aprobar dos veces no duplica su entrada). Al alcanzar el
+    /// umbral: si el escrow está sellado contra una clave de cliente
+    /// (QA-09), la solicitud queda `awaiting_custodian` y la re-sella un
+    /// custodio (`ejecutar`); si es la clave anterior del servidor, el
+    /// servidor la re-sella acá (`resellar_con_clave_de_servidor`).
     pub async fn aprobar(&self, admin_id: Uuid, request_id: Uuid) -> Result<RecoveryRequest, DomainError> {
         let mut tx = self.pool.begin().await.map_err(|e| DomainError::Interno(e.into()))?;
 
@@ -397,31 +544,25 @@ where
         self.requests.guardar_aprobaciones(request_id, nuevas_aprobaciones, &mut tx).await?;
 
         let umbral_alcanzado = cantidad >= umbral_efectivo;
+        let mut espera_custodio = false;
         if umbral_alcanzado {
-            let clave = self.org_key.obtener_o_crear(|| unreachable!("la clave org ya existe si hay un escrow")).await?;
-
-            let nonce: [u8; 24] = clave
-                .private_key_nonce
-                .try_into()
-                .map_err(|_| DomainError::Interno(crate::error::RepoError::Conflict))?;
-            let envoltura = Envoltura { nonce, ciphertext: clave.encrypted_private_key };
-            let mut privada_org_bytes = aead::descifrar(self.secrets_key, &envoltura, b"org_recovery_key")
-                .map_err(|_| DomainError::Interno(crate::error::RepoError::Conflict))?;
-            let arreglo_privada: [u8; 32] = privada_org_bytes
-                .as_slice()
-                .try_into()
-                .map_err(|_| DomainError::Interno(crate::error::RepoError::Conflict))?;
-            let privada_org = StaticSecret::from(arreglo_privada);
-            privada_org_bytes.zeroize();
-
-            let mut material_en_claro = sellado::abrir_bytes(&privada_org, &escrow.sealed_private_key_for_org)
-                .map_err(|_| DomainError::Interno(crate::error::RepoError::Conflict))?;
-
-            let publica_requester = parsear_public_key_x25519(&solicitud.requester_public_key_x25519)?;
-            let sellado_para_requester = sellado::sellar_bytes(&publica_requester, &material_en_claro);
-            material_en_claro.zeroize();
-
-            self.requests.marcar_aprobada(request_id, &sellado_para_requester, &mut tx).await?;
+            let clave = self
+                .org_key
+                .buscar(escrow.org_recovery_key_id)
+                .await?
+                .ok_or(DomainError::Interno(crate::error::RepoError::Conflict))?;
+            match clave.custodia {
+                // QA-09: el servidor no puede abrir el escrow; lo re-sella el
+                // navegador de un custodio (`ejecutar`).
+                Custodia::Cliente => {
+                    self.requests.marcar_esperando_custodio(request_id, &mut tx).await?;
+                    espera_custodio = true;
+                }
+                Custodia::Servidor => {
+                    let sellado_para_requester = self.resellar_con_clave_de_servidor(&clave, &escrow, &solicitud)?;
+                    self.requests.marcar_aprobada(request_id, &sellado_para_requester, &mut tx).await?;
+                }
+            }
         }
 
         tx.commit().await.map_err(|e| DomainError::Interno(e.into()))?;
@@ -431,11 +572,84 @@ where
                 .con_sujeto("account_recovery_request", request_id)
                 .con_metadata(serde_json::json!({
                     "threshold_reached": umbral_alcanzado,
+                    "awaiting_custodian": espera_custodio,
                     "authority": if es_admin_org { "org_admin" } else { "group_admin" },
                     "group_id": authority_group_id,
                 })),
         ));
 
+        self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)
+    }
+
+    /// Escrow sellado contra la clave anterior a QA-09: el servidor lo
+    /// desella con `secrets_key` y lo re-sella para el solicitante, con
+    /// `zeroize` inmediato de los bytes en claro.
+    fn resellar_con_clave_de_servidor(
+        &self,
+        clave: &OrgRecoveryKey,
+        escrow: &Escrow,
+        solicitud: &RecoveryRequest,
+    ) -> Result<Vec<u8>, DomainError> {
+        let interno = || DomainError::Interno(crate::error::RepoError::Conflict);
+        let (Some(cifrada), Some(nonce)) = (&clave.encrypted_private_key, &clave.private_key_nonce) else {
+            return Err(interno());
+        };
+        let nonce: [u8; 24] = nonce.as_slice().try_into().map_err(|_| interno())?;
+        let envoltura = Envoltura { nonce, ciphertext: cifrada.clone() };
+        let mut privada_org_bytes = aead::descifrar(self.secrets_key, &envoltura, b"org_recovery_key").map_err(|_| interno())?;
+        let arreglo_privada: [u8; 32] = privada_org_bytes.as_slice().try_into().map_err(|_| interno())?;
+        let privada_org = StaticSecret::from(arreglo_privada);
+        privada_org_bytes.zeroize();
+
+        let mut material_en_claro = sellado::abrir_bytes(&privada_org, &escrow.sealed_private_key_for_org).map_err(|_| interno())?;
+        let publica_requester = parsear_public_key_x25519(&solicitud.requester_public_key_x25519)?;
+        let sellado_para_requester = sellado::sellar_bytes(&publica_requester, &material_en_claro);
+        material_en_claro.zeroize();
+        Ok(sellado_para_requester)
+    }
+
+    /// Custodio que actúa sobre una solicitud ajena: admin de organización
+    /// (nunca la propia, ver `autorizar_gestion`).
+    async fn autorizar_custodio(&self, actor_id: Uuid, request_id: Uuid) -> Result<RecoveryRequest, DomainError> {
+        let solicitud = self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)?;
+        let escrow = self.escrow.buscar(solicitud.escrow_id).await?.ok_or(DomainError::NotFound)?;
+        let (es_admin_org, _) = self.autorizar_gestion(actor_id, escrow.user_id, solicitud.created_at).await?;
+        if !es_admin_org {
+            return Err(DomainError::PermissionDenied);
+        }
+        Ok(solicitud)
+    }
+
+    /// `GET /admin/account-recovery/requests/{id}/custody-material` (QA-09)
+    /// — el escrow (sellado para la clave org), la clave efímera del
+    /// solicitante y la copia del custodio de esa clave. Sólo con la
+    /// solicitud `awaiting_custodian` vigente y si `actor_id` es custodio de
+    /// la clave del escrow.
+    pub async fn material_para_custodio(&self, actor_id: Uuid, request_id: Uuid) -> Result<MaterialParaCustodio, DomainError> {
+        self.autorizar_custodio(actor_id, request_id).await?;
+        self.requests.material_para_custodio(request_id, actor_id).await?.ok_or(DomainError::NotFound)
+    }
+
+    /// `POST /admin/account-recovery/requests/{id}/execute` (QA-09) — el
+    /// custodio ya re-selló el escrow para el solicitante en su navegador.
+    /// El servidor no puede comprobar el contenido: si es basura, el
+    /// solicitante no lo abre, y `complete` exige igual la prueba de
+    /// posesión de la identidad (QA-06).
+    pub async fn ejecutar(
+        &self,
+        actor_id: Uuid,
+        request_id: Uuid,
+        sellado_para_requester: Vec<u8>,
+    ) -> Result<RecoveryRequest, DomainError> {
+        validar_sellado("sealed_private_key_for_requester", &sellado_para_requester)?;
+        self.material_para_custodio(actor_id, request_id).await?;
+        if !self.requests.marcar_ejecutada(request_id, &sellado_para_requester).await? {
+            return Err(DomainError::Conflict);
+        }
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::AccountRecoveryExecuted, Some(actor_id))
+                .con_sujeto("account_recovery_request", request_id),
+        ));
         self.requests.buscar(request_id).await?.ok_or(DomainError::NotFound)
     }
 

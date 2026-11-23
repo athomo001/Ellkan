@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            update account_recovery_requests\n            set status = 'approved', resolved_at = now(), sealed_private_key_for_requester = $2\n            where id = $1 and status = 'awaiting_custodian' and expires_at > now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07873e166034f76f17beb5f4d255840c1fecc04283b20db56aaf3dac91c8220b"
+}
