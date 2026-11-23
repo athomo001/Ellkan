@@ -40,12 +40,22 @@ pub fn cifrar_para_registro(
     keypar: &NuevoKeypar,
     passphrase: &PassphraseSecreta,
     email: &str,
-) -> Result<EncryptedPrivateKeyBlob, ellkan_crypto::clave_privada::ErrorClavePrivada> {
-    let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+) -> Result<clave_privada::ClavePrivadaSellada, ellkan_crypto::clave_privada::ErrorClavePrivada> {
     let mut privadas = keypar.concatenar_privadas();
-    let blob = clave_privada::cifrar_clave_privada(passphrase, salt, &privadas, email.as_bytes())?;
+    let sellada = sellar(passphrase, &privadas, email);
     privadas.zeroize();
-    Ok(blob)
+    sellada
+}
+
+/// QA-03: sella con sal nueva y los parámetros actuales de Argon2id;
+/// devuelve el blob y la `auth_key` para el servidor.
+pub fn sellar(
+    passphrase: &PassphraseSecreta,
+    privadas: &[u8],
+    email: &str,
+) -> Result<clave_privada::ClavePrivadaSellada, ellkan_crypto::clave_privada::ErrorClavePrivada> {
+    let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+    clave_privada::cifrar_clave_privada(passphrase, salt, ellkan_crypto::derivacion::ParametrosKdf::ACTUAL, privadas, email.as_bytes())
 }
 
 /// Reconstruye la clave privada desde el blob cifrado — sólo para el

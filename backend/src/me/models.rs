@@ -1,5 +1,7 @@
 // Autor: Athan Espinoza
 
+use ellkan_crypto::derivacion::ParametrosKdf;
+
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
@@ -31,6 +33,9 @@ pub struct ClavesIniciales {
     pub encrypted_private_key_blob: Vec<u8>,
     pub private_key_nonce: Vec<u8>,
     pub kdf_salt: Vec<u8>,
+    /// QA-03: parámetros de Argon2id y `auth_key` del mismo Argon2id.
+    pub kdf_params: ParametrosKdf,
+    pub auth_key: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,4 +51,23 @@ pub struct NuevaClavePrivada {
     pub encrypted_private_key_blob: Vec<u8>,
     pub private_key_nonce: Vec<u8>,
     pub kdf_salt: Vec<u8>,
+    /// QA-03: parámetros de Argon2id con que se selló el blob nuevo.
+    pub kdf_params: ParametrosKdf,
+    /// QA-03: `auth_key` del mismo Argon2id. Entra en la firma de la prueba
+    /// de posesión y se guarda sólo su verificador.
+    pub auth_key: Vec<u8>,
+}
+
+impl NuevaClavePrivada {
+    /// QA-03: lo que se guarda en `user_keys.auth_verifier`.
+    pub fn auth_verifier(&self) -> Vec<u8> {
+        ellkan_crypto::derivacion::verificador_auth(&self.auth_key).to_vec()
+    }
+}
+
+impl ClavesIniciales {
+    /// QA-03: lo que se guarda en `user_keys.auth_verifier`.
+    pub fn auth_verifier(&self) -> Vec<u8> {
+        ellkan_crypto::derivacion::verificador_auth(&self.auth_key).to_vec()
+    }
 }

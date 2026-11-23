@@ -14,6 +14,7 @@ use ellkan_crypto::clave_privada;
 use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::secretos::PassphraseSecreta;
 use ellkan_crypto::sellado;
+use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -315,14 +316,24 @@ async fn flujo_completo_de_reset_con_totp_y_kit_queda_marcado_para_rotar() {
 
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("passphrase-post-recovery-kit".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
-    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
+    let nuevo_blob_sellado = clave_privada::cifrar_clave_privada(
+        &nueva_passphrase,
+        nueva_salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &abierto,
+        victima.email.as_bytes(),
+    )
+    .unwrap();
+    let nuevo_blob = &nuevo_blob_sellado.blob;
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob_sellado).await;
 
     let body_completar = json!({
         "mfa_code": "000000",
         "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
         "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
         "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode(nuevo_blob_sellado.auth_key.expose_secret()),
         "challenge_nonce_b64": challenge,
         "signature_b64": firma,
     });
@@ -429,13 +440,29 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
 
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("otra-passphrase-post-kit-email".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
+    let nuevo_blob_sellado = clave_privada::cifrar_clave_privada(
+        &nueva_passphrase,
+        nueva_salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &abierto,
+        victima.email.as_bytes(),
+    )
+    .unwrap();
+    let nuevo_blob = &nuevo_blob_sellado.blob;
 
     // QA-06: con acceso sólo al buzón (código por email correcto) pero sin
     // el kit, no hay forma de firmar con la identidad — 403 y el token
     // sigue vigente para el dueño real.
-    let basura = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &[0u8; 64], victima.email.as_bytes()).unwrap();
-    let (challenge, firma_ajena) = common::prueba_de_posesion(&entorno, &victima.email, &[7u8; 32], &basura).await;
+    let basura_sellado = clave_privada::cifrar_clave_privada(
+        &nueva_passphrase,
+        nueva_salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &[0u8; 64],
+        victima.email.as_bytes(),
+    )
+    .unwrap();
+    let basura = &basura_sellado.blob;
+    let (challenge, firma_ajena) = common::prueba_de_posesion(&entorno, &victima.email, &[7u8; 32], &basura_sellado).await;
     let resp = entorno
         .cliente
         .post(format!("{}/recovery-kit/reset/{token}/complete", entorno.base))
@@ -444,6 +471,8 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
             "encrypted_private_key_blob_b64": B64.encode(&basura.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(basura.envoltura.nonce),
             "kdf_salt_b64": B64.encode(basura.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(basura_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma_ajena,
         }))
@@ -452,7 +481,7 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
         .unwrap();
     assert_eq!(resp.status(), 403, "sin la identidad no se reemplaza la clave privada");
 
-    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob_sellado).await;
     let resp = entorno
         .cliente
         .post(format!("{}/recovery-kit/reset/{token}/complete", entorno.base))
@@ -461,6 +490,8 @@ async fn flujo_de_reset_sin_totp_cae_a_codigo_por_email() {
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(nuevo_blob_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma,
         }))
@@ -510,6 +541,8 @@ async fn token_de_reset_se_quema_tras_cinco_codigos_incorrectos() {
                 "encrypted_private_key_blob_b64": B64.encode([0u8; 80]),
                 "private_key_nonce_b64": B64.encode([0u8; 24]),
                 "kdf_salt_b64": B64.encode([0u8; 16]),
+                "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+                "auth_key_b64": B64.encode([7u8; 32]),
                 "challenge_nonce_b64": B64.encode([0u8; 32]),
                 "signature_b64": B64.encode([0u8; 64]),
             }))

@@ -10,6 +10,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use ellkan_crypto::aead::Envoltura;
 use ellkan_crypto::clave_privada::{self, EncryptedPrivateKeyBlob};
 use ellkan_crypto::secretos::PassphraseSecreta;
+use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 use serde_json::{Value, json};
 
@@ -117,8 +118,16 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     privadas[32..].copy_from_slice(&user.ed25519.firmante().to_bytes());
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("una-passphrase-nueva-bien-larga".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, user.email.as_bytes()).unwrap();
-    let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privadas[32..], &nuevo_blob).await;
+    let nuevo_blob_sellado = clave_privada::cifrar_clave_privada(
+        &nueva_passphrase,
+        nueva_salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &privadas,
+        user.email.as_bytes(),
+    )
+    .unwrap();
+    let nuevo_blob = &nuevo_blob_sellado.blob;
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privadas[32..], &nuevo_blob_sellado).await;
 
     let resp = entorno
         .cliente
@@ -128,6 +137,8 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(nuevo_blob_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma,
         }))
@@ -154,7 +165,11 @@ async fn cambiar_passphrase_rota_la_clave_e_invalida_la_sesion_vieja_incluida_la
     let salt: [u8; 16] = fila.2.clone().try_into().unwrap();
     let nonce: [u8; 24] = fila.1.clone().try_into().unwrap();
     let blob_nuevo_leido = Envoltura { nonce, ciphertext: fila.0.clone() };
-    let blob_para_abrir = EncryptedPrivateKeyBlob { salt, envoltura: blob_nuevo_leido };
+    let blob_para_abrir = EncryptedPrivateKeyBlob {
+        salt,
+        parametros: ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        envoltura: blob_nuevo_leido,
+    };
     assert!(
         clave_privada::descifrar_clave_privada(&user.passphrase, &blob_para_abrir, user.email.as_bytes()).is_err(),
         "la passphrase vieja no debería poder abrir el blob ya rotado"
@@ -179,6 +194,8 @@ async fn cambiar_passphrase_rechaza_longitudes_invalidas() {
             "encrypted_private_key_blob_b64": B64.encode(b"muy corto"),
             "private_key_nonce_b64": B64.encode(b"nonce-de-longitud-incorrecta"),
             "kdf_salt_b64": B64.encode(b"salt-mal"),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode([7u8; 32]),
             "challenge_nonce_b64": B64.encode([0u8; 32]),
             "signature_b64": B64.encode([0u8; 64]),
         }))
@@ -203,18 +220,22 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
         .await
         .unwrap();
 
-    let basura = clave_privada::cifrar_clave_privada(
+    let basura_sellado = clave_privada::cifrar_clave_privada(
         &SecretBox::new(Box::new("passphrase-del-atacante-larga".to_string())),
         [9u8; 16],
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
         &[0u8; 64],
         user.email.as_bytes(),
     )
     .unwrap();
+    let basura = &basura_sellado.blob;
     let cuerpo = |challenge: &str, firma: &str| {
         json!({
             "encrypted_private_key_blob_b64": B64.encode(&basura.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(basura.envoltura.nonce),
             "kdf_salt_b64": B64.encode(basura.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(basura_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma,
         })
@@ -230,7 +251,7 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
 
     // Firma con una clave que no es la de la cuenta: 403, y el challenge
     // queda consumido igual.
-    let (challenge, firma_ajena) = common::prueba_de_posesion(&entorno, &user.email, &[5u8; 32], &basura).await;
+    let (challenge, firma_ajena) = common::prueba_de_posesion(&entorno, &user.email, &[5u8; 32], &basura_sellado).await;
     assert_eq!(enviar(cuerpo(&challenge, &firma_ajena)).await.unwrap().status(), 403);
 
     // Firma legítima, pero sobre ese challenge ya consumido.
@@ -238,9 +259,13 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
     let firma_reusada = B64.encode(clave_privada::firmar_reemplazo_clave_privada(
         &privada,
         &B64.decode(&challenge).unwrap(),
-        &basura.envoltura.ciphertext,
-        &basura.envoltura.nonce,
-        &basura.salt,
+        &clave_privada::Reemplazo {
+            blob: &basura.envoltura.ciphertext,
+            nonce: &basura.envoltura.nonce,
+            salt: &basura.salt,
+            parametros: &basura.parametros,
+            auth_key: basura_sellado.auth_key.expose_secret(),
+        },
     ));
     assert_eq!(
         enviar(cuerpo(&challenge, &firma_reusada)).await.unwrap().status(),
@@ -249,8 +274,15 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
     );
 
     // Firma legítima de OTRO blob, presentada con el blob basura.
-    let otro = clave_privada::cifrar_clave_privada(&user.passphrase, [3u8; 16], &[1u8; 64], user.email.as_bytes()).unwrap();
-    let (challenge, firma_otro) = common::prueba_de_posesion(&entorno, &user.email, &privada, &otro).await;
+    let otro_sellado = clave_privada::cifrar_clave_privada(
+        &user.passphrase,
+        [3u8; 16],
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &[1u8; 64],
+        user.email.as_bytes(),
+    )
+    .unwrap();
+    let (challenge, firma_otro) = common::prueba_de_posesion(&entorno, &user.email, &privada, &otro_sellado).await;
     assert_eq!(enviar(cuerpo(&challenge, &firma_otro)).await.unwrap().status(), 403);
 
     let blob_intermedio: (Vec<u8>,) = sqlx::query_as("select encrypted_private_key_blob from user_keys where user_id = $1")
@@ -261,7 +293,7 @@ async fn cambiar_passphrase_exige_prueba_de_posesion_de_la_identidad() {
     assert_eq!(blob_intermedio.0, blob_original.0, "ningún intento sin prueba válida escribió");
 
     // Con la prueba válida sí se acepta.
-    let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privada, &basura).await;
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &user.email, &privada, &basura_sellado).await;
     assert_eq!(enviar(cuerpo(&challenge, &firma)).await.unwrap().status(), 200, "la prueba válida se acepta");
 
     let blob_final: (Vec<u8>,) = sqlx::query_as("select encrypted_private_key_blob from user_keys where user_id = $1")

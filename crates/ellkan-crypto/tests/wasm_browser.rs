@@ -43,7 +43,9 @@ fn clave_privada_argon2id_hkdf_aead_roundtrip_en_navegador() {
     let pass = SecretBox::new(Box::new("passphrase-de-prueba-wasm".to_string()));
     let clave_privada = [9u8; 32];
     let aad = b"user_id:wasm-test";
-    let blob = cifrar_clave_privada(&pass, [3u8; 16], &clave_privada, aad).unwrap();
+    let blob = cifrar_clave_privada(&pass, [3u8; 16], ellkan_crypto::derivacion::ParametrosKdf::LEGADO, &clave_privada, aad)
+        .unwrap()
+        .blob;
     let recuperada = descifrar_clave_privada(&pass, &blob, aad).unwrap();
     assert_eq!(recuperada.as_slice(), &clave_privada);
 }

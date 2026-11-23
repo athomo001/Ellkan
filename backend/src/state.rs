@@ -93,6 +93,11 @@ pub struct AppState {
     /// sesión parcial — más estricto que el general por usuario, porque un
     /// código TOTP de 6 dígitos tiene espacio de búsqueda acotado (F-14).
     pub limitador_mfa: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    /// QA-03: `POST /auth/key-material` por email (normalizado), exista o
+    /// no la cuenta, así el 429 no la delata. Frena adivinar la passphrase
+    /// online contra el verificador; el costo es que quien inunde un email
+    /// demora el desbloqueo de esa cuenta mientras dure el ataque.
+    pub limitador_auth_key: Arc<DefaultKeyedRateLimiter<String>>,
     /// F-03: instancia única del RP WebAuthn — `rp_id`/origin se leen de
     /// `ELLKAN_RP_ID`/`ELLKAN_RP_ORIGIN` (default de desarrollo
     /// `localhost`/`http://localhost:8080`). **Producción debe fijar
@@ -195,6 +200,7 @@ impl AppState {
         // sesión parcial, muy por debajo del espacio de búsqueda de un
         // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.
         let cuota_mfa = Quota::per_minute(NonZeroU32::new(5).expect("5 no es cero"));
+        let cuota_auth_key = Quota::per_minute(NonZeroU32::new(10).expect("10 no es cero"));
         Self {
             usuarios: PgUserRepository { pool: pool.clone() },
             challenges: PgAuthChallengeRepository { pool: pool.clone() },
@@ -228,6 +234,7 @@ impl AppState {
             secrets_key: Arc::new(secrets_key),
             setup_token: None,
             limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
+            limitador_auth_key: Arc::new(governor::RateLimiter::keyed(cuota_auth_key)),
             webauthn: Arc::new(construir_webauthn()),
             server_public_key_ed25519: Arc::new(server_public_key_ed25519),
             limitador_por_usuario: Arc::new(governor::RateLimiter::keyed(cuota)),

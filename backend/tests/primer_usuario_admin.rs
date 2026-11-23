@@ -46,6 +46,8 @@ async fn registrar_crudo(entorno: &common::Entorno, email: &str, setup_token: Op
         "encrypted_private_key_blob_b64": B64.encode([3u8; 80]),
         "private_key_nonce_b64": B64.encode([4u8; 24]),
         "kdf_salt_b64": B64.encode([5u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     });
     if let Some(t) = setup_token {
         cuerpo["setup_token"] = serde_json::Value::String(t.to_string());

@@ -15,7 +15,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import Card from '$lib/components/Card.svelte';
-	import { iniciarSesion, verificarDispositivo, cambiarPassphrase } from '$lib/crypto/identity';
+	import { iniciarSesion, verificarDispositivo, cambiarPassphrase, aplicarMejoraKdfPendiente } from '$lib/crypto/identity';
 	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '$lib/crypto/totp';
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
 	import { desbloquear as desbloquearLocal, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
@@ -126,6 +126,9 @@
 	// código local, passphrase directa).
 	async function completarSesion(userId: string | undefined, sessionId: string | undefined) {
 		sesion.set({ sessionId: sessionId ?? null, userId: userId ?? null, email });
+		// QA-03: una cuenta sellada con el esquema anterior se re-sella ahora
+		// que la sesión es completa (en segundo plano; si falla, en el próximo login).
+		void aplicarMejoraKdfPendiente(get(clavesDesbloqueadas)?.ed25519Private);
 		try {
 			const estado = await recoveryKitApi.estado();
 			if (!estado.configured) {

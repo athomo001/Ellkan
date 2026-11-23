@@ -8,6 +8,8 @@
 //! `Send` en la firma del trait no es un problema real.
 #![allow(async_fn_in_trait)]
 
+use ellkan_crypto::derivacion::ParametrosKdf;
+use sqlx::types::Json;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -241,9 +243,10 @@ impl UserRepository for PgUserRepository {
             r#"
             insert into user_keys (
                 user_id, public_key_x25519, public_key_ed25519,
-                encrypted_private_key_blob, private_key_nonce, kdf_salt
+                encrypted_private_key_blob, private_key_nonce, kdf_salt,
+                kdf_params, auth_verifier
             )
-            values ($1, $2, $3, $4, $5, $6)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
             fila.id,
             nuevo.public_key_x25519,
@@ -251,6 +254,8 @@ impl UserRepository for PgUserRepository {
             nuevo.encrypted_private_key_blob,
             nuevo.private_key_nonce,
             nuevo.kdf_salt,
+            sqlx::types::Json(nuevo.kdf_params) as _,
+            nuevo.auth_key.map(|k| ellkan_crypto::derivacion::verificador_auth(k).to_vec()),
         )
         .execute(&mut *tx)
         .await?;
@@ -328,7 +333,9 @@ impl UserRepository for PgUserRepository {
     async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<super::models::MaterialDesbloqueo>, RepoError> {
         let fila = sqlx::query!(
             r#"
-            select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
+            select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt,
+                   uk.kdf_params as "kdf_params: Json<ParametrosKdf>",
+                   uk.auth_verifier
             from user_keys uk
             join users u on u.id = uk.user_id
             where lower(u.email) = lower(trim($1)) and u.active and u.deleted_at is null and u.email_verified_at is not null
@@ -342,6 +349,8 @@ impl UserRepository for PgUserRepository {
             encrypted_private_key_blob: f.encrypted_private_key_blob,
             private_key_nonce: f.private_key_nonce,
             kdf_salt: f.kdf_salt,
+            kdf_params: f.kdf_params.0,
+            auth_verifier: f.auth_verifier,
         }))
     }
 

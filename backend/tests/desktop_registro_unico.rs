@@ -44,6 +44,8 @@ fn cuerpo_registro(email: &str) -> Value {
         "encrypted_private_key_blob_b64": B64.encode([3u8; 48]),
         "private_key_nonce_b64": B64.encode([4u8; 24]),
         "kdf_salt_b64": B64.encode([5u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     })
 }
 

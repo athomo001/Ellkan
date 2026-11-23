@@ -480,12 +480,14 @@ pub fn construir_router(estado: AppState) -> Router {
     // `AppState::nuevo`). Acá sólo se limpian las claves viejas de los dos.
     let por_ip = estado.limitador_por_ip.clone();
     let por_usuario = estado.limitador_por_usuario.clone();
+    let por_auth_key = estado.limitador_auth_key.clone();
     tokio::spawn(async move {
         let mut intervalo = tokio::time::interval(Duration::from_secs(60));
         loop {
             intervalo.tick().await;
             por_ip.retain_recent();
             por_usuario.retain_recent();
+            por_auth_key.retain_recent();
         }
     });
 
@@ -563,6 +565,8 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/setup-status", get(auth::handlers::setup_status))
         .route("/server-key", get(auth::handlers::server_key))
         .route("/challenge", post(auth::handlers::challenge))
+        // QA-03: sal y parámetros primero; el blob, sólo contra la auth_key.
+        .route("/prelogin", post(auth::handlers::prelogin))
         .route("/key-material", post(auth::handlers::key_material))
         .route("/verify", post(auth::handlers::verify))
         .route("/verify-device", post(auth::handlers::verify_device))
@@ -599,7 +603,10 @@ pub fn construir_router(estado: AppState) -> Router {
         // Pendiente #58: derecho de acceso a los datos personales propios.
         .route("/personal-data", get(datos_personales::handlers::exportar))
         // Pendiente #133: primer par de claves de una cuenta creada por SSO.
-        .route("/keys/enroll", post(me::handlers::enrolar_claves));
+        .route("/keys/enroll", post(me::handlers::enrolar_claves))
+        // QA-03: re-sellar con los parámetros actuales una cuenta sellada
+        // antes de QA-03, con la misma passphrase y sin cerrar sesiones.
+        .route("/kdf-upgrade", post(me::handlers::mejorar_kdf));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
     // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
     // en base64 dentro de un JSON (~33% más grande que los bytes crudos),

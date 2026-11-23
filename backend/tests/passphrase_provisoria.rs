@@ -13,6 +13,7 @@ use ed25519_dalek::Signer;
 use ellkan_crypto::clave_privada;
 use ellkan_crypto::claves::{KeypairAcuerdo, KeypairFirma};
 use ellkan_crypto::secretos::PassphraseSecreta;
+use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -30,7 +31,15 @@ async fn crear_usuario_por_admin(entorno: &common::Entorno, sesion_admin: Uuid, 
     privadas[..32].copy_from_slice(x25519.privada().to_bytes().as_slice());
     privadas[32..].copy_from_slice(&ed25519.firmante().to_bytes());
     let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let blob = clave_privada::cifrar_clave_privada(&passphrase, salt, &privadas, email.as_bytes()).unwrap();
+    let blob_sellado = clave_privada::cifrar_clave_privada(
+        &passphrase,
+        salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &privadas,
+        email.as_bytes(),
+    )
+    .unwrap();
+    let blob = &blob_sellado.blob;
 
     let resp = entorno
         .cliente
@@ -44,6 +53,8 @@ async fn crear_usuario_por_admin(entorno: &common::Entorno, sesion_admin: Uuid, 
             "encrypted_private_key_blob_b64": B64.encode(&blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(blob_sellado.auth_key.expose_secret()),
         }))
         .send()
         .await
@@ -173,8 +184,16 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
     privadas[32..].copy_from_slice(&usuario.ed25519.firmante().to_bytes());
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("passphrase-definitiva-elegida-por-mi".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &privadas, usuario.email.as_bytes()).unwrap();
-    let (challenge, firma) = common::prueba_de_posesion(&entorno, &usuario.email, &privadas[32..], &nuevo_blob).await;
+    let nuevo_blob_sellado = clave_privada::cifrar_clave_privada(
+        &nueva_passphrase,
+        nueva_salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &privadas,
+        usuario.email.as_bytes(),
+    )
+    .unwrap();
+    let nuevo_blob = &nuevo_blob_sellado.blob;
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &usuario.email, &privadas[32..], &nuevo_blob_sellado).await;
 
     let resp = entorno
         .cliente
@@ -184,6 +203,8 @@ async fn admin_crea_usuario_y_login_exige_cambiar_la_passphrase_antes_de_operar(
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(nuevo_blob_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma,
         }))

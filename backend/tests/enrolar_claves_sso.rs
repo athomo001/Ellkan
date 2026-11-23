@@ -17,6 +17,8 @@ fn claves(n: u8) -> Value {
         "encrypted_private_key_blob_b64": B64.encode([n + 2; 80]),
         "private_key_nonce_b64": B64.encode([n + 3; 24]),
         "kdf_salt_b64": B64.encode([n + 4; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     })
 }
 

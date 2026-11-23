@@ -639,6 +639,7 @@ const es = {
 		modoYaTengoCuenta: 'Ya tengo una cuenta en ese servidor',
 		modoBovedaNueva: 'Es una bóveda local nueva — quiero respaldarla ahí',
 		nombreParaElServidor: 'Tu nombre en ese servidor',
+		passphraseParaElServidor: 'Tu frase de contraseña (la misma que usás acá)',
 		vincular: 'Conectar',
 		conectadaA: 'Conectada a',
 		sincronizarAhora: 'Sincronizar ahora',

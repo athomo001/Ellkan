@@ -636,6 +636,7 @@ const en: Diccionario = {
 		modoYaTengoCuenta: 'I already have an account on that server',
 		modoBovedaNueva: "It's a new local vault — I want to back it up there",
 		nombreParaElServidor: 'Your name on that server',
+		passphraseParaElServidor: 'Your passphrase (the same one you use here)',
 		vincular: 'Connect',
 		conectadaA: 'Connected to',
 		sincronizarAhora: 'Sync now',

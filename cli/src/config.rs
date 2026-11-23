@@ -19,6 +19,10 @@ pub struct Perfil {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob local. Un perfil guardado
+    /// antes de QA-03 no los tiene: son los de entonces.
+    #[serde(default = "parametros_legado")]
+    pub kdf_params: ellkan_crypto::derivacion::ParametrosKdf,
     /// mTLS opcional (F-35) — `#[serde(default)]` para que perfiles ya
     /// persistidos sin estos campos sigan cargando sin error.
     #[serde(default)]
@@ -243,4 +247,8 @@ mod tests {
         unsafe { std::env::remove_var("ELLKAN_CONFIG_DIR") };
         std::fs::remove_dir_all(&dir).ok();
     }
+}
+
+fn parametros_legado() -> ellkan_crypto::derivacion::ParametrosKdf {
+    ellkan_crypto::derivacion::ParametrosKdf::LEGADO
 }

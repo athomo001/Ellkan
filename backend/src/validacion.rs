@@ -41,6 +41,19 @@ fn invalido(detalle: String) -> DomainError {
     DomainError::ValidacionInvalida(detalle)
 }
 
+/// QA-03: `auth_key` (HKDF de la clave maestra).
+pub const LARGO_AUTH_KEY: usize = 32;
+
+/// QA-03: todo blob nuevo llega con los parámetros de Argon2id con que se
+/// selló (al menos los actuales: el servidor no acepta guardar uno más débil)
+/// y la `auth_key` del mismo Argon2id. Devuelve la `auth_key` decodificada.
+pub fn sello_nuevo(kdf_params: &ellkan_crypto::derivacion::ParametrosKdf, auth_key_b64: &str) -> Result<Vec<u8>, DomainError> {
+    if !kdf_params.aceptables_para_sellar() {
+        return Err(invalido("kdf_params por debajo del mínimo (64 MiB, t=3, p=1) o fuera de rango".into()));
+    }
+    b64_exacto(auth_key_b64, "auth_key_b64", LARGO_AUTH_KEY)
+}
+
 /// Base64 de exactamente `largo` bytes.
 pub fn b64_exacto(valor: &str, campo: &str, largo: usize) -> Result<Vec<u8>, DomainError> {
     let bytes = b64::decode(valor).map_err(|_| invalido(format!("{campo} inválido")))?;

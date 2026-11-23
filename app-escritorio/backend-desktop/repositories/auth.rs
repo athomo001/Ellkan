@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::desktop::sqlite_util::{fmt_dt, parse_dt, parse_uuid};
 use crate::error::RepoError;
+use crate::me::models::NuevaClavePrivada;
 
 use crate::auth::models::{
     DeviceChallengeRow, EmailVerificationRow, MaterialDesbloqueo, NuevoUsuario, PropositoSesion, Session, User, UserKeysRow,
@@ -50,23 +51,10 @@ impl SqliteUserRepository {
     /// en la misma transacción, lo que invalida de una vez todas las
     /// sesiones abiertas de la cuenta (mismo mecanismo que el cambio de
     /// passphrase del modo servidor). `Ok(false)` si el usuario no existe.
-    pub async fn reemplazar_clave_por_recuperacion(
-        &self,
-        user_id: Uuid,
-        blob: &[u8],
-        nonce: &[u8],
-        salt: &[u8],
-    ) -> Result<bool, RepoError> {
+    pub async fn reemplazar_clave_por_recuperacion(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError> {
         let mut tx = self.pool.begin().await?;
 
-        let actualizada =
-            sqlx::query("update user_keys set encrypted_private_key_blob = ?2, private_key_nonce = ?3, kdf_salt = ?4 where user_id = ?1")
-                .bind(user_id.to_string())
-                .bind(blob)
-                .bind(nonce)
-                .bind(salt)
-                .execute(&mut *tx)
-                .await?;
+        let actualizada = Self::escribir_sello(&mut tx, user_id, nueva, false).await?;
         if actualizada.rows_affected() == 0 {
             return Ok(false);
         }
@@ -93,14 +81,7 @@ impl SqliteUserRepository {
     /// correo nuevo y las dos escrituras van en una sola transacción — o se
     /// aplican las dos o ninguna. `RepoError::Conflict` si el correo ya lo
     /// usa otro usuario; `Ok(false)` si el usuario no existe.
-    pub async fn actualizar_email_y_blob(
-        &self,
-        user_id: Uuid,
-        nuevo_email: &str,
-        blob: &[u8],
-        nonce: &[u8],
-        salt: &[u8],
-    ) -> Result<bool, RepoError> {
+    pub async fn actualizar_email_y_blob(&self, user_id: Uuid, nuevo_email: &str, nueva: &NuevaClavePrivada) -> Result<bool, RepoError> {
         let mut tx = self.pool.begin().await?;
 
         let resultado = sqlx::query("update users set email = ?2 where id = ?1 and deleted_at is null")
@@ -118,16 +99,44 @@ impl SqliteUserRepository {
             return Ok(false);
         }
 
-        sqlx::query("update user_keys set encrypted_private_key_blob = ?2, private_key_nonce = ?3, kdf_salt = ?4 where user_id = ?1")
-            .bind(user_id.to_string())
-            .bind(blob)
-            .bind(nonce)
-            .bind(salt)
-            .execute(&mut *tx)
-            .await?;
+        Self::escribir_sello(&mut tx, user_id, nueva, false).await?;
 
         tx.commit().await?;
         Ok(true)
+    }
+
+    /// QA-03: re-sella una bóveda sellada antes de QA-03, sólo si todavía no
+    /// tiene verificador y sin tocar `security_stamp` (la passphrase no
+    /// cambió). `Ok(false)` si no había nada que mejorar.
+    pub async fn mejorar_sello_legado(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError> {
+        let mut tx = self.pool.begin().await?;
+        let r = Self::escribir_sello(&mut tx, user_id, nueva, true).await?;
+        tx.commit().await?;
+        Ok(r.rows_affected() == 1)
+    }
+
+    /// Blob, sal, parámetros de Argon2id y verificador de la `auth_key`, en
+    /// una sola sentencia. `solo_legado`: sólo si todavía no hay verificador.
+    async fn escribir_sello(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        user_id: Uuid,
+        nueva: &NuevaClavePrivada,
+        solo_legado: bool,
+    ) -> Result<sqlx::sqlite::SqliteQueryResult, RepoError> {
+        let sql = if solo_legado {
+            "update user_keys set encrypted_private_key_blob = ?2, private_key_nonce = ?3, kdf_salt = ?4, kdf_params = ?5, auth_verifier = ?6 where user_id = ?1 and auth_verifier is null"
+        } else {
+            "update user_keys set encrypted_private_key_blob = ?2, private_key_nonce = ?3, kdf_salt = ?4, kdf_params = ?5, auth_verifier = ?6 where user_id = ?1"
+        };
+        Ok(sqlx::query(sql)
+            .bind(user_id.to_string())
+            .bind(&nueva.encrypted_private_key_blob)
+            .bind(&nueva.private_key_nonce)
+            .bind(&nueva.kdf_salt)
+            .bind(serde_json::to_string(&nueva.kdf_params).map_err(|e| RepoError::Database(sqlx::Error::Encode(Box::new(e))))?)
+            .bind(nueva.auth_verifier())
+            .execute(&mut **tx)
+            .await?)
     }
 }
 
@@ -226,8 +235,9 @@ impl SqliteUserRepository {
         sqlx::query(
             r#"insert into user_keys (
                 user_id, public_key_x25519, public_key_ed25519,
-                encrypted_private_key_blob, private_key_nonce, kdf_salt
-            ) values (?1, ?2, ?3, ?4, ?5, ?6)"#,
+                encrypted_private_key_blob, private_key_nonce, kdf_salt,
+                kdf_params, auth_verifier
+            ) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
         )
         .bind(id.to_string())
         .bind(nuevo.public_key_x25519)
@@ -235,6 +245,8 @@ impl SqliteUserRepository {
         .bind(nuevo.encrypted_private_key_blob)
         .bind(nuevo.private_key_nonce)
         .bind(nuevo.kdf_salt)
+        .bind(serde_json::to_string(&nuevo.kdf_params).map_err(|e| RepoError::Database(sqlx::Error::Encode(Box::new(e))))?)
+        .bind(nuevo.auth_key.map(|k| ellkan_crypto::derivacion::verificador_auth(k).to_vec()))
         .execute(&mut **tx)
         .await?;
 
@@ -301,19 +313,25 @@ impl UserRepository for SqliteUserRepository {
 
     async fn material_desbloqueo_por_email(&self, email: &str) -> Result<Option<MaterialDesbloqueo>, RepoError> {
         let fila = sqlx::query(
-            r#"select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt
+            r#"select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt, uk.kdf_params, uk.auth_verifier
                from user_keys uk join users u on u.id = uk.user_id
                where lower(u.email) = lower(trim(?1)) and u.active and u.deleted_at is null and u.email_verified_at is not null"#,
         )
         .bind(email)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(fila.map(|f| MaterialDesbloqueo {
-            email: f.get("email"),
-            encrypted_private_key_blob: f.get("encrypted_private_key_blob"),
-            private_key_nonce: f.get("private_key_nonce"),
-            kdf_salt: f.get("kdf_salt"),
-        }))
+        fila.map(|f| {
+            let kdf_params: String = f.get("kdf_params");
+            Ok(MaterialDesbloqueo {
+                email: f.get("email"),
+                encrypted_private_key_blob: f.get("encrypted_private_key_blob"),
+                private_key_nonce: f.get("private_key_nonce"),
+                kdf_salt: f.get("kdf_salt"),
+                kdf_params: serde_json::from_str(&kdf_params).map_err(|e| RepoError::Database(sqlx::Error::Decode(Box::new(e))))?,
+                auth_verifier: f.get("auth_verifier"),
+            })
+        })
+        .transpose()
     }
 
     async fn existe_alguno(&self) -> Result<bool, RepoError> {

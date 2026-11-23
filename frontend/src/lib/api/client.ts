@@ -74,7 +74,10 @@ async function requestConCabeceras<T>(path: string, init: RequestInit = {}): Pro
 		// con contraseña incorrecta (ahí nunca hay `Authorization` todavía,
 		// y sí queremos que la página de login muestre el error en vez de
 		// redirigir a sí misma).
-		if (resp.status === 401 && s.sessionId) {
+		// QA-03: `/auth/key-material` responde 401 a una passphrase equivocada
+		// (su `auth_key` no coincide) aunque haya sesión abierta — desbloqueo
+		// tras auto-bloqueo, cambio de passphrase — y eso no es sesión vencida.
+		if (resp.status === 401 && s.sessionId && path !== '/auth/key-material') {
 			limpiarStoresEn('logout');
 			goto('/login');
 		}

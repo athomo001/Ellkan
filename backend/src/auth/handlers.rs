@@ -13,8 +13,9 @@ use crate::state::AppState;
 use crate::validacion;
 
 use super::dto::{
-    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PublicKeyResponse, RegisterRequest, RegisterResponse,
-    ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest, VerifyEmailRequest, VerifyRequest, VerifyResponse,
+    ChallengeRequest, ChallengeResponse, KeyMaterialRequest, KeyMaterialResponse, PreloginRequest, PreloginResponse, PublicKeyResponse,
+    RegisterRequest, RegisterResponse, ResendVerificationRequest, ServerKeyResponse, VerifyDeviceRequest, VerifyEmailRequest,
+    VerifyRequest, VerifyResponse,
 };
 use super::extractor::{AdminUser, AuthenticatedUser};
 use super::models::{NuevoUsuario, ResultadoRegistro, ResultadoVerify};
@@ -104,6 +105,7 @@ pub async fn register(State(state): State<AppState>, Json(req): Json<RegisterReq
     )?;
     let nonce = validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?;
     let salt = validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?;
+    let auth_key = validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -113,6 +115,8 @@ pub async fn register(State(state): State<AppState>, Json(req): Json<RegisterReq
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: req.kdf_params,
+        auth_key: Some(&auth_key),
     };
 
     let resultado = servicio(&state).registrar(nuevo, req.setup_token.as_deref(), state.setup_token.as_deref()).await?;
@@ -143,6 +147,7 @@ pub async fn crear_admin(
     )?;
     let nonce = validacion::b64_exacto(&req.private_key_nonce_b64, "private_key_nonce_b64", validacion::LARGO_NONCE)?;
     let salt = validacion::b64_exacto(&req.kdf_salt_b64, "kdf_salt_b64", validacion::LARGO_SAL_KDF)?;
+    let auth_key = validacion::sello_nuevo(&req.kdf_params, &req.auth_key_b64)?;
 
     let nuevo = NuevoUsuario {
         email: &req.email,
@@ -152,6 +157,8 @@ pub async fn crear_admin(
         encrypted_private_key_blob: &blob,
         private_key_nonce: &nonce,
         kdf_salt: &salt,
+        kdf_params: req.kdf_params,
+        auth_key: Some(&auth_key),
     };
 
     let usuario = servicio(&state).crear_por_admin(nuevo).await?;
@@ -196,16 +203,40 @@ pub async fn challenge(State(state): State<AppState>, Json(req): Json<ChallengeR
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
 }
 
+/// QA-03: primer paso del desbloqueo — sal y parámetros de Argon2id para
+/// derivar la `auth_key`. No entrega nada que sirva para crackear.
+pub async fn prelogin(State(state): State<AppState>, Json(req): Json<PreloginRequest>) -> Result<Json<PreloginResponse>, ApiError> {
+    let p = servicio(&state).prelogin(&req.email, &state.secrets_key).await?;
+    Ok(Json(PreloginResponse {
+        email: p.email,
+        kdf_salt_b64: b64::encode(&p.kdf_salt),
+        kdf_params: p.kdf_params,
+        auth_key_required: p.auth_key_required,
+    }))
+}
+
+/// QA-03: segundo paso — el blob, sólo contra la `auth_key` correcta (o sin
+/// ella para una cuenta todavía sellada con el esquema anterior). Email sin
+/// cuenta y `auth_key` equivocada responden el mismo 401.
 pub async fn key_material(
     State(state): State<AppState>,
     Json(req): Json<KeyMaterialRequest>,
 ) -> Result<Json<KeyMaterialResponse>, ApiError> {
-    let material = servicio(&state).material_desbloqueo(&req.email, &state.secrets_key).await?;
+    let auth_key = req
+        .auth_key_b64
+        .as_deref()
+        .map(|v| validacion::b64_exacto(v, "auth_key_b64", validacion::LARGO_AUTH_KEY))
+        .transpose()?;
+    if state.limitador_auth_key.check_key(&req.email.trim().to_lowercase()).is_err() {
+        return Err(DomainError::RateLimited.into());
+    }
+    let material = servicio(&state).material_desbloqueo(&req.email, auth_key.as_deref()).await?;
     Ok(Json(KeyMaterialResponse {
         email: material.email,
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),
         kdf_salt_b64: b64::encode(&material.kdf_salt),
+        kdf_params: material.kdf_params,
     }))
 }
 

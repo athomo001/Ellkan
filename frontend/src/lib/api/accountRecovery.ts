@@ -10,7 +10,7 @@
 // completarla.
 
 import { api } from './client';
-import type { PruebaDePosesion } from '$lib/crypto/accountRecovery';
+import { camposDelBlob, type BlobClaveNueva, type PruebaDePosesion } from '$lib/crypto/desbloqueo';
 
 export const accountRecoveryApi = {
 	miEstado: () => api.get<{ enrolled: boolean }>('/account-recovery/status'),
@@ -28,19 +28,10 @@ export const accountRecoveryApi = {
 		api.post<{ requester_token_b64: string }>(`/account-recovery/requests/${id}/confirm`, { code }),
 	estadoSolicitud: (id: string, tokenB64: string) =>
 		api.get<SolicitudRecovery>(`/account-recovery/requests/${id}`, { 'X-Ellkan-Recovery-Token': tokenB64 }),
-	completar: (
-		id: string,
-		tokenB64: string,
-		blobB64: string,
-		nonceB64: string,
-		saltB64: string,
-		prueba: PruebaDePosesion
-	) =>
+	completar: (id: string, tokenB64: string, blob: BlobClaveNueva, prueba: PruebaDePosesion) =>
 		api.post<void>(`/account-recovery/requests/${id}/complete`, {
 			requester_token_b64: tokenB64,
-			encrypted_private_key_blob_b64: blobB64,
-			private_key_nonce_b64: nonceB64,
-			kdf_salt_b64: saltB64,
+			...camposDelBlob(blob),
 			...prueba
 		})
 };

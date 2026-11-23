@@ -11,14 +11,20 @@
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { deviceTokenHashB64 } from '../crypto/device';
-import { abrirClavePrivadaEnWorker, sellarClavePrivadaEnWorker } from '../crypto/argon2WorkerClient';
 import { api } from '$lib/api/client';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { olvidarPendientes } from './pendientes';
 import { registrar } from '$lib/tauri/registro';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
-import { pruebaDePosesion } from '../crypto/accountRecovery';
-import { emailDelMaterial, type MaterialClave } from '../crypto/identity';
+import {
+	abrirMaterial,
+	camposDelBlob,
+	ErrorPassphraseIncorrecta,
+	mejorarKdf,
+	pruebaDePosesion,
+	sellarNuevo,
+	type BlobClaveNueva
+} from '../crypto/desbloqueo';
 
 export interface VinculacionServidor {
 	serverUrl: string;
@@ -180,9 +186,9 @@ export class ErrorRequiereNuevaFrase extends Error {
 /**
  * Cuenta creada por un admin con frase temporal: el servidor la deja entrar
  * sólo con una sesión parcial que sirve para `POST /me/change-passphrase`
- * (igual que el login web). Re-sella la clave privada con la frase nueva, la
- * cambia en el servidor y devuelve el material nuevo. Sin `passphraseNueva`
- * lanza `ErrorRequiereNuevaFrase` para que la UI la pida.
+ * (igual que el login web). Re-sella la clave privada con la frase nueva y
+ * la cambia en el servidor. Sin `passphraseNueva` lanza
+ * `ErrorRequiereNuevaFrase` para que la UI la pida.
  */
 export async function resolverFraseTemporal(
 	serverUrl: string,
@@ -190,30 +196,37 @@ export async function resolverFraseTemporal(
 	abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array },
 	sessionIdParcial: string | undefined,
 	passphraseNueva: string | undefined
-): Promise<MaterialClave> {
+): Promise<void> {
 	if (!passphraseNueva) throw new ErrorRequiereNuevaFrase();
 	if (!sessionIdParcial) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
-	const wasm = await cargarCrypto();
-	const salt = wasm.generar_salt_kdf();
-	const sellado = await sellarClavePrivadaEnWorker(passphraseNueva, salt, abierta.x25519Private, abierta.ed25519Private, new TextEncoder().encode(email));
-	const material: MaterialClave = {
-		encrypted_private_key_blob_b64: bytesABase64(sellado.ciphertext),
-		private_key_nonce_b64: bytesABase64(sellado.nonce),
-		kdf_salt_b64: bytesABase64(salt)
-	};
+	const blob = await sellarNuevo(passphraseNueva, abierta.x25519Private, abierta.ed25519Private, email);
 	try {
 		const remoto = clienteRemoto(serverUrl, sessionIdParcial);
 		// QA-06: prueba de posesión contra el servidor remoto, no el local.
-		const prueba = await pruebaDePosesion(remoto.post, email, abierta.ed25519Private, {
-			blobB64: material.encrypted_private_key_blob_b64,
-			nonceB64: material.private_key_nonce_b64,
-			saltB64: material.kdf_salt_b64
-		});
-		await remoto.post('/me/change-passphrase', { ...material, ...prueba });
+		const prueba = await pruebaDePosesion(remoto.post, email, abierta.ed25519Private, blob);
+		await remoto.post('/me/change-passphrase', { ...camposDelBlob(blob), ...prueba });
 	} catch (err) {
 		throw new ErrorCuentaRemota({ estado: 'error', mensaje: err instanceof Error ? err.message : String(err) });
 	}
-	return material;
+}
+
+/** QA-03: abre la identidad de una cuenta remota con su passphrase,
+ * traduciendo las fallas a un diagnóstico para la UI. */
+export async function abrirCuentaRemota(serverUrl: string, email: string, passphrase: string, mensajeFrase: string) {
+	try {
+		return await abrirMaterial(clienteRemoto(serverUrl, null).post, email, passphrase);
+	} catch (err) {
+		if (err instanceof ErrorPassphraseIncorrecta) throw new ErrorCuentaRemota({ estado: 'error', mensaje: mensajeFrase });
+		if (err instanceof TypeError) throw new ErrorCuentaRemota({ estado: 'sin_conexion' });
+		throw new ErrorCuentaRemota(diagnosticoDeError(err, 'challenge'));
+	}
+}
+
+/** QA-03: si la cuenta remota seguía sellada con el esquema anterior, la
+ * re-sella con la sesión recién abierta. Nunca tira. */
+export async function mejorarKdfRemoto(serverUrl: string, sessionId: string | undefined, email: string, passphrase: string, abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array }) {
+	if (!sessionId) return;
+	await mejorarKdf(clienteRemoto(serverUrl, sessionId).post, email, passphrase, abierta).catch(() => {});
 }
 
 export function esFraseTemporal(d: DiagnosticoCuentaRemota): d is Extract<DiagnosticoCuentaRemota, { estado: 'requiere_paso_extra' }> {
@@ -325,26 +338,23 @@ export async function vincularConCuentaExistente(serverUrl: string, email: strin
 
 /**
  * (b) "Bóveda local nueva que quiero respaldar" — registra la MISMA
- * identidad (mismo blob cifrado, nunca una clave nueva) en el servidor
- * remoto. Reusa `POST /auth/key-material` LOCAL (mismo endpoint que ya usa
- * el login normal, sin auth de sesión — pensado justo para leer el propio
- * material cifrado) en vez de volver a cifrar nada: la passphrase sigue
- * siendo la misma en los dos lados sin que este código la vea en ningún
- * momento. Las claves PÚBLICAS vienen de `claves` (ya derivadas al
- * desbloquear, `wasm.clave_publica_*_de` en `identity.ts::iniciarSesion`)
- * — ningún endpoint HTTP las expone sueltas.
+ * identidad (mismas claves, nunca una nueva) en el servidor remoto, sellada
+ * con la misma passphrase. QA-03: el servidor exige la `auth_key` del blob,
+ * que sólo sale de la passphrase, así que se pide: primero se comprueba
+ * contra la bóveda local (si no abre, no se sube nada) y después se sella de
+ * nuevo (sal nueva, parámetros actuales). Las claves PÚBLICAS vienen de
+ * `claves` (ya derivadas al desbloquear) — ningún endpoint HTTP las expone
+ * sueltas.
  */
 export async function vincularComoBovedaNueva(
 	serverUrl: string,
 	email: string,
 	displayName: string,
-	claves: ClavesDesbloqueadas
+	claves: ClavesDesbloqueadas,
+	passphrase: string
 ): Promise<void> {
-	const material = await api.post<{
-		encrypted_private_key_blob_b64: string;
-		private_key_nonce_b64: string;
-		kdf_salt_b64: string;
-	}>('/auth/key-material', { email });
+	const { abierta, email: emailGuardado } = await abrirMaterial(api.post, email, passphrase);
+	const blob = await sellarNuevo(passphrase, abierta.x25519Private, abierta.ed25519Private, emailGuardado);
 
 	const remoto = clienteRemoto(serverUrl, null);
 	try {
@@ -353,9 +363,7 @@ export async function vincularComoBovedaNueva(
 			display_name: displayName,
 			public_key_x25519_b64: bytesABase64(claves.x25519Public),
 			public_key_ed25519_b64: bytesABase64(claves.ed25519Public),
-			encrypted_private_key_blob_b64: material.encrypted_private_key_blob_b64,
-			private_key_nonce_b64: material.private_key_nonce_b64,
-			kdf_salt_b64: material.kdf_salt_b64
+			...camposDelBlob(blob)
 		});
 	} catch (err) {
 		// Un fallo de red no debería verse como "Failed to fetch" crudo.
@@ -388,30 +396,12 @@ export async function conectarDesdeServidor(
 ): Promise<void> {
 	const serverUrl = serverUrlCrudo.trim().replace(/\/+$/, '');
 	const wasm = await cargarCrypto();
-	const remoto = clienteRemoto(serverUrl, null);
 
-	let material: MaterialClave;
-	try {
-		material = await remoto.post('/auth/key-material', { email });
-	} catch (err) {
-		throw new ErrorCuentaRemota(diagnosticoDeError(err, 'challenge'));
-	}
+	const remota = await abrirCuentaRemota(serverUrl, email, passphrase, 'Correo o frase de contraseña incorrectos para ese servidor.');
 	// QA-16: la cuenta local nace con el email tal como está en el servidor
-	// (es el AAD del blob que se copia).
-	email = emailDelMaterial(material, email);
-
-	let abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array };
-	try {
-		abierta = await abrirClavePrivadaEnWorker(
-			passphrase,
-			base64ABytes(material.kdf_salt_b64),
-			base64ABytes(material.private_key_nonce_b64),
-			base64ABytes(material.encrypted_private_key_blob_b64),
-			new TextEncoder().encode(email)
-		);
-	} catch {
-		throw new ErrorCuentaRemota({ estado: 'error', mensaje: 'Correo o frase de contraseña incorrectos para ese servidor.' });
-	}
+	// (es el AAD del blob).
+	email = remota.email;
+	const abierta = remota.abierta;
 	const claves: ClavesDesbloqueadas = {
 		x25519Private: abierta.x25519Private,
 		ed25519Private: abierta.ed25519Private,
@@ -422,9 +412,13 @@ export async function conectarDesdeServidor(
 	let diagnostico = await diagnosticarCuentaRemota(serverUrl, email, claves);
 	// Cuenta nueva creada por un admin: la frase es temporal y se cambia acá
 	// mismo; la bóveda local nace ya con la frase nueva.
+	let passphraseFinal = passphrase;
 	if (esFraseTemporal(diagnostico)) {
-		material = await resolverFraseTemporal(serverUrl, email, abierta, diagnostico.sessionId, passphraseNueva);
+		await resolverFraseTemporal(serverUrl, email, abierta, diagnostico.sessionId, passphraseNueva);
+		passphraseFinal = passphraseNueva!;
 		diagnostico = await diagnosticarCuentaRemota(serverUrl, email, claves);
+	} else if (remota.legado && diagnostico.estado === 'ok') {
+		await mejorarKdfRemoto(serverUrl, diagnostico.sessionId, email, passphrase, abierta);
 	}
 	if (diagnostico.estado !== 'ok') throw new ErrorCuentaRemota(diagnostico);
 	if (!diagnostico.userId) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
@@ -437,14 +431,15 @@ export async function conectarDesdeServidor(
 		// El nombre visible es sólo cosmético: si falla, queda el correo.
 	}
 
+	// La bóveda local se sella con la misma passphrase (sal nueva, parámetros
+	// actuales): misma identidad, mismo id, se desbloquea igual que en el servidor.
+	const blob: BlobClaveNueva = await sellarNuevo(passphraseFinal, abierta.x25519Private, abierta.ed25519Private, email);
 	await api.post('/auth/register-desde-servidor', {
 		email,
 		display_name: displayName,
 		public_key_x25519_b64: bytesABase64(claves.x25519Public),
 		public_key_ed25519_b64: bytesABase64(claves.ed25519Public),
-		encrypted_private_key_blob_b64: material.encrypted_private_key_blob_b64,
-		private_key_nonce_b64: material.private_key_nonce_b64,
-		kdf_salt_b64: material.kdf_salt_b64,
+		...camposDelBlob(blob),
 		user_id: diagnostico.userId
 	});
 	guardarVinculacion({ serverUrl, email });

@@ -21,16 +21,18 @@ import { api, ApiError } from '$lib/api/client';
 import { cargarCrypto } from '$lib/crypto/wasm';
 import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
 import { uuidABytes } from '$lib/crypto/uuid';
-import { abrirClavePrivadaEnWorker } from '$lib/crypto/argon2WorkerClient';
-import { emailDelMaterial, iniciarSesion, type MaterialClave } from '$lib/crypto/identity';
+import { iniciarSesion } from '$lib/crypto/identity';
+import { camposDelBlob, sellarNuevo } from '$lib/crypto/desbloqueo';
 import { listarArbolCarpetas } from '$lib/crypto/carpetas';
 import { desactivar as desactivarLlavero } from '$lib/crypto/llavero-local';
 import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import {
+	abrirCuentaRemota,
 	diagnosticarCuentaRemota,
 	ErrorCuentaRemota,
 	esFraseTemporal,
+	mejorarKdfRemoto,
 	registrarVinculacion,
 	reiniciarCursor,
 	resolverFraseTemporal
@@ -76,29 +78,11 @@ export async function unirConCuentaDelServidor(
 
 	// 1. Identidad del servidor.
 	alAvanzar('servidor');
-	const remotoAnonimo = clienteRemoto(serverUrl, null);
-	let material: MaterialClave;
-	try {
-		material = await remotoAnonimo.post('/auth/key-material', { email });
-	} catch (err) {
-		throw new ErrorCuentaRemota(err instanceof TypeError ? { estado: 'sin_conexion' } : { estado: 'servidor_invalido' });
-	}
+	const remota = await abrirCuentaRemota(serverUrl, email, passphraseServidor, 'La frase no corresponde a la cuenta de ese servidor.');
 	// QA-16: el email de la cuenta en el servidor (AAD de su blob) puede
 	// diferir en mayúsculas del local; la identidad adoptada usa el del servidor.
-	const emailServidor = emailDelMaterial(material, email);
-
-	let abierta: { x25519Private: Uint8Array; ed25519Private: Uint8Array };
-	try {
-		abierta = await abrirClavePrivadaEnWorker(
-			passphraseServidor,
-			base64ABytes(material.kdf_salt_b64),
-			base64ABytes(material.private_key_nonce_b64),
-			base64ABytes(material.encrypted_private_key_blob_b64),
-			new TextEncoder().encode(emailServidor)
-		);
-	} catch {
-		throw new ErrorCuentaRemota({ estado: 'error', mensaje: 'La frase no corresponde a la cuenta de ese servidor.' });
-	}
+	const emailServidor = remota.email;
+	const abierta = remota.abierta;
 	const clavesServidor: ClavesDesbloqueadas = {
 		x25519Private: abierta.x25519Private,
 		ed25519Private: abierta.ed25519Private,
@@ -111,9 +95,11 @@ export async function unirConCuentaDelServidor(
 	// cambiarla antes de dejar entrar. Se hace acá mismo con la sesión parcial
 	// (igual que el login web), y desde ahí todo sigue con la frase nueva.
 	if (esFraseTemporal(diagnostico)) {
-		material = await resolverFraseTemporal(serverUrl, emailServidor, abierta, diagnostico.sessionId, passphraseNueva);
+		await resolverFraseTemporal(serverUrl, emailServidor, abierta, diagnostico.sessionId, passphraseNueva);
 		passphraseServidor = passphraseNueva!;
 		diagnostico = await diagnosticarCuentaRemota(serverUrl, emailServidor, clavesServidor);
+	} else if (remota.legado && diagnostico.estado === 'ok') {
+		await mejorarKdfRemoto(serverUrl, diagnostico.sessionId, emailServidor, passphraseServidor, abierta);
 	}
 	if (diagnostico.estado !== 'ok') throw new ErrorCuentaRemota(diagnostico);
 	if (!diagnostico.userId) throw new ErrorCuentaRemota({ estado: 'servidor_invalido' });
@@ -199,14 +185,15 @@ export async function unirConCuentaDelServidor(
 	} catch {
 		// cosmético
 	}
+	// Sellada con la frase del servidor (sal nueva, parámetros actuales):
+	// después se entra local con esa misma frase.
+	const blob = await sellarNuevo(passphraseServidor, abierta.x25519Private, abierta.ed25519Private, emailServidor);
 	await api.post('/auth/adoptar-identidad', {
 		email: emailServidor,
 		display_name: displayName,
 		public_key_x25519_b64: bytesABase64(clavesServidor.x25519Public),
 		public_key_ed25519_b64: bytesABase64(clavesServidor.ed25519Public),
-		encrypted_private_key_blob_b64: material.encrypted_private_key_blob_b64,
-		private_key_nonce_b64: material.private_key_nonce_b64,
-		kdf_salt_b64: material.kdf_salt_b64,
+		...camposDelBlob(blob),
 		user_id: userIdServidor
 	});
 	registrarVinculacion(serverUrl, emailServidor);

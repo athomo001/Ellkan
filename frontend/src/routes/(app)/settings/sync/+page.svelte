@@ -55,6 +55,7 @@
 	});
 
 	let modo = $state<'existente' | 'nueva'>('existente');
+	let passphraseBovedaNueva = $state('');
 	let serverUrl = $state('');
 	let displayName = $state('');
 	let vinculando = $state(false);
@@ -135,7 +136,8 @@
 			if (modo === 'existente') {
 				await vincularConCuentaExistente(url, email, claves);
 			} else {
-				await vincularComoBovedaNueva(url, email, displayName || email, claves);
+				await vincularComoBovedaNueva(url, email, displayName || email, claves, passphraseBovedaNueva);
+				passphraseBovedaNueva = '';
 			}
 			vinculacion = obtenerVinculacion(email);
 		} catch (err) {
@@ -421,6 +423,14 @@
 
 			{#if modo === 'nueva'}
 				<TextField label={$t.settingsSync.nombreParaElServidor} bind:value={displayName} placeholder={email} />
+				<!-- QA-03: el servidor exige la auth_key del blob, que sólo sale de la frase. -->
+				<TextField
+					label={$t.settingsSync.passphraseParaElServidor}
+					type="password"
+					bind:value={passphraseBovedaNueva}
+					autocomplete="current-password"
+					required
+				/>
 			{/if}
 
 			{#if errorVinculacion}<p class="error">{errorVinculacion}</p>{/if}

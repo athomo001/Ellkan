@@ -1,5 +1,6 @@
 // Autor: Athan Espinoza
 
+use ellkan_crypto::derivacion::ParametrosKdf;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,6 +13,9 @@ pub struct RegisterRequest {
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    /// QA-03: parámetros de Argon2id del blob y `auth_key` del mismo Argon2id.
+    pub kdf_params: ParametrosKdf,
+    pub auth_key_b64: String,
     /// QA-11: sólo cuenta para el primer registro de una instancia vacía,
     /// y sólo si el operador configuró `ELLKAN_SETUP_TOKEN`.
     #[serde(default)]
@@ -72,16 +76,40 @@ pub struct ChallengeRequest {
 #[derive(Debug, Deserialize)]
 pub struct KeyMaterialRequest {
     pub email: String,
+    /// QA-03: `auth_key` derivada con la sal y los parámetros de
+    /// `POST /auth/prelogin`. Obligatoria salvo para una cuenta sellada
+    /// antes de QA-03 (`auth_key_required: false`).
+    #[serde(default)]
+    pub auth_key_b64: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct KeyMaterialResponse {
-    /// QA-16: email guardado (AAD del blob). Sin cuenta, el pedido en
-    /// minúsculas y sin espacios, igual que el material falso.
+    /// QA-16: email guardado (AAD del blob).
     pub email: String,
     pub encrypted_private_key_blob_b64: String,
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
+    pub kdf_params: ParametrosKdf,
+}
+
+/// QA-03: `POST /auth/prelogin`.
+#[derive(Debug, Deserialize)]
+pub struct PreloginRequest {
+    pub email: String,
+}
+
+/// QA-03: sal y parámetros para derivar la `auth_key`. Para un email sin
+/// cuenta, una sal estable derivada de la clave del servidor y los
+/// parámetros actuales: igual que una cuenta real.
+#[derive(Debug, Serialize)]
+pub struct PreloginResponse {
+    /// QA-16: email guardado (AAD del blob). Sin cuenta, el pedido en
+    /// minúsculas y sin espacios.
+    pub email: String,
+    pub kdf_salt_b64: String,
+    pub kdf_params: ParametrosKdf,
+    pub auth_key_required: bool,
 }
 
 #[derive(Debug, Serialize)]

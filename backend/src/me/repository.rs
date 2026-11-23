@@ -35,6 +35,10 @@ pub trait ClavePrivadaRepository {
     /// mismo cambio), mismo idioma exacto que `users_admin::repository`/
     /// `scim::repository` para "desactivar invalida sesiones ya abiertas".
     async fn actualizar(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<(), RepoError>;
+    /// QA-03: reemplaza el blob sólo si la cuenta todavía no tiene
+    /// verificador (`auth_verifier is null`), sin rotar `security_stamp`.
+    /// `false` si no había nada que mejorar.
+    async fn mejorar_sello_legado(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError>;
 }
 
 #[derive(Clone)]
@@ -81,7 +85,8 @@ impl PerfilRepository for PgPreferenciasRepository {
         let resultado = sqlx::query!(
             r#"update user_keys
                set public_key_x25519 = $2, public_key_ed25519 = $3, encrypted_private_key_blob = $4,
-                   private_key_nonce = $5, kdf_salt = $6, created_at = now(), updated_at = now()
+                   private_key_nonce = $5, kdf_salt = $6, kdf_params = $7, auth_verifier = $8,
+                   created_at = now(), updated_at = now()
                where user_id = $1 and octet_length(encrypted_private_key_blob) = 0"#,
             user_id,
             claves.public_key_x25519,
@@ -89,6 +94,8 @@ impl PerfilRepository for PgPreferenciasRepository {
             claves.encrypted_private_key_blob,
             claves.private_key_nonce,
             claves.kdf_salt,
+            sqlx::types::Json(claves.kdf_params) as _,
+            claves.auth_verifier(),
         )
         .execute(&self.pool)
         .await?;
@@ -158,11 +165,13 @@ impl ClavePrivadaRepository for PgPreferenciasRepository {
         let mut tx = self.pool.begin().await?;
         sqlx::query!(
             r#"update user_keys set encrypted_private_key_blob = $1, private_key_nonce = $2,
-               kdf_salt = $3, updated_at = now() where user_id = $4"#,
+               kdf_salt = $3, kdf_params = $5, auth_verifier = $6, updated_at = now() where user_id = $4"#,
             nueva.encrypted_private_key_blob,
             nueva.private_key_nonce,
             nueva.kdf_salt,
             user_id,
+            sqlx::types::Json(nueva.kdf_params) as _,
+            nueva.auth_verifier(),
         )
         .execute(&mut *tx)
         .await?;
@@ -178,5 +187,22 @@ impl ClavePrivadaRepository for PgPreferenciasRepository {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn mejorar_sello_legado(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update user_keys set encrypted_private_key_blob = $1, private_key_nonce = $2,
+               kdf_salt = $3, kdf_params = $5, auth_verifier = $6, updated_at = now()
+               where user_id = $4 and auth_verifier is null"#,
+            nueva.encrypted_private_key_blob,
+            nueva.private_key_nonce,
+            nueva.kdf_salt,
+            user_id,
+            sqlx::types::Json(nueva.kdf_params) as _,
+            nueva.auth_verifier(),
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
     }
 }

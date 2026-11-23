@@ -10,6 +10,7 @@
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { sellarNuevo, type BlobClaveNueva } from './desbloqueo';
 
 /** El servidor nunca ve más que bytes opacos: concatena las dos privadas
  * antes de sellar contra la clave pública organizacional. Genérica pese al
@@ -57,56 +58,13 @@ export async function firmarChallengeConMaterial(material: Uint8Array, nonce: Ui
 	return bytesABase64(wasm.firmar(material.slice(32, 64), nonce));
 }
 
-export interface BlobClaveNueva {
-	blobB64: string;
-	nonceB64: string;
-	saltB64: string;
-}
+// QA-03: el blob nuevo, la prueba de posesión y el sellado viven en
+// `desbloqueo.ts` (llevan parámetros de Argon2id y `auth_key`); se
+// re-exportan acá para los llamadores de siempre.
+export { pruebaDePosesion, type BlobClaveNueva, type PruebaDePosesion } from './desbloqueo';
 
-/** QA-06: campos que el servidor exige para aceptar un blob nuevo. */
-export interface PruebaDePosesion {
-	challenge_nonce_b64: string;
-	signature_b64: string;
-}
-
-/** QA-06: pide un challenge (`POST /auth/challenge`) y firma, con la Ed25519
- * de la cuenta, el mensaje que ata ese challenge al blob nuevo
- * (`ellkan_crypto::clave_privada::mensaje_reemplazo_clave_privada`, en
- * WASM: nunca se arma acá). `post` es el cliente contra el que se va a
- * subir el blob (el local o uno remoto). */
-export async function pruebaDePosesion(
-	post: <T>(path: string, body?: unknown) => Promise<T>,
-	email: string,
-	ed25519Private: Uint8Array,
-	blob: BlobClaveNueva
-): Promise<PruebaDePosesion> {
-	const wasm = await cargarCrypto();
-	const desafio = await post<{ nonce_b64: string }>('/auth/challenge', { email });
-	const firma = wasm.firmar_reemplazo_clave_privada(
-		ed25519Private,
-		base64ABytes(desafio.nonce_b64),
-		base64ABytes(blob.blobB64),
-		base64ABytes(blob.nonceB64),
-		base64ABytes(blob.saltB64)
-	);
-	return { challenge_nonce_b64: desafio.nonce_b64, signature_b64: bytesABase64(firma) };
-}
-
-/** Fija una passphrase nueva sobre el material recuperado — mismo wrapper
+/** Fija una passphrase nueva sobre el material recuperado — mismo sellado
  * que `identity.ts::cambiarPassphrase` usa para el cambio voluntario. */
-export async function reSellarConNuevaPassphrase(
-	email: string,
-	passphraseNueva: string,
-	material: Uint8Array
-): Promise<BlobClaveNueva> {
-	const wasm = await cargarCrypto();
-	const salt = wasm.generar_salt_kdf();
-	const blob = wasm.sellar_clave_privada(
-		passphraseNueva,
-		salt,
-		material.slice(0, 32),
-		material.slice(32, 64),
-		new TextEncoder().encode(email)
-	);
-	return { blobB64: bytesABase64(blob.ciphertext), nonceB64: bytesABase64(blob.nonce), saltB64: bytesABase64(salt) };
+export async function reSellarConNuevaPassphrase(email: string, passphraseNueva: string, material: Uint8Array): Promise<BlobClaveNueva> {
+	return sellarNuevo(passphraseNueva, material.slice(0, 32), material.slice(32, 64), email);
 }

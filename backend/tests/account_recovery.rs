@@ -12,6 +12,7 @@ use ellkan_crypto::clave_privada;
 use ellkan_crypto::claves::KeypairAcuerdo;
 use ellkan_crypto::secretos::PassphraseSecreta;
 use ellkan_crypto::sellado;
+use secrecy::ExposeSecret;
 use secrecy::SecretBox;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -291,8 +292,16 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
     // mismo flujo que `/me/change-passphrase` (tests/perfil.rs).
     let nueva_passphrase: PassphraseSecreta = SecretBox::new(Box::new("otra-passphrase-nueva-bien-larga".to_string()));
     let nueva_salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    let nuevo_blob = clave_privada::cifrar_clave_privada(&nueva_passphrase, nueva_salt, &abierto, victima.email.as_bytes()).unwrap();
-    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob).await;
+    let nuevo_blob_sellado = clave_privada::cifrar_clave_privada(
+        &nueva_passphrase,
+        nueva_salt,
+        ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        &abierto,
+        victima.email.as_bytes(),
+    )
+    .unwrap();
+    let nuevo_blob = &nuevo_blob_sellado.blob;
+    let (challenge, firma) = common::prueba_de_posesion(&entorno, &victima.email, &abierto[32..], &nuevo_blob_sellado).await;
 
     // QA-10: sin el token del solicitante (o con uno incorrecto) no se completa.
     let resp = entorno
@@ -303,6 +312,8 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(nuevo_blob_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma,
         }))
@@ -320,6 +331,8 @@ async fn al_alcanzar_umbral_se_libera_el_material_resellado_para_el_solicitante(
             "encrypted_private_key_blob_b64": B64.encode(&nuevo_blob.envoltura.ciphertext),
             "private_key_nonce_b64": B64.encode(nuevo_blob.envoltura.nonce),
             "kdf_salt_b64": B64.encode(nuevo_blob.salt),
+            "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+            "auth_key_b64": B64.encode(nuevo_blob_sellado.auth_key.expose_secret()),
             "challenge_nonce_b64": challenge,
             "signature_b64": firma,
         }))

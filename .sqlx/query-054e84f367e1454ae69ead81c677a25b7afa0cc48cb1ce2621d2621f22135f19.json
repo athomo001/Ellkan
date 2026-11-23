@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt\n            from user_keys uk\n            join users u on u.id = uk.user_id\n            where lower(u.email) = lower(trim($1)) and u.active and u.deleted_at is null and u.email_verified_at is not null\n            ",
+  "query": "\n            select u.email, uk.encrypted_private_key_blob, uk.private_key_nonce, uk.kdf_salt,\n                   uk.kdf_params as \"kdf_params: Json<ParametrosKdf>\",\n                   uk.auth_verifier\n            from user_keys uk\n            join users u on u.id = uk.user_id\n            where lower(u.email) = lower(trim($1)) and u.active and u.deleted_at is null and u.email_verified_at is not null\n            ",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,28 @@
             "name": "kdf_salt"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "kdf_params: Json<ParametrosKdf>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "kdf_params"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "auth_verifier",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "auth_verifier"
+          }
+        }
       }
     ],
     "parameters": {
@@ -57,8 +79,10 @@
       false,
       false,
       false,
-      false
+      false,
+      false,
+      true
     ]
   },
-  "hash": "734c32b977a245e2c25f14581a2236199ae3a0f3b3597f0d65c51852c5d12161"
+  "hash": "054e84f367e1454ae69ead81c677a25b7afa0cc48cb1ce2621d2621f22135f19"
 }

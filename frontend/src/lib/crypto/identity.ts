@@ -7,30 +7,52 @@
 // si algún día se agrega uno).
 
 import { cargarCrypto } from './wasm';
-import { sellarClavePrivadaEnWorker, abrirClavePrivadaEnWorker } from './argon2WorkerClient';
 import { bytesABase64, base64ABytes } from './b64';
 import { api } from '$lib/api/client';
 import { deviceTokenHashB64 } from './device';
 import type { ClavesDesbloqueadas } from '$lib/state/session';
 import { limpiarStoresEn } from '$lib/state/declarative-store';
 import { olvidarClaveDeCache } from '$lib/cache/metadataCache';
-import { pruebaDePosesion } from './accountRecovery';
+import {
+	abrirMaterial,
+	aplicarMejoraKdf,
+	camposDelBlob,
+	mejorarKdf,
+	prepararMejoraKdf,
+	pruebaDePosesion,
+	sellarNuevo,
+	type MaterialClave,
+	type MejoraKdfPendiente
+} from './desbloqueo';
+import type { ResultadoAbrir } from './argon2WorkerClient';
 
-/** AAD del blob de clave privada — fijo por usuario, mismo criterio que
- * el AAD de `secret_envelopes` (nunca variar según quién descifra). */
-function aadClavePrivada(email: string): Uint8Array {
-	return new TextEncoder().encode(email);
+export type { MaterialClave };
+
+function clavesDe(wasm: Awaited<ReturnType<typeof cargarCrypto>>, abierta: ResultadoAbrir): ClavesDesbloqueadas {
+	return {
+		x25519Private: abierta.x25519Private,
+		ed25519Private: abierta.ed25519Private,
+		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
+		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
+	};
 }
 
-/** Lo que devuelve `/auth/key-material`. QA-16: el servidor busca el email
- * sin distinguir mayúsculas y devuelve el que tiene guardado, que es el AAD
- * del blob: se abre con ése, no con lo que se tipeó. Un servidor anterior no
- * lo manda. */
-export interface MaterialClave {
-	email?: string;
-	encrypted_private_key_blob_b64: string;
-	private_key_nonce_b64: string;
-	kdf_salt_b64: string;
+/** QA-03: mejora del sellado preparada en el último login de una cuenta
+ * vieja, para aplicar cuando la sesión quede completa (`aplicarMejoraKdfPendiente`). */
+let mejoraPendiente: MejoraKdfPendiente | undefined;
+
+/** QA-03: si el último login fue de una cuenta sellada antes de QA-03, la
+ * re-sella ahora (la sesión ya es completa). Nunca tira: si falla, se
+ * reintenta en el próximo login. */
+export async function aplicarMejoraKdfPendiente(ed25519Private: Uint8Array | undefined): Promise<void> {
+	const mejora = mejoraPendiente;
+	mejoraPendiente = undefined;
+	if (!mejora || !ed25519Private) return;
+	try {
+		await aplicarMejoraKdf(api.post, mejora, ed25519Private);
+	} catch {
+		/* se reintenta en el próximo login */
+	}
 }
 
 /** El email con el que se selló el blob (ver `MaterialClave`). */
@@ -77,23 +99,14 @@ export async function registrar(
 ): Promise<ResultadoRegistro> {
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
-	const salt = wasm.generar_salt_kdf();
-	const blob = await sellarClavePrivadaEnWorker(
-		passphrase,
-		salt,
-		identidad.x25519_private,
-		identidad.ed25519_private,
-		aadClavePrivada(email)
-	);
+	const blob = await sellarNuevo(passphrase, identidad.x25519_private, identidad.ed25519_private, email);
 
 	const resp = await api.post<{ user_id: string; pending_verification: boolean }>('/auth/register', {
 		email,
 		display_name: displayName,
 		public_key_x25519_b64: bytesABase64(identidad.x25519_public),
 		public_key_ed25519_b64: bytesABase64(identidad.ed25519_public),
-		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
-		private_key_nonce_b64: bytesABase64(blob.nonce),
-		kdf_salt_b64: bytesABase64(salt),
+		...camposDelBlob(blob),
 		setup_token: tokenInstalacion?.trim() || tokenDeInstalacionDeLaUrl()
 	});
 	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
@@ -107,20 +120,11 @@ export async function registrar(
 export async function enrolarClaves(email: string, passphrase: string): Promise<ClavesDesbloqueadas> {
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
-	const salt = wasm.generar_salt_kdf();
-	const blob = await sellarClavePrivadaEnWorker(
-		passphrase,
-		salt,
-		identidad.x25519_private,
-		identidad.ed25519_private,
-		aadClavePrivada(email)
-	);
+	const blob = await sellarNuevo(passphrase, identidad.x25519_private, identidad.ed25519_private, email);
 	await api.post('/me/keys/enroll', {
 		public_key_x25519_b64: bytesABase64(identidad.x25519_public),
 		public_key_ed25519_b64: bytesABase64(identidad.ed25519_public),
-		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
-		private_key_nonce_b64: bytesABase64(blob.nonce),
-		kdf_salt_b64: bytesABase64(salt)
+		...camposDelBlob(blob)
 	});
 	return {
 		x25519Private: identidad.x25519_private,
@@ -136,23 +140,14 @@ export async function enrolarClaves(email: string, passphrase: string): Promise<
 export async function crearUsuarioPorAdmin(email: string, displayName: string, passphrase: string): Promise<ResultadoRegistro> {
 	const wasm = await cargarCrypto();
 	const identidad = wasm.generar_identidad();
-	const salt = wasm.generar_salt_kdf();
-	const blob = await sellarClavePrivadaEnWorker(
-		passphrase,
-		salt,
-		identidad.x25519_private,
-		identidad.ed25519_private,
-		aadClavePrivada(email)
-	);
+	const blob = await sellarNuevo(passphrase, identidad.x25519_private, identidad.ed25519_private, email);
 
 	const resp = await api.post<{ user_id: string; pending_verification: boolean }>('/admin/users', {
 		email,
 		display_name: displayName,
 		public_key_x25519_b64: bytesABase64(identidad.x25519_public),
 		public_key_ed25519_b64: bytesABase64(identidad.ed25519_public),
-		encrypted_private_key_blob_b64: bytesABase64(blob.ciphertext),
-		private_key_nonce_b64: bytesABase64(blob.nonce),
-		kdf_salt_b64: bytesABase64(salt)
+		...camposDelBlob(blob)
 	});
 	return { userId: resp.user_id, pendingVerification: resp.pending_verification };
 }
@@ -184,25 +179,19 @@ interface ResultadoLogin {
 }
 
 /**
- * F-01/F-02: key-material→abrir→challenge→firma→verify. A diferencia de la
- * CLI (que cachea el blob cifrado en un perfil local tras registrarse), un
- * navegador sin estado local lo pide en cada login vía `/auth/key-material`
- * — mismo patrón anti-enumeración que `/auth/challenge` (forma de
- * respuesta idéntica exista o no la cuenta, ver `auth::service::material_desbloqueo`).
+ * F-01/F-02: prelogin→Argon2id→key-material→abrir→challenge→firma→verify. A
+ * diferencia de la CLI (que cachea el blob cifrado en un perfil local tras
+ * registrarse), un navegador sin estado local lo pide en cada login; desde
+ * QA-03 sólo lo recibe probando la `auth_key` (ver `desbloqueo.ts`). Si la
+ * cuenta está sellada con el esquema anterior, deja preparada la mejora para
+ * `aplicarMejoraKdfPendiente` (la sesión puede no estar completa todavía).
  */
 export async function iniciarSesion(email: string, passphrase: string): Promise<ResultadoLogin> {
 	const wasm = await cargarCrypto();
 
-	const material = await api.post<MaterialClave>('/auth/key-material', { email });
-	const emailGuardado = emailDelMaterial(material, email);
-
-	const abierta = await abrirClavePrivadaEnWorker(
-		passphrase,
-		base64ABytes(material.kdf_salt_b64),
-		base64ABytes(material.private_key_nonce_b64),
-		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(emailGuardado)
-	);
+	const desbloqueado = await abrirMaterial(api.post, email, passphrase);
+	const { abierta, email: emailGuardado } = desbloqueado;
+	mejoraPendiente = await prepararMejoraKdf(desbloqueado, passphrase);
 
 	const challenge = await api.post<{ nonce_b64: string }>('/auth/challenge', { email });
 	const nonce = base64ABytes(challenge.nonce_b64);
@@ -221,12 +210,7 @@ export async function iniciarSesion(email: string, passphrase: string): Promise<
 		device_token_hash_b64: deviceTokenHash
 	});
 
-	const claves: ClavesDesbloqueadas = {
-		x25519Private: abierta.x25519Private,
-		ed25519Private: abierta.ed25519Private,
-		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
-		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
-	};
+	const claves = clavesDe(wasm, abierta);
 
 	return {
 		estado: verify.estado as ResultadoLogin['estado'],
@@ -264,16 +248,7 @@ export async function cerrarSesion(): Promise<void> {
  * nunca llega a `/auth/challenge`/`/auth/verify`. Tira si es incorrecta.
  */
 export async function verificarPassphrase(email: string, passphrase: string): Promise<void> {
-	const material = await api.post<MaterialClave>('/auth/key-material', { email });
-	const emailGuardado = emailDelMaterial(material, email);
-
-	await abrirClavePrivadaEnWorker(
-		passphrase,
-		base64ABytes(material.kdf_salt_b64),
-		base64ABytes(material.private_key_nonce_b64),
-		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(emailGuardado)
-	);
+	await abrirMaterial(api.post, email, passphrase);
 }
 
 /**
@@ -284,23 +259,10 @@ export async function verificarPassphrase(email: string, passphrase: string): Pr
  */
 export async function desbloquearConPassphrase(email: string, passphrase: string): Promise<ClavesDesbloqueadas> {
 	const wasm = await cargarCrypto();
-	const material = await api.post<MaterialClave>('/auth/key-material', { email });
-	const emailGuardado = emailDelMaterial(material, email);
-
-	const abierta = await abrirClavePrivadaEnWorker(
-		passphrase,
-		base64ABytes(material.kdf_salt_b64),
-		base64ABytes(material.private_key_nonce_b64),
-		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(emailGuardado)
-	);
-
-	return {
-		x25519Private: abierta.x25519Private,
-		ed25519Private: abierta.ed25519Private,
-		x25519Public: wasm.clave_publica_x25519_de(abierta.x25519Private),
-		ed25519Public: wasm.clave_publica_ed25519_de(abierta.ed25519Private)
-	};
+	const d = await abrirMaterial(api.post, email, passphrase);
+	// QA-03: la sesión ya es completa, así que una cuenta vieja se re-sella acá.
+	if (d.legado) await mejorarKdf(api.post, d.email, passphrase, d.abierta).catch(() => {});
+	return clavesDe(wasm, d.abierta);
 }
 
 /**
@@ -316,40 +278,11 @@ export async function cambiarPassphrase(
 	passphraseActual: string,
 	passphraseNueva: string
 ): Promise<void> {
-	const wasm = await cargarCrypto();
-	const material = await api.post<MaterialClave>('/auth/key-material', { email });
-	const emailGuardado = emailDelMaterial(material, email);
-
-	const abierta = await abrirClavePrivadaEnWorker(
-		passphraseActual,
-		base64ABytes(material.kdf_salt_b64),
-		base64ABytes(material.private_key_nonce_b64),
-		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(emailGuardado)
-	);
-
-	const nuevaSalt = wasm.generar_salt_kdf();
-	const nuevoBlob = await sellarClavePrivadaEnWorker(
-		passphraseNueva,
-		nuevaSalt,
-		abierta.x25519Private,
-		abierta.ed25519Private,
-		aadClavePrivada(emailGuardado)
-	);
-
-	const blob = {
-		blobB64: bytesABase64(nuevoBlob.ciphertext),
-		nonceB64: bytesABase64(nuevoBlob.nonce),
-		saltB64: bytesABase64(nuevaSalt)
-	};
+	const { abierta, email: emailGuardado } = await abrirMaterial(api.post, email, passphraseActual);
+	const blob = await sellarNuevo(passphraseNueva, abierta.x25519Private, abierta.ed25519Private, emailGuardado);
 	// QA-06: la sesión sola no alcanza para reemplazar el blob.
 	const prueba = await pruebaDePosesion(api.post, email, abierta.ed25519Private, blob);
-	await api.post('/me/change-passphrase', {
-		encrypted_private_key_blob_b64: blob.blobB64,
-		private_key_nonce_b64: blob.nonceB64,
-		kdf_salt_b64: blob.saltB64,
-		...prueba
-	});
+	await api.post('/me/change-passphrase', { ...camposDelBlob(blob), ...prueba });
 }
 
 /**
@@ -366,34 +299,10 @@ export async function cambiarPassphrase(
  * correo tal como quedó guardado (ya recortado).
  */
 export async function cambiarEmailDeCuenta(emailActual: string, emailNuevo: string, passphrase: string): Promise<string> {
-	const wasm = await cargarCrypto();
-	const material = await api.post<MaterialClave>('/auth/key-material', { email: emailActual });
-	const emailGuardado = emailDelMaterial(material, emailActual);
-
-	const abierta = await abrirClavePrivadaEnWorker(
-		passphrase,
-		base64ABytes(material.kdf_salt_b64),
-		base64ABytes(material.private_key_nonce_b64),
-		base64ABytes(material.encrypted_private_key_blob_b64),
-		aadClavePrivada(emailGuardado)
-	);
-
+	const { abierta } = await abrirMaterial(api.post, emailActual, passphrase);
 	const nuevoEmail = emailNuevo.trim();
-	const nuevaSalt = wasm.generar_salt_kdf();
-	const nuevoBlob = await sellarClavePrivadaEnWorker(
-		passphrase,
-		nuevaSalt,
-		abierta.x25519Private,
-		abierta.ed25519Private,
-		aadClavePrivada(nuevoEmail)
-	);
-
-	const resp = await api.put<{ email: string }>('/me/email', {
-		new_email: nuevoEmail,
-		encrypted_private_key_blob_b64: bytesABase64(nuevoBlob.ciphertext),
-		private_key_nonce_b64: bytesABase64(nuevoBlob.nonce),
-		kdf_salt_b64: bytesABase64(nuevaSalt)
-	});
+	const blob = await sellarNuevo(passphrase, abierta.x25519Private, abierta.ed25519Private, nuevoEmail);
+	const resp = await api.put<{ email: string }>('/me/email', { new_email: nuevoEmail, ...camposDelBlob(blob) });
 	return resp.email;
 }
 

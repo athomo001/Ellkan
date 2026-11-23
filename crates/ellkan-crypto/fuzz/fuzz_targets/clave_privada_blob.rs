@@ -24,6 +24,7 @@ fuzz_target!(|entrada: Entrada| {
     let pass: PassphraseSecreta = SecretBox::new(Box::new("passphrase-de-fuzz".to_string()));
     let blob = EncryptedPrivateKeyBlob {
         salt: entrada.salt,
+        parametros: ellkan_crypto::derivacion::ParametrosKdf::LEGADO,
         envoltura: Envoltura { nonce: entrada.nonce, ciphertext: entrada.ciphertext },
     };
     let _ = descifrar_clave_privada(&pass, &blob, &entrada.aad);

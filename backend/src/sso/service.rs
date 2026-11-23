@@ -317,6 +317,9 @@ where
                     encrypted_private_key_blob: &[],
                     private_key_nonce: &bytes_aleatorios::<24>(),
                     kdf_salt: &bytes_aleatorios::<16>(),
+                    // Sin claves todavía: sin verificador hasta `POST /me/keys/enroll`.
+                    kdf_params: ellkan_crypto::derivacion::ParametrosKdf::LEGADO,
+                    auth_key: None,
                 },
                 true,
             )

@@ -130,8 +130,9 @@ async fn arrancar_con_migraciones_pendientes_guarda_una_copia_y_migra() {
     let ultima: i64 = sqlx::query_scalar("select max(version) from _sqlx_migrations").fetch_one(&pool).await.unwrap();
 
     // Se simula una app vieja: las migraciones 7 (`metadata_deks`), 8 (tipos rdp/db),
-    // 9 (tipo api-token), 10 (`avatar_local`), 11 (`sessions.proposito`) y 12
-    // (`recovery_reset_tokens.failed_attempts`) no se habían aplicado — se deshace
+    // 9 (tipo api-token), 10 (`avatar_local`), 11 (`sessions.proposito`), 12
+    // (`recovery_reset_tokens.failed_attempts`) y 13 (`user_keys.kdf_params`/
+    // `auth_verifier`, QA-03) no se habían aplicado — se deshace
     // lo que hicieron y se borra su registro.
     sqlx::query("drop table metadata_deks").execute(&pool).await.unwrap();
     sqlx::query("drop table avatar_local").execute(&pool).await.unwrap();
@@ -140,6 +141,8 @@ async fn arrancar_con_migraciones_pendientes_guarda_una_copia_y_migra() {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("alter table user_keys drop column auth_verifier").execute(&pool).await.unwrap();
+    sqlx::query("alter table user_keys drop column kdf_params").execute(&pool).await.unwrap();
     sqlx::query("delete from resource_types where slug in ('rdp', 'postgresql', 'mysql', 'mongodb', 'api-token')")
         .execute(&pool)
         .await

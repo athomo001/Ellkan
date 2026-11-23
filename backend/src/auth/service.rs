@@ -40,30 +40,22 @@ fn hash_de_codigo(codigo: &str) -> Vec<u8> {
     Sha256::digest(codigo.as_bytes()).to_vec()
 }
 
-/// Material de desbloqueo con la forma del real (blob 80, nonce 24, salt 16
-/// bytes) para un email sin cuenta: HKDF-SHA256 sobre la clave de servidor,
-/// con el email normalizado en el `info`. Estable entre llamadas e
-/// indistinguible de bytes aleatorios para quien no tiene la clave.
-fn material_desbloqueo_falso(
-    secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
-    email: &str,
-) -> crate::auth::models::MaterialDesbloqueo {
+/// QA-03/QA-15: prelogin de un email sin cuenta, igual al de una cuenta
+/// real ya migrada: sal de 16 bytes por HKDF-SHA256 sobre la clave del
+/// servidor (con el email normalizado en el `info`, estable entre llamadas e
+/// indistinguible de bytes aleatorios para quien no tiene la clave), los
+/// parámetros actuales y `auth_key` obligatoria.
+fn prelogin_falso(secrets_key: &ellkan_crypto::secretos::ClaveSecreta32, email: &str) -> crate::auth::models::Prelogin {
     use secrecy::ExposeSecret;
     let email = email.trim().to_lowercase();
-    let mut bytes = Vec::with_capacity(128);
-    for parte in [b"a", b"b", b"c", b"d"] {
-        let mut info = b"ellkan:v1:key-material-falso:".to_vec();
-        info.extend_from_slice(parte);
-        info.push(b':');
-        info.extend_from_slice(email.as_bytes());
-        let bloque = ellkan_crypto::derivacion::derivar_clave_desde_secreto(secrets_key.expose_secret(), &info);
-        bytes.extend_from_slice(bloque.expose_secret());
-    }
-    crate::auth::models::MaterialDesbloqueo {
+    let mut info = b"ellkan:v1:prelogin-falso:".to_vec();
+    info.extend_from_slice(email.as_bytes());
+    let bloque = ellkan_crypto::derivacion::derivar_clave_desde_secreto(secrets_key.expose_secret(), &info);
+    crate::auth::models::Prelogin {
         email,
-        encrypted_private_key_blob: bytes[..80].to_vec(),
-        private_key_nonce: bytes[80..104].to_vec(),
-        kdf_salt: bytes[104..120].to_vec(),
+        kdf_salt: bloque.expose_secret()[..16].to_vec(),
+        kdf_params: ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        auth_key_required: true,
     }
 }
 
@@ -282,15 +274,50 @@ where
     /// la clave de servidor), igual que el real: antes eran bytes aleatorios
     /// distintos en cada llamada, y comparar dos respuestas alcanzaba para
     /// saber si la cuenta existía.
-    pub async fn material_desbloqueo(
+    /// QA-03: sal y parámetros para derivar la `auth_key`. Un email sin
+    /// cuenta recibe lo mismo que una cuenta migrada (ver `prelogin_falso`);
+    /// sólo una cuenta todavía sellada con el esquema anterior se distingue,
+    /// hasta su siguiente desbloqueo.
+    pub async fn prelogin(
         &self,
         email: &str,
         secrets_key: &ellkan_crypto::secretos::ClaveSecreta32,
+    ) -> Result<crate::auth::models::Prelogin, DomainError> {
+        Ok(match self.usuarios.material_desbloqueo_por_email(email).await? {
+            Some(m) => crate::auth::models::Prelogin {
+                email: m.email,
+                kdf_salt: m.kdf_salt,
+                kdf_params: m.kdf_params,
+                auth_key_required: m.auth_verifier.is_some(),
+            },
+            None => prelogin_falso(secrets_key, email),
+        })
+    }
+
+    /// QA-03: el blob sólo contra la `auth_key` correcta, comparada en tiempo
+    /// constante con el verificador. Una cuenta sellada antes de QA-03 (sin
+    /// verificador) lo sigue recibiendo sin prueba hasta que el cliente la
+    /// re-selle. Email sin cuenta, `auth_key` equivocada o ausente: el mismo
+    /// `InvalidCredentials`, auditado como intento fallido.
+    pub async fn material_desbloqueo(
+        &self,
+        email: &str,
+        auth_key: Option<&[u8]>,
     ) -> Result<crate::auth::models::MaterialDesbloqueo, DomainError> {
-        if let Some(material) = self.usuarios.material_desbloqueo_por_email(email).await? {
-            return Ok(material);
+        let material = self.usuarios.material_desbloqueo_por_email(email).await?;
+        let aceptado = match (&material, auth_key) {
+            (Some(m), _) if m.auth_verifier.is_none() => true,
+            (Some(m), Some(k)) => m.auth_verifier.as_deref().is_some_and(|v| ellkan_crypto::derivacion::auth_key_coincide(k, v)),
+            _ => false,
+        };
+        if let (true, Some(m)) = (aceptado, material) {
+            return Ok(m);
         }
-        Ok(material_desbloqueo_falso(secrets_key, email))
+        let actor = self.usuarios.buscar_por_email(email).await?.map(|u| u.id);
+        let _ = self
+            .eventos
+            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthLoginFailed, actor)));
+        Err(DomainError::InvalidCredentials)
     }
 
     /// F-13: envuelve `verify_con_usuario` para poder auditar exactamente una

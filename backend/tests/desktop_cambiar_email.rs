@@ -68,6 +68,8 @@ async fn usuario_con_sesion(pool: &SqlitePool, email: &str) -> (Uuid, Uuid) {
         "encrypted_private_key_blob_b64": B64.encode([3u8; 48]),
         "private_key_nonce_b64": B64.encode([4u8; 24]),
         "kdf_salt_b64": B64.encode([5u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     });
     let (status, _) = llamar(estado(pool), "POST", "/auth/register", None, registro).await;
     assert_eq!(status, StatusCode::OK, "el registro inicial debe funcionar");
@@ -105,9 +107,11 @@ async fn blob_actual(pool: &SqlitePool, user_id: Uuid) -> Vec<u8> {
 fn cuerpo_cambio(email: &str) -> Value {
     json!({
         "new_email": email,
-        "encrypted_private_key_blob_b64": B64.encode([7u8; 48]),
+        "encrypted_private_key_blob_b64": B64.encode([7u8; 80]),
         "private_key_nonce_b64": B64.encode([8u8; 24]),
         "kdf_salt_b64": B64.encode([9u8; 16]),
+        "kdf_params": ellkan_crypto::derivacion::ParametrosKdf::ACTUAL,
+        "auth_key_b64": B64.encode([7u8; 32]),
     })
 }
 
@@ -123,7 +127,7 @@ async fn cambiar_email_actualiza_correo_y_blob_juntos_y_devuelve_el_correo_recor
     assert_eq!(email_actual(&pool, user_id).await, "nuevo@empresa.com");
     assert_eq!(
         blob_actual(&pool, user_id).await,
-        vec![7u8; 48],
+        vec![7u8; 80],
         "el blob re-sellado debe aplicarse junto con el correo — sin él la cuenta no se podría desbloquear"
     );
 }
