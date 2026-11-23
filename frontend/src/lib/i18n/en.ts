@@ -538,8 +538,18 @@ const en: Diccionario = {
 		recoveryHint:
 			'Enable this to be able to recover access to your account if you lose your passphrase — an administrator has to approve the request.',
 		recoveryAdvertencia:
-			'Important: this option is an exception to zero-knowledge encryption. Your private key is stored on the server, encrypted with an organization key that also lives on the server. Whoever controls the server (its database and configuration) could open it and read your vault. If that is not acceptable to you, use the personal recovery kit instead.',
+			'Important: your organization still uses the previous recovery key, held by the server. While that is the case, this option is an exception to zero-knowledge encryption: whoever controls the server (its database and configuration) could open your private key and read your vault. If that is not acceptable to you, use the personal recovery kit or wait for an administrator to generate the new key.',
+		recoveryCustodiaAdmins:
+			"Your private key is sealed with the organization's recovery key, which only the administrators hold, in their own browsers: the server cannot open it. Several administrators together (per the threshold your organization sets) can restore your access, and could therefore read your vault at that moment.",
+		recoverySinClaveOrg: 'Your organization has not generated its recovery key yet. Ask an administrator to set it up.',
+		recoveryHuella: "Organization key fingerprint: {huella}",
 		recoveryHabilitada: 'Enabled on this account.',
+		recoveryDesactualizadaTitulo: 'Your organization changed its recovery key',
+		recoveryDesactualizada:
+			'So administrators can keep recovering your account, seal your key again with the new one. Administrators hold it in their browsers; the server cannot open it. Compare the fingerprint with the one your administrator gives you.',
+		recoveryActualizar: 'Update my recovery',
+		recoveryAhoraNo: 'Not now',
+		recoveryActualizada: 'Done: your recovery uses the new key.',
 		recoveryHabilitar: 'Enable account recovery',
 		recoveryErrorHabilitar: 'Could not enable account recovery.',
 		recoveryClavesBloqueadas: 'Unlock your account (Vault) to enable this.',
@@ -1166,7 +1176,30 @@ const en: Diccionario = {
 			colFecha: 'Requested',
 			aprobar: 'Approve',
 			rechazar: 'Reject',
-			sinSolicitudes: 'No pending requests.'
+			sinSolicitudes: 'No pending requests.',
+			ejecutar: 'Re-seal and deliver',
+			estadoEsperaCustodio: 'Approved: waiting for a custodian',
+			custodiaTitulo: 'Organization recovery key',
+			custodiaServidor:
+				'The key is currently held by the server (pre QA-09): whoever controls the server could open the escrows. Generate it in your browser: it is sealed only for the administrators below, and each user re-seals their escrow with the new key next time they sign in.',
+			custodiaNinguna:
+				'There is no recovery key yet. Generate it in your browser: it is sealed only for the administrators below; the server can never open it.',
+			custodiaCliente: 'The key is held by the administrators in their browsers; the server cannot open it.',
+			custodiaHuella: 'Current key fingerprint: {huella}',
+			custodiaSeSellaPara: 'It will be sealed for these administrators (compare fingerprints with each of them):',
+			custodiaGenerar: 'Generate the key in this browser',
+			custodiaRotar: 'Generate a new key (rotate)',
+			custodiaConfirmarRotar:
+				'A new key is generated, sealed for every current administrator. Each user re-seals their escrow when they sign in; until then, their escrow stays on the previous key. Use this if someone stopped being an administrator. Continue?',
+			custodiaSinCopia: 'You have no copy of the current key: ask another custodian to seal it for you.',
+			custodiaPendientes: 'Administrators without a copy of the current key:',
+			custodiaSellarPara: 'Seal for {nombre}',
+			custodiaEscrowsServidor: '{n} user(s) are still on the previous server key. They re-seal automatically when they sign in; once none are left, the server deletes it.',
+			custodiaPurgar: 'Delete the server key now',
+			custodiaConfirmarPurgar:
+				'Users who have not re-sealed yet lose administrator recovery until they enable it again. Delete the server key?',
+			custodiaPurgada: 'Server key deleted ({n} escrow(s) removed).',
+			custodiaClavesBloqueadas: 'Unlock your vault to work with the recovery key.'
 		},
 		politicaSelfRegistration: {
 			titulo: 'Self-registration',

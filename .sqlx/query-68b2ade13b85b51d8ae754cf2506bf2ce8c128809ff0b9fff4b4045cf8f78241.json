@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            insert into org_recovery_keys (id, public_key_x25519, encrypted_private_key, private_key_nonce)\n            values (1, $1, $2, $3)\n            on conflict (id) do update set id = org_recovery_keys.id\n            returning id, public_key_x25519, encrypted_private_key, private_key_nonce\n            ",
+  "query": "select id, public_key_x25519, encrypted_private_key, private_key_nonce, custody, created_at\n               from org_recovery_keys order by id desc limit 1",
   "describe": {
     "columns": [
       {
@@ -46,21 +46,41 @@
             "name": "private_key_nonce"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "custody",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "custody"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "created_at"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": [
-        "Bytea",
-        "Bytea",
-        "Bytea"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
       false,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "4d8c5f69a01996c084958d2a86634289bb690c83ecc6405616bb6f7760419942"
+  "hash": "68b2ade13b85b51d8ae754cf2506bf2ce8c128809ff0b9fff4b4045cf8f78241"
 }

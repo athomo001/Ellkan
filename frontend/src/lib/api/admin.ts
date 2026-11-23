@@ -9,6 +9,7 @@
 import { get } from 'svelte/store';
 import { api } from './client';
 import { sesion } from '$lib/state/session';
+import type { ClaveOrg } from './accountRecovery';
 
 // --- roles ---
 export interface Rol {
@@ -194,7 +195,48 @@ export const accountRecoveryAdminApi = {
 	aprobar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/approve`),
 	// 2026-08-11: delegado a admin de grupo, mismo criterio que aprobar — el
 	// backend filtra visibilidad/autorización, acá sólo se llama al endpoint.
-	rechazar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/reject`)
+	rechazar: (id: string) => api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/reject`),
+	// QA-09: una solicitud `awaiting_custodian` la re-sella el navegador de un custodio.
+	materialParaCustodio: (id: string) => api.get<MaterialParaCustodio>(`/admin/account-recovery/requests/${id}/custody-material`),
+	ejecutar: (id: string, selladoParaSolicitanteB64: string) =>
+		api.post<SolicitudRecoveryTrasAprobar>(`/admin/account-recovery/requests/${id}/execute`, {
+			sealed_private_key_for_requester_b64: selladoParaSolicitanteB64
+		})
+};
+
+// QA-09: custodia de la clave organizacional de recuperación en el navegador
+// de los admins de organización.
+export interface MaterialParaCustodio {
+	sealed_private_key_for_org_b64: string;
+	requester_public_key_x25519_b64: string;
+	org_recovery_key_id: number;
+	envelope_b64: string;
+}
+export interface CustodioPendiente {
+	user_id: string;
+	email: string;
+	display_name: string;
+	public_key_x25519_b64: string;
+}
+export interface EstadoCustodia {
+	current: ClaveOrg | null;
+	my_envelope_b64: string | null;
+	pending_custodians: CustodioPendiente[];
+	/** Todos los admins de organización con claves (para generar o rotar). */
+	org_admins: CustodioPendiente[];
+	escrows_on_server_key: number;
+}
+export interface SobreCustodio {
+	admin_id: string;
+	sealed_private_key_b64: string;
+}
+export const custodiaRecoveryApi = {
+	estado: () => api.get<EstadoCustodia>('/admin/account-recovery/custody'),
+	crearClave: (publicKeyX25519B64: string, envelopes: SobreCustodio[]) =>
+		api.post<{ id: number }>('/admin/account-recovery/org-keys', { public_key_x25519_b64: publicKeyX25519B64, envelopes }),
+	agregarCustodio: (keyId: number, sobre: SobreCustodio) =>
+		api.post<void>(`/admin/account-recovery/org-keys/${keyId}/envelopes`, sobre),
+	purgarClaveServidor: () => api.delete<{ escrows_deleted: number }>('/admin/account-recovery/server-key')
 };
 
 // --- políticas: emergency access ---

@@ -771,7 +771,16 @@ pub fn construir_router(estado: AppState) -> Router {
     let admin_account_recovery_requests_router = Router::new()
         .route("/", get(account_recovery::handlers::listar_solicitudes_pendientes))
         .route("/{id}/approve", post(account_recovery::handlers::aprobar))
-        .route("/{id}/reject", post(account_recovery::handlers::rechazar));
+        .route("/{id}/reject", post(account_recovery::handlers::rechazar))
+        // QA-09: el custodio re-sella en su navegador.
+        .route("/{id}/custody-material", get(account_recovery::handlers::material_para_custodio))
+        .route("/{id}/execute", post(account_recovery::handlers::ejecutar));
+    // QA-09: custodia de la clave organizacional en el navegador de los admins.
+    let admin_account_recovery_custody_router = Router::new()
+        .route("/custody", get(account_recovery::handlers::estado_custodia))
+        .route("/org-keys", post(account_recovery::handlers::crear_clave_org))
+        .route("/org-keys/{id}/envelopes", post(account_recovery::handlers::agregar_custodio))
+        .route("/server-key", delete(account_recovery::handlers::purgar_clave_servidor));
 
     let me_recovery_kit_router = Router::new()
         .route("/", get(recovery_kit::handlers::estado).put(recovery_kit::handlers::generar_o_regenerar))
@@ -940,6 +949,7 @@ pub fn construir_router(estado: AppState) -> Router {
         .nest("/admin/account-recovery-policy", admin_account_recovery_policy_router)
         .nest("/account-recovery", account_recovery_router)
         .nest("/admin/account-recovery/requests", admin_account_recovery_requests_router)
+        .nest("/admin/account-recovery", admin_account_recovery_custody_router)
         .nest("/me/recovery-kit", me_recovery_kit_router)
         .nest("/recovery-kit/reset", recovery_kit_reset_router)
         .nest("/me/emergency-access", me_emergency_access_router)

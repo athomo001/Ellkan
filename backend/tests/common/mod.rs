@@ -25,6 +25,11 @@ pub struct Entorno {
     pub base: String,
     pub pool: sqlx::PgPool,
     pub cliente: reqwest::Client,
+    /// Copia de `ELLKAN_SECRETS_KEY` de esta instancia — sólo para armar
+    /// estado anterior a QA-09 (clave organizacional custodiada por el
+    /// servidor).
+    #[allow(dead_code)]
+    pub secrets_key: [u8; 32],
     // Nunca se lee directo — mantiene el contenedor vivo mientras el test
     // corre (`testcontainers` lo detiene al hacer `drop`).
     _contenedor: ContainerAsync<Postgres>,
@@ -64,7 +69,8 @@ async fn levantar_interna(seedear_bootstrap_admin: bool, setup_token: Option<&st
     let puerto = contenedor.get_host_port_ipv4(5432).await.unwrap();
     let database_url = format!("postgres://postgres:postgres@127.0.0.1:{puerto}/ellkan");
 
-    let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(ellkan_crypto::aleatoriedad::bytes_aleatorios()));
+    let secrets_key_bytes: [u8; 32] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
+    let secrets_key: SecretBox<[u8; 32]> = SecretBox::new(Box::new(secrets_key_bytes));
     let mut estado = ellkan_backend::construir_estado(&database_url, secrets_key).await.expect("migrar y conectar");
     estado.setup_token = setup_token.map(|t| std::sync::Arc::new(SecretBox::new(Box::new(t.to_string()))));
     let pool = estado.pool.clone();
@@ -124,6 +130,7 @@ async fn levantar_interna(seedear_bootstrap_admin: bool, setup_token: Option<&st
         base: format!("http://{addr}"),
         pool,
         cliente: reqwest::Client::new(),
+        secrets_key: secrets_key_bytes,
         _contenedor: contenedor,
     }
 }

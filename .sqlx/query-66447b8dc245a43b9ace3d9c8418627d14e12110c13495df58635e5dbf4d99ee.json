@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from account_recovery_requests where escrow_id in (\n                   select e.id from account_recovery_escrow e\n                   join org_recovery_keys k on k.id = e.org_recovery_key_id\n                   where k.custody = 'server')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "66447b8dc245a43b9ace3d9c8418627d14e12110c13495df58635e5dbf4d99ee"
+}

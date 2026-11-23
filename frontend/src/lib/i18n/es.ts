@@ -541,8 +541,18 @@ const es = {
 		recoveryHint:
 			'Habilitá esto para poder recuperar el acceso a tu cuenta si perdés tu contraseña — un administrador tiene que aprobar la solicitud.',
 		recoveryAdvertencia:
-			'Importante: esta opción es una excepción al cifrado de conocimiento cero. Tu clave privada queda guardada en el servidor, cifrada con una clave de la organización que también vive en el servidor. Quien controle el servidor (su base de datos y su configuración) podría abrirla y leer tu bóveda. Si eso no es aceptable para vos, usá el kit de recuperación personal.',
+			'Importante: tu organización todavía usa la clave de recuperación anterior, que guarda el servidor. Mientras sea así, esta opción es una excepción al cifrado de conocimiento cero: quien controle el servidor (su base de datos y su configuración) podría abrir tu clave privada y leer tu bóveda. Si eso no es aceptable para vos, usá el kit de recuperación personal o esperá a que un administrador genere la clave nueva.',
+		recoveryCustodiaAdmins:
+			'Tu clave privada queda sellada con la clave de recuperación de la organización, que guardan sólo los administradores en sus propios navegadores: el servidor no puede abrirla. Varios administradores juntos (según el umbral que fije la organización) pueden restablecer tu acceso, y por lo tanto leer tu bóveda en ese momento.',
+		recoverySinClaveOrg: 'Tu organización todavía no generó su clave de recuperación. Pedile a un administrador que la configure.',
+		recoveryHuella: 'Huella de la clave de la organización: {huella}',
 		recoveryHabilitada: 'Habilitada en esta cuenta.',
+		recoveryDesactualizadaTitulo: 'Tu organización cambió su clave de recuperación',
+		recoveryDesactualizada:
+			'Para que los administradores puedan seguir recuperando tu cuenta, volvé a sellar tu clave con la nueva. La custodian los administradores en sus navegadores; el servidor no puede abrirla. Compará la huella con la que te pase tu administrador.',
+		recoveryActualizar: 'Actualizar mi recuperación',
+		recoveryAhoraNo: 'Ahora no',
+		recoveryActualizada: 'Listo: tu recuperación usa la clave nueva.',
 		recoveryHabilitar: 'Habilitar recuperación de cuenta',
 		recoveryErrorHabilitar: 'No se pudo habilitar la recuperación de cuenta.',
 		recoveryClavesBloqueadas: 'Desbloqueá tu cuenta (Vault) para habilitar esto.',
@@ -1179,7 +1189,30 @@ const es = {
 			colFecha: 'Solicitada',
 			aprobar: 'Aprobar',
 			rechazar: 'Rechazar',
-			sinSolicitudes: 'No hay solicitudes pendientes.'
+			sinSolicitudes: 'No hay solicitudes pendientes.',
+			ejecutar: 'Re-sellar y entregar',
+			estadoEsperaCustodio: 'Aprobada: falta un custodio',
+			custodiaTitulo: 'Clave de recuperación de la organización',
+			custodiaServidor:
+				'La clave la guarda hoy el servidor (anterior a QA-09): quien controle el servidor podría abrir los escrows. Generala en tu navegador: queda sellada sólo para los administradores de abajo, y cada usuario re-sella su escrow con la nueva la próxima vez que entra.',
+			custodiaNinguna:
+				'Todavía no hay clave de recuperación. Generala en tu navegador: queda sellada sólo para los administradores de abajo; el servidor nunca la puede abrir.',
+			custodiaCliente: 'La clave la custodian los administradores en sus navegadores; el servidor no puede abrirla.',
+			custodiaHuella: 'Huella de la clave vigente: {huella}',
+			custodiaSeSellaPara: 'Se sellará para estos administradores (compará las huellas con cada uno):',
+			custodiaGenerar: 'Generar la clave en este navegador',
+			custodiaRotar: 'Generar una clave nueva (rotar)',
+			custodiaConfirmarRotar:
+				'Se genera una clave nueva sellada para todos los administradores actuales. Cada usuario re-sella su escrow al entrar; hasta entonces, su escrow sigue en la clave anterior. Úsalo si un administrador dejó de serlo. ¿Seguir?',
+			custodiaSinCopia: 'No tenés copia de la clave vigente: pedile a otro custodio que te la selle.',
+			custodiaPendientes: 'Administradores sin copia de la clave vigente:',
+			custodiaSellarPara: 'Sellar para {nombre}',
+			custodiaEscrowsServidor: '{n} usuario(s) siguen en la clave anterior del servidor. Se re-sellan solos al entrar; cuando no quede ninguno, el servidor la borra.',
+			custodiaPurgar: 'Borrar ya la clave del servidor',
+			custodiaConfirmarPurgar:
+				'Los usuarios que todavía no re-sellaron pierden la recuperación por administrador hasta que la vuelvan a habilitar. ¿Borrar la clave del servidor?',
+			custodiaPurgada: 'Clave del servidor borrada ({n} escrow(s) eliminados).',
+			custodiaClavesBloqueadas: 'Desbloqueá tu bóveda para operar con la clave de recuperación.'
 		},
 		politicaSelfRegistration: {
 			titulo: 'Auto-registro',

@@ -11,12 +11,59 @@ pub struct AccountRecoveryPolicy {
     pub default_approval_threshold: i32,
 }
 
+/// QA-09: quién guarda la privada de una clave organizacional.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Custodia {
+    /// Anterior a QA-09: cifrada con `ELLKAN_SECRETS_KEY`. Sólo sigue
+    /// sirviendo a los escrows que todavía no se re-sellaron.
+    Servidor,
+    /// Generada en el navegador de un admin y sellada para cada custodio
+    /// (`org_recovery_key_envelopes`): el servidor no puede abrirla.
+    Cliente,
+}
+
+impl Custodia {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Custodia::Servidor => "server",
+            Custodia::Cliente => "client",
+        }
+    }
+
+    pub fn desde_db(valor: &str) -> Self {
+        if valor == "client" { Custodia::Cliente } else { Custodia::Servidor }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OrgRecoveryKey {
     pub id: i32,
     pub public_key_x25519: Vec<u8>,
-    pub encrypted_private_key: Vec<u8>,
-    pub private_key_nonce: Vec<u8>,
+    /// Sólo en una clave del servidor no purgada.
+    pub encrypted_private_key: Option<Vec<u8>>,
+    pub private_key_nonce: Option<Vec<u8>>,
+    pub custodia: Custodia,
+    pub created_at: OffsetDateTime,
+}
+
+/// Un admin de organización con claves que todavía no tiene su copia de la
+/// privada vigente.
+#[derive(Debug, Clone)]
+pub struct CustodioPendiente {
+    pub user_id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub public_key_x25519: Vec<u8>,
+}
+
+/// Lo que necesita el navegador de un custodio para re-sellar una solicitud
+/// que ya juntó el umbral.
+#[derive(Debug, Clone)]
+pub struct MaterialParaCustodio {
+    pub sealed_private_key_for_org: Vec<u8>,
+    pub requester_public_key_x25519: Vec<u8>,
+    pub org_recovery_key_id: i32,
+    pub sobre: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]

@@ -26,8 +26,9 @@
 		desactivar as desactivarLlavero
 	} from '$lib/crypto/llavero-local';
 	import { enModoEscritorio } from '$lib/tauri/conectar';
-	import { accountRecoveryApi } from '$lib/api/accountRecovery';
-	import { sellarMaterialParaOrg } from '$lib/crypto/accountRecovery';
+	import { accountRecoveryApi, type ClaveOrg } from '$lib/api/accountRecovery';
+	import { enrolarConClaveVigente } from '$lib/crypto/accountRecovery';
+	import { huellaDeClave } from '$lib/crypto/emergencia';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
 	import { sesionesApi, type SesionAbierta } from '$lib/api/sesiones';
@@ -55,12 +56,24 @@
 	// F-16: estado de enrolamiento en Account Recovery — sin esto no hay
 	// forma de saber si "Habilitar" ya se hizo antes en otro dispositivo.
 	let recoveryEnrolada = $state(false);
+	// QA-09: el escrow propio sellado contra una clave que ya no es la
+	// vigente (la organización rotó) — hay que re-sellarlo.
+	let recoveryDesactualizada = $state(false);
+	let claveOrg = $state<ClaveOrg | undefined>();
+	let huellaOrg = $state('');
 	let cargandoRecovery = $state(true);
 	let habilitandoRecovery = $state(false);
 	let errorRecovery = $state<string | undefined>();
 	onMount(async () => {
 		try {
-			recoveryEnrolada = (await accountRecoveryApi.miEstado()).enrolled;
+			const estado = await accountRecoveryApi.miEstado();
+			recoveryEnrolada = estado.enrolled;
+			recoveryDesactualizada =
+				estado.enrolled && estado.current_org_recovery_key_id !== null && estado.org_recovery_key_id !== estado.current_org_recovery_key_id;
+			if (estado.current_org_recovery_key_id !== null) {
+				claveOrg = await accountRecoveryApi.orgPublicKey();
+				huellaOrg = await huellaDeClave(claveOrg.public_key_x25519_b64);
+			}
 		} catch {
 			/* la sección simplemente no ofrece el botón si esto falla */
 		} finally {
@@ -77,10 +90,9 @@
 		}
 		habilitandoRecovery = true;
 		try {
-			const org = await accountRecoveryApi.orgPublicKey();
-			const sellado = await sellarMaterialParaOrg(org.public_key_x25519_b64, claves);
-			await accountRecoveryApi.enrolar(sellado);
+			await enrolarConClaveVigente(claves, claveOrg);
 			recoveryEnrolada = true;
+			recoveryDesactualizada = false;
 		} catch (err) {
 			errorRecovery = err instanceof ApiError ? err.message : get(t).settingsSecurity.recoveryErrorHabilitar;
 		} finally {
@@ -449,11 +461,26 @@
 <Card>
 	<h2>{$t.settingsSecurity.recoveryTitulo}</h2>
 	<p class="hint">{$t.settingsSecurity.recoveryHint}</p>
-	<!-- QA-09: el escrow lo custodia el servidor; se avisa antes de habilitar. -->
-	<p class="hint">{$t.settingsSecurity.recoveryAdvertencia}</p>
-
 	{#if cargandoRecovery}
 		<p class="hint">{$t.settingsSecurity.cargando}</p>
+	{:else if !claveOrg}
+		<p class="hint">{$t.settingsSecurity.recoverySinClaveOrg}</p>
+	{:else}
+		<!-- QA-09: quién custodia la clave de la organización, antes de habilitar. -->
+		<p class="hint">
+			{claveOrg.custody === 'client' ? $t.settingsSecurity.recoveryCustodiaAdmins : $t.settingsSecurity.recoveryAdvertencia}
+		</p>
+		<p class="hint">{$t.settingsSecurity.recoveryHuella.replace('{huella}', huellaOrg)}</p>
+	{/if}
+
+	{#if cargandoRecovery || !claveOrg}
+		<!-- nada que ofrecer -->
+	{:else if recoveryEnrolada && recoveryDesactualizada}
+		<p class="hint">{$t.settingsSecurity.recoveryDesactualizada}</p>
+		{#if errorRecovery}<p class="error">{errorRecovery}</p>{/if}
+		<Button variant="primary" onclick={habilitarRecovery} loading={habilitandoRecovery}>
+			{$t.settingsSecurity.recoveryActualizar}
+		</Button>
 	{:else if recoveryEnrolada}
 		<p class="ok">{$t.settingsSecurity.recoveryHabilitada}</p>
 	{:else}

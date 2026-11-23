@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select sealed_private_key from org_recovery_key_envelopes\n               where org_recovery_key_id = $1 and admin_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sealed_private_key",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_key_envelopes",
+            "name": "sealed_private_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bf9198fb34b0f591c0be0d28ee6f85e7ec0e5221910136959a820674d9dfa861"
+}

@@ -21,16 +21,87 @@ pub struct ActualizarAccountRecoveryPolicyRequest {
 #[derive(Debug, Serialize)]
 pub struct MiEstadoResponse {
     pub enrolled: bool,
+    /// QA-09: clave contra la que está sellado el escrow propio y la
+    /// vigente; si difieren, el cliente re-sella (rotación).
+    pub org_recovery_key_id: Option<i32>,
+    pub current_org_recovery_key_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct OrgPublicKeyResponse {
+    pub id: i32,
     pub public_key_x25519_b64: String,
+    /// `"client"` (la custodian los admins) o `"server"` (anterior a QA-09).
+    pub custody: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct EnrolarRequest {
     pub sealed_private_key_for_org_b64: String,
+    /// QA-09: contra qué clave se selló (409 si ya no es la vigente).
+    pub org_recovery_key_id: i32,
+}
+
+/// QA-09: un admin de organización que todavía no tiene su copia de la
+/// clave vigente.
+#[derive(Debug, Serialize)]
+pub struct CustodioPendienteResponse {
+    pub user_id: Uuid,
+    pub email: String,
+    pub display_name: String,
+    pub public_key_x25519_b64: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EstadoCustodiaResponse {
+    pub current: Option<OrgPublicKeyResponse>,
+    pub my_envelope_b64: Option<String>,
+    pub pending_custodians: Vec<CustodioPendienteResponse>,
+    pub org_admins: Vec<CustodioPendienteResponse>,
+    pub escrows_on_server_key: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SobreRequest {
+    pub admin_id: Uuid,
+    pub sealed_private_key_b64: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CrearClaveOrgRequest {
+    pub public_key_x25519_b64: String,
+    pub envelopes: Vec<SobreRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgregarCustodioRequest {
+    pub admin_id: Uuid,
+    pub sealed_private_key_b64: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CrearClaveOrgResponse {
+    pub id: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PurgaResponse {
+    pub escrows_deleted: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MaterialCustodioResponse {
+    pub sealed_private_key_for_org_b64: String,
+    pub requester_public_key_x25519_b64: String,
+    pub org_recovery_key_id: i32,
+    pub envelope_b64: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EjecutarRequest {
+    pub sealed_private_key_for_requester_b64: String,
 }
 
 #[derive(Debug, Serialize)]
