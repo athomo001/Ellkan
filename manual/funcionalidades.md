@@ -76,6 +76,8 @@ Panel web con ~19 secciones: usuarios, roles, grupos, audit log, reportes, y una
 - Español e inglés, cambiable en cualquier momento sin perder sesión.
 - Tema claro/oscuro, con transición animada al cambiar.
 - Paleta densa y funcional pensada para uso prolongado, sin decoración fuera de los acentos de marca.
+- Objetivo WCAG 2.2 AA: cada cambio pasa por una revisión automática (axe) de todas las pantallas de la web y la app de escritorio, el popup de la extensión y el menú de autocompletar, en los dos temas.
+- El menú de autocompletar de la extensión se usa también con el teclado: flecha abajo desde el campo de contraseña, flechas para elegir la cuenta, Enter para rellenar y Escape para volver al campo.
 
 ## Qué todavía no existe
 

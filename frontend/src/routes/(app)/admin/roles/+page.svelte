@@ -182,6 +182,7 @@
 										{#each roles as rol (rol.id)}
 											<td class="col-rol">
 												<select
+													aria-label="{fila.label} — {rol.name}"
 													value={esComodin(rol) || rol.permissions.includes(fila.permiso) ? 'permitir' : 'denegar'}
 													disabled={esComodin(rol) || guardando === rol.id}
 													title={esComodin(rol) ? $t.admin.roles.matriz.comodinHint : undefined}

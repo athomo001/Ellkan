@@ -503,7 +503,12 @@
 	>
 		{#snippet fila(f)}
 			<td onclick={(e) => e.stopPropagation()}>
-				<input type="checkbox" checked={seleccionados.has(f.id)} onchange={() => toggleSeleccion(f.id)} />
+				<input
+					type="checkbox"
+					aria-label={$t.admin.usuarios.seleccionarUsuario.replace('{email}', f.email)}
+					checked={seleccionados.has(f.id)}
+					onchange={() => toggleSeleccion(f.id)}
+				/>
 			</td>
 			<td class="celda-avatar">
 				{#if f.has_avatar}

@@ -128,6 +128,10 @@ function redetectar(): void {
 		if (!(el instanceof HTMLInputElement) || yaConFocusHandler.has(el)) continue;
 		yaConFocusHandler.add(el);
 		el.addEventListener('focus', () => {
+			if (saltearProximoMenu) {
+				saltearProximoMenu = false;
+				return;
+			}
 			const opid = opidPorElemento.get(el);
 			const par = opid ? paresPorPasswordOpid.get(opid) : undefined;
 			if (par) void ofrecerAutofill(par);
@@ -162,8 +166,12 @@ interface MenuAbierto {
 	/** `window.location.origin` cuando se pidieron las coincidencias — se
 	 * revalida antes de rellenar (BWN-08-011, `origin-guard.ts`). */
 	origenEnQuePidio: string;
+	/** Las opciones, para moverse con las flechas (WCAG 2.1.1). */
+	items: HTMLButtonElement[];
 }
 let menuActual: MenuAbierto | null = null;
+/** Al volver con Escape desde el menú al campo, ese foco no lo reabre. */
+let saltearProximoMenu = false;
 
 function cerrarMenu(): void {
 	if (!menuActual) return;
@@ -248,7 +256,8 @@ function crearMenu(
 		.menu { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; background: ${PALETA.fondo}; border: 1px solid ${PALETA.borde}; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); overflow: hidden; }
 		.item { display: block; width: 100%; box-sizing: border-box; text-align: left; padding: 8px 10px; background: transparent; border: none; border-bottom: 1px solid ${PALETA.borde}; color: ${PALETA.texto}; cursor: pointer; }
 		.item:last-child { border-bottom: none; }
-		.item:hover { background: ${PALETA.borde}; }
+		.item:hover, .item:focus-visible { background: ${PALETA.borde}; }
+		.item:focus-visible { outline: 2px solid ${PALETA.texto}; outline-offset: -2px; }
 		.nombre { font-weight: 600; }
 		.usuario { color: ${PALETA.textoSecundario}; margin-top: 2px; }
 	`;
@@ -256,6 +265,9 @@ function crearMenu(
 
 	const menu = document.createElement('div');
 	menu.className = 'menu';
+	menu.setAttribute('role', 'group');
+	menu.setAttribute('aria-label', 'Ellkan: elegí la cuenta para rellenar');
+	const items: HTMLButtonElement[] = [];
 	for (const c of coincidencias) {
 		const item = document.createElement('button');
 		item.type = 'button';
@@ -267,18 +279,36 @@ function crearMenu(
 		usuario.className = 'usuario';
 		usuario.textContent = c.usuario;
 		item.append(nombre, usuario);
-		// `mousedown` + `preventDefault()`: dispara ANTES del `blur` del
-		// password field, para no perder el foco (y con eso quizá el menú)
-		// antes de leer la elección.
-		item.addEventListener('mousedown', (evento) => {
-			evento.preventDefault();
-			void rellenar(c, par, origenEnQuePidio);
+		// `mousedown` + `preventDefault()`: el clic con el mouse no le saca
+		// el foco al password field. La elección va en `click`, que también
+		// llega con Enter/Espacio desde el teclado (pendiente #66, WCAG
+		// 2.1.1: antes sólo había `mousedown` y con teclado no se podía).
+		item.addEventListener('mousedown', (evento) => evento.preventDefault());
+		// Sólo un gesto real del usuario (un evento sintético de la página no rellena).
+		item.addEventListener('click', (evento) => {
+			if (evento.isTrusted) void rellenar(c, par, origenEnQuePidio);
 		});
+		items.push(item);
 		menu.appendChild(item);
 	}
+	// Flechas entre opciones; Escape vuelve al campo sin reabrir el menú.
+	menu.addEventListener('keydown', (evento) => {
+		const i = items.indexOf(shadow.activeElement as HTMLButtonElement);
+		if (evento.key === 'ArrowDown' || evento.key === 'ArrowUp') {
+			evento.preventDefault();
+			const siguiente = evento.key === 'ArrowDown' ? Math.min(i + 1, items.length - 1) : i - 1;
+			if (siguiente < 0) passwordField.focus();
+			else items[siguiente].focus();
+		} else if (evento.key === 'Escape') {
+			evento.stopPropagation();
+			cerrarMenu();
+			saltearProximoMenu = true;
+			passwordField.focus();
+		}
+	});
 	shadow.appendChild(menu);
 
-	menuActual = { host, passwordField, origenEnQuePidio };
+	menuActual = { host, passwordField, origenEnQuePidio, items };
 }
 
 // --- Notification bar "¿guardar esta credencial?" (spec 06 §5) — mismo
@@ -414,6 +444,11 @@ document.addEventListener('keydown', (evento) => {
 	if (evento.key === 'Escape') {
 		cerrarMenu();
 		cerrarBarraGuardado();
+	}
+	// Teclado (WCAG 2.1.1): flecha abajo desde el password field entra al menú.
+	if (evento.key === 'ArrowDown' && menuActual && evento.target === menuActual.passwordField) {
+		evento.preventDefault();
+		menuActual.items[0]?.focus();
 	}
 });
 

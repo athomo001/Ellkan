@@ -118,12 +118,6 @@ jobs:
         run: pnpm -C frontend test
       - name: Frontend — build
         run: pnpm -C frontend build
-      # QA-13 (pendiente #102): auditoría de accesibilidad (axe, WCAG 2.2 AA)
-      # de las pantallas sin sesión con Playwright, en los dos temas.
-      - name: Frontend — navegador para Playwright
-        run: pnpm -C frontend exec playwright install --with-deps chromium
-      - name: Frontend — accesibilidad (Playwright + axe)
-        run: pnpm -C frontend test:a11y
       - name: Frontend — audit
         run: pnpm -C frontend audit --audit-level high
       - name: Extensión — dependencias
@@ -137,6 +131,14 @@ jobs:
       # Pendiente #80: ni analítica ni CDNs externos en lo que se publica.
       - name: Extensión — build
         run: pnpm -C extension build
+      # QA-13 (pendiente #102) y pendiente #66: auditoría de accesibilidad
+      # (axe, WCAG 2.2 AA) con Playwright, en los dos temas: pantallas sin
+      # sesión, con sesión (web y modo escritorio, contra un servidor
+      # simulado) y la extensión (popup y menú inline, sobre extension/dist).
+      - name: Navegador para Playwright
+        run: pnpm -C frontend exec playwright install --with-deps chromium
+      - name: Accesibilidad (Playwright + axe)
+        run: pnpm -C frontend test:a11y
       - name: Sin analítica ni CDNs de terceros
         run: bash .github/scripts/sin-terceros.sh frontend/build extension/dist
 

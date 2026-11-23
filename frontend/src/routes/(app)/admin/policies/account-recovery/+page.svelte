@@ -235,7 +235,8 @@
 	{#if errorCustodia}<p class="error">{errorCustodia}</p>{/if}
 	{#if avisoCustodia}<p class="ok">{avisoCustodia}</p>{/if}
 	{#if !custodia}
-		<p>{$t.admin.comun.cargando}</p>
+		<!-- Con error de carga no queda un "Cargando…" que nunca termina (#66). -->
+		{#if !errorCustodia}<p>{$t.admin.comun.cargando}</p>{/if}
 	{:else if !custodia.current || custodia.current.custody === 'server'}
 		<p class="secundario">
 			{custodia.current ? $t.admin.politicaRecovery.custodiaServidor : $t.admin.politicaRecovery.custodiaNinguna}

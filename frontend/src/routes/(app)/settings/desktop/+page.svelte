@@ -257,6 +257,8 @@
 	<title>{$t.settingsDesktop.navTitulo} — Ellkan</title>
 </svelte:head>
 
+<!-- Pendiente #66: toda pantalla abre con su título de nivel 1. -->
+<h1>{$t.settingsDesktop.navTitulo}</h1>
 <div class="pila">
 <Card>
 	<h2>{$t.settingsDesktop.alCerrarTitulo}</h2>
@@ -562,5 +564,10 @@
 	}
 	code {
 		word-break: break-all;
+	}
+	h1 {
+		margin: 0 0 var(--space-6) 0;
+		font-size: var(--text-2xl);
+		color: var(--text-primary);
 	}
 </style>

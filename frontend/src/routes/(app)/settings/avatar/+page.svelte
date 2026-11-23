@@ -86,7 +86,12 @@
 			<div class="avatar avatar-vacio">{(perfil?.display_name ?? '?').charAt(0).toUpperCase()}</div>
 		{/if}
 		<div class="avatar-acciones">
-			<input type="file" accept="image/png,image/jpeg,image/webp" onchange={alElegirAvatar} />
+			<input
+				type="file"
+				accept="image/png,image/jpeg,image/webp"
+				aria-label={$t.settingsProfile.avatarElegir}
+				onchange={alElegirAvatar}
+			/>
 			<div class="botones">
 				<Button variant="secondary" onclick={subirAvatar} disabled={!archivoAvatar} loading={subiendo}>
 					{$t.settingsProfile.avatarSubir}

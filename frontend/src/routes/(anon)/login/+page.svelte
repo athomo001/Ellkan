@@ -518,6 +518,14 @@
 		text-align: center;
 		margin-top: 0;
 	}
+	/* WCAG 2.5.8 (pendiente #66): los links del pie, de una línea de texto
+	 * chico, llegan a 24px de alto. */
+	.hint a,
+	.hint .link {
+		display: inline-block;
+		min-height: 24px;
+		padding-block: 0.25rem;
+	}
 	.error {
 		color: var(--danger);
 		font-size: var(--text-sm);

@@ -362,6 +362,8 @@
 	<title>{$t.settingsSync.navTitulo} — Ellkan</title>
 </svelte:head>
 
+<!-- Pendiente #66: toda pantalla abre con su título de nivel 1. -->
+<h1>{$t.settingsSync.navTitulo}</h1>
 <div class="pila">
 <div id="modo-conectado">
 <Card>
@@ -704,5 +706,10 @@
 	.botones-union {
 		display: flex;
 		gap: var(--space-2);
+	}
+	h1 {
+		margin: 0 0 var(--space-6) 0;
+		font-size: var(--text-2xl);
+		color: var(--text-primary);
 	}
 </style>

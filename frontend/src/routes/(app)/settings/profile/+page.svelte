@@ -144,7 +144,9 @@
 	.badge {
 		margin-left: var(--space-2);
 		font-size: var(--text-xs);
-		color: var(--accent-text);
+		/* Pendiente #66: el teal sobre el fondo teñido no llegaba a 4.5:1 en
+		 * el tema claro (3.8:1); el texto va en el color principal. */
+		color: var(--text-primary);
 		background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-base));
 		border-radius: 999px;
 		padding: 0.1rem var(--space-2);

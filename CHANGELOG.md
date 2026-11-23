@@ -46,6 +46,18 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Validación de entrada (QA-45, pendiente #124):** el servidor rechaza nonces, claves y ciphertexts con el largo equivocado o demasiado grandes, emails mal formados y nombres vacíos o con saltos de línea.
 - **Sesión de la CLI privada (QA-46, pendiente #125):** `sesion.json` y `perfil.json` se reescriben enteros con permisos sólo del dueño (también en Windows), aunque vinieran de una versión vieja con permisos más abiertos.
 
+### Accesibilidad
+
+- **WCAG 2.2 AA en toda la app (pendiente #66):** axe revisa ahora también las pantallas con sesión (web y app de escritorio), el popup de la extensión y el menú de autocompletar que aparece en las páginas, en los dos temas. Se corrigió lo que encontró:
+  - casillas de selección del vault y de usuarios, selector de archivo del avatar y matriz de roles sin nombre accesible;
+  - casillas de la política de links externos más chicas que 24 px;
+  - links del pie del login más bajos que 24 px;
+  - insignia de «Mi perfil» con contraste 3,8:1 en el tema claro;
+  - lista del vault del escritorio con un botón dentro de cada opción (ahora cada fila es un botón y el de copiar va al lado, visible también con el foco);
+  - «Cargando…» que nunca terminaba si fallaba la carga de la custodia de la recuperación de cuenta;
+  - «Ajustes → Sincronización» y «Ajustes → Escritorio» sin título principal.
+- **Menú de autocompletar con teclado:** antes sólo respondía al mouse. Ahora flecha abajo desde el campo de contraseña entra al menú, las flechas recorren las cuentas, Enter rellena y Escape vuelve al campo sin reabrirlo.
+
 ### Servidor
 
 - **Descargar mis datos personales (pendiente #58):** «Mi perfil → Mis datos personales» baja un JSON con lo que el servidor sabe de la cuenta (correo, nombre, grupos, sesiones, dispositivos, passkeys, contactos de emergencia e historial de actividad). La bóveda no está porque el servidor no puede leerla; tampoco claves ni el detalle de la auditoría, que puede nombrar a otras personas. `GET /me/personal-data`.
@@ -67,7 +79,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **Repo sin binarios (QA-42, pendiente #121):** los paquetes de la extensión (`.zip`, `.crx`, `.xpi`) y la configuración local del asistente dejan de versionarse; los paquetes se publican sólo como assets del release.
 
 - **Test de auditoría de recuperación de cuenta sin carrera:** espera a que el evento llegue a la auditoría en vez de leerlo una sola vez.
-- **Accesibilidad en el CI (QA-13):** Playwright + axe (WCAG 2.2 AA) sobre las pantallas sin sesión, en los dos temas, incluido el registro con token de instalación. Encontró y se corrigió una región con scroll no alcanzable con el teclado.
+- **Accesibilidad en el CI (QA-13, pendiente #66):** Playwright + axe (WCAG 2.2 AA) en los dos temas: pantallas sin sesión (incluido el registro con token de instalación), todas las pantallas con sesión en la web y en modo escritorio (contra un servidor simulado, con login real por la UI y un puente de Tauri simulado) y la extensión (popup y menú inline, sobre `extension/dist`). Va después del build de la extensión. Encontró y se corrigió una región con scroll no alcanzable con el teclado.
 - **Tests unitarios (QA-14):** vitest en el frontend y la extensión, y en el CI. Incluyen un ida y vuelta de cifrado con el WASM real.
 - **Tests de LDAP y SSO en el CI (pendiente #127):** `.github/scripts/levantar-fixtures.sh` levanta OpenLDAP y Keycloak con los datos de `backend/tests/fixtures/` antes de `cargo test`.
 

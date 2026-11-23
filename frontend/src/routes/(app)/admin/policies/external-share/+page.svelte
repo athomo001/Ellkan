@@ -114,6 +114,8 @@
 	.check {
 		display: flex;
 		align-items: center;
+		/* WCAG 2.5.8: casillas apiladas con al menos 24px entre centros. */
+		min-height: 24px;
 		gap: var(--space-2);
 		font-size: var(--text-sm);
 		color: var(--text-primary);
