@@ -69,6 +69,8 @@ No hay una tercera opción real: el canal tiene que cerrarse en algún punto ent
 
 En una instancia vacía, el primer usuario que se registra nace **admin**. Para que nadie que llegue antes que vos se quede con ese rol, ese primer registro **siempre pide un token de instalación**.
 
+> **Ojo con las versiones hasta la 0.1.70 (incluida):** ahí el token era opcional y, sin `ELLKAN_SETUP_TOKEN`, el primer registro nacía admin sin pedir nada. Si la pantalla de registro no muestra el campo «Token de instalación», estás en una de esas: creá tu cuenta antes de exponer la instancia, o pasá a una versión más nueva (`ELLKAN_VERSION=dev` y `docker compose pull`, o `docker compose up -d --build`).
+
 **Sin configurar nada:** mientras la base no tenga usuarios, el servidor genera un token al azar en cada arranque y lo escribe en su log. La pantalla de registro de la web lo pide y muestra el comando para verlo:
 
 ```bash

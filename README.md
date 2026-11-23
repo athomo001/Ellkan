@@ -23,7 +23,7 @@ Un gestor de contraseñas self-hosted con arquitectura zero-knowledge: el servid
 
 | Aplicación | Para qué sirve | Más información |
 | --- | --- | --- |
-| **Web + servidor** | El servidor Ellkan para un equipo: usuarios, grupos, compartir y administración. Es lo que levanta la [instalación rápida](#instalación-rápida). | [Manual de instalación](manual/instalacion.md) |
+| **Web + servidor** | El servidor Ellkan para un equipo: usuarios, grupos, compartir y administración. Es lo que levanta la [instalación del servidor](#instalar-el-servidor-docker). | [Manual de instalación](manual/instalacion.md) |
 | **Escritorio (Windows)** | Gestor de contraseñas para **una sola persona**. Todo queda cifrado en tu PC: funciona sin conexión, sin servidor y sin cuenta en la nube, y opcionalmente se conecta a un servidor Ellkan. Trae instalador MSI, bandeja del sistema con atajo global, botón «Conectar» (SSH, RDP, PostgreSQL, MySQL, MongoDB, FTP, Telnet, VNC), salud de la bóveda, copias de seguridad automáticas y la extensión de navegador incluida. | [Guía de la app de escritorio](app-escritorio/GUIA.md) |
 | **Extensión de navegador** | Autocompleta tus credenciales en Chrome, Edge, Brave, Opera y Firefox. Funciona con el servidor o con la app de escritorio, desde la que también se instala. | [Extensión de navegador](extension/README.md) |
 
@@ -69,7 +69,7 @@ Cómo cargar la extensión a mano en cada navegador: [extension/README.md](exten
 
 ### Equipo o empresa: el servidor (Docker)
 
-El servidor **no está en los archivos de Releases**: se publica como imagen Docker en `ghcr.io/athomo001/ellkan`, con las etiquetas `latest` (la última versión), `X.Y` y `X.Y.Z`. La [instalación rápida](#instalación-rápida) la descarga sola. Trae el servidor y la app web, pero **no la app de escritorio**.
+El servidor **no está en los archivos de Releases**: se publica como imagen Docker en `ghcr.io/athomo001/ellkan`, con las etiquetas `latest` (la última versión), `X.Y` y `X.Y.Z`. La [instalación del servidor](#instalar-el-servidor-docker) la descarga sola. Trae el servidor y la app web, pero **no la app de escritorio**.
 
 Una vez levantado, cada persona entra desde el navegador. La extensión y, si quiere, la app de escritorio se conectan a ese servidor. Para administrarlo (crear el primer admin, backups) está la CLI, que sí se descarga de Releases: `ellkan-cli_X.Y.Z_windows_x64.exe` · `ellkan-cli_X.Y.Z_linux_x64`.
 
@@ -135,65 +135,31 @@ Para verificar una descarga: `sha256sum -c SHA256SUMS.txt --ignore-missing` en L
 | zeroize / secrecy | Borrado y redacción seguros de secretos en memoria |
 | subtle | Comparaciones en tiempo constante (mitiga timing attacks) |
 
-## Instalación rápida
+## Instalar el servidor (Docker)
 
-Requiere Docker y Docker Compose. No hace falta compilar nada: el servidor se descarga ya armado desde `ghcr.io` (ver [Descargas](#descargas)).
+No hace falta compilar nada: el servidor se descarga ya armado desde `ghcr.io` (ver [Descargas](#descargas)). Son cinco pasos; cada uno trae los comandos para **Linux/macOS** (`bash`) y para **Windows** (PowerShell).
 
-```bash
-git clone https://github.com/athomo001/Ellkan.git
-cd Ellkan
-cp .env.example .env
-set -a && source .env && set +a
+### 1. Instalar lo necesario
 
-# Secretos de despliegue — ver secrets/README.md para el detalle de cada uno.
-# Usa POSTGRES_USER/POSTGRES_DB del .env recién cargado — si los cambiaste
-# ahí arriba, esto arma el DATABASE_URL correcto solo, sin que haya que
-# tocarlo a mano en dos lugares.
-openssl rand -hex 24 > secrets/postgres_password.txt
-openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
-echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
+**Linux/macOS:** Docker y Docker Compose, más `git` y `openssl`.
 
-# Descarga la imagen de la versión indicada en ELLKAN_VERSION (.env; por
-# defecto la última). Si no la encuentra, la compila desde este código.
-docker compose up -d
-```
-
-> Para compilar el servidor desde el código en vez de descargarlo: `docker compose up -d --build`. Para pasar a una versión nueva más adelante, ver [Actualizar / reconstruir tras un cambio](#actualizar--reconstruir-tras-un-cambio).
-
-La app queda en `http://localhost:${ELLKAN_PORT:-8080}`. El primer admin se puede crear **desde la web**, en «Crear cuenta»: como es la primera cuenta, pide el token de instalación, que el servidor escribe en su log (`docker logs ellkan 2>&1 | grep "token de instalación"`; detalle en el [manual](manual/instalacion.md#primer-administrador-token-de-instalación)). O con la CLI: descargá `ellkan-cli_X.Y.Z_linux_x64` de [Releases](https://github.com/athomo001/Ellkan/releases/latest) y dejala en esta carpeta como `ellkan-cli` (o compilala con `cargo build --release -p ellkan-cli` y copiá `target/release/ellkan-cli`):
-
-```bash
-chmod +x ellkan-cli
-
-# DATABASE_URL acá es DISTINTO al de secrets/database_url.txt: ese usa el
-# hostname interno de Docker (ellkan-db), que sólo resuelve dentro de la
-# red de contenedores — este apunta al puerto que docker-compose expone
-# en 127.0.0.1 para que la CLI (corriendo en el host) pueda conectarse.
-DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
-  ./ellkan-cli admin create-user \
-  --email vos@ejemplo.com --display-name "Tu nombre" --role admin
-
-./ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email vos@ejemplo.com
-```
-
-`--role admin` promueve directo (por SQL, sin pasar por HTTP — ninguna ruta HTTP permite auto-asignarse admin) y marca este dispositivo como conocido, así que el `login` de arriba funciona ahí mismo sin esperar ningún email — no hace falta SMTP configurado para arrancar. Una vez adentro, para que las verificaciones de dispositivo de cualquier otro login/usuario lleguen por email de verdad, configurá un relay real en `/admin/smtp`.
-
-Ver [manual/cli.md](manual/cli.md#comandos) para el resto de los comandos.
-
-### Windows (PowerShell)
-
-Los comandos de arriba son para Linux/macOS (`bash`). En Windows, desde cero:
-
-**1. Instalar lo necesario** (una sola vez, en PowerShell; reiniciá la sesión al terminar):
+**Windows** (una sola vez; reiniciá la sesión al terminar):
 
 ```powershell
 winget install --id Git.Git -e
 winget install --id Docker.DockerDesktop -e
 ```
 
-Abrí Docker Desktop y esperá a que diga que el motor está corriendo. Rust (`winget install --id Rustlang.Rustup -e`) sólo hace falta si querés compilar la CLI en vez de descargarla; en Windows además necesita las *Build Tools de Visual Studio* (C++): si faltan, `cargo build` lo avisa; se instalan con `winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive"`.
+Abrí Docker Desktop y esperá a que diga que el motor está corriendo.
 
-**2. Clonar y cargar el `.env`:**
+### 2. Clonar y cargar el `.env`
+
+```bash
+git clone https://github.com/athomo001/Ellkan.git
+cd Ellkan
+cp .env.example .env
+set -a && source .env && set +a
+```
 
 ```powershell
 git clone https://github.com/athomo001/Ellkan.git
@@ -207,7 +173,17 @@ Get-Content .env | Where-Object { $_ -match '^\s*[^#\s][^=]*=' } | ForEach-Objec
 }
 ```
 
-**3. Generar los secretos** (sólo la primera vez — si ya levantaste el servidor, no los regeneres: la base guarda la contraseña en su volumen y la clave de secretos protege datos ya cifrados):
+El `.env` carga sólo en esa terminal: si abrís otra, repetí la última línea (bash) o el bloque `Get-Content` (PowerShell).
+
+### 3. Generar los secretos
+
+**Sólo la primera vez.** Si ya levantaste el servidor, no los regeneres: la base guarda la contraseña en su volumen y la clave de secretos protege datos ya cifrados. El detalle de cada archivo está en [secrets/README.md](secrets/README.md).
+
+```bash
+openssl rand -hex 24 > secrets/postgres_password.txt
+openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
+echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
+```
 
 ```powershell
 function Aleatorio([int]$n) {
@@ -223,31 +199,64 @@ Set-Content secrets/ellkan_secrets_key.txt ([Convert]::ToBase64String((Aleatorio
 Set-Content secrets/database_url.txt "postgres://$($env:POSTGRES_USER):$pass@ellkan-db:5432/$($env:POSTGRES_DB)" -NoNewline -Encoding ascii
 ```
 
-`-NoNewline -Encoding ascii` importa: con `>` o `echo`, PowerShell escribe UTF-16 o agrega un `\r\n`, y ese `\r` queda pegado a la contraseña dentro del contenedor Linux.
+En PowerShell, `-NoNewline -Encoding ascii` importa: con `>` o `echo` escribe UTF-16 o agrega un `\r\n`, y ese `\r` queda pegado a la contraseña dentro del contenedor Linux.
 
-**4. Levantar:**
+### 4. Levantar
 
-```powershell
+```bash
 docker compose up -d
 ```
 
-La app queda en `http://localhost:8080`. La primera vez descarga la imagen del servidor; si no hay ninguna publicada para tu `ELLKAN_VERSION`, la compila (eso tarda varios minutos).
+Descarga la imagen de la versión indicada en `ELLKAN_VERSION` (`.env`; por defecto `latest`, la última oficial) y, si no la encuentra, la compila desde este código (tarda varios minutos). Para compilar siempre desde el código: `docker compose up -d --build`.
 
-> Si falla con `bind source path does not exist: .../secrets/postgres_password.txt` aunque el archivo existe, Docker Desktop no está viendo el disco: reinicialo (o `wsl --shutdown`) y volvé a levantar. Detalle en [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos).
+La app queda en `http://localhost:8080` (o el puerto de `ELLKAN_PORT`).
 
-**5. Crear el primer admin:** descargá `ellkan-cli_X.Y.Z_windows_x64.exe` de [Releases](https://github.com/athomo001/Ellkan/releases/latest) y dejalo en esta carpeta como `ellkan-cli.exe` (o compilalo con `cargo build --release -p ellkan-cli` y copiá `target\release\ellkan-cli.exe`):
+> En Windows, si falla con `bind source path does not exist: .../secrets/postgres_password.txt` aunque el archivo existe, Docker Desktop no está viendo el disco: reinicialo (o `wsl --shutdown`) y volvé a levantar. Detalle en [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos).
+
+### 5. Crear el primer administrador (token de instalación)
+
+La primera cuenta que se crea en una instancia vacía nace **admin**. Para que nadie que llegue a la web antes que vos se quede con ese rol, esa primera cuenta **pide un token de instalación**:
+
+1. **Ver el token.** Mientras no haya ninguna cuenta, el servidor genera uno al azar en cada arranque y lo escribe en su log:
+
+   ```bash
+   docker logs ellkan 2>&1 | grep "token de instalación"
+   ```
+
+   ```powershell
+   docker logs ellkan 2>&1 | Select-String "token de instalación"
+   ```
+
+2. **Crear la cuenta.** Abrí `http://localhost:8080`, entrá a «Crear cuenta» y pegá el token en el campo «Token de instalación». También podés abrir directo `http://localhost:8080/register#setup=<token>`.
+
+3. Listo: en cuanto existe la primera cuenta, el token deja de servir y no se vuelve a generar. Si reiniciás el contenedor antes de crearla, cambia: volvé a mirar el log.
+
+Para fijar un token propio en vez del generado (`ELLKAN_SETUP_TOKEN` o `ELLKAN_SETUP_TOKEN_FILE`, mínimo 24 caracteres), ver el [manual](manual/instalacion.md#primer-administrador-token-de-instalación).
+
+> [!IMPORTANT]
+> **Las versiones hasta la 0.1.70 (incluida) no piden el token:** el primer registro nace admin sin nada. Si la pantalla «Crear cuenta» no muestra el campo del token, estás en una de esas. Creá tu cuenta antes de exponer la instancia a la red, o usá una versión más nueva (`ELLKAN_VERSION=dev` en `.env` y `docker compose pull`, o compilá con `docker compose up -d --build`).
+
+**Alternativa: con la CLI.** No necesita el token porque entra directo a la base. Descargá `ellkan-cli_X.Y.Z_linux_x64` o `ellkan-cli_X.Y.Z_windows_x64.exe` de [Releases](https://github.com/athomo001/Ellkan/releases/latest) y dejalo en esta carpeta como `ellkan-cli` / `ellkan-cli.exe` (o compilalo con `cargo build --release -p ellkan-cli`). El `DATABASE_URL` de acá apunta a `localhost`, no a `ellkan-db` como el de `secrets/`: la CLI corre fuera de la red de Docker.
+
+```bash
+chmod +x ellkan-cli
+DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
+  ./ellkan-cli admin create-user --email vos@ejemplo.com --display-name "Tu nombre" --role admin
+./ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email vos@ejemplo.com
+```
 
 ```powershell
 $pass = (Get-Content secrets/postgres_password.txt -Raw).Trim()
 $env:DATABASE_URL = "postgres://$($env:POSTGRES_USER):$pass@localhost:$($env:POSTGRES_PORT)/$($env:POSTGRES_DB)"
-
 .\ellkan-cli.exe admin create-user --email vos@ejemplo.com --display-name "Tu nombre" --role admin
 .\ellkan-cli.exe --server-url "http://localhost:$($env:ELLKAN_PORT)" login --email vos@ejemplo.com
 ```
 
-Si abrís otra ventana de PowerShell, repetí la carga del `.env` (paso 2, desde `Get-Content .env`) antes del paso 5. Para actualizar tras un cambio, los mismos dos comandos de la sección siguiente funcionan igual en PowerShell.
+`--role admin` promueve directo por SQL (ninguna ruta HTTP permite auto-asignarse admin) y marca este dispositivo como conocido, así que el `login` funciona sin esperar ningún email: no hace falta SMTP para arrancar. Una vez adentro, configurá un relay real en `/admin/smtp` para que los códigos de verificación de los demás logins lleguen por email. El resto de los comandos: [manual/cli.md](manual/cli.md#comandos).
 
-Por defecto el backend sirve HTTP plano — para TLS (terminado por el propio Ellkan, sin reverse proxy aparte, o con uno), backup/restauración y solución de problemas comunes, ver [manual/instalacion.md](manual/instalacion.md).
+### Después de instalar
+
+Por defecto el servidor sirve HTTP plano. Para TLS (terminado por el propio Ellkan o con un reverse proxy), backup/restauración y solución de problemas comunes, ver [manual/instalacion.md](manual/instalacion.md).
 
 ### Actualizar / reconstruir tras un cambio
 
