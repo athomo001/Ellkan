@@ -6,7 +6,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ## [Sin publicar]
 
-## [0.1.71] - 2026-11-23
+## [0.1.72] - 2026-11-24
 
 ### Instalación
 
@@ -17,6 +17,8 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **No arrancaba tras actualizar desde una app compilada en Windows («No se pudo conectar con el servidor»).** El motor local se negaba a abrir la bóveda: `migration 8 was previously applied but has been modified`. La app vieja se había compilado desde una copia de trabajo con finales de línea CRLF y la nueva con LF: el SQL es el mismo, el checksum no. Ahora, si el checksum guardado corresponde al mismo SQL con otros finales de línea, se actualiza; un cambio real de una migración sigue frenando el arranque. Misma regla en el servidor. La pantalla ya no culpa al servidor cuando lo que no arrancó es el motor local: lo dice y señala el log de la app.
 - **Usar una cuenta de servidor con otra cuenta ya creada en el equipo.** El login de escritorio no ofrecía nada: «Conectar con un servidor» sólo aparecía con la bóveda vacía, y Ajustes → Modo conectado exige entrar con la cuenta local. Ahora el login tiene «Usar mi cuenta de un servidor Ellkan»: la bóveda actual se guarda entera en `backups/` (`ellkan-archivada-*.db`, nunca se poda ni se borra) y la app se reinicia directo en «Conectar con un servidor». Es un comando de Tauri, no una ruta HTTP: sólo la ventana de la app puede pedirlo.
 - **«Recuperar cuenta» no tenía cómo volver:** enlace «← Volver al inicio de sesión» ahí y en la recuperación con aprobación de un admin.
+
+## [0.1.71] - 2026-11-23
 
 ### Seguridad y privacidad
 
