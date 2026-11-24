@@ -73,6 +73,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### CI
 
+- **El build del WASM ya no depende de una descarga sin reintentos:** la imagen Docker falló porque `wasm-pack` baja `wasm-opt` (binaryen) de GitHub a mitad del build, sin reintentos ni verificación. Ahora `.github/scripts/herramientas-wasm.sh` instala antes `wasm-opt` (binaryen version_117, la misma que usaba wasm-pack, con reintentos y SHA-256 fijado en el repo) y `wasm-bindgen-cli` (la versión exacta de `Cargo.lock`, desde crates.io con `--locked`); `wasm-pack` los encuentra en el PATH y no descarga nada. Lo usan el Dockerfile y los jobs del CI y del Release que generan los bindings. La optimización con `wasm-opt` se mantiene.
 - **Notas de cada Release desde este CHANGELOG (pendiente #91):** la Release oficial lleva la sección de su versión y la de desarrollo la de «Sin publicar», en vez de la lista automática de GitHub (que salía vacía porque los PR se llaman «Develop»).
 - **Self-check de la extensión al día:** el PING de prueba sale del popup; desde un content script ahora se espera el rechazo (QA-32).
 - **Cadena de suministro (pendiente #80):** `cargo deny` (licencias compatibles con AGPL-3.0, crates sólo de crates.io, sin `*`) y un control que falla si el build de la web o de la extensión menciona un dominio de analítica o CDN externo. Los crates del workspace se marcan `publish = false`.

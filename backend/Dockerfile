@@ -12,9 +12,22 @@
 # `docker buildx imagetools inspect <imagen:tag>` y copiar el `Digest`.
 FROM rust:1-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS wasm-builder
 WORKDIR /build
+# Reintentos de red para apt y cargo: un corte momentáneo no tira el build.
+ENV CARGO_NET_RETRY=10
+RUN apt-get -o Acquire::Retries=5 update \
+ && apt-get -o Acquire::Retries=5 install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
 RUN cargo install wasm-pack --locked --version 0.15.0
 
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
+# wasm-opt (binaryen, con SHA-256 fijado) y wasm-bindgen-cli (versión de
+# Cargo.lock) instalados ANTES de `wasm-pack build`: si no, wasm-pack los baja
+# de GitHub a mitad del build sin reintentos ni checksum, y un corte de red lo
+# tira (pasó con binaryen). Detalle en el propio script.
+COPY .github/scripts/herramientas-wasm.sh ./.github/scripts/
+RUN bash .github/scripts/herramientas-wasm.sh /opt/binaryen
+ENV PATH=/opt/binaryen/bin:$PATH
+
 COPY crates/ellkan-crypto ./crates/ellkan-crypto
 # El `Cargo.toml` raíz declara un workspace con `backend`/`cli` como
 # miembros — `cargo metadata` (que `wasm-pack` corre primero) resuelve el
