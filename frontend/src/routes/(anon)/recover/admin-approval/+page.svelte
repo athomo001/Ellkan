@@ -192,9 +192,17 @@
 		<p class="ok">{$t.recuperacionCuenta.completaHint}</p>
 		<Button variant="primary" onclick={() => goto('/login')}>{$t.recuperacionCuenta.irALogin}</Button>
 	{/if}
+	{#if paso !== 'lista'}
+		<p class="volver"><a href="/login">{$t.login.volverAlLogin}</a></p>
+	{/if}
 </Card>
 
 <style>
+	.volver {
+		margin: var(--space-6) 0 0 0;
+		text-align: center;
+		font-size: var(--text-sm);
+	}
 	h1 {
 		margin: 0;
 		font-size: var(--text-2xl);

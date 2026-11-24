@@ -91,3 +91,8 @@ export async function existeUsuarioLocal(): Promise<boolean> {
 	const { existe } = await api.get<{ existe: boolean }>('/auth/existe-usuario');
 	return existe;
 }
+
+/** Marca que deja el login antes de archivar la bóveda y reiniciar (botón
+ * «Usar mi cuenta de un servidor»): al volver a abrir, el registro arranca
+ * directo en «Conectar con un servidor». */
+export const CLAVE_ABRIR_CONECTAR_SERVIDOR = 'ellkan.abrirConectarServidor';

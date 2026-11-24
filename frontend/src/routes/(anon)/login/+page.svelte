@@ -20,7 +20,7 @@
 	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
 	import { desbloquear as desbloquearLocal, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
 	import { estaActivo as llaveroActivo, desbloquear as desbloquearLlavero } from '$lib/crypto/llavero-local';
-	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
+	import { enModoEscritorio, existeUsuarioLocal, CLAVE_ABRIR_CONECTAR_SERVIDOR } from '$lib/tauri/conectar';
 	import { recoveryKitApi } from '$lib/api/recoveryKit';
 	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
 	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
@@ -64,6 +64,31 @@
 	// modo servidor queda `false` directo, sin llamar a un endpoint que ahí
 	// no existe.
 	let ocultarRegistro = $state(false);
+
+	// Escritorio con otra cuenta ya creada: «Usar mi cuenta de un servidor».
+	// La app tiene una sola cuenta por equipo, así que la bóveda actual se
+	// guarda en la carpeta de copias (no se borra) y la app se reinicia vacía,
+	// directo en el paso de conectar con un servidor.
+	let confirmarCambioACuentaServidor = $state(false);
+	let cambiandoCuenta = $state(false);
+	let errorCambioCuenta = $state<string | undefined>();
+	async function pasarACuentaServidor() {
+		cambiandoCuenta = true;
+		errorCambioCuenta = undefined;
+		try {
+			// Lo que guardó la ventana era de la cuenta anterior (vinculación,
+			// desbloqueo rápido): mismo criterio que la revocación remota.
+			localStorage.clear();
+			sessionStorage.clear();
+			localStorage.setItem(CLAVE_ABRIR_CONECTAR_SERVIDOR, '1');
+			const { invoke } = await import('@tauri-apps/api/core');
+			await invoke('archivar_boveda_y_reiniciar');
+		} catch (err) {
+			localStorage.removeItem(CLAVE_ABRIR_CONECTAR_SERVIDOR);
+			errorCambioCuenta = typeof err === 'string' ? err : get(t).login.usarCuentaServidorError;
+			cambiandoCuenta = false;
+		}
+	}
 	$effect(() => {
 		if (enModoEscritorio()) {
 			existeUsuarioLocal()
@@ -459,6 +484,22 @@
 		<p class="hint centrado">{$t.login.sinCuenta} <a href="/register">{$t.login.registrate}</a></p>
 	{/if}
 		<p class="hint centrado"><a href="/recover">{$t.login.olvidasteTuPassphrase}</a></p>
+		{#if ocultarRegistro}
+			<!-- Escritorio con otra cuenta ya creada: se puede pasar a una cuenta de servidor sin entrar a la local. -->
+			{#if confirmarCambioACuentaServidor}
+				<div class="cambio-cuenta" role="alertdialog" aria-labelledby="cambio-cuenta-titulo">
+					<p id="cambio-cuenta-titulo"><strong>{$t.login.usarCuentaServidor}</strong></p>
+					<p class="hint">{$t.login.usarCuentaServidorExplicacion}</p>
+					{#if errorCambioCuenta}<p class="error">{errorCambioCuenta}</p>{/if}
+					<Button variant="primary" loading={cambiandoCuenta} onclick={pasarACuentaServidor}>{$t.login.usarCuentaServidorConfirmar}</Button>
+					<Button variant="secondary" onclick={() => (confirmarCambioACuentaServidor = false)}>{$t.login.usarCuentaServidorCancelar}</Button>
+				</div>
+			{:else}
+				<p class="hint centrado">
+					<button type="button" class="link" onclick={() => (confirmarCambioACuentaServidor = true)}>{$t.login.usarCuentaServidor}</button>
+				</p>
+			{/if}
+		{/if}
 		{#if ssoHabilitado}
 			<a class="boton-sso" href={RUTA_INICIO_SSO} data-sveltekit-reload>{$t.sso.entrarConOrganizacion}</a>
 		{/if}
@@ -559,6 +600,18 @@
 		font: inherit;
 		color: var(--accent-text);
 		cursor: pointer;
+	}
+	.cambio-cuenta {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-4);
+		padding: var(--space-4);
+		border: 1px solid var(--border-color);
+		border-radius: var(--radius-md, 8px);
+	}
+	.cambio-cuenta p {
+		margin: 0;
 	}
 	a {
 		color: var(--accent-text);

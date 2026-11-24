@@ -46,6 +46,13 @@ const en: Diccionario = {
 		errorLlaveroNoDisponible: "The system keyring doesn't have the key — enter your passphrase.",
 		tokenSeguridadHint: 'You should recognize this color and word on this device:',
 		olvidasteTuPassphrase: 'Forgot your passphrase?',
+		volverAlLogin: '← Back to sign in',
+		usarCuentaServidor: 'Use my account on an Ellkan server',
+		usarCuentaServidorExplicacion:
+			'This device already has a vault with another account, and the app uses a single account per device. To sign in with your server account, that vault is saved whole in the backups folder (it is not deleted) and the app restarts ready to connect to the server.',
+		usarCuentaServidorConfirmar: 'Save the current vault and connect',
+		usarCuentaServidorCancelar: 'Cancel',
+		usarCuentaServidorError: 'Could not prepare the account switch.',
 		cambioObligatorioHint: 'This account was created with a temporary passphrase. Choose a new one to continue.',
 		cambioObligatorioListoHint: 'Done — sign in again with your new passphrase.',
 		errorPassphrasesNoCoinciden: 'Passphrases do not match.'
@@ -133,7 +140,10 @@ const en: Diccionario = {
 		tokenInstalacion: 'Setup token',
 		tokenInstalacionAviso:
 			'This is the first account on this server and it will be the administrator. To confirm you are the one who installed it, paste the setup token the server wrote to its log on startup. See it with:',
+		tokenInstalacionEtiquetaLinux: 'Linux/macOS (bash):',
 		tokenInstalacionComando: 'docker logs ellkan 2>&1 | grep "token de instalación"',
+		tokenInstalacionEtiquetaWindows: 'Windows (PowerShell):',
+		tokenInstalacionComandoWindows: 'docker logs ellkan 2>&1 | Select-String "token de instalaci"',
 		tokenInstalacionNota: 'It stops working as soon as this account exists.',
 		errorTokenInstalacion: 'The setup token is not correct. Copy it again from the server log.',
 		verificacion: {

@@ -42,7 +42,16 @@ export async function baseUrl(): Promise<string> {
 	if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return '';
 	if (puertoCacheado === null) {
 		const { invoke } = await import('@tauri-apps/api/core');
-		puertoCacheado = await invoke<number>('puerto_backend');
+		try {
+			puertoCacheado = await invoke<number>('puerto_backend');
+		} catch {
+			// El backend local no arrancó (el motivo queda en el log de la app):
+			// sin esto la pantalla lo mostraba como «No se pudo conectar con el
+			// servidor», como si fuera un problema de red o del servidor remoto.
+			throw new Error(
+				'El motor local de la app no arrancó, así que no puede guardar nada en este equipo. Cerrá la app y volvé a abrirla; si sigue igual, el motivo está en el log de la app (%LOCALAPPDATA%\\com.ellkan.desktop\\logs\\Ellkan.log en Windows).'
+			);
+		}
 	}
 	return `http://127.0.0.1:${puertoCacheado}`;
 }

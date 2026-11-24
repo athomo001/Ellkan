@@ -137,22 +137,56 @@ Para verificar una descarga: `sha256sum -c SHA256SUMS.txt --ignore-missing` en L
 
 ## Instalar el servidor (Docker)
 
-No hace falta compilar nada: el servidor se descarga ya armado desde `ghcr.io` (ver [Descargas](#descargas)). Son cinco pasos; cada uno trae los comandos para **Linux/macOS** (`bash`) y para **Windows** (PowerShell).
+Son tres pasos. El instalador hace todo lo demás: configura, genera los secretos, levanta el servidor y te abre el navegador en la pantalla para crear tu cuenta de administrador.
 
-### 1. Instalar lo necesario
+### 1. Instalar Docker y Git (una sola vez)
 
-**Linux/macOS:** Docker y Docker Compose, más `git` y `openssl`.
-
-**Windows** (una sola vez; reiniciá la sesión al terminar):
+**Windows:** en PowerShell, y después reiniciá la sesión de Windows:
 
 ```powershell
-winget install --id Git.Git -e
 winget install --id Docker.DockerDesktop -e
+winget install --id Git.Git -e
 ```
 
-Abrí Docker Desktop y esperá a que diga que el motor está corriendo.
+**Linux:** [Docker Engine](https://docs.docker.com/engine/install/) con el plugin de Compose, y `git`. **macOS:** [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) y `git`.
 
-### 2. Clonar y cargar el `.env`
+### 2. Descargar Ellkan
+
+Igual en PowerShell y en bash:
+
+```
+git clone https://github.com/athomo001/Ellkan.git
+cd Ellkan
+```
+
+### 3. Correr el instalador
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\instalar.ps1
+```
+
+**Linux/macOS (bash):**
+
+```bash
+bash instalar.sh
+```
+
+Al terminar, el navegador se abre en `http://localhost:8080/register` con el **token de instalación** ya puesto (si no se abre, el instalador muestra el link). Completá nombre, email y contraseña: esa primera cuenta queda como administradora.
+
+El token existe para que nadie que llegue a la web antes que vos se quede con el rol de administrador: el servidor lo genera al arrancar, mientras no haya ninguna cuenta, y deja de servir en cuanto creás la tuya.
+
+Si algo falla, el instalador se detiene y dice qué pasó y qué hacer. Se puede correr las veces que haga falta: nunca regenera secretos que ya existen ni toca una base que ya tiene datos.
+
+<details>
+<summary><b>Instalación manual, sin el instalador (avanzado)</b></summary>
+
+Lo mismo que hace el instalador, paso por paso.
+
+#### 1. Clonar y cargar el `.env`
+
+**Linux/macOS (bash):**
 
 ```bash
 git clone https://github.com/athomo001/Ellkan.git
@@ -160,6 +194,8 @@ cd Ellkan
 cp .env.example .env
 set -a && source .env && set +a
 ```
+
+**Windows (PowerShell):**
 
 ```powershell
 git clone https://github.com/athomo001/Ellkan.git
@@ -175,9 +211,11 @@ Get-Content .env | Where-Object { $_ -match '^\s*[^#\s][^=]*=' } | ForEach-Objec
 
 El `.env` carga sólo en esa terminal: si abrís otra, repetí la última línea (bash) o el bloque `Get-Content` (PowerShell).
 
-### 3. Generar los secretos
+#### 2. Generar los secretos
 
 **Sólo la primera vez.** Si ya levantaste el servidor, no los regeneres: la base guarda la contraseña en su volumen y la clave de secretos protege datos ya cifrados. El detalle de cada archivo está en [secrets/README.md](secrets/README.md).
+
+**Linux/macOS (bash):**
 
 ```bash
 openssl rand -hex 24 > secrets/postgres_password.txt
@@ -185,7 +223,14 @@ openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
 echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
 ```
 
+**Windows (PowerShell):**
+
 ```powershell
+# Si esto falla, volvé al paso 1 y corré el bloque de PowerShell (no la línea de bash).
+if (-not $env:POSTGRES_USER -or -not $env:POSTGRES_DB -or -not $env:POSTGRES_PORT -or -not $env:ELLKAN_PORT) {
+    throw "Falta cargar el .env en esta ventana: corré el bloque Get-Content del paso 1."
+}
+
 function Aleatorio([int]$n) {
     $b = New-Object byte[] $n
     [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
@@ -201,7 +246,9 @@ Set-Content secrets/database_url.txt "postgres://$($env:POSTGRES_USER):$pass@ell
 
 En PowerShell, `-NoNewline -Encoding ascii` importa: con `>` o `echo` escribe UTF-16 o agrega un `\r\n`, y ese `\r` queda pegado a la contraseña dentro del contenedor Linux.
 
-### 4. Levantar
+#### 3. Levantar
+
+**Linux/macOS (bash):**
 
 ```bash
 docker compose up -d
@@ -213,18 +260,23 @@ La app queda en `http://localhost:8080` (o el puerto de `ELLKAN_PORT`).
 
 > En Windows, si falla con `bind source path does not exist: .../secrets/postgres_password.txt` aunque el archivo existe, Docker Desktop no está viendo el disco: reinicialo (o `wsl --shutdown`) y volvé a levantar. Detalle en [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos).
 
-### 5. Crear el primer administrador (token de instalación)
+#### 4. Crear el primer administrador (token de instalación)
 
 La primera cuenta que se crea en una instancia vacía nace **admin**. Para que nadie que llegue a la web antes que vos se quede con ese rol, esa primera cuenta **pide un token de instalación**:
 
 1. **Ver el token.** Mientras no haya ninguna cuenta, el servidor genera uno al azar en cada arranque y lo escribe en su log:
 
+   **Linux/macOS (bash):**
+
    ```bash
    docker logs ellkan 2>&1 | grep "token de instalación"
    ```
 
+   **Windows (PowerShell):**
+
    ```powershell
-   docker logs ellkan 2>&1 | Select-String "token de instalación"
+   # Sin la «ó» a propósito: la consola de Windows en español (página 850) no la lee igual que Docker.
+   docker logs ellkan 2>&1 | Select-String "token de instalaci"
    ```
 
 2. **Crear la cuenta.** Abrí `http://localhost:8080`, entrá a «Crear cuenta» y pegá el token en el campo «Token de instalación». También podés abrir directo `http://localhost:8080/register#setup=<token>`.
@@ -238,6 +290,8 @@ Para fijar un token propio en vez del generado (`ELLKAN_SETUP_TOKEN` o `ELLKAN_S
 
 **Alternativa: con la CLI.** No necesita el token porque entra directo a la base. Descargá `ellkan-cli_X.Y.Z_linux_x64` o `ellkan-cli_X.Y.Z_windows_x64.exe` de [Releases](https://github.com/athomo001/Ellkan/releases/latest) y dejalo en esta carpeta como `ellkan-cli` / `ellkan-cli.exe` (o compilalo con `cargo build --release -p ellkan-cli`). El `DATABASE_URL` de acá apunta a `localhost`, no a `ellkan-db` como el de `secrets/`: la CLI corre fuera de la red de Docker.
 
+**Linux/macOS (bash):**
+
 ```bash
 chmod +x ellkan-cli
 DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@localhost:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-ellkan}" \
@@ -245,7 +299,14 @@ DATABASE_URL="postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_passwor
 ./ellkan-cli --server-url "http://localhost:${ELLKAN_PORT:-8080}" login --email vos@ejemplo.com
 ```
 
+**Windows (PowerShell):**
+
 ```powershell
+# Si esto falla, volvé al paso 1 y corré el bloque de PowerShell (no la línea de bash).
+if (-not $env:POSTGRES_USER -or -not $env:POSTGRES_DB -or -not $env:POSTGRES_PORT -or -not $env:ELLKAN_PORT) {
+    throw "Falta cargar el .env en esta ventana: corré el bloque Get-Content del paso 1."
+}
+
 $pass = (Get-Content secrets/postgres_password.txt -Raw).Trim()
 $env:DATABASE_URL = "postgres://$($env:POSTGRES_USER):$pass@localhost:$($env:POSTGRES_PORT)/$($env:POSTGRES_DB)"
 .\ellkan-cli.exe admin create-user --email vos@ejemplo.com --display-name "Tu nombre" --role admin
@@ -253,6 +314,8 @@ $env:DATABASE_URL = "postgres://$($env:POSTGRES_USER):$pass@localhost:$($env:POS
 ```
 
 `--role admin` promueve directo por SQL (ninguna ruta HTTP permite auto-asignarse admin) y marca este dispositivo como conocido, así que el `login` funciona sin esperar ningún email: no hace falta SMTP para arrancar. Una vez adentro, configurá un relay real en `/admin/smtp` para que los códigos de verificación de los demás logins lleguen por email. El resto de los comandos: [manual/cli.md](manual/cli.md#comandos).
+
+</details>
 
 ### Después de instalar
 

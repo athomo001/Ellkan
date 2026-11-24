@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
+pub mod archivar;
 pub mod borrado_remoto;
 pub mod cambios_extension;
 pub mod conectar;
@@ -58,9 +59,38 @@ pub async fn bootstrap_sqlite(datadir: &Path) -> anyhow::Result<SqlitePool> {
         tracing::info!(copia = %copia.display(), "copia de seguridad antes de migrar");
     }
 
+    reparar_checksums_por_fin_de_linea(&pool, &migrador).await?;
     migrador.run(&pool).await?;
 
     Ok(pool)
+}
+
+/// Una bóveda creada por una app compilada desde una copia de trabajo con
+/// CRLF (Windows) guarda checksums que la app compilada con LF (CI) rechaza
+/// con «migration N was previously applied but has been modified», aunque el
+/// SQL sea el mismo: la app no arrancaba su backend local. Se actualizan sólo
+/// esos checksums (`checksum_difiere_solo_en_fin_de_linea`); un cambio real
+/// del SQL sigue frenando el arranque.
+async fn reparar_checksums_por_fin_de_linea(pool: &SqlitePool, migrador: &sqlx::migrate::Migrator) -> anyhow::Result<()> {
+    let existe: Option<i64> = sqlx::query_scalar("select 1 from sqlite_master where type = 'table' and name = '_sqlx_migrations'")
+        .fetch_optional(pool)
+        .await?;
+    if existe.is_none() {
+        return Ok(());
+    }
+    let filas: Vec<(i64, Vec<u8>)> = sqlx::query_as("select version, checksum from _sqlx_migrations").fetch_all(pool).await?;
+    for (version, guardado) in filas {
+        let Some(m) = migrador.iter().find(|m| m.version == version) else { continue };
+        if crate::checksum_difiere_solo_en_fin_de_linea(m, &guardado) {
+            sqlx::query("update _sqlx_migrations set checksum = ? where version = ?")
+                .bind(&m.checksum[..])
+                .bind(version)
+                .execute(pool)
+                .await?;
+            tracing::warn!(version, "checksum de migración guardado con otros finales de línea (CRLF/LF) — actualizado, el SQL es el mismo");
+        }
+    }
+    Ok(())
 }
 
 /// Mismo criterio que `cargar_o_generar_server_key` (Postgres, `lib.rs`):

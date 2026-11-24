@@ -73,8 +73,17 @@ En una instancia vacía, el primer usuario que se registra nace **admin**. Para 
 
 **Sin configurar nada:** mientras la base no tenga usuarios, el servidor genera un token al azar en cada arranque y lo escribe en su log. La pantalla de registro de la web lo pide y muestra el comando para verlo:
 
+Linux/macOS (bash):
+
 ```bash
 docker logs ellkan 2>&1 | grep "token de instalación"
+```
+
+Windows (PowerShell; ahí `grep` no existe):
+
+```powershell
+# Sin la «ó» a propósito: la consola de Windows en español (página 850) no la lee igual que Docker.
+docker logs ellkan 2>&1 | Select-String "token de instalaci"
 ```
 
 **Con un token propio** (mínimo 24 caracteres), configuralo en el `environment:` del servicio `ellkan` y no se genera ninguno:

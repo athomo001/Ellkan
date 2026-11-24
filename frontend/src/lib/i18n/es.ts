@@ -45,6 +45,13 @@ const es = {
 		errorLlaveroNoDisponible: 'El llavero del sistema no tiene la clave — ingresá tu contraseña.',
 		tokenSeguridadHint: 'Deberías reconocer este color y esta palabra en este dispositivo:',
 		olvidasteTuPassphrase: '¿Olvidaste tu contraseña?',
+		volverAlLogin: '← Volver al inicio de sesión',
+		usarCuentaServidor: 'Usar mi cuenta de un servidor Ellkan',
+		usarCuentaServidorExplicacion:
+			'Este equipo ya tiene una bóveda con otra cuenta, y la app usa una sola cuenta por equipo. Para entrar con tu cuenta del servidor, esa bóveda se guarda completa en la carpeta de copias de seguridad (no se borra) y la app se reinicia lista para conectarse al servidor.',
+		usarCuentaServidorConfirmar: 'Guardar la bóveda actual y conectar',
+		usarCuentaServidorCancelar: 'Cancelar',
+		usarCuentaServidorError: 'No se pudo preparar el cambio de cuenta.',
 		cambioObligatorioHint:
 			'Esta cuenta se creó con una contraseña provisoria. Elegí una contraseña nueva para poder continuar.',
 		cambioObligatorioListoHint: 'Listo — iniciá sesión de nuevo con tu contraseña nueva.',
@@ -134,7 +141,10 @@ const es = {
 		tokenInstalacion: 'Token de instalación',
 		tokenInstalacionAviso:
 			'Es la primera cuenta de este servidor y va a quedar como administradora. Para confirmar que sos quien lo instaló, pegá el token de instalación que el servidor escribió en su log al arrancar. Lo ves con:',
+		tokenInstalacionEtiquetaLinux: 'Linux/macOS (bash):',
 		tokenInstalacionComando: 'docker logs ellkan 2>&1 | grep "token de instalación"',
+		tokenInstalacionEtiquetaWindows: 'Windows (PowerShell):',
+		tokenInstalacionComandoWindows: 'docker logs ellkan 2>&1 | Select-String "token de instalaci"',
 		tokenInstalacionNota: 'Deja de servir en cuanto esta cuenta existe.',
 		errorTokenInstalacion: 'El token de instalación no es correcto. Copialo de nuevo del log del servidor.',
 		verificacion: {
