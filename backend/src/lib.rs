@@ -371,6 +371,23 @@ fn instalar_crypto_provider_tls() {
     });
 }
 
+/// `true` si el checksum guardado en la base no coincide con el de la
+/// migración embebida, pero sí con el MISMO SQL escrito con otros finales de
+/// línea (CRLF en vez de LF o al revés). Pasa cuando un binario se compiló en
+/// Windows desde una copia de trabajo con CRLF y otro (el de CI) con LF: el
+/// SQL que se ejecutó es idéntico, así que actualizar el checksum no esconde
+/// ningún cambio real de esquema. Cualquier otra diferencia sigue frenando el
+/// arranque como siempre.
+pub fn checksum_difiere_solo_en_fin_de_linea(m: &sqlx::migrate::Migration, guardado: &[u8]) -> bool {
+    use sha2::{Digest, Sha384};
+    if guardado == &m.checksum[..] {
+        return false;
+    }
+    let lf = m.sql.as_str().replace("\r\n", "\n");
+    let crlf = lf.replace('\n', "\r\n");
+    [lf, crlf].iter().any(|variante| Sha384::digest(variante.as_bytes()).as_slice() == guardado)
+}
+
 /// `sqlx::migrate!` valida que el archivo de cada migración YA aplicada
 /// siga siendo byte-a-byte igual al que se corrió la primera vez (SHA-384
 /// del contenido, guardado en `_sqlx_migrations.checksum`) — un mecanismo
@@ -391,6 +408,21 @@ fn instalar_crypto_provider_tls() {
 /// cualquier instancia que no lo prenda a propósito, no hay motivo para
 /// bajar la guardia en todos lados por un problema de un disco puntual.
 async fn reparar_checksums_de_migraciones(pool: &sqlx::PgPool, migrator: &sqlx::migrate::Migrator) {
+    // Siempre: una migración guardada con otros finales de línea es el mismo
+    // SQL (ver `checksum_difiere_solo_en_fin_de_linea`).
+    if let Ok(filas) = sqlx::query_as::<_, (i64, Vec<u8>)>("select version, checksum from _sqlx_migrations").fetch_all(pool).await {
+        for (version, guardado) in filas {
+            let Some(m) = migrator.iter().find(|m| m.version == version) else { continue };
+            if checksum_difiere_solo_en_fin_de_linea(m, &guardado) {
+                let _ = sqlx::query("update _sqlx_migrations set checksum = $1 where version = $2")
+                    .bind(&m.checksum[..])
+                    .bind(version)
+                    .execute(pool)
+                    .await;
+                tracing::warn!(version, "checksum de migración guardado con otros finales de línea (CRLF/LF) — actualizado, el SQL es el mismo");
+            }
+        }
+    }
     if std::env::var("ELLKAN_MIGRATE_REPAIR_CHECKSUMS").as_deref() != Ok("true") {
         return;
     }

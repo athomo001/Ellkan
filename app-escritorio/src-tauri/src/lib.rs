@@ -162,6 +162,22 @@ fn ejecutar_borrado_remoto(dir: &std::path::Path) {
   borrar_restos_de_revocacion();
 }
 
+/// Login → «Usar mi cuenta de un servidor», con otra cuenta ya creada en este
+/// equipo: deja la marca y reinicia la app; al arrancar, la bóveda actual se
+/// guarda en `backups/` (no se borra) y la app abre como recién instalada.
+/// Comando de Tauri y no ruta HTTP a propósito: sólo la ventana de la app
+/// puede pedirlo, ni la extensión ni otro proceso que hable con el puerto.
+#[tauri::command]
+fn archivar_boveda_y_reiniciar(app: tauri::AppHandle) -> Result<(), String> {
+  ellkan_backend::desktop::archivar::marcar(&datadir()).map_err(|e| format!("no se pudo preparar el cambio de cuenta: {e}"))?;
+  log::warn!("se pidió archivar la bóveda para usar una cuenta de servidor: reiniciando");
+  // `request_restart` y no `restart`: este comando corre en el hilo
+  // principal, donde `restart` se salta los eventos de cierre, y con ellos
+  // la liberación de la instancia única (la app nueva se cerraría sola).
+  app.request_restart();
+  Ok(())
+}
+
 /// Lo llama el frontend apenas el backend local borró la bóveda por
 /// revocación remota.
 #[tauri::command]
@@ -269,6 +285,20 @@ async fn preparar_backend_local()
   // borra ACÁ, antes de abrir la base (con la app corriendo estaba en uso).
   if ellkan_backend::desktop::borrado_remoto::pendiente(&dir) {
     ejecutar_borrado_remoto(&dir);
+  }
+
+  // «Usar mi cuenta de un servidor» desde el login: la bóveda anterior se
+  // guarda en `backups/` y se arranca de cero. Si falla, la marca queda, la
+  // bóveda vieja sigue en su lugar y se reintenta en el próximo arranque.
+  if ellkan_backend::desktop::archivar::pendiente(&dir) {
+    match ellkan_backend::desktop::archivar::ejecutar(&dir).await {
+      Ok(copia) => {
+        log::warn!("bóveda anterior archivada para usar una cuenta de servidor: {copia:?}");
+        // El desbloqueo rápido y `desktop.json` eran de la cuenta anterior.
+        borrar_restos_de_revocacion();
+      }
+      Err(e) => log::error!("no se pudo archivar la bóveda anterior: {e:#}"),
+    }
   }
 
   let pool = ellkan_backend::desktop::bootstrap_sqlite(&dir).await?;
@@ -1259,7 +1289,8 @@ pub fn run() {
       simular_bloqueo_de_pantalla,
       copiar_secreto,
       vaciar_portapapeles,
-      limpiar_restos_revocacion
+      limpiar_restos_revocacion,
+      archivar_boveda_y_reiniciar
     ])
     // F-45: qué hace la "X" depende de la preferencia del usuario (`AlCerrar`).
     // Antes SIEMPRE ocultaba a la bandeja sin avisar: el usuario "cerraba" la

@@ -19,13 +19,24 @@
 	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
 	import { t } from '$lib/i18n';
 	import { ApiError } from '$lib/api/client';
-	import { enModoEscritorio, existeUsuarioLocal } from '$lib/tauri/conectar';
+	import { enModoEscritorio, existeUsuarioLocal, CLAVE_ABRIR_CONECTAR_SERVIDOR } from '$lib/tauri/conectar';
 	import ConectarServidorInicial from '$lib/components/ConectarServidorInicial.svelte';
 
 	// Escritorio, primer arranque: crear una cuenta sólo local, o usar la que ya
 	// existe en un servidor Ellkan (F-47). En la web sólo existe la primera.
 	const escritorio = enModoEscritorio();
-	let opcion = $state<'local' | 'servidor'>('local');
+	// Viene del login → «Usar mi cuenta de un servidor» (la app se reinició con
+	// la bóveda anterior archivada): directo a conectar.
+	let opcion = $state<'local' | 'servidor'>(escritorio && tomarMarcaConectarServidor() ? 'servidor' : 'local');
+	function tomarMarcaConectarServidor(): boolean {
+		try {
+			const habia = localStorage.getItem(CLAVE_ABRIR_CONECTAR_SERVIDOR) === '1';
+			localStorage.removeItem(CLAVE_ABRIR_CONECTAR_SERVIDOR);
+			return habia;
+		} catch {
+			return false;
+		}
+	}
 
 	// F-46: mismo criterio que el link escondido en el login — si alguien
 	// llega acá directo (bookmark, back del navegador) y ya existe el único
@@ -190,7 +201,11 @@
 			{#if pideTokenInstalacion}
 				<div class="aviso-instalacion" role="note">
 					<p>{$t.registro.tokenInstalacionAviso}</p>
+					<!-- grep no existe en PowerShell: un comando por sistema, cada uno con su rótulo. -->
+					<p class="etiqueta-comando">{$t.registro.tokenInstalacionEtiquetaLinux}</p>
 					<code>{$t.registro.tokenInstalacionComando}</code>
+					<p class="etiqueta-comando">{$t.registro.tokenInstalacionEtiquetaWindows}</p>
+					<code>{$t.registro.tokenInstalacionComandoWindows}</code>
 					<p class="nota">{$t.registro.tokenInstalacionNota}</p>
 				</div>
 				<TextField label={$t.registro.tokenInstalacion} bind:value={tokenInstalacion} autocomplete="off" required />
@@ -300,6 +315,11 @@
 	}
 	.aviso-instalacion p {
 		margin: 0 0 var(--space-2) 0;
+	}
+	.aviso-instalacion .etiqueta-comando {
+		margin: 0 0 var(--space-1) 0;
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
 	}
 	.aviso-instalacion code {
 		display: block;

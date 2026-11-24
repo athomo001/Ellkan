@@ -29,7 +29,7 @@ pub fn carpeta_de_respaldos(datadir: &Path) -> PathBuf {
     datadir.join("backups")
 }
 
-fn marca_de_tiempo() -> String {
+pub(crate) fn marca_de_tiempo() -> String {
     let t = OffsetDateTime::now_utc();
     format!(
         "{:04}{:02}{:02}-{:02}{:02}{:02}-{:03}",
