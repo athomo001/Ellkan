@@ -7,8 +7,8 @@
 	// layout). Cierra con click en el fondo, Escape, o el botón X.
 	import type { Snippet } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
-	import { atraparFoco } from '$lib/a11y/foco';
-	import { t } from '$lib/i18n';
+	import { atraparFoco } from '#lib/a11y/foco';
+	import { t } from '#lib/i18n';
 
 	let {
 		titulo,

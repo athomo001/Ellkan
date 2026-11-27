@@ -8,25 +8,25 @@
 	// política lo exige y todavía no tiene ningún segundo factor — setup +
 	// confirmación en el mismo flujo, `MfaService::confirmar_setup_totp`
 	// completa la sesión al confirmar, sin un `/auth/mfa/verify` aparte).
-	import EnlacesLegales from '$lib/components/EnlacesLegales.svelte';
+	import EnlacesLegales from '#lib/components/EnlacesLegales.svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Card from '$lib/components/Card.svelte';
-	import { iniciarSesion, verificarDispositivo, cambiarPassphrase, aplicarMejoraKdfPendiente } from '$lib/crypto/identity';
-	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '$lib/crypto/totp';
-	import { iniciarSesionConPasskey } from '$lib/crypto/passkeys';
-	import { desbloquear as desbloquearLocal, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
-	import { estaActivo as llaveroActivo, desbloquear as desbloquearLlavero } from '$lib/crypto/llavero-local';
-	import { enModoEscritorio, existeUsuarioLocal, CLAVE_ABRIR_CONECTAR_SERVIDOR } from '$lib/tauri/conectar';
-	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
-	import { ssoApi, RUTA_INICIO_SSO } from '$lib/api/sso';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Card from '#lib/components/Card.svelte';
+	import { iniciarSesion, verificarDispositivo, cambiarPassphrase, aplicarMejoraKdfPendiente } from '#lib/crypto/identity';
+	import { iniciarSetupTotp, confirmarSetupTotp, verificarLoginTotp } from '#lib/crypto/totp';
+	import { iniciarSesionConPasskey } from '#lib/crypto/passkeys';
+	import { desbloquear as desbloquearLocal, disponible as totpLocalDisponible } from '#lib/crypto/totp-local';
+	import { estaActivo as llaveroActivo, desbloquear as desbloquearLlavero } from '#lib/crypto/llavero-local';
+	import { enModoEscritorio, existeUsuarioLocal, CLAVE_ABRIR_CONECTAR_SERVIDOR } from '#lib/tauri/conectar';
+	import { recoveryKitApi } from '#lib/api/recoveryKit';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { obtenerTokenSeguridad, COLOR_HEX } from '#lib/state/securityToken';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
+	import { ssoApi, RUTA_INICIO_SSO } from '#lib/api/sso';
 
 	let email = $state('');
 	let passphrase = $state('');
@@ -37,7 +37,7 @@
 	let error = $state<string | undefined>();
 
 	// F-03: alternativa sin passphrase — no desbloquea la clave privada
-	// (sin PRF todavía, ver `$lib/crypto/passkeys.ts`), sólo reemplaza el
+	// (sin PRF todavía, ver `#lib/crypto/passkeys.ts`), sólo reemplaza el
 	// paso HTTP de login.
 	let conPasskey = $state(false);
 	let cargandoPasskey = $state(false);
@@ -54,7 +54,7 @@
 	// código que tipear: la clave de envoltura vive en el almacén nativo de
 	// credenciales, no en algo que el usuario memoriza. Sólo aplica en modo
 	// escritorio y si ya se activó antes para este email en este dispositivo
-	// (`$lib/crypto/llavero-local.ts`, opt-in desde Ajustes > Seguridad).
+	// (`#lib/crypto/llavero-local.ts`, opt-in desde Ajustes > Seguridad).
 	const puedeUsarLlavero = $derived(email.length > 0 && enModoEscritorio() && llaveroActivo(email));
 	let cargandoLlavero = $state(false);
 

@@ -6,7 +6,7 @@ Las fuentes tipográficas (Atkinson Hyperlegible, Atkinson Hyperlegible Mono, Le
 
 Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano.
 
-## Rust (875 crates)
+## Rust (884 crates)
 
 | Crate | Versión | Licencia | Origen |
 | --- | --- | --- | --- |
@@ -34,6 +34,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | anstyle-wincon | 3.0.11 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle.git |
 | antlr4rust | 0.3.0-rc2 | BSD-3-Clause | https://github.com/antlr4rust/antlr4 |
 | anyhow | 1.0.104 | MIT OR Apache-2.0 | https://github.com/dtolnay/anyhow |
+| arbitrary | 1.5.0 | MIT OR Apache-2.0 | https://github.com/rust-fuzz/arbitrary/ |
 | arc-swap | 1.9.2 | MIT OR Apache-2.0 | https://github.com/vorner/arc-swap |
 | argon2 | 0.5.3 | MIT OR Apache-2.0 | https://github.com/RustCrypto/password-hashes/tree/master/argon2 |
 | asn1-rs | 0.6.2 | MIT OR Apache-2.0 | https://github.com/rusticata/asn1-rs.git |
@@ -59,8 +60,8 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | atoi | 2.0.0 | MIT | https://github.com/pacman82/atoi-rs |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT | https://github.com/smol-rs/atomic-waker |
 | autocfg | 1.5.1 | Apache-2.0 OR MIT | https://github.com/cuviper/autocfg |
-| aws-lc-rs | 1.17.3 | ISC AND (Apache-2.0 OR ISC) | https://github.com/aws/aws-lc-rs |
-| aws-lc-sys | 0.43.0 | ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) | https://github.com/aws/aws-lc-rs |
+| aws-lc-rs | 1.18.2 | ISC AND (Apache-2.0 OR ISC) | https://github.com/aws/aws-lc-rs |
+| aws-lc-sys | 0.46.0 | ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) | https://github.com/aws/aws-lc-rs |
 | axum | 0.8.9 | MIT | https://github.com/tokio-rs/axum |
 | axum-core | 0.5.6 | MIT | https://github.com/tokio-rs/axum |
 | axum-macros | 0.5.1 | MIT | https://github.com/tokio-rs/axum |
@@ -113,7 +114,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | cfg_aliases | 0.2.2 | MIT | https://github.com/katharostech/cfg_aliases |
 | cfg-expr | 0.15.8 | MIT OR Apache-2.0 | https://github.com/EmbarkStudios/cfg-expr |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if |
-| chacha20 | 0.10.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/stream-ciphers |
+| chacha20 | 0.10.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/stream-ciphers |
 | chacha20 | 0.9.1 | Apache-2.0 OR MIT | https://github.com/RustCrypto/stream-ciphers |
 | chacha20poly1305 | 0.10.1 | Apache-2.0 OR MIT | https://github.com/RustCrypto/AEADs/tree/master/chacha20poly1305 |
 | chacha20poly1305 | 0.11.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/AEADs |
@@ -134,7 +135,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT | https://github.com/smol-rs/concurrent-queue |
 | const-oid | 0.10.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
 | const-oid | 0.9.6 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats/tree/master/const-oid |
-| cookie | 0.18.1 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs |
+| cookie | 0.18.3 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs |
 | cookie_store | 0.22.1 | MIT OR Apache-2.0 | https://github.com/pfernie/cookie_store |
 | cookie-factory | 0.3.3 | MIT | https://github.com/rust-bakery/cookie-factory |
 | core-foundation | 0.10.1 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
@@ -167,7 +168,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | ctor | 0.8.0 | Apache-2.0 OR MIT | https://github.com/mmastrac/rust-ctor |
 | ctor-proc-macro | 0.0.7 | Apache-2.0 OR MIT | https://github.com/mmastrac/rust-ctor |
 | ctr | 0.9.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/block-modes |
-| ctutils | 0.4.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/utils |
+| ctutils | 0.4.6 | Apache-2.0 OR MIT | https://github.com/RustCrypto/utils |
 | curve25519-dalek | 4.1.3 | BSD-3-Clause | https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek |
 | curve25519-dalek | 5.0.0 | BSD-3-Clause | https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek |
 | curve25519-dalek-derive | 0.1.1 | MIT/Apache-2.0 | https://github.com/dalek-cryptography/curve25519-dalek |
@@ -182,6 +183,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | der-parser | 10.0.0 | MIT OR Apache-2.0 | https://github.com/rusticata/der-parser.git |
 | der-parser | 9.0.0 | MIT/Apache-2.0 | https://github.com/rusticata/der-parser.git |
 | deranged | 0.5.8 | MIT OR Apache-2.0 | https://github.com/jhpratt/deranged |
+| derive_arbitrary | 1.5.0 | MIT OR Apache-2.0 | https://github.com/rust-fuzz/arbitrary |
 | derive_more | 2.1.1 | MIT | https://github.com/JelteF/derive_more |
 | derive_more-impl | 2.1.1 | MIT | https://github.com/JelteF/derive_more |
 | digest | 0.10.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
@@ -211,7 +213,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | either | 1.17.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/either |
 | elliptic-curve | 0.13.8 | Apache-2.0 OR MIT | https://github.com/RustCrypto/traits/tree/master/elliptic-curve |
 | email_address | 0.2.9 | MIT | https://github.com/johnstonskj/rust-email_address.git |
-| email-encoding | 0.4.2 | MIT OR Apache-2.0 | https://github.com/lettre/email-encoding |
+| email-encoding | 0.4.3 | MIT OR Apache-2.0 | https://github.com/lettre/email-encoding |
 | embed_plist | 1.2.2 | MIT OR Apache-2.0 | https://github.com/nvzqz/embed-plist-rs |
 | embed-resource | 3.0.11 | MIT | https://github.com/nabijaczleweli/rust-embed-resource |
 | encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | https://github.com/hsivonen/encoding_rs |
@@ -233,6 +235,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | fiat-crypto | 0.2.9 | MIT OR Apache-2.0 OR BSD-1-Clause | https://github.com/mit-plv/fiat-crypto |
 | fiat-crypto | 0.3.0 | MIT OR Apache-2.0 OR BSD-1-Clause | https://github.com/mit-plv/fiat-crypto |
 | field-offset | 0.3.6 | MIT OR Apache-2.0 | https://github.com/Diggsey/rust-field-offset |
+| filetime | 0.2.30 | MIT/Apache-2.0 | https://github.com/alexcrichton/filetime |
 | find-crate | 0.6.3 | Apache-2.0 OR MIT | https://github.com/taiki-e/find-crate |
 | find-msvc-tools | 0.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/cc-rs |
 | flagset | 0.4.7 | Apache-2.0 | https://github.com/enarx/flagset |
@@ -247,7 +250,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | foreign-types | 0.5.0 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
 | foreign-types-macros | 0.2.4 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
 | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 | https://github.com/sfackler/foreign-types |
-| form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
+| form_urlencoded | 1.2.3 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | forwarded-header-value | 0.1.1 | ISC | https://github.com/EasyPost/rust-forwarded-header-value |
 | fs_extra | 1.3.0 | MIT | https://github.com/webdesus/fs_extra |
 | fs-err | 3.3.1 | MIT OR Apache-2.0 | https://github.com/andrewhickman/fs-err |
@@ -291,7 +294,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | gtk | 0.18.2 | MIT | https://github.com/gtk-rs/gtk3-rs |
 | gtk-sys | 0.18.2 | MIT | https://github.com/gtk-rs/gtk3-rs |
 | gtk3-macros | 0.18.2 | MIT | https://github.com/gtk-rs/gtk3-rs |
-| h2 | 0.4.15 | MIT | https://github.com/hyperium/h2 |
+| h2 | 0.4.20 | MIT | https://github.com/hyperium/h2 |
 | half | 2.7.1 | MIT OR Apache-2.0 | https://github.com/VoidStarKat/half-rs |
 | hashbrown | 0.12.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | hashbrown | 0.14.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
@@ -377,7 +380,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | lazy_static | 1.5.0 | MIT OR Apache-2.0 | https://github.com/rust-lang-nursery/lazy-static.rs |
 | lber | 0.5.1 | MIT | https://github.com/inejge/ldap3 |
 | ldap3 | 0.12.1 | MIT/Apache-2.0 | https://github.com/inejge/ldap3 |
-| lettre | 0.11.23 | MIT | https://github.com/lettre/lettre |
+| lettre | 0.11.24 | MIT | https://github.com/lettre/lettre |
 | libappindicator | 0.9.0 | Apache-2.0 OR MIT |  |
 | libappindicator-sys | 0.9.0 | Apache-2.0 OR MIT |  |
 | libc | 0.2.189 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
@@ -403,6 +406,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | mime_guess | 2.0.5 | MIT | https://github.com/abonander/mime_guess |
 | minicov | 0.3.8 | Apache-2.0/MIT | https://github.com/Amanieu/minicov |
 | minimal-lexical | 0.2.1 | MIT/Apache-2.0 | https://github.com/Alexhuszagh/minimal-lexical |
+| minisign-verify | 0.2.5 | MIT | https://github.com/jedisct1/rust-minisign-verify |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |
 | miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |
 | mio | 1.2.2 | MIT | https://github.com/tokio-rs/mio |
@@ -444,6 +448,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | objc2-exception-helper | 0.1.1 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
 | objc2-foundation | 0.3.2 | MIT | https://github.com/madsmtm/objc2 |
 | objc2-io-surface | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
+| objc2-osa-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
 | objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
 | objc2-ui-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
 | objc2-user-notifications | 0.3.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/madsmtm/objc2 |
@@ -465,6 +470,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | option-ext | 0.2.0 | MPL-2.0 | https://github.com/soc/option-ext.git |
 | ordered-float | 2.10.1 | MIT | https://github.com/reem/rust-ordered-float |
 | ordered-stream | 0.2.0 | MIT OR Apache-2.0 | https://github.com/danieldg/ordered-stream |
+| osakit | 0.3.1 | MIT OR Apache-2.0 | https://github.com/mdevils/rust-osakit |
 | p256 | 0.13.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/elliptic-curves/tree/master/p256 |
 | p384 | 0.13.1 | Apache-2.0 OR MIT | https://github.com/RustCrypto/elliptic-curves/tree/master/p384 |
 | p521 | 0.13.3 | Apache-2.0 OR MIT | https://github.com/RustCrypto/elliptic-curves/tree/master/p521 |
@@ -529,8 +535,8 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | quanta | 0.12.6 | MIT | https://github.com/metrics-rs/quanta |
 | quick-xml | 0.41.0 | MIT | https://github.com/tafia/quick-xml |
 | quinn | 0.11.11 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
-| quinn-proto | 0.11.16 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
-| quinn-udp | 0.5.15 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
+| quinn-proto | 0.11.19 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
+| quinn-udp | 0.5.16 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
 | quote | 1.0.47 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote |
 | quoted_printable | 0.5.2 | 0BSD | https://github.com/staktrace/quoted-printable |
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | https://github.com/r-efi/r-efi |
@@ -568,13 +574,13 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 | https://github.com/djc/rustc-version-rs |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | https://github.com/rust-lang/rustc-hash |
 | rusticata-macros | 4.1.0 | MIT/Apache-2.0 | https://github.com/rusticata/rusticata-macros.git |
-| rustix | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/rustix |
-| rustls | 0.23.43 | Apache-2.0 OR ISC OR MIT | https://github.com/rustls/rustls |
+| rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/rustix |
+| rustls | 0.23.46 | Apache-2.0 OR ISC OR MIT | https://github.com/rustls/rustls |
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT | https://github.com/rustls/rustls-native-certs |
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 | https://github.com/rustls/pki-types |
 | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 | https://github.com/rustls/rustls-platform-verifier |
 | rustls-platform-verifier-android | 0.1.1 | MIT OR Apache-2.0 | https://github.com/rustls/rustls-platform-verifier |
-| rustls-webpki | 0.103.13 | ISC | https://github.com/rustls/webpki |
+| rustls-webpki | 0.103.16 | ISC | https://github.com/rustls/webpki |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 | https://github.com/dtolnay/rustversion |
 | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | https://github.com/dtolnay/ryu |
 | salsa20 | 0.10.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/stream-ciphers |
@@ -663,6 +669,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | system-deps | 6.2.2 | MIT OR Apache-2.0 | https://github.com/gdesmott/system-deps |
 | tao | 0.35.3 | Apache-2.0 | https://github.com/tauri-apps/tao |
 | tao-macros | 0.1.4 | MIT OR Apache-2.0 | https://github.com/tauri-apps/tao |
+| tar | 0.4.46 | MIT OR Apache-2.0 | https://github.com/composefs/tar-rs |
 | target-lexicon | 0.12.16 | Apache-2.0 WITH LLVM-exception | https://github.com/bytecodealliance/target-lexicon |
 | tauri | 2.11.5 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
 | tauri-build | 2.6.3 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
@@ -673,6 +680,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | tauri-plugin-log | 2.9.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
 | tauri-plugin-opener | 2.5.5 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
 | tauri-plugin-single-instance | 2.4.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
+| tauri-plugin-updater | 2.12.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace |
 | tauri-runtime | 2.11.3 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
 | tauri-runtime-wry | 2.11.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
 | tauri-utils | 2.9.3 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri |
@@ -696,7 +704,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib | https://github.com/Soveu/tinyvec_macros |
 | tls_codec | 0.4.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
 | tls_codec_derive | 0.4.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |
-| tokio | 1.53.1 | MIT | https://github.com/tokio-rs/tokio |
+| tokio | 1.54.1 | MIT | https://github.com/tokio-rs/tokio |
 | tokio-macros | 2.7.2 | MIT | https://github.com/tokio-rs/tokio |
 | tokio-rustls | 0.26.4 | MIT OR Apache-2.0 | https://github.com/rustls/tokio-rustls |
 | tokio-stream | 0.1.19 | MIT | https://github.com/tokio-rs/tokio |
@@ -753,7 +761,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | untrusted | 0.9.0 | ISC | https://github.com/briansmith/untrusted |
 | ureq | 3.3.0 | MIT OR Apache-2.0 | https://github.com/algesten/ureq |
 | ureq-proto | 0.6.0 | MIT OR Apache-2.0 | https://github.com/algesten/ureq-proto |
-| url | 2.5.8 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
+| url | 2.5.9 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
 | urlpattern | 0.3.0 | MIT | https://github.com/denoland/rust-urlpattern |
 | utf8_iter | 1.0.4 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter |
 | utf8-zero | 0.8.1 | MIT OR Apache-2.0 | https://github.com/algesten/utf8-zero |
@@ -788,8 +796,8 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | webauthn-rs-proto | 0.6.1-dev | MPL-2.0 | https://github.com/kanidm/webauthn-rs |
 | webkit2gtk | 2.0.2 | MIT | https://github.com/tauri-apps/webkit2gtk-rs |
 | webkit2gtk-sys | 2.0.2 | MIT | https://github.com/tauri-apps/webkit2gtk-rs |
-| webpki-root-certs | 1.0.9 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
-| webpki-roots | 1.0.9 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
+| webpki-root-certs | 1.0.11 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
+| webpki-roots | 1.0.11 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
 | webview2-com | 0.38.2 | MIT | https://github.com/wravery/webview2-rs |
 | webview2-com-macros | 0.8.1 | MIT | https://github.com/wravery/webview2-rs |
 | webview2-com-sys | 0.38.2 | MIT | https://github.com/wravery/webview2-rs |
@@ -880,6 +888,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | zerotrie | 0.2.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | zerovec | 0.11.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | zerovec-derive | 0.11.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
+| zip | 4.6.1 | MIT | https://github.com/zip-rs/zip2.git |
 | zlib-rs | 0.6.8 | Zlib | https://github.com/trifectatechfoundation/zlib-rs |
 | zmij | 1.0.23 | MIT | https://github.com/dtolnay/zmij |
 | zvariant | 5.15.0 | MIT | https://github.com/z-galaxy/zbus/ |

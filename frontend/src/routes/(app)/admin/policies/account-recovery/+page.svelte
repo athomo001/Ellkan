@@ -1,9 +1,9 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import Table from '$lib/components/Table.svelte';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import Table from '#lib/components/Table.svelte';
 	import { get } from 'svelte/store';
 	import {
 		accountRecoveryPolicyApi,
@@ -12,12 +12,12 @@
 		type SolicitudRecoveryAdmin,
 		type EstadoCustodia,
 		type CustodioPendiente
-	} from '$lib/api/admin';
-	import { generarClaveOrg, sellarParaCustodio, resellarComoCustodio } from '$lib/crypto/accountRecovery';
-	import { huellaDeClave } from '$lib/crypto/emergencia';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	} from '#lib/api/admin';
+	import { generarClaveOrg, sellarParaCustodio, resellarComoCustodio } from '#lib/crypto/accountRecovery';
+	import { huellaDeClave } from '#lib/crypto/emergencia';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let guardando = $state(false);

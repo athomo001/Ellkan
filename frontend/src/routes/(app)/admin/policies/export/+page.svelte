@@ -6,11 +6,11 @@
 	// `allowed_formats`/`import_enabled` — la excepción la aplica el
 	// servidor en `POST /export-events`, acá sólo se edita la política).
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { adminExportPolicyApi, type ExportPolicy } from '$lib/api/exportPolicy';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { adminExportPolicyApi, type ExportPolicy } from '#lib/api/exportPolicy';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let guardando = $state(false);

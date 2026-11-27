@@ -1,12 +1,12 @@
 // Autor: Athan Espinoza
 
 // Recovery kit: self-service, sin admin de por medio — distinto de F-16
-// (`$lib/api/accountRecovery.ts`). `solicitarReset`/`verificarToken`/
+// (`#lib/api/accountRecovery.ts`). `solicitarReset`/`verificarToken`/
 // `enviarCodigoEmail`/`completar` no llevan sesión a propósito (ver
 // `recovery_kit::handlers` en el backend).
 
 import { api } from './client';
-import { camposDelBlob, type BlobClaveNueva, type PruebaDePosesion } from '$lib/crypto/desbloqueo';
+import { camposDelBlob, type BlobClaveNueva, type PruebaDePosesion } from '#lib/crypto/desbloqueo';
 
 export interface EstadoRecoveryKit {
 	configured: boolean;

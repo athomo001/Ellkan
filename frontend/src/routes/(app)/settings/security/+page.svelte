@@ -1,7 +1,7 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
 	// F-03: registrar una passkey nueva para este dispositivo/cuenta. Sin
-	// PRF (ver nota en `$lib/crypto/passkeys.ts`) — reemplaza el paso HTTP
+	// PRF (ver nota en `#lib/crypto/passkeys.ts`) — reemplaza el paso HTTP
 	// de login, la passphrase sigue haciendo falta para operaciones
 	// criptográficas. Las ya registradas se listan y revocan más abajo en
 	// esta misma página (`GET`/`DELETE /me/passkeys`).
@@ -14,28 +14,28 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import QRCode from 'qrcode';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { registrarPasskey, listarPasskeys, revocarPasskey, type Passkey } from '$lib/crypto/passkeys';
-	import { verificarPassphrase } from '$lib/crypto/identity';
-	import { generarSetup, confirmarYActivar, estaActivo, desactivar, disponible as totpLocalDisponible } from '$lib/crypto/totp-local';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { registrarPasskey, listarPasskeys, revocarPasskey, type Passkey } from '#lib/crypto/passkeys';
+	import { verificarPassphrase } from '#lib/crypto/identity';
+	import { generarSetup, confirmarYActivar, estaActivo, desactivar, disponible as totpLocalDisponible } from '#lib/crypto/totp-local';
 	import {
 		estaActivo as llaveroEstaActivo,
 		activar as activarLlavero,
 		desactivar as desactivarLlavero
-	} from '$lib/crypto/llavero-local';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
-	import { accountRecoveryApi, type ClaveOrg } from '$lib/api/accountRecovery';
-	import { enrolarConClaveVigente } from '$lib/crypto/accountRecovery';
-	import { huellaDeClave } from '$lib/crypto/emergencia';
-	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
-	import { sesionesApi, type SesionAbierta } from '$lib/api/sesiones';
-	import { ssoApi } from '$lib/api/sso';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	} from '#lib/crypto/llavero-local';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
+	import { accountRecoveryApi, type ClaveOrg } from '#lib/api/accountRecovery';
+	import { enrolarConClaveVigente } from '#lib/crypto/accountRecovery';
+	import { huellaDeClave } from '#lib/crypto/emergencia';
+	import { recoveryKitApi } from '#lib/api/recoveryKit';
+	import GenerarRecoveryKit from '#lib/components/GenerarRecoveryKit.svelte';
+	import { sesionesApi, type SesionAbierta } from '#lib/api/sesiones';
+	import { ssoApi } from '#lib/api/sso';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let label = $state('');
 	let passphrasePasskey = $state('');

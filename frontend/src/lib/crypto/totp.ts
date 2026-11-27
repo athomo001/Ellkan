@@ -4,7 +4,7 @@
 // (Fase 0, desbloqueo local); esto es sólo el wrapper de los tres endpoints
 // de MFA server-verified (F-14) que la pantalla de login necesita.
 
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client';
 import { deviceTokenHashB64 } from './device';
 
 export interface SetupTotp {

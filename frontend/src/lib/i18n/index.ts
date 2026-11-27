@@ -6,7 +6,7 @@
 // logout ni pérdida de sesión, tal como pide el criterio de aceptación.
 
 import { derived } from 'svelte/store';
-import { preferencias } from '$lib/state/session';
+import { preferencias } from '#lib/state/session';
 import es from './es';
 import en from './en';
 import type { Diccionario } from './es';

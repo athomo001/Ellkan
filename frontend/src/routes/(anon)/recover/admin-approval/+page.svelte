@@ -12,19 +12,19 @@
 	import { goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Card from '$lib/components/Card.svelte';
-	import { accountRecoveryApi } from '$lib/api/accountRecovery';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Card from '#lib/components/Card.svelte';
+	import { accountRecoveryApi } from '#lib/api/accountRecovery';
 	import {
 		generarClaveEfimera,
 		desellarMaterialDelEscrow,
 		reSellarConNuevaPassphrase,
 		pruebaDePosesion
-	} from '$lib/crypto/accountRecovery';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
-	import { t } from '$lib/i18n';
-	import { ApiError, api } from '$lib/api/client';
+	} from '#lib/crypto/accountRecovery';
+	import { evaluarFortaleza } from '#lib/crypto/passwordStrength.svelte';
+	import { t } from '#lib/i18n';
+	import { ApiError, api } from '#lib/api/client';
 
 	type Paso = 'email' | 'codigo' | 'esperando' | 'passphrase' | 'lista';
 	let paso = $state<Paso>('email');

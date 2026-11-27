@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update update_check set latest_version = $1, release_url = $2, checked_at = now() where id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2915e20bcb6bd005f83812a5c2cb9a50e03ef670b981a4d1942e6af4d64b5c4"
+}

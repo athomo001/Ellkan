@@ -58,7 +58,7 @@ async fn un_cambio_real_de_la_migracion_sigue_frenando_el_arranque() {
     bootstrap_sqlite(&dir).await.unwrap().close().await;
     falsear_checksum_8(&dir, |sql| format!("{sql}\n-- otra cosa")).await;
 
-    let err = bootstrap_sqlite(&dir).await.err().expect("un SQL distinto debe seguir rechazándose");
+    let err = bootstrap_sqlite(&dir).await.expect_err("un SQL distinto debe seguir rechazándose");
     assert!(format!("{err:#}").contains("previously applied but has been modified"), "{err:#}");
     std::fs::remove_dir_all(&dir).ok();
 }

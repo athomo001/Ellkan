@@ -193,6 +193,19 @@ pub async fn callback(
     // ya tenía antes de este cambio.
     let resultado = auth_service(&state).resolver_tras_f02(user, &[], false).await?;
 
+    // ELK-01 (#147, a2): la sesión que sale del IdP queda marcada; es la única
+    // con la que se pueden enrolar las claves de una cuenta nueva.
+    let id_emitido = match &resultado {
+        ResultadoVerify::SesionCompleta(s) => Some(s.id),
+        ResultadoVerify::PendienteMfa { session_id }
+        | ResultadoVerify::RequiereConfigurarMfa { session_id }
+        | ResultadoVerify::RequiereCambiarPassphrase { session_id } => Some(*session_id),
+        ResultadoVerify::PendienteDispositivo { .. } => None,
+    };
+    if let Some(id) = id_emitido {
+        state.sesiones.marcar_emitida_por_sso(id).await.map_err(crate::error::DomainError::from)?;
+    }
+
     let mut respuesta = Json(match resultado {
         ResultadoVerify::SesionCompleta(s) => LoginCompletoResponse { estado: "completo".into(), session_id: Some(s.id) },
         ResultadoVerify::PendienteMfa { session_id } => {

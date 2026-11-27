@@ -6,6 +6,41 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ## [Sin publicar]
 
+### Seguridad y privacidad
+
+- **Se podía entrar sin clave a cuentas SSO, SCIM o LDAP recién creadas (ELK-01, crítico):** las cuentas creadas por SSO, SCIM o LDAP que todavía no habían configurado sus claves tenían una clave de relleno con la que se podía armar una firma válida sin conocer ninguna clave privada, y entrar a la cuenta. El login, la verificación por firma de la app de escritorio y la consulta de estado de cuenta ahora usan la verificación estricta de Ed25519, que rechaza esas claves y firmas. Test de regresión con la firma forjada.
+- **Revocar el acceso a una contraseña compartida ahora borra la copia cifrada del revocado (ELK-02, alto):** antes se borraba sólo el permiso; la copia cifrada para esa persona quedaba guardada y cada edición posterior le volvía a cifrar el secreto nuevo. Ahora se borra en el mismo paso (también al revocar a un grupo, para los miembros que no conservan acceso por otro lado, y al salir uno mismo de un recurso compartido). Una migración limpia las copias que ya habían quedado.
+- **Cuentas sin claves configuradas: el login se rechaza antes de mirar la firma (ELK-01):** segunda barrera, además de la verificación estricta.
+- **El límite de intentos del segundo factor ahora es por cuenta (ELK-03):** antes era por intento de login, y abriendo varios a la vez se conseguían más intentos para adivinar el código TOTP.
+- **Bloqueo persistente por fallos del segundo factor (ELK-03):** 10 códigos equivocados seguidos bloquean la cuenta 15 minutos; cada fallo más duplica el bloqueo, hasta 24 horas. Mientras dura, ni el código correcto entra. Se guarda en la base: sobrevive a un reinicio del servidor y vale para varias réplicas. Cada bloqueo queda en la auditoría (`auth.mfa_locked`) y un acierto reinicia la cuenta. Además, abrir un login nuevo deja sin efecto el anterior que esperaba el código.
+- **Compartir con una cuenta nueva de SSO, SCIM o LDAP podía dejar el secreto legible para cualquiera (ELK-01):** mientras esas cuentas no configuraban sus claves aparecían en el buscador de destinatarios con una clave pública de relleno (todo ceros), y lo que se les compartía quedaba sellado de una forma que cualquiera con acceso a los datos cifrados podía abrir. Ahora esas cuentas no tienen claves hasta configurarlas: no aparecen en el buscador ni pueden recibir nada, y la base rechaza claves de relleno. Configurar las claves por primera vez exige además una sesión recién emitida por el inicio de sesión de la organización (SSO, menos de 30 minutos).
+- **Extensión: una página con una URL armada a propósito ya no puede trabar el autocompletado:** la barra final de la ruta se quitaba con una expresión regular que tarda cuadrático con muchas barras seguidas; ahora es un recorrido lineal.
+- **La palabra y el color de seguridad del login (señal antiphishing) se eligen con el generador criptográfico** del navegador, no con `Math.random`.
+- **Dependencias con avisos de seguridad actualizadas:** `url` 2.5.9, `cookie` 0.18.3, `rustix` 1.1.6 y `ctutils` (fuzz). `glib` 0.18 (sólo escritorio en Linux, vía Tauri) queda documentado en `.cargo/audit.toml` hasta que Tauri suba de versión de GTK.
+
+### Dependencias
+
+- La web importa su código interno con `#lib` (subpath imports de `package.json`) en vez del alias `$lib`, que SvelteKit 3 marcó como obsoleto. Sin cambios visibles.
+- La web y la extensión esperan 7 días (antes 3) antes de instalar una versión nueva de un paquete npm, para dar tiempo a que se detecten y retiren los paquetes maliciosos.
+
+### Instalación
+
+- **El servidor ya no queda caído en Windows cuando Docker Desktop se reinicia solo** (por ejemplo al despertar del Ahorro de recursos): `ellkan` quedaba en `Restarting` con `Permission denied` al leer sus secretos y sólo se destrababa recreando el contenedor. Ahora el servicio `ellkan-secretos` copia los secretos a un volumen de Docker en cada `docker compose up` (sin red, sistema de archivos de sólo lectura y una sola capacidad), y el servidor los lee de ahí. Si cambiás un archivo de `secrets/`, corré `docker compose up -d`.
+
+### App de escritorio
+
+- **Actualizaciones automáticas firmadas:** la app avisa cuando hay una versión nueva (un minuto después de abrirla) y se instala desde Ajustes → Escritorio → Actualizaciones con «Instalar y reiniciar». Cada paquete viene firmado y la app verifica la firma antes de instalar: un paquete alterado o sin firma se rechaza. Antes de migrar la base, la bóveda se respalda sola. En modo portable no se actualiza sola (se baja el ZIP nuevo).
+
+### Sincronización
+
+- **Cambiar el tipo de una contraseña (VNC, SSH…) ahora llega a todos lados:** la app no avisaba al servidor del cambio de tipo, y un cambio de tipo hecho en la web no bajaba a la app (como el contenido cifrado no cambia, se tomaba como un eco propio y se descartaba). Ahora el cambio sube al momento (o queda en la cola si no hay servidor), cada subida iguala el tipo, la bajada lo aplica, y la reconciliación al abrir la app corrige los que ya habían quedado distintos (gana el más reciente).
+- **Al borrar todas las contraseñas ya no queda una en pantalla hasta apretar F5:** el aviso en vivo del propio borrado recargaba la lista en medio del borrado masivo y esa lista vieja pisaba la pantalla. Ahora una lista pedida antes de un borrado se descarta y se vuelve a pedir.
+- **Lo creado con el servidor caído sube antes cuando vuelve:** con cambios esperando en la cola, la app reintenta la conexión cada 10 s como máximo (antes hasta 60 s), y de inmediato si vuelve la red.
+
+### Extensión y web
+
+- Promesas sin manejar en el popup y en el cliente de puertos, campo de búsqueda sin etiqueta, encabezados vacíos y `autofocus` reemplazado por foco al mostrar cada vista. Un carácter NUL escrito tal cual en la detección de campos impedía analizar ese archivo.
+
 ## [0.1.72] - 2026-11-24
 
 ### Instalación

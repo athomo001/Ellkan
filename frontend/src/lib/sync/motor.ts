@@ -16,8 +16,8 @@
 // borrar todos existen), por eso ahí sí hay conflicto real resuelto.
 
 import { get, writable } from 'svelte/store';
-import { api, ApiError } from '$lib/api/client';
-import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
+import { api, ApiError } from '#lib/api/client';
+import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '#lib/state/session';
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { uuidABytes } from '../crypto/uuid';
@@ -36,13 +36,22 @@ import { sincronizarAvatar } from './avatar';
 import { sincronizarKit } from './kit';
 import { obtenerPendientes, marcarPendiente, quitarPendiente } from './pendientes';
 import { subirPendientes } from './notificador';
-import { registrar } from '$lib/tauri/registro';
+import { registrar } from '#lib/tauri/registro';
 
 interface RecursoListado {
 	id: string;
 	metadata_ciphertext_b64: string;
 	metadata_key_type: string;
+	resource_type_slug: string;
 	updated_at: string;
+}
+
+/** #135: aplica en la bóveda local el tipo que trae el servidor. Cambiar el
+ * tipo no toca el ciphertext, así que sin esto el chequeo de «eco» lo
+ * descartaba y la app se quedaba con el tipo viejo. */
+async function aplicarTipoLocal(resourceId: string, tipo: string): Promise<void> {
+	await api.put(`/resources/${resourceId}/type`, { resource_type_slug: tipo });
+	registrar('info', `[sync] tipo de ${resourceId} → ${tipo} (del servidor)`);
 }
 
 /** Correos ya reconciliados en esta sesión de la app (memoria). */
@@ -70,7 +79,20 @@ async function reconciliarUnaVez(remoto: ReturnType<typeof clienteRemoto>, email
 			if (local.metadata_key_type !== 'user_key' || esAdaptado(email, local.id)) continue;
 			const allá = servidor.get(local.id);
 			// Igual en los dos lados (el caso normal, incluido lo recién bajado).
-			if (allá?.metadata_ciphertext_b64 === local.metadata_ciphertext_b64) continue;
+			if (allá?.metadata_ciphertext_b64 === local.metadata_ciphertext_b64) {
+				// #135: mismo contenido pero distinto tipo — gana el más nuevo.
+				if (allá.resource_type_slug !== local.resource_type_slug) {
+					if (Date.parse(local.updated_at) > Date.parse(allá.updated_at)) {
+						marcarPendiente(email, local.id, 'subir');
+						encolados++;
+					} else {
+						await aplicarTipoLocal(local.id, allá.resource_type_slug).catch((err) =>
+							registrar('warn', `[reconciliación] no se pudo corregir el tipo de ${local.id}:`, err)
+						);
+					}
+				}
+				continue;
+			}
 			// Distinto y el servidor es más nuevo: lo resuelve el pull, no acá.
 			if (allá && Date.parse(allá.updated_at) >= Date.parse(local.updated_at)) continue;
 			marcarPendiente(email, local.id, 'subir');
@@ -108,7 +130,7 @@ async function recogerCambiosDeExtension(email: string): Promise<void> {
 		registrar('warn', '[extensión] no se pudieron recoger sus cambios:', err);
 	}
 }
-import { olvidarSecretoEnMemoria } from '$lib/crypto/recursos';
+import { olvidarSecretoEnMemoria } from '#lib/crypto/recursos';
 
 interface SyncSecretCrudo {
 	sealed_dek_b64: string;
@@ -413,7 +435,9 @@ async function sincronizarAhoraInterno(): Promise<ResultadoSync> {
 			marcarAdaptado(email, item.id);
 		}
 
-		const local = await ignorarAusente(api.get<{ updated_at: string; metadata_ciphertext_b64: string }>(`/resources/${item.id}`));
+		const local = await ignorarAusente(
+			api.get<{ updated_at: string; metadata_ciphertext_b64: string; resource_type_slug: string }>(`/resources/${item.id}`)
+		);
 
 		// Eco de un cambio hecho en esta misma app: el push sube exactamente el
 		// mismo ciphertext (con su nonce aleatorio, imposible de repetir por
@@ -421,6 +445,14 @@ async function sincronizarAhoraInterno(): Promise<ResultadoSync> {
 		// copia local sea más nueva que el cursor anterior.
 		// Si estaba en la cola, el push sí llegó y sólo se perdió la respuesta.
 		if (local && local.metadata_ciphertext_b64 === cuerpo.metadata_ciphertext_b64) {
+			// #135: el tipo viaja aparte del ciphertext. Si difiere y acá hay un
+			// cambio sin subir, gana el local (queda en la cola); si no, el del
+			// servidor (alguien lo cambió en la web).
+			if (item.resource_type_slug && item.resource_type_slug !== local.resource_type_slug) {
+				if (enCola[item.id] === 'subir') continue;
+				await aplicarTipoLocal(item.id, item.resource_type_slug);
+				stats.recursosNuevosOActualizados++;
+			}
 			quitarPendiente(email, item.id);
 			continue;
 		}

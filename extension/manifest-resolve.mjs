@@ -20,7 +20,7 @@ const raiz = dirname(fileURLToPath(import.meta.url));
 export function resolverManifest(fuente, navegador) {
 	const resultado = {};
 	for (const [clave, valor] of Object.entries(fuente)) {
-		const match = clave.match(/^__(\w+)__(.+)$/);
+		const match = clave.match(/^__([a-z]+)__(.+)$/);
 		if (match) {
 			const [, navegadorDeLaClave, claveReal] = match;
 			if (navegadorDeLaClave !== navegador) continue;

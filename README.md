@@ -259,6 +259,8 @@ Descarga la imagen de la versión indicada en `ELLKAN_VERSION` (`.env`; por defe
 La app queda en `http://localhost:8080` (o el puerto de `ELLKAN_PORT`).
 
 > En Windows, si falla con `bind source path does not exist: .../secrets/postgres_password.txt` aunque el archivo existe, Docker Desktop no está viendo el disco: reinicialo (o `wsl --shutdown`) y volvé a levantar. Detalle en [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos).
+>
+> Los secretos del servidor se copian a un volumen de Docker en cada `docker compose up` (servicio `ellkan-secretos`, que corre y termina: es normal verlo como `Exited (0)`). Si cambiás un archivo de `secrets/`, corré `docker compose up -d` para que tome el valor nuevo. Si venís de una versión anterior y en Windows el contenedor `ellkan` queda en `Restarting` con `no se pudo leer el archivo de ELLKAN_SECRETS_KEY_FILE: Permission denied` (pasaba cuando Docker Desktop se reiniciaba solo), actualizá `docker-compose.yml` y corré `docker compose up -d`.
 
 #### 4. Crear el primer administrador (token de instalación)
 

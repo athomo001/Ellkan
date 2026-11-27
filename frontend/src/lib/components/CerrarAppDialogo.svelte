@@ -3,10 +3,10 @@
 	// Se muestra cuando el usuario cierra la ventana (la "X" o Alt+F4) y la
 	// preferencia es "preguntar". Existe porque cerrar a la bandeja SIN avisar
 	// confundía: el usuario creía haber cerrado la app y seguía corriendo.
-	import Modal from '$lib/components/Modal.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { t } from '$lib/i18n';
-	import { configurarAlCerrar, cerrarAplicacion, ocultarABandeja } from '$lib/tauri/ventana';
+	import Modal from '#lib/components/Modal.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { t } from '#lib/i18n';
+	import { configurarAlCerrar, cerrarAplicacion, ocultarABandeja } from '#lib/tauri/ventana';
 
 	let { onCerrar }: { onCerrar: () => void } = $props();
 

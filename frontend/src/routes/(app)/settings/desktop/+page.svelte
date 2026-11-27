@@ -3,23 +3,26 @@
 	// F-45 (spec/13 §3): paso que hasta el 2026-09-17 no existía — el
 	// usuario nunca podía ver ni elegir el puerto fijo del backend local,
 	// sólo heredaba el que `bindear_puerto` autoeligió en el primer
-	// arranque. `$lib/tauri/puerto.ts` es el wrapper de los comandos Tauri.
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { t } from '$lib/i18n';
-	import { puertoActual, puertoConfigurado, configurarPuertoFijo, infoApp, type InfoApp } from '$lib/tauri/puerto';
-	import { alCerrarConfigurado, configurarAlCerrar, type AlCerrar } from '$lib/tauri/ventana';
-	import { conexionesEnPestanas, guardarConexionesEnPestanas, hayWindowsTerminal } from '$lib/tauri/conectar';
+	// arranque. `#lib/tauri/puerto.ts` es el wrapper de los comandos Tauri.
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { t } from '#lib/i18n';
+	import { puertoActual, puertoConfigurado, configurarPuertoFijo, infoApp, type InfoApp } from '#lib/tauri/puerto';
+	import { alCerrarConfigurado, configurarAlCerrar, type AlCerrar } from '#lib/tauri/ventana';
+	import { conexionesEnPestanas, guardarConexionesEnPestanas, hayWindowsTerminal } from '#lib/tauri/conectar';
 	import {
 		estadoSistema,
 		configurarAutostart,
 		configurarEnlaces,
 		configurarBloqueoPantalla,
+		buscarActualizacion,
+		instalarActualizacion,
+		type ActualizacionDisponible,
 		type EstadoSistema,
 		type Respaldos
-	} from '$lib/tauri/sistema';
-	import { api } from '$lib/api/client';
+	} from '#lib/tauri/sistema';
+	import { api } from '#lib/api/client';
 
 	// Qué hace la "X" de la ventana: preguntar / bandeja / cerrar del todo.
 	let alCerrar = $state<AlCerrar>('preguntar');
@@ -49,6 +52,37 @@
 	// Inicio con la sesión, enlaces ellkan://, bloqueo con la pantalla y modo
 	// portable (Windows). La lógica vive en el shell; acá sólo se muestran y
 	// se cambian.
+	// F-53 (#60): actualizaciones firmadas. Buscar es explícito (y el shell
+	// también avisa solo al arrancar); instalar reinicia la app, así que
+	// siempre lo pide el usuario.
+	let actualizacion = $state<ActualizacionDisponible | null | undefined>();
+	let buscandoActualizacion = $state(false);
+	let instalandoActualizacion = $state(false);
+	let errorActualizacion = $state<string | undefined>();
+
+	async function buscarActualizacionAhora() {
+		buscandoActualizacion = true;
+		errorActualizacion = undefined;
+		try {
+			actualizacion = await buscarActualizacion();
+		} catch (err) {
+			errorActualizacion = String(err);
+		} finally {
+			buscandoActualizacion = false;
+		}
+	}
+
+	async function instalarActualizacionAhora() {
+		instalandoActualizacion = true;
+		errorActualizacion = undefined;
+		try {
+			await instalarActualizacion();
+		} catch (err) {
+			errorActualizacion = String(err);
+			instalandoActualizacion = false;
+		}
+	}
+
 	let sistema = $state<EstadoSistema | undefined>();
 	let errorSistema = $state<string | undefined>();
 
@@ -116,7 +150,7 @@
 		NAVEGADORES_UI,
 		type EstadoExtension,
 		type NavegadorExtension
-	} from '$lib/tauri/extension';
+	} from '#lib/tauri/extension';
 
 	// Punto 9: extensión de navegador instalada desde la app. La extensión
 	// viaja dentro del ejecutable; acá el usuario elige el navegador y la app
@@ -327,6 +361,35 @@
 		{/if}
 	{/if}
 	{#if errorSistema}<p class="error">{errorSistema}</p>{/if}
+</Card>
+
+<Card>
+	<h2>{$t.settingsDesktop.actualizacionesTitulo}</h2>
+	{#if sistema?.portable}
+		<p class="hint">{$t.settingsDesktop.actualizacionesPortable}</p>
+	{:else}
+		<p class="hint">{$t.settingsDesktop.actualizacionesHint}</p>
+		{#if actualizacion}
+			<p class="ok">
+				{$t.settingsDesktop.actualizacionesDisponible
+					.replace('{{nueva}}', actualizacion.version)
+					.replace('{{actual}}', actualizacion.version_actual)}
+			</p>
+			{#if actualizacion.notas}<p class="hint notas-actualizacion">{actualizacion.notas}</p>{/if}
+		{:else if actualizacion === null}
+			<p class="ok">{$t.settingsDesktop.actualizacionesAlDia}</p>
+		{/if}
+		<div class="acciones">
+			{#if actualizacion}
+				<Button variant="primary" onclick={instalarActualizacionAhora} loading={instalandoActualizacion}>
+					{$t.settingsDesktop.actualizacionesInstalar}
+				</Button>
+			{:else}
+				<Button onclick={buscarActualizacionAhora} loading={buscandoActualizacion}>{$t.settingsDesktop.actualizacionesBuscar}</Button>
+			{/if}
+		</div>
+	{/if}
+	{#if errorActualizacion}<p class="error" role="alert">{errorActualizacion}</p>{/if}
 </Card>
 
 <Card>
@@ -569,5 +632,10 @@
 		margin: 0 0 var(--space-6) 0;
 		font-size: var(--text-2xl);
 		color: var(--text-primary);
+	}
+	.notas-actualizacion {
+		white-space: pre-line;
+		max-height: 12rem;
+		overflow-y: auto;
 	}
 </style>

@@ -15,7 +15,7 @@ import { get, writable } from 'svelte/store';
 import { sincronizarAhora, type ResultadoSync } from './motor';
 import { escucharAvisosDelServidor } from './avisosServidor';
 import { obtenerVinculacion } from './vinculacion';
-import { sesion } from '$lib/state/session';
+import { sesion } from '#lib/state/session';
 
 const INTERVALO_RESPALDO_MS = 5 * 60_000;
 

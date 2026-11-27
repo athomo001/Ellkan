@@ -93,6 +93,8 @@ jobs:
     runs-on: windows-2025
     env:
       VERSION: ${{ needs.version.outputs.numero }}
+      # Sólo si existe el secreto; la clave en sí va únicamente al paso de firma.
+      FIRMAR_ACTUALIZADOR: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain (rust-toolchain.toml)
@@ -144,6 +146,16 @@ jobs:
           Copy-Item "$dir/Ellkan_$($env:VERSION)_x64_es-ES.msi" salida/ -ErrorAction Stop
           Copy-Item "$dir/ellkan-desktop-portable.zip" "salida/Ellkan_$($env:VERSION)_x64_portable.zip" -ErrorAction Stop
           Copy-Item "target/release/ellkan-cli.exe" "salida/ellkan-cli_$($env:VERSION)_windows_x64.exe" -ErrorAction Stop
+      # F-53 (#60): firma del actualizador sobre el MSI FINAL (el script lo
+      # retoca después de que lo arma Tauri, así que una firma previa no
+      # valdría). Sin el secreto (forks, pruebas) se publica sin `.sig` y la
+      # app instalada simplemente no ofrece esa versión como actualización.
+      - name: Firmar para el actualizador
+        if: env.FIRMAR_ACTUALIZADOR == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node frontend/node_modules/@tauri-apps/cli/tauri.js signer sign "salida/Ellkan_$($env:VERSION)_x64_es-ES.msi"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
@@ -157,6 +169,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       VERSION: ${{ needs.version.outputs.numero }}
+      # Sólo si existe el secreto; la clave en sí va únicamente al paso de firma.
+      FIRMAR_ACTUALIZADOR: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain (rust-toolchain.toml)
@@ -191,6 +205,14 @@ jobs:
           cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.AppImage" salida/
           cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.deb" salida/
           cp -v target/release/ellkan-cli "salida/ellkan-cli_${VERSION}_linux_x64"
+      # F-53 (#60): ídem Windows, sobre el AppImage final (el .deb no se
+      # actualiza solo: lo maneja el gestor de paquetes).
+      - name: Firmar para el actualizador
+        if: env.FIRMAR_ACTUALIZADOR == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm --prefix frontend exec tauri signer sign "$PWD/salida/Ellkan_${VERSION}_amd64.AppImage"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux
@@ -333,6 +355,14 @@ jobs:
         with:
           path: artefactos
           merge-multiple: true
+      # F-53 (#60): manifiesto del actualizador. La app lo busca en
+      # `releases/latest/download/latest.json`, o sea sólo en la Release
+      # estable marcada «Latest» (las -dev son pre-releases). Sólo se arma si
+      # hay paquetes firmados (`.sig`).
+      - name: Manifiesto del actualizador (latest.json)
+        run: |
+          seccion="$NUMERO"; [ "$CANAL" = "main" ] || seccion="Sin publicar"
+          node .github/scripts/latest-json.mjs artefactos "$NUMERO" "https://github.com/$REPO/releases/download/$TAG" "$seccion"
       - name: Sumas SHA-256
         run: cd artefactos && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       # Las notas (.github/release-notas.md) separan lo que trae la Release

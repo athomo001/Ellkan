@@ -7,14 +7,14 @@
 	// cuentas de las que yo soy contacto (aceptar, pedir acceso).
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { emergenciaApi, type AccesoEmergencia, type NivelEmergencia, type PersonaEmergencia } from '$lib/api/emergencia';
-	import { buscarContacto, sellarMaterialParaContacto, type ContactoConClave } from '$lib/crypto/emergencia';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { ApiError } from '$lib/api/client';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { emergenciaApi, type AccesoEmergencia, type NivelEmergencia, type PersonaEmergencia } from '#lib/api/emergencia';
+	import { buscarContacto, sellarMaterialParaContacto, type ContactoConClave } from '#lib/crypto/emergencia';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { ApiError } from '#lib/api/client';
+	import { t } from '#lib/i18n';
 
 	let accesos = $state<AccesoEmergencia[]>([]);
 	let cargando = $state(true);

@@ -2,8 +2,8 @@
 <script lang="ts">
 	import TextField from './TextField.svelte';
 	import Button from './Button.svelte';
-	import { t } from '$lib/i18n';
-	import { descendientesDe, type NodoCarpeta } from '$lib/crypto/carpetas';
+	import { t } from '#lib/i18n';
+	import { descendientesDe, type NodoCarpeta } from '#lib/crypto/carpetas';
 
 	let {
 		nodos,

@@ -72,10 +72,22 @@ export function moverTokenSeguridad(emailViejo: string, emailNuevo: string): voi
 	localStorage.removeItem(clave(emailViejo));
 }
 
+/** Índice uniforme en `[0, n)` con el CSPRNG del navegador. Descarta los
+ * valores del tramo final que no completa un múltiplo de `n`, para no sesgar
+ * la elección hacia los primeros elementos. */
+function indiceAleatorio(n: number): number {
+	const limite = Math.floor(0x1_0000_0000 / n) * n;
+	const caja = new Uint32Array(1);
+	do {
+		crypto.getRandomValues(caja);
+	} while (caja[0] >= limite);
+	return caja[0] % n;
+}
+
 export function generarTokenSeguridad(email: string): TokenSeguridad {
 	const token: TokenSeguridad = {
-		color: COLORES[Math.floor(Math.random() * COLORES.length)],
-		palabra: PALABRAS[Math.floor(Math.random() * PALABRAS.length)]
+		color: COLORES[indiceAleatorio(COLORES.length)],
+		palabra: PALABRAS[indiceAleatorio(PALABRAS.length)]
 	};
 	guardarTokenSeguridad(email, token);
 	return token;

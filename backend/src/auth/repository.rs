@@ -26,6 +26,10 @@ pub trait UserRepository {
     /// (`sso::service`, el IdP ya vouched por el email — `email_verified`
     /// del token, no puede pasar de nuevo por la verificación de F-24).
     async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError>;
+    /// ELK-01 (#147): alta SIN claves (SSO-JIT). La cuenta no tiene fila en
+    /// `user_keys` hasta `POST /me/keys/enroll`: nada puede sellarle secretos
+    /// ni verificar firmas contra una clave de relleno.
+    async fn crear_sin_claves(&self, email: &str, display_name: &str, ya_verificado: bool) -> Result<User, RepoError>;
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError>;
     async fn buscar_por_id(&self, user_id: Uuid) -> Result<Option<User>, RepoError>;
 
@@ -144,6 +148,11 @@ pub trait SessionRepository {
     async fn marcar_mfa_verificada(&self, session_id: Uuid) -> Result<(), RepoError>;
 
     async fn revocar(&self, session_id: Uuid) -> Result<(), RepoError>;
+
+    /// ELK-03 (#149): revoca las sesiones parciales vivas del usuario con ese
+    /// propósito. Al abrir un login nuevo que espera MFA, los anteriores dejan
+    /// de servir: no se acumulan sesiones parciales para repartir intentos.
+    async fn revocar_parciales(&self, user_id: Uuid, proposito: PropositoSesion) -> Result<(), RepoError>;
 }
 
 pub trait KnownDeviceRepository {
@@ -190,15 +199,21 @@ pub struct PgUserRepository {
     pub pool: sqlx::PgPool,
 }
 
-impl UserRepository for PgUserRepository {
-    async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError> {
-        let mut tx = self.pool.begin().await?;
+impl PgUserRepository {
+    /// Lock de altas + fila en `users` (compartido por `crear` y
+    /// `crear_sin_claves`): mismo bootstrap de admin y misma regla de F-24.
+    async fn insertar_fila_usuario(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        email: &str,
+        display_name: &str,
+        ya_verificado: bool,
+    ) -> Result<User, RepoError> {
         // QA-11: lock transaccional antes del `exists` — dos registros
         // simultáneos en una instancia vacía ya no pueden nacer admin los
         // dos. Serializa sólo las altas de usuario, que son poco frecuentes.
         sqlx::query("select pg_advisory_xact_lock($1)")
             .bind(LOCK_ALTA_DE_USUARIOS)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         // Bootstrap: si todavía no existe ningún usuario en toda la
         // instancia, el primer auto-registro (`POST /auth/register`) nace
@@ -228,16 +243,30 @@ impl UserRepository for PgUserRepository {
             )
             returning id, security_stamp, created_at, must_change_passphrase
             "#,
-            nuevo.email,
-            nuevo.display_name,
+            email,
+            display_name,
             ya_verificado,
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|e| match &e {
             sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
             _ => RepoError::Database(e),
         })?;
+
+        Ok(User {
+            id: fila.id,
+            security_stamp: fila.security_stamp,
+            created_at: fila.created_at,
+            must_change_passphrase: fila.must_change_passphrase,
+        })
+    }
+}
+
+impl UserRepository for PgUserRepository {
+    async fn crear(&self, nuevo: NuevoUsuario<'_>, ya_verificado: bool) -> Result<User, RepoError> {
+        let mut tx = self.pool.begin().await?;
+        let usuario = Self::insertar_fila_usuario(&mut tx, nuevo.email, nuevo.display_name, ya_verificado).await?;
 
         sqlx::query!(
             r#"
@@ -248,7 +277,7 @@ impl UserRepository for PgUserRepository {
             )
             values ($1, $2, $3, $4, $5, $6, $7, $8)
             "#,
-            fila.id,
+            usuario.id,
             nuevo.public_key_x25519,
             nuevo.public_key_ed25519,
             nuevo.encrypted_private_key_blob,
@@ -261,13 +290,14 @@ impl UserRepository for PgUserRepository {
         .await?;
 
         tx.commit().await?;
+        Ok(usuario)
+    }
 
-        Ok(User {
-            id: fila.id,
-            security_stamp: fila.security_stamp,
-            created_at: fila.created_at,
-            must_change_passphrase: fila.must_change_passphrase,
-        })
+    async fn crear_sin_claves(&self, email: &str, display_name: &str, ya_verificado: bool) -> Result<User, RepoError> {
+        let mut tx = self.pool.begin().await?;
+        let usuario = Self::insertar_fila_usuario(&mut tx, email, display_name, ya_verificado).await?;
+        tx.commit().await?;
+        Ok(usuario)
     }
 
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
@@ -599,6 +629,17 @@ pub struct PgSessionRepository {
     pub pool: sqlx::PgPool,
 }
 
+impl PgSessionRepository {
+    /// ELK-01 (#147, a2): marca la sesión como emitida por el callback SSO.
+    /// Sólo Postgres (la bóveda local no tiene SSO), por eso no está en el trait.
+    pub async fn marcar_emitida_por_sso(&self, session_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"update sessions set emitida_por_sso = true where id = $1"#, session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+}
+
 impl SessionRepository for PgSessionRepository {
     async fn crear(&self, user_id: Uuid, security_stamp: Uuid) -> Result<Session, RepoError> {
         let fila = sqlx::query!(
@@ -695,6 +736,18 @@ impl SessionRepository for PgSessionRepository {
         sqlx::query!(r#"update sessions set revoked_at = now() where id = $1 and revoked_at is null"#, session_id,)
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    async fn revocar_parciales(&self, user_id: Uuid, proposito: PropositoSesion) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"update sessions set revoked_at = now()
+               where user_id = $1 and proposito = $2 and mfa_verified_at is null and revoked_at is null"#,
+            user_id,
+            proposito.como_str(),
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

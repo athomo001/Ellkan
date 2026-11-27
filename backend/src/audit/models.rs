@@ -24,6 +24,8 @@ pub enum AuditEventType {
     /// F-14: código MFA incorrecto o desafío no encontrado — análogo a
     /// `AuthLoginFailed` pero para el segundo factor.
     AuthMfaFailed,
+    /// ELK-03 (#149): la cuenta quedó bloqueada por fallos consecutivos de MFA.
+    AuthMfaLocked,
     PermissionGranted,
     GroupMemberAdded,
     GroupMemberRemoved,
@@ -175,6 +177,7 @@ impl AuditEventType {
             AuditEventType::AuthDeviceAutoVerifiedNoSmtp => "auth.device_auto_verified_no_smtp",
             AuditEventType::AuthLogout => "auth.logout",
             AuditEventType::AuthMfaFailed => "auth.mfa_failed",
+            AuditEventType::AuthMfaLocked => "auth.mfa_locked",
             AuditEventType::PermissionGranted => "permission.granted",
             AuditEventType::GroupMemberAdded => "group.member_added",
             AuditEventType::GroupMemberRemoved => "group.member_removed",
@@ -279,6 +282,7 @@ impl AuditEventType {
             "auth.device_auto_verified_no_smtp" => AuditEventType::AuthDeviceAutoVerifiedNoSmtp,
             "auth.logout" => AuditEventType::AuthLogout,
             "auth.mfa_failed" => AuditEventType::AuthMfaFailed,
+            "auth.mfa_locked" => AuditEventType::AuthMfaLocked,
             "permission.granted" => AuditEventType::PermissionGranted,
             "group.member_added" => AuditEventType::GroupMemberAdded,
             "group.member_removed" => AuditEventType::GroupMemberRemoved,

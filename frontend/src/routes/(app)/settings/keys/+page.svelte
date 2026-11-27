@@ -3,11 +3,11 @@
 	// F-01: "Inspector de claves" — sección de "Mi cuenta". Sólo lectura,
 	// nunca expone ni permite exportar la clave privada.
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import { perfilApi, type Perfil } from '$lib/api/profile';
-	import { bytesABase64 } from '$lib/crypto/b64';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import { perfilApi, type Perfil } from '#lib/api/profile';
+	import { bytesABase64 } from '#lib/crypto/b64';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { t } from '#lib/i18n';
 
 	let perfil = $state<Perfil | undefined>();
 	onMount(() => {

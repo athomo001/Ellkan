@@ -19,8 +19,8 @@
 // así que se vuelve a poner si el kit copiado la traía.
 
 import { get } from 'svelte/store';
-import { api, ApiError } from '$lib/api/client';
-import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+import { api, ApiError } from '#lib/api/client';
+import { sesion, clavesDesbloqueadas } from '#lib/state/session';
 import { obtenerVinculacion, sesionRemotaVigente } from './vinculacion';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 

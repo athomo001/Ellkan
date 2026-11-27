@@ -630,6 +630,7 @@ const es = {
 		titulo: 'Inicio de sesión de tu organización',
 		cargando: 'Verificando con tu organización…',
 		errorGenerico: 'No se pudo completar el inicio de sesión con tu organización.',
+		errorSesionSsoVencida: 'Pasó demasiado tiempo desde que entraste con tu organización. Volvé a entrar para crear tus claves.',
 		errorSinCodigo: 'El proveedor no devolvió un código. Volvé a intentarlo desde el inicio de sesión.',
 		mfaHint: 'Tu cuenta tiene un segundo factor: escribí el código de tu app de autenticación.',
 		codigo: 'Código',
@@ -802,6 +803,13 @@ const es = {
 		filtracionesVeces: 'apareció {{n}} veces'
 	},
 	settingsDesktop: {
+		actualizacionesTitulo: 'Actualizaciones',
+		actualizacionesHint: 'Cada versión viene firmada: la app verifica la firma antes de instalar y rechaza cualquier paquete alterado. Antes de migrar la base, la bóveda se respalda sola.',
+		actualizacionesPortable: 'En modo portable no se actualiza sola: bajá el ZIP nuevo de la página de versiones y reemplazá la carpeta (tus datos quedan en la carpeta de datos).',
+		actualizacionesBuscar: 'Buscar actualizaciones',
+		actualizacionesInstalar: 'Instalar y reiniciar',
+		actualizacionesDisponible: 'Hay una versión nueva: {{nueva}} (tenés la {{actual}}).',
+		actualizacionesAlDia: 'Tenés la última versión.',
 		navTitulo: 'Escritorio',
 		titulo: 'Backend local',
 		hint: 'Ellkan corre un servidor propio en esta PC (127.0.0.1) para que la app funcione — esto no expone nada a la red, es sólo la comunicación interna entre la ventana y tus datos locales.',

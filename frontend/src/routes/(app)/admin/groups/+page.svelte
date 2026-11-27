@@ -1,16 +1,16 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Table from '$lib/components/Table.svelte';
-	import { groupsApi, sharingPolicyApi, usersAdminApi, type Grupo, type EnvelopeParaGrupo, type UsuarioAdmin } from '$lib/api/admin';
-	import { resellarSecretoParaGrupo } from '$lib/crypto/recursos';
-	import { desbloquearConPassphrase } from '$lib/crypto/identity';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { t } from '$lib/i18n';
-	import { api, ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Table from '#lib/components/Table.svelte';
+	import { groupsApi, sharingPolicyApi, usersAdminApi, type Grupo, type EnvelopeParaGrupo, type UsuarioAdmin } from '#lib/api/admin';
+	import { resellarSecretoParaGrupo } from '#lib/crypto/recursos';
+	import { desbloquearConPassphrase } from '#lib/crypto/identity';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { t } from '#lib/i18n';
+	import { api, ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();

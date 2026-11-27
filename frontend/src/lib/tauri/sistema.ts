@@ -49,3 +49,17 @@ export interface Respaldos {
 	carpeta: string;
 	respaldos: Respaldo[];
 }
+
+// --- Actualizaciones firmadas (F-53, #60) ---
+
+export interface ActualizacionDisponible {
+	version: string;
+	version_actual: string;
+	notas: string | null;
+	fecha: string | null;
+}
+
+/** `null` si está al día o en modo portable. La firma la verifica el shell. */
+export const buscarActualizacion = () => invocar<ActualizacionDisponible | null>('buscar_actualizacion');
+/** Descarga, verifica la firma, instala y reinicia la app. */
+export const instalarActualizacion = () => invocar<void>('instalar_actualizacion');

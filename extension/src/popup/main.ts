@@ -92,6 +92,10 @@ function mostrarVista(nombre: keyof typeof vistas): void {
 		}
 		el.classList.toggle('oculto', clave !== nombre);
 	}
+	// En vez de `autofocus` (que sólo actúa al cargar la página y lo marcan
+	// las reglas de accesibilidad), el campo marcado con
+	// `data-enfoque-inicial` recibe el foco cada vez que se muestra su vista.
+	vistas[nombre].querySelector<HTMLElement>('[data-enfoque-inicial]')?.focus();
 }
 
 const formLogin = document.getElementById('form-login') as HTMLFormElement;
@@ -1150,4 +1154,8 @@ botonCancelarDispositivo.addEventListener('click', async () => {
 		// está arrancando) — arrancar igual desde el login es la salida segura.
 		mostrarVista('login');
 	}
-})();
+})().catch(() => {
+	// Falló algo antes del `try` (p. ej. leer el archivo de conexión del
+	// escritorio): misma salida segura, en vez de un rechazo sin capturar.
+	mostrarVista('login');
+});

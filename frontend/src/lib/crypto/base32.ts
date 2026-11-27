@@ -14,7 +14,7 @@ export function base32Codificar(bytes: Uint8Array): string {
 	let salida = '';
 	for (let i = 0; i < bits.length; i += 5) {
 		const trozo = bits.slice(i, i + 5).padEnd(5, '0');
-		salida += ALFABETO[parseInt(trozo, 2)];
+		salida += ALFABETO[Number.parseInt(trozo, 2)];
 	}
 	return salida;
 }

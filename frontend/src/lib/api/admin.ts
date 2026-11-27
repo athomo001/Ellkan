@@ -8,7 +8,7 @@
 
 import { get } from 'svelte/store';
 import { api } from './client';
-import { sesion } from '$lib/state/session';
+import { sesion } from '#lib/state/session';
 import type { ClaveOrg } from './accountRecovery';
 
 // --- roles ---

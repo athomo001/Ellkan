@@ -4,7 +4,7 @@
 // funciona bien el traspaso de datos" en los modos de persistencia. Este
 // módulo es la parte PURA — compara lo que hay en el servidor remoto contra
 // lo que hay en la bóveda local y dice qué está de más, qué falta y qué no
-// coincide para el modo activo. Deliberadamente sin imports (ni `$lib`, ni
+// coincide para el modo activo. Deliberadamente sin imports (ni `#lib`, ni
 // Svelte, ni red): así se puede correr con Node directo
 // (`frontend/scripts/check-traspaso.mjs`) sin levantar nada. Las llamadas a
 // los dos backends viven en `diagnostico.ts`.

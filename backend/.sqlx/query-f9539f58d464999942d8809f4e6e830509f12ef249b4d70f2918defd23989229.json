@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update org_recovery_keys\n               set encrypted_private_key = null, private_key_nonce = null, purged_at = now()\n               where custody = 'server' and purged_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f9539f58d464999942d8809f4e6e830509f12ef249b4d70f2918defd23989229"
+}

@@ -8,8 +8,8 @@
 // el servidor, igual que `sincronizarAhora`.
 
 import { get } from 'svelte/store';
-import { api, ApiError } from '$lib/api/client';
-import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+import { api, ApiError } from '#lib/api/client';
+import { sesion, clavesDesbloqueadas } from '#lib/state/session';
 import { obtenerVinculacion, sesionRemotaVigente } from './vinculacion';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { obtenerPersistencia } from './persistencia';

@@ -29,7 +29,7 @@ const COMPATIBLES = new Set([
 function esCompatible(expresion) {
 	if (!expresion) return false;
 	// `MIT/Apache-2.0` es la forma vieja de Cargo para `MIT OR Apache-2.0`.
-	const limpia = expresion.replace(/[()]/g, ' ').replace(/\s*\/\s*/g, ' OR ').replace(/\s+/g, ' ').trim();
+	const limpia = expresion.replace(/[()]/g, ' ').replace(/\s+/g, ' ').replace(/ ?\/ ?/g, ' OR ').replace(/ +/g, ' ').trim();
 	// "A OR B": alcanza con una; "A AND B": hacen falta todas. Sin anidar
 	// paréntesis complejos (no aparecen en este árbol).
 	return limpia.split(/ OR /i).some((alternativa) =>

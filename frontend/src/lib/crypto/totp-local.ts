@@ -3,7 +3,7 @@
 // F-38: desbloqueo rápido local con TOTP — "algo que tenés" en vez de
 // "algo que sabés", opt-in por dispositivo, 100% client-side (nunca toca
 // el backend para validar). Independiente del TOTP de login server-verified
-// (F-14, `$lib/crypto/totp.ts`) — secreto propio, nunca el mismo código.
+// (F-14, `#lib/crypto/totp.ts`) — secreto propio, nunca el mismo código.
 //
 // Storage: `localStorage` directo, no vía `declararStore` — a propósito.
 // `declararStore` con `clearOn: ['logout']` borraría esto en cada logout,
@@ -35,8 +35,8 @@ import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { base32Codificar } from './base32';
 import { obtenerClaveDeDispositivo, borrarClaveDeDispositivo } from './device-key';
-import { guardarEnvolturaLlavero, recuperarEnvolturaLlavero, eliminarEnvolturaLlavero } from '$lib/tauri/llavero';
-import { enModoEscritorio } from '$lib/tauri/conectar';
+import { guardarEnvolturaLlavero, recuperarEnvolturaLlavero, eliminarEnvolturaLlavero } from '#lib/tauri/llavero';
+import { enModoEscritorio } from '#lib/tauri/conectar';
 
 interface EstadoLocalTotp {
 	/** 2 = clave en el llavero del SO; sin campo = clave vieja en IndexedDB. */

@@ -58,16 +58,21 @@ pub async fn limitar_solicitudes(State(state): State<AppState>, req: Request, ne
     Ok(next.run(req).await)
 }
 
-/// F-14: rate limit dedicado sobre `POST /auth/mfa/verify`, keyed por sesión
-/// parcial — más estricto que el general (`limitar_por_usuario`), porque un
-/// código TOTP de 6 dígitos tiene espacio de búsqueda acotado y este
-/// endpoint puntual lo necesita antes de agotarlo (hallazgo real de
-/// Passbolt citado en la spec de F-14).
-pub async fn limitar_mfa_por_sesion(State(state): State<AppState>, req: Request, next: Next) -> Result<Response, ApiError> {
+/// F-14: rate limit dedicado sobre `POST /auth/mfa/verify` — más estricto que
+/// el general (`limitar_por_usuario`), porque un código TOTP de 6 dígitos tiene
+/// espacio de búsqueda acotado (hallazgo real de Passbolt citado en la spec de
+/// F-14).
+///
+/// ELK-03 (pentest 2026-11-26): la clave es la **cuenta**, no la sesión
+/// parcial. Con la sesión como clave, quien ya tenía el primer factor abría
+/// varias sesiones parciales y cada una traía su propio cupo de intentos, así
+/// que el tope por minuto se multiplicaba sin límite.
+pub async fn limitar_mfa_por_cuenta(State(state): State<AppState>, req: Request, next: Next) -> Result<Response, ApiError> {
     let (mut parts, body) = req.into_parts();
     let sesion = SesionValida::from_request_parts(&mut parts, &state).await?;
 
-    if state.limitador_mfa.check_key(&sesion.session_id).is_err() {
+    if state.limitador_mfa.check_key(&sesion.user_id).is_err() {
+        tracing::warn!(limite = "mfa", user_id = %sesion.user_id, "límite de intentos de MFA agotado");
         return Err(DomainError::RateLimited.into());
     }
 

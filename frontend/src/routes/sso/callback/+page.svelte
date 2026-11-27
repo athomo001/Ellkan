@@ -14,16 +14,16 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { ssoApi, type ResultadoCallbackSso } from '$lib/api/sso';
-	import { perfilApi } from '$lib/api/profile';
-	import { verificarLoginTotp } from '$lib/crypto/totp';
-	import { enrolarClaves } from '$lib/crypto/identity';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { ApiError } from '$lib/api/client';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { ssoApi, type ResultadoCallbackSso } from '#lib/api/sso';
+	import { perfilApi } from '#lib/api/profile';
+	import { verificarLoginTotp } from '#lib/crypto/totp';
+	import { enrolarClaves } from '#lib/crypto/identity';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { ApiError } from '#lib/api/client';
+	import { t } from '#lib/i18n';
 
 	type Paso = 'cargando' | 'mfa' | 'enrolar' | 'vinculado' | 'configurar_mfa' | 'error';
 
@@ -120,7 +120,9 @@
 			// Cuenta nueva: sin kit de recuperación todavía.
 			goto('/onboarding/recovery-kit', { replaceState: true });
 		} catch (err) {
-			error = mensaje(err);
+			// ELK-01 (#147): el servidor sólo acepta enrolar con la sesión que
+			// emitió el callback SSO, y por 30 min: pasado eso, volver a entrar.
+			error = err instanceof ApiError && err.status === 403 ? get(t).sso.errorSesionSsoVencida : mensaje(err);
 		} finally {
 			ocupado = false;
 		}

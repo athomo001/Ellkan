@@ -23,7 +23,7 @@ const h = vi.hoisted(() => {
 		ApiError,
 		RemoteApiError,
 		local: [] as Llamada[],
-		recursosLocales: new Map<string, { updated_at: string; metadata_ciphertext_b64: string }>(),
+		recursosLocales: new Map<string, { updated_at: string; metadata_ciphertext_b64: string; resource_type_slug?: string }>(),
 		carpetasLocales: [] as { folder_id: string }[],
 		postFalla: null as null | Error,
 		deltas: [] as unknown[],
@@ -33,7 +33,7 @@ const h = vi.hoisted(() => {
 	};
 });
 
-vi.mock('$lib/api/client', () => ({
+vi.mock('#lib/api/client', () => ({
 	ApiError: h.ApiError,
 	api: {
 		get: vi.fn(async (ruta: string) => {
@@ -61,7 +61,7 @@ vi.mock('$lib/api/client', () => ({
 	}
 }));
 
-vi.mock('$lib/state/session', async () => {
+vi.mock('#lib/state/session', async () => {
 	const { writable } = await import('svelte/store');
 	return {
 		sesion: writable({ email: 'ana@x.com', userId: 'u-local' }),
@@ -115,8 +115,8 @@ vi.mock('./adaptacion', () => ({
 vi.mock('./avatar', () => ({ sincronizarAvatar: vi.fn(async () => false) }));
 vi.mock('./kit', () => ({ sincronizarKit: vi.fn(async () => {}) }));
 vi.mock('./notificador', () => ({ subirPendientes: vi.fn(async () => 0) }));
-vi.mock('$lib/tauri/registro', () => ({ registrar: vi.fn() }));
-vi.mock('$lib/crypto/recursos', () => ({ olvidarSecretoEnMemoria: vi.fn() }));
+vi.mock('#lib/tauri/registro', () => ({ registrar: vi.fn() }));
+vi.mock('#lib/crypto/recursos', () => ({ olvidarSecretoEnMemoria: vi.fn() }));
 vi.mock('../crypto/wasm', () => ({ cargarCrypto: vi.fn() }));
 
 import { sincronizarAhora } from './motor';
@@ -171,13 +171,30 @@ describe('sincronizarAhora', () => {
 	});
 
 	it('el eco de un cambio propio no se reaplica y sale de la cola', async () => {
-		h.recursosLocales.set('r1', { updated_at: '2026-01-01T00:00:00Z', metadata_ciphertext_b64: 'meta-r1' });
+		h.recursosLocales.set('r1', { updated_at: '2026-01-01T00:00:00Z', metadata_ciphertext_b64: 'meta-r1', resource_type_slug: 'login-password' });
 		h.pendientes = { r1: 'subir' };
 		h.deltas.push(delta([recurso('r1')]));
 		const r = await sincronizarAhora();
 		expect(escrituras()).toEqual([]);
 		expect(h.pendientes).toEqual({});
 		expect(r.recursosEnConflicto).toBe(0);
+	});
+
+	it('#135: un cambio de tipo en el servidor (mismo ciphertext) se aplica localmente', async () => {
+		h.recursosLocales.set('r1', { updated_at: '2026-01-01T00:00:00Z', metadata_ciphertext_b64: 'meta-r1', resource_type_slug: 'login-password' });
+		h.deltas.push(delta([recurso('r1', { resource_type_slug: 'vnc' })]));
+		const r = await sincronizarAhora();
+		expect(escrituras()).toEqual([{ metodo: 'PUT', ruta: '/resources/r1/type', cuerpo: { resource_type_slug: 'vnc' }, cabeceras: undefined }]);
+		expect(r.recursosNuevosOActualizados).toBe(1);
+	});
+
+	it('#135: con un cambio de tipo local sin subir, no se pisa con el del servidor', async () => {
+		h.recursosLocales.set('r1', { updated_at: '2026-01-01T00:00:00Z', metadata_ciphertext_b64: 'meta-r1', resource_type_slug: 'ssh' });
+		h.pendientes = { r1: 'subir' };
+		h.deltas.push(delta([recurso('r1')]));
+		await sincronizarAhora();
+		expect(escrituras()).toEqual([]);
+		expect(h.pendientes).toEqual({ r1: 'subir' });
 	});
 
 	it('una edición del servidor reemplaza la local con If-Match y el usuario local como destinatario', async () => {

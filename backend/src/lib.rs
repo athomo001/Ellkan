@@ -583,10 +583,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/login/verify", post(passkeys::handlers::login_verify));
 
     // F-14: rate limit dedicado, keyed por sesión parcial — más estricto que
-    // el general, ver `rate_limit::limitar_mfa_por_sesion`.
+    // el general, ver `rate_limit::limitar_mfa_por_cuenta`.
     let auth_mfa_router = Router::new()
         .route("/verify", post(mfa::handlers::verify))
-        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_sesion));
+        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_cuenta));
 
     let sso_router = Router::new()
         .route("/{provider}/redirect", get(sso::handlers::redirect))
@@ -822,7 +822,7 @@ pub fn construir_router(estado: AppState) -> Router {
     // Recovery kit: reset por email sin sesión — mismo patrón de rate limit
     // por IP que `external_shares_router` (`GovernorLayer` + `retain_recent()`
     // en background), no el `governor::RateLimiter::keyed` de
-    // `limitar_mfa_por_sesion` (ese exige una identidad ya extraída, acá no
+    // `limitar_mfa_por_cuenta` (ese exige una identidad ya extraída, acá no
     // hay sesión). Dos tiers: general para pedir/verificar el link, y uno
     // más estricto dedicado sobre `complete` (ahí se juega el segundo
     // factor, mismo criterio de F-14 para `POST /auth/mfa/verify`).

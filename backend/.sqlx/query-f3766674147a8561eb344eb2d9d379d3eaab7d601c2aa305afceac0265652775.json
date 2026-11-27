@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select locked_until from mfa_failed_attempts where user_id = $1 and locked_until > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locked_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mfa_failed_attempts",
+            "name": "locked_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f3766674147a8561eb344eb2d9d379d3eaab7d601c2aa305afceac0265652775"
+}

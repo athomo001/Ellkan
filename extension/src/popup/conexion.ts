@@ -2,7 +2,7 @@
 
 // Puerto puro (sin dependencias) de `frontend/src/lib/crypto/recursos.ts::
 // comandoDeConexion`/`parsearHostPuerto` — no se importa ese módulo directo
-// porque arrastra `$lib/api/client`/`$lib/cache/metadataCache` (alias de
+// porque arrastra `#lib/api/client`/`#lib/cache/metadataCache` (alias de
 // SvelteKit, no resuelven fuera de ese build, spec 06 §5 "SvelteKit no es
 // importable en un content script/popup"). Mismo comportamiento exacto,
 // duplicado a propósito por ser puro texto sin cripto de por medio.

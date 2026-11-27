@@ -9,10 +9,10 @@
 // de la clave del contacto antes de sellar, para compararla con la que el
 // contacto ve en su propia cuenta («Mis claves»).
 
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client';
 import { base64ABytes, bytesABase64 } from './b64';
 import { sellarMaterialParaOrg } from './accountRecovery';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 
 export interface ContactoConClave {
 	user_id: string;

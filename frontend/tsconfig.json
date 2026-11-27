@@ -10,7 +10,15 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"strict": true,
-		"moduleResolution": "bundler"
+		"moduleResolution": "bundler",
+		// #130: `#lib` lo resuelven Vite y Node por el campo `imports` de
+		// package.json, pero TypeScript no agrega la extensión a los destinos
+		// de `imports` (`#lib/state/session` → `session.ts`). Kit 3 tampoco lo
+		// traduce a `paths` en su tsconfig base, así que se declara acá.
+		"paths": {
+			"#lib": ["./src/lib"],
+			"#lib/*": ["./src/lib/*"]
+		}
 	},
 	// Kit 3 ya no genera .svelte-kit/tsconfig.json (el config base vive en
 	// node_modules/$app/tsconfig.json y no trae include/exclude): se listan
@@ -30,7 +38,7 @@
 	],
 	"exclude": ["node_modules/**", "src/service-worker.ts", "src/service-worker/**"]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
-	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
+	// `#lib` sale del campo `imports` de package.json (subpath imports, #130)
 	//
 	// To make changes to top-level options such as include and exclude, we recommend extending
 	// the generated config; see https://svelte.dev/docs/kit/configuration#typescript

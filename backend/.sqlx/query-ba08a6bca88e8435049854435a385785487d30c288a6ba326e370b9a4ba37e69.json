@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select locale from users where lower(email) = lower(trim($1))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "locale"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ba08a6bca88e8435049854435a385785487d30c288a6ba326e370b9a4ba37e69"
+}

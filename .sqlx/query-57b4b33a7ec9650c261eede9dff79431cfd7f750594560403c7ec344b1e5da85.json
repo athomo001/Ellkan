@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mfa_failed_attempts set locked_until = $2 where user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57b4b33a7ec9650c261eede9dff79431cfd7f750594560403c7ec344b1e5da85"
+}

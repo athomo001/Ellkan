@@ -19,4 +19,6 @@ openssl rand -base64 32 > secrets/ellkan_secrets_key.txt
 echo "postgres://${POSTGRES_USER:-ellkan}:$(cat secrets/postgres_password.txt)@ellkan-db:5432/${POSTGRES_DB:-ellkan}" > secrets/database_url.txt
 ```
 
+El servidor no lee esta carpeta directo: en cada `docker compose up` el servicio `ellkan-secretos` copia `database_url.txt` y `ellkan_secrets_key.txt` al volumen `ellkan_secretos` (así un reinicio automático de Docker Desktop no deja los archivos ilegibles). **Si cambiás uno, corré `docker compose up -d`** para que se copie el valor nuevo.
+
 **Guardá `ellkan_secrets_key.txt` en un lugar seguro aparte además de acá** — si se pierde, cualquier secreto TOTP ya guardado queda indescifrable (no es recuperable, no es una passphrase de usuario). Rotar este archivo invalida todos los TOTP de login existentes hasta que cada usuario los reconfigure.

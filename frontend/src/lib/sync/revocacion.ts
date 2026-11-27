@@ -13,11 +13,11 @@
 // `POST /auth/estado-cuenta` cuando la re-autenticación falla.
 
 import { get, writable } from 'svelte/store';
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client';
 import { cargarCrypto } from '../crypto/wasm';
 import { base64ABytes, bytesABase64 } from '../crypto/b64';
-import { clavesDesbloqueadas, sesion, type ClavesDesbloqueadas } from '$lib/state/session';
-import { enModoEscritorio } from '$lib/tauri/conectar';
+import { clavesDesbloqueadas, sesion, type ClavesDesbloqueadas } from '#lib/state/session';
+import { enModoEscritorio } from '#lib/tauri/conectar';
 import { obtenerVinculacion, type VinculacionServidor } from './vinculacion';
 import { clienteRemoto } from './remoteClient';
 

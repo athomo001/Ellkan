@@ -15,11 +15,10 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::audit::models::{AuditEventType, EventoAuditoria};
-use crate::auth::models::{NuevoUsuario, User};
+use crate::auth::models::User;
 use crate::auth::repository::UserRepository;
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
-use ellkan_crypto::aleatoriedad::bytes_aleatorios;
 
 use super::models::{ResultadoLinking, SsoConfig};
 use super::repository::{LoginStateRepository, SsoConfigRepository, SsoIdentityRepository};
@@ -306,23 +305,11 @@ where
         // F-24: `ya_verificado: true` — el IdP ya vouched por este email
         // (`email_verified` del token, chequeado arriba); no vuelve a pasar
         // por la verificación de auto-registro público.
+        // ELK-01 (#147): sin fila en `user_keys` (antes, claves `[0;32]` de
+        // relleno) hasta `POST /me/keys/enroll`.
         let nuevo = self
             .usuarios
-            .crear(
-                NuevoUsuario {
-                    email,
-                    display_name: email,
-                    public_key_x25519: &[0u8; 32],
-                    public_key_ed25519: &[0u8; 32],
-                    encrypted_private_key_blob: &[],
-                    private_key_nonce: &bytes_aleatorios::<24>(),
-                    kdf_salt: &bytes_aleatorios::<16>(),
-                    // Sin claves todavía: sin verificador hasta `POST /me/keys/enroll`.
-                    kdf_params: ellkan_crypto::derivacion::ParametrosKdf::LEGADO,
-                    auth_key: None,
-                },
-                true,
-            )
+            .crear_sin_claves(email, email, true)
             .await
             // H-41 (auditoría 2026-08-12): dos callbacks OIDC concurrentes
             // para el mismo email nuevo pueden ambos llegar hasta acá; el

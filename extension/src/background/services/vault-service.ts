@@ -4,7 +4,7 @@
 // descifra, crea y edita recursos del usuario para el popup. Mismo criterio
 // criptográfico que `frontend/src/lib/crypto/recursos.ts` (idéntico AAD,
 // misma resolución `user_key`/`shared_key`, mismo resellado por destinatario
-// al editar), sin la capa de caché de metadata (`$lib/cache/metadataCache`,
+// al editar), sin la capa de caché de metadata (`#lib/cache/metadataCache`,
 // Svelte-specific — spec 06 §5, "SvelteKit no es importable en un content
 // script/popup sin arrastrar su runtime"). Compartir/carpetas/tags siguen
 // siendo sólo de la app web — spec 06 §5bis, "Abrir en la app web" cubre eso.

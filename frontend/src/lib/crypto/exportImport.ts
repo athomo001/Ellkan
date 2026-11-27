@@ -12,12 +12,12 @@
 // de Passbolt con una librería de parseo CSV de terceros).
 
 import { verSecreto, crearRecurso, TIPOS_RECURSO, type Recurso, type TipoRecurso } from './recursos';
-import { exportEventsApi } from '$lib/api/exportPolicy';
+import { exportEventsApi } from '#lib/api/exportPolicy';
 import { generarCsv, parsearCsv, type FilaExport } from './exportCsv';
 import { generarKdbx, parsearKdbx } from './exportKdbx';
 import { generarCxf, parsearCxf } from './exportCxf';
-import { enModoEscritorio } from '$lib/tauri/conectar';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { enModoEscritorio } from '#lib/tauri/conectar';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 
 export type FormatoExport = 'kdbx' | 'csv' | 'cxf';
 
@@ -203,7 +203,7 @@ export function detectarFormatoPorNombre(nombreArchivo: string): FormatoExport |
  */
 export async function descargarArchivo(archivo: ArchivoGenerado): Promise<string | null> {
 	if (enModoEscritorio()) {
-		const { guardarEnDescargas } = await import('$lib/tauri/archivos');
+		const { guardarEnDescargas } = await import('#lib/tauri/archivos');
 		return guardarEnDescargas(archivo.filename, new Uint8Array(await archivo.blob.arrayBuffer()));
 	}
 	const url = URL.createObjectURL(archivo.blob);

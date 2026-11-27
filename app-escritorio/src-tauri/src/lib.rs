@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 #[cfg(windows)]
 mod canal_extension;
 mod portable;
+mod actualizador;
 mod sistema;
 #[cfg(windows)]
 #[doc(hidden)]
@@ -805,7 +806,7 @@ const AVISO_SEGUNDOS: u64 = 8;
 /// No es una notificación del sistema a propósito: un `.exe` portable sin
 /// instalar no tiene un identificador de aplicación registrado en Windows y
 /// sus notificaciones toast pueden no mostrarse, sin ningún error.
-fn mostrar_aviso(app: &tauri::AppHandle, datos: serde_json::Value) {
+pub(crate) fn mostrar_aviso(app: &tauri::AppHandle, datos: serde_json::Value) {
   if app.get_webview_window(AVISO).is_some() {
     return;
   }
@@ -1259,7 +1260,12 @@ pub fn run() {
     // de abrir el navegador del sistema por sí solo. El plugin intercepta
     // esos clics y los manda al navegador default del SO.
     .plugin(tauri_plugin_opener::init())
+    // F-53 (#60): actualizador firmado; lo usan `actualizador::buscar_actualizacion`
+    // e `instalar_actualizacion` (sin permisos del plugin para la WebView).
+    .plugin(tauri_plugin_updater::Builder::new().build())
     .invoke_handler(tauri::generate_handler![
+      actualizador::buscar_actualizacion,
+      actualizador::instalar_actualizacion,
       registrar_desde_web,
       tomar_cambios_extension,
       puerto_backend,
@@ -1368,6 +1374,9 @@ pub fn run() {
         if portable::activo() { "modo portable" } else { "instalada" },
         datadir().display()
       );
+
+      // F-53 (#60): un minuto después de arrancar, ver si hay versión nueva.
+      actualizador::revisar_al_arrancar(app.handle().clone());
 
       // F-51: Atajo global de teclado (Ctrl+Shift+Espacio) para invocar acceso rápido
       let atajo = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);

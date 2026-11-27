@@ -8,8 +8,8 @@
 	// ahora las 7 son secciones de un solo lugar, cada una su propia ruta.
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
-	import { t } from '$lib/i18n';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
+	import { t } from '#lib/i18n';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
 
 	let { children }: { children: Snippet } = $props();
 

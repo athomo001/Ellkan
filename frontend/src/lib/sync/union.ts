@@ -17,15 +17,15 @@
 // usuario, 2026-10-04). Los tags no se trasladan en esta primera versión.
 
 import { get } from 'svelte/store';
-import { api, ApiError } from '$lib/api/client';
-import { cargarCrypto } from '$lib/crypto/wasm';
-import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
-import { uuidABytes } from '$lib/crypto/uuid';
-import { iniciarSesion } from '$lib/crypto/identity';
-import { camposDelBlob, sellarNuevo } from '$lib/crypto/desbloqueo';
-import { listarArbolCarpetas } from '$lib/crypto/carpetas';
-import { desactivar as desactivarLlavero } from '$lib/crypto/llavero-local';
-import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
+import { api, ApiError } from '#lib/api/client';
+import { cargarCrypto } from '#lib/crypto/wasm';
+import { bytesABase64, base64ABytes } from '#lib/crypto/b64';
+import { uuidABytes } from '#lib/crypto/uuid';
+import { iniciarSesion } from '#lib/crypto/identity';
+import { camposDelBlob, sellarNuevo } from '#lib/crypto/desbloqueo';
+import { listarArbolCarpetas } from '#lib/crypto/carpetas';
+import { desactivar as desactivarLlavero } from '#lib/crypto/llavero-local';
+import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '#lib/state/session';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import {
 	abrirCuentaRemota,

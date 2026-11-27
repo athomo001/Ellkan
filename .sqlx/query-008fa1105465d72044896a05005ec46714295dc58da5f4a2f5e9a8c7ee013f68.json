@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into mfa_failed_attempts (user_id, failed_count, last_failed_at) values ($1, 1, now())\n               on conflict (user_id) do update\n                 set failed_count = mfa_failed_attempts.failed_count + 1, last_failed_at = now()\n               returning failed_count",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "failed_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "mfa_failed_attempts",
+            "name": "failed_count"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "008fa1105465d72044896a05005ec46714295dc58da5f4a2f5e9a8c7ee013f68"
+}

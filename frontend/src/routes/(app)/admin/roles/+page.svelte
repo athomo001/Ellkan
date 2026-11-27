@@ -14,12 +14,12 @@
 	// Administrador/User), acá las columnas son dinámicas — una por cada rol
 	// que exista, incluidos los custom que se creen desde esta misma página.
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { rolesApi, type Rol } from '$lib/api/admin';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { rolesApi, type Rol } from '#lib/api/admin';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();

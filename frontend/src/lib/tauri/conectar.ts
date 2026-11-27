@@ -87,7 +87,7 @@ export function enModoEscritorio(): boolean {
  * esto es sólo evitar ofrecer la opción). Sólo existe en el router de
  * escritorio — nunca se llama fuera de `enModoEscritorio()`. */
 export async function existeUsuarioLocal(): Promise<boolean> {
-	const { api } = await import('$lib/api/client');
+	const { api } = await import('#lib/api/client');
 	const { existe } = await api.get<{ existe: boolean }>('/auth/existe-usuario');
 	return existe;
 }

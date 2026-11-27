@@ -1,13 +1,13 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Table from '$lib/components/Table.svelte';
-	import { auditLogApi, type AuditLogEntry, type AuditLogFiltro } from '$lib/api/admin';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Table from '#lib/components/Table.svelte';
+	import { auditLogApi, type AuditLogEntry, type AuditLogFiltro } from '#lib/api/admin';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();

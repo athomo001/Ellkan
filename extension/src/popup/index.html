@@ -28,7 +28,7 @@
 						value="http://localhost:8080"
 						required
 						autocomplete="url"
-						autofocus
+						data-enfoque-inicial
 					/>
 					<p class="hint oculto" id="hint-servidor-escritorio">
 						Ellkan de escritorio detectado en este equipo: ya viene puesto como servidor.
@@ -84,7 +84,7 @@
 								type="password"
 								id="campo-desbloqueo-passphrase"
 								autocomplete="current-password"
-								autofocus
+								data-enfoque-inicial
 							/>
 							<button
 								type="button"
@@ -125,7 +125,7 @@
 				<div class="barra-superior-vault">
 					<button type="button" id="boton-cuenta" class="boton-hamburguesa" aria-label="Mi cuenta">☰</button>
 					<div class="buscador-vault">
-						<input type="search" id="campo-buscar" placeholder="Buscar…" autocomplete="off" />
+						<input type="search" id="campo-buscar" placeholder="Buscar…" aria-label="Buscar en la bóveda" autocomplete="off" />
 					</div>
 					<button
 						type="button"
@@ -160,7 +160,7 @@
 			<section id="vista-detalle-item" class="vista oculto">
 				<div class="detalle-header">
 					<button type="button" id="boton-volver-lista" class="boton-volver" aria-label="Volver a la lista">←</button>
-					<h2 id="detalle-titulo" class="detalle-titulo"></h2>
+					<h2 id="detalle-titulo" class="detalle-titulo">Detalle</h2>
 					<button type="button" id="boton-editar-item" class="boton-campo" aria-label="Editar">✏️</button>
 				</div>
 

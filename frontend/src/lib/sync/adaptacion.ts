@@ -14,10 +14,10 @@
 // guarda con otro esquema, y si es compartido tiene más destinatarios que
 // esta app no conoce); se editan en la web.
 
-import { cargarCrypto } from '$lib/crypto/wasm';
-import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
-import { uuidABytes } from '$lib/crypto/uuid';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { cargarCrypto } from '#lib/crypto/wasm';
+import { bytesABase64, base64ABytes } from '#lib/crypto/b64';
+import { uuidABytes } from '#lib/crypto/uuid';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 
 export interface RecursoDelServidor {
 	id: string;

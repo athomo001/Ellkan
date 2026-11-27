@@ -4,13 +4,13 @@
 	// nunca contenido cifrado. `reportId` es un enum cerrado del lado del
 	// servidor (un valor inválido da 404) — acá el selector sólo ofrece los
 	// cuatro valores reales, nunca un id libre.
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Table from '$lib/components/Table.svelte';
-	import { reportsApi, type ReportId, type ReportItem } from '$lib/api/admin';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Table from '#lib/components/Table.svelte';
+	import { reportsApi, type ReportId, type ReportItem } from '#lib/api/admin';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let reportId = $state<ReportId>('passwords_expired');
 	let dias = $state('90');

@@ -8,14 +8,14 @@
 	// el navegador nunca envía al servidor.
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import SecretField from '$lib/components/SecretField.svelte';
-	import { externalSharesApi } from '$lib/api/externalShares';
-	import { claveFragmentoDeUrl, descifrarContenidoDeShare } from '$lib/crypto/externalShare';
-	import { ApiError } from '$lib/api/client';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import SecretField from '#lib/components/SecretField.svelte';
+	import { externalSharesApi } from '#lib/api/externalShares';
+	import { claveFragmentoDeUrl, descifrarContenidoDeShare } from '#lib/crypto/externalShare';
+	import { ApiError } from '#lib/api/client';
+	import { t } from '#lib/i18n';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();

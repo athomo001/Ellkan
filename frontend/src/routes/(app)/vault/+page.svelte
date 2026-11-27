@@ -5,7 +5,7 @@
 	// enmascarado + copiar con limpieza de portapapeles), compartir (sólo
 	// recursos `shared_key`) y editar (`user_key` solamente — editar
 	// `shared_key` exige resolver la metadata key compartida, ver guard
-	// explícito en `$lib/crypto/recursos.ts::editarRecurso`).
+	// explícito en `#lib/crypto/recursos.ts::editarRecurso`).
 	//
 	// Layout tabla + panel lateral de detalle (en vez de expansión inline
 	// por fila) — un solo recurso seleccionado a la vez, `panelModo` decide
@@ -16,18 +16,18 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import BarraProgreso from '$lib/components/BarraProgreso.svelte';
-	import type { AvanceCarga } from '$lib/crypto/recursos';
-	import SecretField from '$lib/components/SecretField.svelte';
-	import LockOverlay from '$lib/components/LockOverlay.svelte';
-	import { carpetasSidebar } from '$lib/state/carpetasSidebar';
-	import Modal from '$lib/components/Modal.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import TagFilterBar from '$lib/components/TagFilterBar.svelte';
-	import Table from '$lib/components/Table.svelte';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import BarraProgreso from '#lib/components/BarraProgreso.svelte';
+	import type { AvanceCarga } from '#lib/crypto/recursos';
+	import SecretField from '#lib/components/SecretField.svelte';
+	import LockOverlay from '#lib/components/LockOverlay.svelte';
+	import { carpetasSidebar } from '#lib/state/carpetasSidebar';
+	import Modal from '#lib/components/Modal.svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import TagFilterBar from '#lib/components/TagFilterBar.svelte';
+	import Table from '#lib/components/Table.svelte';
 	import {
 		listarRecursos,
 		verSecreto,
@@ -51,10 +51,10 @@
 		type SecretoAbierto,
 		type TipoRecurso,
 		type UsuarioBusqueda
-	} from '$lib/crypto/recursos';
-	import { detectarProveedor, estadoVencimiento } from '$lib/apiTokens';
-	import { conectar, conexionesEnPestanas, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '$lib/tauri/conectar';
-	import type { EstrategiaMatch } from '$lib/crypto/matching';
+	} from '#lib/crypto/recursos';
+	import { detectarProveedor, estadoVencimiento } from '#lib/apiTokens';
+	import { conectar, conexionesEnPestanas, enModoEscritorio, TIPOS_CON_SECRETO_INYECTADO, type TipoConexion } from '#lib/tauri/conectar';
+	import type { EstrategiaMatch } from '#lib/crypto/matching';
 	import {
 		listarArbolCarpetas,
 		crearCarpeta,
@@ -65,17 +65,17 @@
 		resolverMiembrosConClave,
 		descendientesDe,
 		type NodoCarpeta
-	} from '$lib/crypto/carpetas';
-	import { tagsApi, type Tag } from '$lib/api/tags';
-	import { passwordPolicyApi, groupsApi } from '$lib/api/admin';
-	import { misGruposApi, type GrupoDeUsuario } from '$lib/api/profile';
-	import { generarPassword, type ReglasCharset } from '$lib/crypto/passwordGenerator';
-	import { externalSharesApi, externalSharePolicyApi, type ExternalSharePolicy } from '$lib/api/externalShares';
-	import { cifrarContenidoDeShare, crearArchivoCompartido, alcanceDelHost } from '$lib/crypto/externalShare';
-	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '$lib/api/sync';
-	import { cambiosDelServidor } from '$lib/sync/automatico';
-	import { copiarConLimpieza } from '$lib/clipboard';
-	import { exportPolicyApi, adminExportPolicyApi, type ExportPolicy } from '$lib/api/exportPolicy';
+	} from '#lib/crypto/carpetas';
+	import { tagsApi, type Tag } from '#lib/api/tags';
+	import { passwordPolicyApi, groupsApi } from '#lib/api/admin';
+	import { misGruposApi, type GrupoDeUsuario } from '#lib/api/profile';
+	import { generarPassword, type ReglasCharset } from '#lib/crypto/passwordGenerator';
+	import { externalSharesApi, externalSharePolicyApi, type ExternalSharePolicy } from '#lib/api/externalShares';
+	import { cifrarContenidoDeShare, crearArchivoCompartido, alcanceDelHost } from '#lib/crypto/externalShare';
+	import { conDeduplicacion, refrescarAlEnfocar, huboCambios } from '#lib/api/sync';
+	import { cambiosDelServidor } from '#lib/sync/automatico';
+	import { copiarConLimpieza } from '#lib/clipboard';
+	import { exportPolicyApi, adminExportPolicyApi, type ExportPolicy } from '#lib/api/exportPolicy';
 	import {
 		construirFilasExport,
 		exportar,
@@ -86,23 +86,23 @@
 		detectarFormatoPorNombre,
 		type FormatoExport,
 		type FilaExport
-	} from '$lib/crypto/exportImport';
+	} from '#lib/crypto/exportImport';
 	import {
 		parsearCsvCrudo,
 		autodetectarMapeoCsv,
 		mapearFilasCsv,
 		type CsvCrudo,
 		type CampoCsv
-	} from '$lib/crypto/exportCsv';
-	import { contarCredencialesNoSoportadas } from '$lib/crypto/exportCxf';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
-	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso, esAdmin } from '$lib/state/session';
-	import { limpiarStoresEn } from '$lib/state/declarative-store';
-	import { obtenerAvatarUrlDeUsuario } from '$lib/api/profile';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
-	import { porLotes } from '$lib/api/reintento';
-	import { registrar } from '$lib/tauri/registro';
+	} from '#lib/crypto/exportCsv';
+	import { contarCredencialesNoSoportadas } from '#lib/crypto/exportCxf';
+	import { evaluarFortaleza } from '#lib/crypto/passwordStrength.svelte';
+	import { sesion, clavesDesbloqueadas, preferencias, permisos, tienePermiso, esAdmin } from '#lib/state/session';
+	import { limpiarStoresEn } from '#lib/state/declarative-store';
+	import { obtenerAvatarUrlDeUsuario } from '#lib/api/profile';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
+	import { porLotes } from '#lib/api/reintento';
+	import { registrar } from '#lib/tauri/registro';
 
 	// Heroicons outline (24x24, stroke-width 1.5) — mismo set que ya usa la
 	// nav (`(app)/+layout.svelte::ICONOS`), verificados contra el repo real
@@ -403,11 +403,42 @@
 		});
 	});
 
-	async function cargar() {
+	// #136: el SSE del propio borrado dispara `cargar()` en medio de un borrado
+	// masivo. Esa lista (pedida cuando las últimas todavía existían) llegaba
+	// después del filtro local y lo pisaba, y el aviso del último borrado se
+	// unía a esa misma carga vieja (deduplicación) → una quedaba en pantalla
+	// hasta F5. Ahora: (1) un pedido que llega con una carga en curso deja
+	// marcada otra vuelta al terminar, y (2) una lista pedida antes de un
+	// borrado local se descarta en vez de aplicarse.
+	let cargaEnCurso: Promise<void> | undefined;
+	let otraCargaPedida = false;
+	let mutacionesLocales = 0;
+
+	function marcarMutacionLocal() {
+		mutacionesLocales++;
+		if (cargaEnCurso) otraCargaPedida = true;
+	}
+
+	function cargar(): Promise<void> {
+		if (cargaEnCurso) {
+			otraCargaPedida = true;
+			return cargaEnCurso;
+		}
+		cargaEnCurso = (async () => {
+			do {
+				otraCargaPedida = false;
+				await cargarUnaVez();
+			} while (otraCargaPedida);
+		})().finally(() => (cargaEnCurso = undefined));
+		return cargaEnCurso;
+	}
+
+	async function cargarUnaVez() {
 		if (!$clavesDesbloqueadas) return;
 		cargando = true;
 		error = undefined;
 		avanceCarga = undefined;
+		const mutacionesAlPedir = mutacionesLocales;
 		try {
 			// `conDeduplicacion` (07-frontend-web.md §2): si el refresco por
 			// foco de pestaña dispara mientras ya hay una carga en curso (ej.
@@ -419,7 +450,12 @@
 			// F-30: si nada cambió (mismo conteo, mismo `updated_at` más
 			// reciente), no reemplaza la lista — preserva estado de UI local
 			// (ej. el panel abierto) en un refresco por foco sin cambios reales.
-			if (huboCambios(recursos, nuevos)) recursos = nuevos;
+			if (mutacionesAlPedir !== mutacionesLocales) {
+				// Lista vieja: hubo un borrado local mientras viajaba.
+				otraCargaPedida = true;
+			} else if (huboCambios(recursos, nuevos)) {
+				recursos = nuevos;
+			}
 		} catch (err) {
 			// La pantalla muestra un mensaje corto; la causa real queda en la
 			// consola de DevTools (antes se perdía: bug del 429, 2026-10-17).
@@ -733,6 +769,7 @@
 		errorEliminar = undefined;
 		try {
 			await eliminarRecurso(seleccionado.id);
+			marcarMutacionLocal();
 			recursos = recursos.filter((r) => r.id !== seleccionado!.id);
 			confirmandoEliminar = undefined;
 			seleccionado = undefined;
@@ -756,6 +793,7 @@
 		errorSalir = undefined;
 		try {
 			await salirDeRecurso(seleccionado.id);
+			marcarMutacionLocal();
 			recursos = recursos.filter((r) => r.id !== seleccionado!.id);
 			confirmandoSalir = undefined;
 			seleccionado = undefined;
@@ -1387,6 +1425,7 @@
 		try {
 			const { aplicados, error } = await porLotes(borrables, (id) => eliminarRecurso(id));
 			registrarMasivo('eliminar', borrables.length, { aplicados, error });
+			marcarMutacionLocal();
 			recursos = recursos.filter((r) => !aplicados.has(r.id));
 			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
 			if (error) errorMasivo = mensajeMasivo(error);
@@ -1408,6 +1447,7 @@
 		try {
 			const { aplicados, error } = await porLotes(compartidos, (id) => salirDeRecurso(id));
 			registrarMasivo('salir de compartidos', compartidos.length, { aplicados, error });
+			marcarMutacionLocal();
 			recursos = recursos.filter((r) => !aplicados.has(r.id));
 			seleccionados = new Set([...seleccionados].filter((id) => !aplicados.has(id)));
 			if (error) errorMasivo = mensajeMasivo(error);

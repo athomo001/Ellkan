@@ -11,12 +11,39 @@
 // al reconectar, pide un sync por si algo cambió mientras tanto.
 
 import { get } from 'svelte/store';
-import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+import { sesion, clavesDesbloqueadas } from '#lib/state/session';
 import { obtenerVinculacion, sesionRemotaVigente, olvidarSesionRemota } from './vinculacion';
-import { registrar } from '$lib/tauri/registro';
+import { registrar } from '#lib/tauri/registro';
+import { obtenerPendientes } from './pendientes';
 
 const ESPERA_MINIMA_MS = 2_000;
 const ESPERA_MAXIMA_MS = 60_000;
+
+// #137: con cambios esperando en la cola, el tope de 60 s hacía que lo creado
+// con el servidor caído tardara hasta un minuto en subir después de que
+// volviera. Con cola no vacía se reintenta al menos cada 10 s.
+const ESPERA_MAXIMA_CON_COLA_MS = 10_000;
+
+function topeSegunCola(espera: number): number {
+	const email = get(sesion).email;
+	const hayCola = !!email && Object.keys(obtenerPendientes(email)).length > 0;
+	return hayCola ? Math.min(espera, ESPERA_MAXIMA_CON_COLA_MS) : espera;
+}
+
+/** Espera `ms`, pero corta antes si vuelve la red (`online`) o se aborta. */
+function esperarReintento(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise((resolver) => {
+		const listo = () => {
+			clearTimeout(temporizador);
+			window.removeEventListener('online', listo);
+			signal.removeEventListener('abort', listo);
+			resolver();
+		};
+		const temporizador = setTimeout(listo, ms);
+		window.addEventListener('online', listo);
+		signal.addEventListener('abort', listo);
+	});
+}
 
 /** Empieza a escuchar; devuelve la función que corta la conexión. */
 export function escucharAvisosDelServidor(alCambiar: () => void): () => void {
@@ -45,7 +72,7 @@ export function escucharAvisosDelServidor(alCambiar: () => void): () => void {
 				registrar('warn', `[servidor] sin conexión para avisos en vivo; reintento cada vez más espaciado (ahora ${espera / 1000} s)`, fallo ?? '');
 				estadoAnterior = 'sin_conexion';
 			}
-			await new Promise((r) => setTimeout(r, espera));
+			await esperarReintento(conecto ? espera : topeSegunCola(espera), control.signal);
 		}
 	}
 

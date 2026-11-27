@@ -8,11 +8,11 @@
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client';
 import { deviceTokenHashB64 } from './device';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
-import { limpiarStoresEn } from '$lib/state/declarative-store';
-import { olvidarClaveDeCache } from '$lib/cache/metadataCache';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
+import { limpiarStoresEn } from '#lib/state/declarative-store';
+import { olvidarClaveDeCache } from '#lib/cache/metadataCache';
 import {
 	abrirMaterial,
 	aplicarMejoraKdf,

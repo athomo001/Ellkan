@@ -3,7 +3,7 @@
 //! Service de auth — nunca importa nada de `axum`. Recibe argumentos ya
 //! extraídos, devuelve `Result<T, DomainError>`.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -381,6 +381,20 @@ where
             return Err(DomainError::InvalidCredentials);
         }
 
+        // ELK-01 (b): cuenta sin claves enroladas (SSO-JIT/SCIM/LDAP antes del
+        // enrolamiento, blob vacío) -> no hay login por firma posible. Se
+        // rechaza antes de mirar la firma, con el mismo criterio que
+        // `me/repository.rs` (`octet_length(...) = 0`). Va después de consumir
+        // el challenge para que el nonce no quede reutilizable.
+        let enrolada = self
+            .usuarios
+            .material_desbloqueo_por_email(email)
+            .await?
+            .is_some_and(|m| !m.encrypted_private_key_blob.is_empty());
+        if !enrolada {
+            return Err(DomainError::InvalidCredentials);
+        }
+
         let keys = self.usuarios.buscar_keys(user.id).await?.ok_or(DomainError::InvalidCredentials)?;
 
         let clave_publica_bytes: [u8; 32] = keys.public_key_ed25519.try_into().map_err(|_| DomainError::InvalidCredentials)?;
@@ -389,7 +403,11 @@ where
         let verificadora = VerifyingKey::from_bytes(&clave_publica_bytes).map_err(|_| DomainError::InvalidCredentials)?;
         let firma = Signature::from_bytes(&firma_bytes);
 
-        verificadora.verify(nonce, &firma).map_err(|_| DomainError::InvalidCredentials)?;
+        // ELK-01: `verify_strict`, no `verify`. La variante laxa no rechaza
+        // claves públicas de orden pequeño (como el relleno `[0;32]` que dejan
+        // SSO-JIT/SCIM/LDAP antes del enrolamiento) ni firmas con `R` de orden
+        // pequeño, y con eso se puede forjar una firma válida sin clave privada.
+        verificadora.verify_strict(nonce, &firma).map_err(|_| DomainError::InvalidCredentials)?;
 
         // F-02: dispositivo no reconocido -> sesión parcial + código por email,
         // salvo que ya haya MFA/SSO activo — ninguno de los dos existe todavía
@@ -493,6 +511,11 @@ where
                 Ok(ResultadoVerify::SesionCompleta(sesion))
             }
             DecisionMfa::DebeVerificar => {
+                // ELK-03 (#149): un solo login pendiente de MFA por cuenta. Los
+                // anteriores (sesión parcial y su desafío) dejan de servir, así
+                // no se acumulan sesiones parciales para repartir intentos.
+                self.sesiones.revocar_parciales(user.id, PropositoSesion::MfaPendiente).await?;
+                self.mfa_challenges.invalidar_pendientes(user.id).await?;
                 let parcial = self.sesiones.crear_parcial(user.id, user.security_stamp, PropositoSesion::MfaPendiente).await?;
                 let hash = crate::mfa::service::hash_de_sesion(parcial.id);
                 let expires_at = OffsetDateTime::now_utc() + time::Duration::seconds(crate::mfa::service::TTL_CHALLENGE_SEGUNDOS);

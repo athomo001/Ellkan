@@ -627,6 +627,7 @@ const en: Diccionario = {
 		titulo: 'Organization sign-in',
 		cargando: 'Checking with your organization…',
 		errorGenerico: 'Signing in with your organization could not be completed.',
+		errorSesionSsoVencida: 'Too much time has passed since you signed in with your organization. Sign in again to create your keys.',
 		errorSinCodigo: 'The provider did not return a code. Try again from the sign-in page.',
 		mfaHint: 'Your account has a second factor: enter the code from your authenticator app.',
 		codigo: 'Code',
@@ -796,6 +797,13 @@ const en: Diccionario = {
 		filtracionesVeces: 'seen {{n}} times'
 	},
 	settingsDesktop: {
+		actualizacionesTitulo: 'Updates',
+		actualizacionesHint: 'Every version is signed: the app checks the signature before installing and rejects any tampered package. Your vault is backed up automatically before the database is migrated.',
+		actualizacionesPortable: 'Portable mode does not update itself: download the new ZIP from the releases page and replace the folder (your data stays in the data folder).',
+		actualizacionesBuscar: 'Check for updates',
+		actualizacionesInstalar: 'Install and restart',
+		actualizacionesDisponible: 'A new version is available: {{nueva}} (you have {{actual}}).',
+		actualizacionesAlDia: 'You have the latest version.',
 		navTitulo: 'Desktop',
 		titulo: 'Local backend',
 		hint: "Ellkan runs its own server on this PC (127.0.0.1) so the app works — this doesn't expose anything to the network, it's just internal communication between the window and your local data.",

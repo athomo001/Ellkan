@@ -143,21 +143,9 @@ impl ScimUserRepository for PgScimUserRepository {
             _ => RepoError::Database(e),
         })?;
 
-        sqlx::query!(
-            r#"
-            insert into user_keys (
-                user_id, public_key_x25519, public_key_ed25519,
-                encrypted_private_key_blob, private_key_nonce, kdf_salt
-            )
-            values ($1, $2, $2, $3, $4, $4)
-            "#,
-            fila.id,
-            [0u8; 32].as_slice(),
-            Vec::<u8>::new(),
-            [0u8; 16].as_slice(),
-        )
-        .execute(&mut *tx)
-        .await?;
+        // ELK-01 (#147): la cuenta nace SIN fila en `user_keys` (antes,
+        // claves `[0;32]` de relleno): nada puede sellarle secretos ni
+        // verificar firmas contra ella hasta `POST /me/keys/enroll`.
 
         tx.commit().await?;
 

@@ -13,8 +13,8 @@
 // ya manda al login).
 
 import { get } from 'svelte/store';
-import { sesion } from '$lib/state/session';
-import { baseUrl } from '$lib/api/client';
+import { sesion } from '#lib/state/session';
+import { baseUrl } from '#lib/api/client';
 import { cambiosDelServidor } from './automatico';
 
 const ESPERA_MINIMA_MS = 2_000;

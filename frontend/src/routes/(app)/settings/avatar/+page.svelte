@@ -2,13 +2,13 @@
 <script lang="ts">
 	// F-01: "Avatar" — sección de "Mi cuenta" ((app)/settings/+layout.svelte).
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { perfilApi, avatarApi, obtenerAvatarUrl, type Perfil } from '$lib/api/profile';
-	import { bytesABase64 } from '$lib/crypto/b64';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
-	import { avatarCambiado, publicarAvatarLocal } from '$lib/sync/avatar';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { perfilApi, avatarApi, obtenerAvatarUrl, type Perfil } from '#lib/api/profile';
+	import { bytesABase64 } from '#lib/crypto/b64';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
+	import { avatarCambiado, publicarAvatarLocal } from '#lib/sync/avatar';
 
 	let perfil = $state<Perfil | undefined>();
 	let avatarUrl = $state<string | null>(null);

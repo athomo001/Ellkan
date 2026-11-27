@@ -24,13 +24,13 @@ import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { uuidABytes } from './uuid';
 import { type EstrategiaMatch, normalizarEstrategia, ESTRATEGIA_MATCH_DEFAULT } from './matching';
-import { leerDeCache, guardarEnCache } from '$lib/cache/metadataCache';
-import { api, ApiError } from '$lib/api/client';
-import { notificarRecursoCreado, notificarRecursoEditado, notificarRecursoEliminado } from '$lib/sync/notificador';
-import { sesion, secretosEnMemoria, type ClavesDesbloqueadas } from '$lib/state/session';
-import { obtenerVinculacion, sesionRemotaVigente } from '$lib/sync/vinculacion';
-import { clienteRemoto } from '$lib/sync/remoteClient';
-import { obtenerPersistencia } from '$lib/sync/persistencia';
+import { leerDeCache, guardarEnCache } from '#lib/cache/metadataCache';
+import { api, ApiError } from '#lib/api/client';
+import { notificarRecursoCreado, notificarRecursoEditado, notificarRecursoEliminado, notificarTipoCambiado } from '#lib/sync/notificador';
+import { sesion, secretosEnMemoria, type ClavesDesbloqueadas } from '#lib/state/session';
+import { obtenerVinculacion, sesionRemotaVigente } from '#lib/sync/vinculacion';
+import { clienteRemoto } from '#lib/sync/remoteClient';
+import { obtenerPersistencia } from '#lib/sync/persistencia';
 
 function aadDeRecurso(resourceId: string, createdBy: string): Uint8Array {
 	const aad = new Uint8Array(32);
@@ -768,6 +768,8 @@ export const TIPOS_INTERCAMBIABLES: TipoRecurso[] = ['login-password', 'ssh', 'f
  * campo de categorización en el servidor, ver `TIPOS_INTERCAMBIABLES`. */
 export async function cambiarTipoRecurso(resourceId: string, nuevoTipo: TipoRecurso): Promise<void> {
 	await api.put(`/resources/${resourceId}/type`, { resource_type_slug: nuevoTipo });
+	// #135: réplica al servidor si la bóveda está conectada (no-op si no).
+	notificarTipoCambiado(resourceId, nuevoTipo);
 }
 
 /**

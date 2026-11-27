@@ -39,4 +39,12 @@ ignore = [
     # control total sobre la app. Quitar en cuanto `sqlx` publique una versión
     # con `libsqlite3-sys` >= 0.39 (pendientes #132).
     "RUSTSEC-2026-0459",
+    # RUSTSEC-2024-0429 (`glib` 0.18.5: `VariantStrIter` desreferencia un
+    # puntero inválido al iterar un `GVariant` de strings). Llega sólo a la
+    # app de escritorio en Linux, vía `tauri` → `tray-icon`/`muda` → `gtk`
+    # 0.18. El fix está en `glib` 0.20, que exige gtk-rs 0.20: depende de que
+    # Tauri suba su versión de GTK, no hay forma de forzarlo desde acá. Ellkan
+    # no itera `GVariant` de strings (sólo bandeja y menús). Quitar cuando
+    # `tauri` pase a gtk-rs >= 0.20.
+    "RUSTSEC-2024-0429",
 ]

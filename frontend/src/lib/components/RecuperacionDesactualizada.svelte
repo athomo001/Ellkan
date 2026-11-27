@@ -8,12 +8,12 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import Button from './Button.svelte';
-	import { accountRecoveryApi, type ClaveOrg } from '$lib/api/accountRecovery';
-	import { enrolarConClaveVigente } from '$lib/crypto/accountRecovery';
-	import { huellaDeClave } from '$lib/crypto/emergencia';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { ApiError } from '$lib/api/client';
-	import { t } from '$lib/i18n';
+	import { accountRecoveryApi, type ClaveOrg } from '#lib/api/accountRecovery';
+	import { enrolarConClaveVigente } from '#lib/crypto/accountRecovery';
+	import { huellaDeClave } from '#lib/crypto/emergencia';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { ApiError } from '#lib/api/client';
+	import { t } from '#lib/i18n';
 
 	// Una sola consulta por carga de la app; "Ahora no" la oculta hasta el
 	// próximo login.

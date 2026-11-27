@@ -3,7 +3,7 @@
 // Punto 9: instalar la extensión de navegador DESDE la app de escritorio.
 // La extensión viaja embebida en el ejecutable; estos wrappers llaman a los
 // comandos Tauri de `src-tauri/src/lib.rs` (`extension_*`). Sólo tiene sentido
-// en modo escritorio — mismo criterio de gateo que `$lib/tauri/conectar.ts::
+// en modo escritorio — mismo criterio de gateo que `#lib/tauri/conectar.ts::
 // enModoEscritorio`.
 
 export interface NavegadorExtension {

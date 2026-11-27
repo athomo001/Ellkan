@@ -5,15 +5,15 @@
 	// invalida toda sesión activa, incluida ésta — se trata como éxito, no
 	// como error, y se redirige a login.
 	import { get } from 'svelte/store';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { cambiarPassphrase, cerrarSesion } from '$lib/crypto/identity';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
-	import { sesion } from '$lib/state/session';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { cambiarPassphrase, cerrarSesion } from '#lib/crypto/identity';
+	import { evaluarFortaleza } from '#lib/crypto/passwordStrength.svelte';
+	import { sesion } from '#lib/state/session';
 	import { goto } from '$app/navigation';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	const email = $derived($sesion.email ?? '');
 
