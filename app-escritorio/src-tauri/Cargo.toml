@@ -77,5 +77,10 @@ webview2-com = "0.38"
 
 # Linux: acceso al WebView de WebKitGTK para bajar su caché (`ajustar_webview_linux`).
 # Misma versión que ya trae Tauri (vía `wry`), no agrega nada al binario.
+# #87: en macOS el llavero real (Keychain); sin la feature, `keyring` usa un
+# almacén en memoria que no persiste (mismo síntoma que #69 en Linux).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"

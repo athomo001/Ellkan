@@ -12,7 +12,7 @@
 # versión nueva: `node .github/scripts/fijar-version.mjs X.Y.Z` + CHANGELOG).
 # Se compila y publica:
 #   - Windows: MSI + ZIP portable (`build-windows.ps1`, el mismo script local)
-#   - Linux:   AppImage + .deb (`build-linux.sh`)
+#   - Linux:   AppImage + .deb + .rpm (`build-linux.sh`)
 #   - CLI de administración (`ellkan-cli`) para Windows y Linux
 #   - Extensión: .zip para Chrome/Edge/Brave/Opera y .xpi para Firefox
 #   - Servidor: imagen Docker en GHCR (ghcr.io/athomo001/ellkan)
@@ -164,7 +164,7 @@ jobs:
 
   linux:
     if: needs.version.outputs.seguir == 'true'
-    name: Linux (AppImage + .deb)
+    name: Linux (AppImage + .deb + .rpm)
     needs: version
     runs-on: ubuntu-24.04
     env:
@@ -198,12 +198,14 @@ jobs:
       # contraseña), genera los bindings WASM y deja los paquetes en
       # app-escritorio/linuxOS/binarios/.
       - name: Compilar y empaquetar
-        run: bash app-escritorio/linuxOS/binarios/build-linux.sh --modo linux --bundles appimage,deb
+        run: bash app-escritorio/linuxOS/binarios/build-linux.sh --modo linux --bundles appimage,deb,rpm
       - name: Juntar artefactos
         run: |
           mkdir -p salida
           cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.AppImage" salida/
           cp -v "app-escritorio/linuxOS/binarios/Ellkan_${VERSION}_amd64.deb" salida/
+          # #70: Tauri lo nombra `Ellkan-X.Y.Z-1.x86_64.rpm`; se renombra al patrón de los otros.
+          cp -v app-escritorio/linuxOS/binarios/Ellkan-"${VERSION}"-*.x86_64.rpm "salida/Ellkan_${VERSION}_x86_64.rpm"
           cp -v target/release/ellkan-cli "salida/ellkan-cli_${VERSION}_linux_x64"
       # F-53 (#60): ídem Windows, sobre el AppImage final (el .deb no se
       # actualiza solo: lo maneja el gestor de paquetes).

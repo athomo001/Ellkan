@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::RepoError;
 
-use super::models::{AvisoEmergencia, EmergencyAccess, EmergencyAccessRequest, PersonaEmergencia};
+use super::models::{AvisoEmergencia, EmergencyAccess, EmergencyAccessRequest, PersonaEmergencia, RecursoDelTitular};
 
 pub trait EmergencyAccessPolicyRepository {
     async fn habilitado(&self) -> Result<bool, RepoError>;
@@ -36,6 +36,11 @@ pub trait EmergencyAccessRepository {
     async fn marcar_status(&self, id: Uuid, status: &str) -> Result<(), RepoError>;
 
     async fn eliminar(&self, id: Uuid) -> Result<(), RepoError>;
+
+    /// F-36 (#134): los recursos de los que `granter_id` es dueño (directo o
+    /// por un grupo) con su propio sobre. Lo compartido con el titular por
+    /// otros no entra: el titular no puede ceder lo que no es suyo.
+    async fn boveda_del_titular(&self, granter_id: Uuid) -> Result<Vec<RecursoDelTitular>, RepoError>;
 }
 
 pub trait EmergencyAccessRequestRepository {
@@ -114,6 +119,51 @@ fn fila_a_ea(
 }
 
 impl EmergencyAccessRepository for PgEmergencyAccessRepository {
+    async fn boveda_del_titular(&self, granter_id: Uuid) -> Result<Vec<RecursoDelTitular>, RepoError> {
+        let filas = sqlx::query!(
+            r#"
+            select r.id, r.created_by, rt.slug as resource_type_slug, r.metadata_ciphertext, r.metadata_nonce,
+                   r.metadata_key_type, r.metadata_key_id, mke.sealed_private_key as "metadata_sealed_key?",
+                   se.sealed_dek, se.secret_ciphertext, se.secret_nonce, r.updated_at
+            from resources r
+            join resource_types rt on rt.id = r.resource_type_id
+            join secret_envelopes se on se.resource_id = r.id and se.user_id = $1
+            left join metadata_key_envelopes mke
+              on r.metadata_key_type = 'shared_key' and mke.metadata_key_id = r.metadata_key_id and mke.user_id = $1
+            where r.deleted_at is null
+              and exists (
+                select 1 from permissions p
+                where p.subject_type = 'resource' and p.subject_id = r.id and p.level = 'owner'
+                  and (
+                    (p.grantee_type = 'user' and p.grantee_id = $1)
+                    or (p.grantee_type = 'group' and p.grantee_id in (select group_id from group_members where user_id = $1))
+                  )
+              )
+            order by r.created_at desc
+            "#,
+            granter_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(filas
+            .into_iter()
+            .map(|f| RecursoDelTitular {
+                id: f.id,
+                created_by: f.created_by,
+                resource_type_slug: f.resource_type_slug,
+                metadata_ciphertext: f.metadata_ciphertext,
+                metadata_nonce: f.metadata_nonce,
+                metadata_key_type: f.metadata_key_type,
+                metadata_key_id: f.metadata_key_id,
+                metadata_sealed_key: f.metadata_sealed_key,
+                sealed_dek: f.sealed_dek,
+                secret_ciphertext: f.secret_ciphertext,
+                secret_nonce: f.secret_nonce,
+                updated_at: f.updated_at,
+            })
+            .collect())
+    }
+
     async fn crear(
         &self,
         granter_id: Uuid,

@@ -140,6 +140,8 @@ pub struct AppState {
     pub scim_users: PgScimUserRepository,
     // F-19
     pub directory_sync_config: PgDirectorySyncConfigRepository,
+    /// spec/15 §3 (#52): verificación contra el directorio en login y sesión.
+    pub directorio: crate::directory_sync::verificacion::VerificadorDirectorio,
     // F-36 (emergency access, peer-to-peer)
     pub emergency_access_policy: PgEmergencyAccessPolicyRepository,
     pub emergency_access: PgEmergencyAccessRepository,
@@ -202,14 +204,21 @@ impl AppState {
         // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.
         let cuota_mfa = Quota::per_minute(NonZeroU32::new(5).expect("5 no es cero"));
         let cuota_auth_key = Quota::per_minute(NonZeroU32::new(10).expect("10 no es cero"));
+        let canal_eventos = eventos::nuevo_canal();
+        let secrets_key = Arc::new(secrets_key);
         Self {
+            directorio: crate::directory_sync::verificacion::VerificadorDirectorio::nuevo(
+                pool.clone(),
+                secrets_key.clone(),
+                canal_eventos.clone(),
+            ),
             usuarios: PgUserRepository { pool: pool.clone() },
             challenges: PgAuthChallengeRepository { pool: pool.clone() },
             sesiones: PgSessionRepository { pool: pool.clone() },
             dispositivos: PgKnownDeviceRepository { pool: pool.clone() },
             desafios_dispositivo: PgDeviceChallengeRepository { pool: pool.clone() },
             emails: PgOutboundEmailRepository { pool: pool.clone() },
-            eventos: eventos::nuevo_canal(),
+            eventos: canal_eventos,
             avisos_sync: crate::sync::avisos::nuevo_canal(),
             conexiones_sse: Default::default(),
             recursos: PgResourceRepository { pool: pool.clone() },
@@ -232,7 +241,7 @@ impl AppState {
             mfa_totp: PgTotpCredentialRepository { pool: pool.clone() },
             mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },
             smtp_config: PgSmtpConfigRepository { pool: pool.clone() },
-            secrets_key: Arc::new(secrets_key),
+            secrets_key,
             setup_token: None,
             limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
             limitador_auth_key: Arc::new(governor::RateLimiter::keyed(cuota_auth_key)),

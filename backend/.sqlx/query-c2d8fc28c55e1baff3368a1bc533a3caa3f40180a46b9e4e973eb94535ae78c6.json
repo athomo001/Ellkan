@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            select ldap_url, bind_dn, require_starttls, base_dn, user_filter,\n                   attribute_mapping, last_sync_at,\n                   user_object_class, sync_groups, group_membership_attribute\n            from directory_sync_config where organization_id = 1\n            ",
+  "query": "\n            select ldap_url, bind_dn, require_starttls, base_dn, user_filter,\n                   attribute_mapping, last_sync_at,\n                   user_object_class, sync_groups, group_membership_attribute,\n                   directory_unreachable_policy, grace_seconds, session_revalidate_seconds,\n                   auto_sync_enabled, poll_interval_seconds, max_deactivations_per_run, last_auto_sync_error\n            from directory_sync_config where organization_id = 1\n            ",
   "describe": {
     "columns": [
       {
@@ -112,6 +112,83 @@
             "name": "group_membership_attribute"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "directory_unreachable_policy",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "directory_unreachable_policy"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "grace_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "grace_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "session_revalidate_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "session_revalidate_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "auto_sync_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "auto_sync_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "poll_interval_seconds",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "poll_interval_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "max_deactivations_per_run",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "max_deactivations_per_run"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "last_auto_sync_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "last_auto_sync_error"
+          }
+        }
       }
     ],
     "parameters": {
@@ -127,8 +204,15 @@
       true,
       false,
       false,
-      false
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
     ]
   },
-  "hash": "3fa3a059f43f4b4b4aef1f669f8a7e9e6734444169dabd25f43c1e085e3949b0"
+  "hash": "c2d8fc28c55e1baff3368a1bc533a3caa3f40180a46b9e4e973eb94535ae78c6"
 }

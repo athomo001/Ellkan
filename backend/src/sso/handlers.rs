@@ -109,6 +109,7 @@ fn auth_service(
         self_registration: &state.self_registration_policy,
         email_verification: &state.usuarios,
         eventos: state.eventos.clone(),
+        directorio: Some(&state.directorio),
     }
 }
 

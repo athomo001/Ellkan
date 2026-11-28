@@ -13,7 +13,7 @@ use crate::audit::models::{AuditEventType, EventoAuditoria};
 use crate::error::DomainError;
 use crate::eventos::{DomainEvent, EmisorDeEventos};
 
-use super::models::EmergencyAccess;
+use super::models::{EmergencyAccess, RecursoDelTitular};
 use super::repository::{EmergencyAccessPolicyRepository, EmergencyAccessRepository, EmergencyAccessRequestRepository};
 
 pub struct EmergencyAccessService<'a, P, EA, R> {
@@ -90,6 +90,65 @@ where
             resultado.push((acceso, estado_solicitud, puede_leer_material));
         }
         Ok(resultado)
+    }
+
+    /// F-36 (#134): la bóveda del titular para su contacto, sólo lectura.
+    /// Exige lo mismo que entregar `sealed_material` en `listar`: ser el
+    /// contacto y tener la última solicitud aprobada o concedida por plazo.
+    /// Si el titular revoca, la fila desaparece y esto da 404. Cada lectura
+    /// se audita (actor = contacto, sujeto = la relación, con el titular).
+    /// No hay endpoints de escritura: con `view` ni con `takeover` el
+    /// contacto edita o comparte los recursos del titular por esta vía.
+    pub async fn boveda(&self, actor_id: Uuid, id: Uuid) -> Result<(EmergencyAccess, Vec<RecursoDelTitular>), DomainError> {
+        let acceso = self.acceso_concedido(actor_id, id).await?;
+        let recursos = self.accesos.boveda_del_titular(acceso.granter_id).await?;
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessVaultViewed, Some(actor_id))
+                .con_sujeto("emergency_access", id)
+                .con_metadata(serde_json::json!({ "granter_id": acceso.granter_id, "resources": recursos.len() })),
+        ));
+        Ok((acceso, recursos))
+    }
+
+    /// La relación `id` si `actor_id` es su contacto y la última solicitud
+    /// está aprobada o concedida por plazo. 404 a cualquier otra persona (ni
+    /// se entera de que existe); 403 al contacto sin acceso concedido.
+    async fn acceso_concedido(&self, actor_id: Uuid, id: Uuid) -> Result<EmergencyAccess, DomainError> {
+        let acceso = self.accesos.buscar(id).await?.ok_or(DomainError::NotFound)?;
+        if acceso.grantee_id != actor_id {
+            return Err(DomainError::NotFound);
+        }
+        let concedido = self
+            .requests
+            .ultima_de(id)
+            .await?
+            .is_some_and(|r| r.status == "approved" || r.status == "granted_by_timeout");
+        if !concedido {
+            return Err(DomainError::PermissionDenied);
+        }
+        Ok(acceso)
+    }
+
+    /// F-36 (#134), `takeover`: autoriza al contacto a fijarle una passphrase
+    /// nueva al titular. Sólo con nivel `takeover` y el acceso concedido. El
+    /// reemplazo en sí (prueba de posesión con la Ed25519 del titular, que el
+    /// contacto tiene por `sealed_material`, y la rotación de
+    /// `security_stamp`, que cierra las sesiones del titular) lo hace el
+    /// handler con las mismas piezas que `POST /me/change-passphrase`.
+    pub async fn autorizar_takeover(&self, actor_id: Uuid, id: Uuid) -> Result<EmergencyAccess, DomainError> {
+        let acceso = self.acceso_concedido(actor_id, id).await?;
+        if acceso.access_level != "takeover" {
+            return Err(DomainError::PermissionDenied);
+        }
+        Ok(acceso)
+    }
+
+    pub fn registrar_takeover(&self, actor_id: Uuid, acceso: &EmergencyAccess) {
+        let _ = self.eventos.send(DomainEvent::Auditoria(
+            EventoAuditoria::nuevo(AuditEventType::EmergencyAccessTakeover, Some(actor_id))
+                .con_sujeto("emergency_access", acceso.id)
+                .con_metadata(serde_json::json!({ "granter_id": acceso.granter_id })),
+        ));
     }
 
     pub async fn aceptar(&self, actor_id: Uuid, id: Uuid) -> Result<(), DomainError> {

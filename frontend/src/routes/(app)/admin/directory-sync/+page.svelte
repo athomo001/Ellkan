@@ -36,6 +36,15 @@
 	let userObjectClass = $state('inetOrgPerson');
 	let syncGroups = $state(false);
 	let groupMembershipAttribute = $state('memberOf');
+	// spec/15 §3.2 (#52)
+	let politicaSinRespuesta = $state<'grace' | 'deny'>('grace');
+	let graciaMinutos = $state(15);
+	let revalidarMinutos = $state(5);
+	// spec/15 §2 (#53)
+	let autoSync = $state(false);
+	let intervaloMinutos = $state(1);
+	let topeBajas = $state(0);
+	let errorAutomatico = $state<string | null>(null);
 
 	onMount(cargar);
 
@@ -55,6 +64,13 @@
 			userObjectClass = c.user_object_class || 'inetOrgPerson';
 			syncGroups = c.sync_groups;
 			groupMembershipAttribute = c.group_membership_attribute || 'memberOf';
+			politicaSinRespuesta = c.directory_unreachable_policy ?? 'grace';
+			graciaMinutos = Math.round((c.grace_seconds ?? 900) / 60);
+			revalidarMinutos = Math.max(1, Math.round((c.session_revalidate_seconds ?? 300) / 60));
+			autoSync = c.auto_sync_enabled ?? false;
+			intervaloMinutos = Math.max(1, Math.round((c.poll_interval_seconds ?? 60) / 60));
+			topeBajas = c.max_deactivations_per_run ?? 0;
+			errorAutomatico = c.last_auto_sync_error ?? null;
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : $t.admin.comun.error;
 		} finally {
@@ -83,7 +99,13 @@
 				attribute_mapping: attributeMapping,
 				user_object_class: userObjectClass.trim() || 'inetOrgPerson',
 				sync_groups: syncGroups,
-				group_membership_attribute: groupMembershipAttribute.trim() || 'memberOf'
+				group_membership_attribute: groupMembershipAttribute.trim() || 'memberOf',
+				directory_unreachable_policy: politicaSinRespuesta,
+				grace_seconds: Math.max(0, Math.round(graciaMinutos * 60)),
+				session_revalidate_seconds: Math.max(60, Math.round(revalidarMinutos * 60)),
+				auto_sync_enabled: autoSync,
+				poll_interval_seconds: Math.max(60, Math.round(intervaloMinutos * 60)),
+				max_deactivations_per_run: Math.max(0, Math.round(topeBajas))
 			});
 			bindPassword = '';
 			guardado = true;
@@ -151,6 +173,43 @@
 				/>
 			{/if}
 
+			<h3>{$t.admin.directorySync.autoTitulo}</h3>
+			<label class="check">
+				<input type="checkbox" bind:checked={autoSync} /> {$t.admin.directorySync.autoSync}
+			</label>
+			{#if autoSync}
+				<div class="field">
+					<label for="intervalo">{$t.admin.directorySync.intervaloMinutos}</label>
+					<input id="intervalo" type="number" min="1" max="1440" bind:value={intervaloMinutos} />
+				</div>
+			{/if}
+			<div class="field">
+				<label for="tope">{$t.admin.directorySync.topeBajas}</label>
+				<input id="tope" type="number" min="0" bind:value={topeBajas} />
+			</div>
+			<p class="hint">{$t.admin.directorySync.topeBajasHint}</p>
+			{#if errorAutomatico}<p class="error">{$t.admin.directorySync.ultimoErrorAuto}: {errorAutomatico}</p>{/if}
+
+			<h3>{$t.admin.directorySync.verificacionTitulo}</h3>
+			<p class="hint">{$t.admin.directorySync.verificacionHint}</p>
+			<div class="field">
+				<label for="politica-sin-respuesta">{$t.admin.directorySync.sinRespuesta}</label>
+				<select id="politica-sin-respuesta" bind:value={politicaSinRespuesta}>
+					<option value="grace">{$t.admin.directorySync.sinRespuestaGrace}</option>
+					<option value="deny">{$t.admin.directorySync.sinRespuestaDeny}</option>
+				</select>
+			</div>
+			{#if politicaSinRespuesta === 'grace'}
+				<div class="field">
+					<label for="gracia">{$t.admin.directorySync.graciaMinutos}</label>
+					<input id="gracia" type="number" min="0" max="1440" bind:value={graciaMinutos} />
+				</div>
+			{/if}
+			<div class="field">
+				<label for="revalidar">{$t.admin.directorySync.revalidarMinutos}</label>
+				<input id="revalidar" type="number" min="1" max="1440" bind:value={revalidarMinutos} />
+			</div>
+
 			<p class="hint">
 				{$t.admin.directorySync.ultimaSync}: {ultimaSync ?? $t.admin.directorySync.nunca}
 			</p>
@@ -172,6 +231,14 @@
 	</div>
 	{#if errorSync}<p class="error">{errorSync}</p>{/if}
 	{#if resultado}
+		{#if resultado.requires_confirmation}
+			<p class="error">
+				{resultado.aborted ? $t.admin.directorySync.abortadoBajasMasivas : $t.admin.directorySync.requiereConfirmacion}
+			</p>
+			<Button variant="danger" onclick={() => correr(directorySyncApi.aplicarConfirmando)} loading={corriendo}
+				>{$t.admin.directorySync.aplicarIgual}</Button
+			>
+		{/if}
 		<div class="resultado">
 			<p><strong>{$t.admin.directorySync.crear}:</strong> {resultado.would_create.join(', ') || '—'}</p>
 			<p><strong>{$t.admin.directorySync.reactivar}:</strong> {resultado.would_reactivate.join(', ') || '—'}</p>

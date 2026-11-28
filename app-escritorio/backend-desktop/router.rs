@@ -132,6 +132,8 @@ fn servicio(
         self_registration: &state.self_registration_policy,
         email_verification: &state.usuarios,
         eventos: state.eventos.clone(),
+        // Cuenta local única: no hay directorio contra el cual verificar.
+        directorio: None,
     }
 }
 

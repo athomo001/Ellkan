@@ -557,6 +557,10 @@ pub fn construir_router(estado: AppState) -> Router {
     // sin cursor propio (cada corrida sólo actúa sobre lo que siga vencido).
     retention::job::spawn(&estado.eventos, estado.retention_policy.clone(), estado.purge.clone(), Duration::from_secs(86_400));
 
+    // spec/15 §2 (#53): sincronización automática con el directorio LDAP
+    // (apagada hasta que un admin la prende en el panel).
+    directory_sync::job::spawn(estado.clone());
+
     // F-36: resuelve `granted_by_timeout` cuando una solicitud de emergency
     // access vence sin respuesta del titular — horaria, para no dejar a un
     // contacto esperando más de una hora de más sobre `wait_time_days`.
@@ -871,7 +875,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/accept", post(emergency_access::handlers::aceptar))
         .route("/{id}/request", post(emergency_access::handlers::solicitar))
         .route("/{id}/approve", post(emergency_access::handlers::aprobar))
-        .route("/{id}/reject", post(emergency_access::handlers::rechazar));
+        .route("/{id}/reject", post(emergency_access::handlers::rechazar))
+        .route("/{id}/vault", get(emergency_access::handlers::boveda))
+        .route("/{id}/takeover", post(emergency_access::handlers::takeover));
 
     let admin_emergency_access_policy_router =
         Router::new().route("/", get(emergency_access::handlers::politica).put(emergency_access::handlers::actualizar_politica));

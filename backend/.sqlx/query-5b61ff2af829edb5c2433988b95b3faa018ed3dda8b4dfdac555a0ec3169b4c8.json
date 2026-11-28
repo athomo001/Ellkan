@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set active = false, security_stamp = gen_random_uuid()\n                where id = $1 and managed_by = 'directory_sync' and deleted_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b61ff2af829edb5c2433988b95b3faa018ed3dda8b4dfdac555a0ec3169b4c8"
+}

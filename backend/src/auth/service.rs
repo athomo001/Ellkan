@@ -86,6 +86,10 @@ pub struct AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV> {
     pub self_registration: &'a SR,
     pub email_verification: &'a EV,
     pub eventos: EmisorDeEventos,
+    /// spec/15 §3.1 (#52): verificación contra el directorio LDAP después de
+    /// la firma y antes de emitir cualquier sesión. `None` en el escritorio
+    /// (cuenta local, sin directorio).
+    pub directorio: Option<&'a crate::directory_sync::verificacion::VerificadorDirectorio>,
 }
 
 impl<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV> AuthService<'a, U, C, S, KD, DC, MP, MT, MC, SC, SR, EV>
@@ -408,6 +412,13 @@ where
         // SSO-JIT/SCIM/LDAP antes del enrolamiento) ni firmas con `R` de orden
         // pequeño, y con eso se puede forjar una firma válida sin clave privada.
         verificadora.verify_strict(nonce, &firma).map_err(|_| DomainError::InvalidCredentials)?;
+
+        // spec/15 §3.1 (#52): una cuenta del directorio tiene que seguir
+        // vigente ahí. Después de la firma (nadie sin la clave dispara
+        // consultas al LDAP) y antes de cualquier sesión, aunque sea parcial.
+        if let Some(directorio) = self.directorio {
+            directorio.exigir_vigente(user.id).await?;
+        }
 
         // F-02: dispositivo no reconocido -> sesión parcial + código por email,
         // salvo que ya haya MFA/SSO activo — ninguno de los dos existe todavía

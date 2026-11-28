@@ -32,7 +32,7 @@ import { obtenerVinculacion, sesionRemotaVigente } from '#lib/sync/vinculacion';
 import { clienteRemoto } from '#lib/sync/remoteClient';
 import { obtenerPersistencia } from '#lib/sync/persistencia';
 
-function aadDeRecurso(resourceId: string, createdBy: string): Uint8Array {
+export function aadDeRecurso(resourceId: string, createdBy: string): Uint8Array {
 	const aad = new Uint8Array(32);
 	aad.set(uuidABytes(resourceId), 0);
 	aad.set(uuidABytes(createdBy), 16);
@@ -111,7 +111,7 @@ interface MetadataJson {
  * round-trip completo (preservar+mostrar+editar) queda para cuando la
  * extensión exista y realmente los escriba.
  */
-interface SecretoJson {
+export interface SecretoJson {
 	password?: string;
 	notes?: string;
 	totp_secret?: string;
@@ -160,7 +160,7 @@ export interface SecretoAbierto {
 	tokenSecret?: string;
 }
 
-function secretoDesdeJson(json: SecretoJson): SecretoAbierto {
+export function secretoDesdeJson(json: SecretoJson): SecretoAbierto {
 	return {
 		password: json.password ?? json.token ?? '',
 		notes: json.notes ?? '',

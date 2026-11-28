@@ -44,3 +44,32 @@ pub struct EmergencyAccessResponse {
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
+
+/// F-36 (#134): `GET /me/emergency-access/{id}/vault`.
+#[derive(Debug, Serialize)]
+pub struct BovedaTitularResponse {
+    pub granter_id: Uuid,
+    pub granter: PersonaResponse,
+    pub access_level: String,
+    /// Las privadas del titular selladas para el contacto (lo mismo que en
+    /// el listado), para no depender de otra llamada.
+    pub sealed_material_b64: String,
+    pub resources: Vec<RecursoTitularResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecursoTitularResponse {
+    pub id: Uuid,
+    pub created_by: Option<Uuid>,
+    pub resource_type_slug: String,
+    pub metadata_ciphertext_b64: String,
+    pub metadata_nonce_b64: String,
+    pub metadata_key_type: String,
+    pub metadata_key_id: Option<Uuid>,
+    pub metadata_sealed_key_b64: Option<String>,
+    pub sealed_dek_b64: String,
+    pub secret_ciphertext_b64: String,
+    pub secret_nonce_b64: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}

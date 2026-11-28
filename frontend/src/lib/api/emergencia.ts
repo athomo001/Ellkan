@@ -31,6 +31,30 @@ export interface AccesoEmergencia {
 	created_at: string;
 }
 
+/** F-36 (#134): un recurso de la bóveda del titular, opaco. */
+export interface RecursoTitularCrudo {
+	id: string;
+	created_by: string | null;
+	resource_type_slug: string;
+	metadata_ciphertext_b64: string;
+	metadata_nonce_b64: string;
+	metadata_key_type: 'user_key' | 'shared_key';
+	metadata_key_id: string | null;
+	metadata_sealed_key_b64: string | null;
+	sealed_dek_b64: string;
+	secret_ciphertext_b64: string;
+	secret_nonce_b64: string;
+	updated_at: string;
+}
+
+export interface BovedaTitularCruda {
+	granter_id: string;
+	granter: PersonaEmergencia;
+	access_level: NivelEmergencia;
+	sealed_material_b64: string;
+	resources: RecursoTitularCrudo[];
+}
+
 export const emergenciaApi = {
 	listar: () => api.get<AccesoEmergencia[]>('/me/emergency-access'),
 	designar: (cuerpo: { grantee_id: string; access_level: NivelEmergencia; sealed_material_b64: string; wait_time_days: number }) =>
@@ -39,5 +63,9 @@ export const emergenciaApi = {
 	revocar: (id: string) => api.delete<void>(`/me/emergency-access/${id}`),
 	solicitar: (id: string) => api.post<void>(`/me/emergency-access/${id}/request`),
 	aprobar: (id: string) => api.post<void>(`/me/emergency-access/${id}/approve`),
-	rechazar: (id: string) => api.post<void>(`/me/emergency-access/${id}/reject`)
+	rechazar: (id: string) => api.post<void>(`/me/emergency-access/${id}/reject`),
+	/** Sólo lectura; cada llamada queda en la auditoría. */
+	boveda: (id: string) => api.get<BovedaTitularCruda>(`/me/emergency-access/${id}/vault`),
+	/** Nivel `takeover`: mismo cuerpo que `POST /me/change-passphrase`. */
+	takeover: (id: string, cuerpo: Record<string, unknown>) => api.post<void>(`/me/emergency-access/${id}/takeover`, cuerpo)
 };

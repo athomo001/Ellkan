@@ -61,7 +61,7 @@ Cada versión se publica en **[Releases](https://github.com/athomo001/Ellkan/rel
 | --- | --- |
 | `Ellkan_X.Y.Z_x64_es-ES.msi` | App de escritorio para Windows (instalador, trae la extensión) |
 | `Ellkan_X.Y.Z_x64_portable.zip` | La misma app, sin instalar |
-| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` | App de escritorio para Linux (experimental: la [guía](app-escritorio/GUIA.md) todavía la da sólo para Windows) |
+| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` · `Ellkan_X.Y.Z_x86_64.rpm` | App de escritorio para Linux (experimental: la [guía](app-escritorio/GUIA.md) todavía la da sólo para Windows) |
 | `ellkan-chrome-X.Y.Z.zip` (también `-edge`, `-brave`, `-opera`) | Extensión para navegadores Chromium |
 | `ellkan-firefox-X.Y.Z.xpi` | Extensión para Firefox |
 

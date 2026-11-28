@@ -18,6 +18,10 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 - **La palabra y el color de seguridad del login (señal antiphishing) se eligen con el generador criptográfico** del navegador, no con `Math.random`.
 - **Dependencias con avisos de seguridad actualizadas:** `url` 2.5.9, `cookie` 0.18.3, `rustix` 1.1.6 y `ctutils` (fuzz). `glib` 0.18 (sólo escritorio en Linux, vía Tauri) queda documentado en `.cargo/audit.toml` hasta que Tauri suba de versión de GTK.
 
+- **Una baja en el directorio (LDAP/AD) corta el acceso aunque el sync no haya corrido:** las cuentas que trajo el sync de LDAP se buscan en el directorio en cada inicio de sesión y, con la sesión abierta, cada 5 minutos. Si la cuenta ya no está en el alcance, está deshabilitada (`ACCOUNTDISABLE`), vencida (`accountExpires`) o bloqueada (`pwdAccountLockedTime`), se desactiva en el momento, se cierran todas sus sesiones y queda en la auditoría. Si el directorio no responde, por defecto sólo entra quien se verificó en los últimos 15 minutos; se puede cambiar a «no dejar entrar» en Admin → Directorio. Las cuentas locales (por ejemplo, un admin de emergencia) no se consultan.
+- **Sincronización automática con el directorio y freno de bajas masivas:** se puede prender en Admin → Directorio para que el servidor sincronice solo (por defecto cada minuto). Si una corrida —automática o manual— va a desactivar más cuentas que el máximo (por defecto el 10 % de las gestionadas, mínimo 5) o el directorio devuelve 0 usuarios, no se aplica nada y queda en la auditoría; un admin lo revisa en el dry-run y lo confirma con «Aplicar igual». Protege de un base DN mal escrito o un directorio caído que devuelve vacío.
+- **Reporte «Secretos a rotar»** (Admin → Reportes): las contraseñas que cuentas ya desactivadas pudieron ver y siguen pudiendo descifrar, con sus dueños y las de infraestructura y tokens marcadas como prioridad alta. Con cifrado de extremo a extremo, quitar el acceso no borra lo que alguien ya leyó: hay que cambiarlas.
+
 ### Dependencias
 
 - La web importa su código interno con `#lib` (subpath imports de `package.json`) en vez del alias `$lib`, que SvelteKit 3 marcó como obsoleto. Sin cambios visibles.
@@ -25,10 +29,12 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Instalación
 
+- **Linux: paquete `.rpm`** (Fedora, openSUSE, RHEL) en cada Release, junto al `.deb` y el AppImage.
 - **El servidor ya no queda caído en Windows cuando Docker Desktop se reinicia solo** (por ejemplo al despertar del Ahorro de recursos): `ellkan` quedaba en `Restarting` con `Permission denied` al leer sus secretos y sólo se destrababa recreando el contenedor. Ahora el servicio `ellkan-secretos` copia los secretos a un volumen de Docker en cada `docker compose up` (sin red, sistema de archivos de sólo lectura y una sola capacidad), y el servidor los lee de ahí. Si cambiás un archivo de `secrets/`, corré `docker compose up -d`.
 
 ### App de escritorio
 
+- **macOS y Safari (vista previa, sin firmar):** un workflow nuevo compila la app para Mac con Apple Silicon (`.dmg`) y la extensión de Safari en GitHub Actions. Todavía no van en las Releases. En Mac, las contraseñas que la app guarda en el llavero usan el Keychain del sistema.
 - **Actualizaciones automáticas firmadas:** la app avisa cuando hay una versión nueva (un minuto después de abrirla) y se instala desde Ajustes → Escritorio → Actualizaciones con «Instalar y reiniciar». Cada paquete viene firmado y la app verifica la firma antes de instalar: un paquete alterado o sin firma se rechaza. Antes de migrar la base, la bóveda se respalda sola. En modo portable no se actualiza sola (se baja el ZIP nuevo).
 
 ### Sincronización
@@ -39,6 +45,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Extensión y web
 
+- **Acceso de emergencia: el contacto ya puede abrir la bóveda del titular.** Con el acceso concedido, «Ver bóveda» muestra las contraseñas propias del titular en sólo lectura (ver y copiar, ni editar ni compartir), descifradas en el navegador con las claves que el titular le confió. Con nivel «acceso total», el contacto puede además fijarle una frase de contraseña nueva a la cuenta del titular (se cierran todas sus sesiones). Cada apertura y cada cambio quedan en la auditoría.
 - Promesas sin manejar en el popup y en el cliente de puertos, campo de búsqueda sin etiqueta, encabezados vacíos y `autofocus` reemplazado por foco al mostrar cada vista. Un carácter NUL escrito tal cual en la detección de campos impedía analizar ese archivo.
 
 ## [0.1.72] - 2026-11-24

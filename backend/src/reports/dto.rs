@@ -64,4 +64,18 @@ pub enum ReportResponse {
         items: Vec<RecursoSinRotarItem>,
         next_cursor: Option<Uuid>,
     },
+    SecretsToRotate {
+        items: Vec<SecretoARotarItem>,
+        next_cursor: Option<Uuid>,
+    },
+}
+
+/// spec/15 §7 (#56).
+#[derive(Debug, Serialize)]
+pub struct SecretoARotarItem {
+    pub resource_id: Uuid,
+    pub resource_type_slug: String,
+    pub high_priority: bool,
+    pub owners: Vec<String>,
+    pub deactivated_users: Vec<String>,
 }

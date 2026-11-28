@@ -88,6 +88,10 @@ pub enum AuditEventType {
     EmergencyAccessRevoked,
     EmergencyAccessGrantedByTimeout,
     EmergencyAccessPolicyUpdated,
+    /// F-36 (#134): el contacto leyó la bóveda del titular.
+    EmergencyAccessVaultViewed,
+    /// F-36 (#134): el contacto le fijó una passphrase nueva al titular.
+    EmergencyAccessTakeover,
     UserDeactivated,
     UserActivated,
     UserPurged,
@@ -107,6 +111,8 @@ pub enum AuditEventType {
     DirectorySyncConfigUpdated,
     DirectorySyncDryRun,
     DirectorySyncApplied,
+    /// spec/15 §2.5 (#53): corrida abortada por bajas masivas.
+    DirectorySyncAbortedMassDeactivation,
     /// F-26: creación de un external share (`POST /external-shares`).
     ExternalShareCreated,
     /// F-26: acceso exitoso al contenido (`GET /external-shares/{id}` sin
@@ -222,6 +228,8 @@ impl AuditEventType {
             AuditEventType::EmergencyAccessRevoked => "emergency_access.revoked",
             AuditEventType::EmergencyAccessGrantedByTimeout => "emergency_access.granted_by_timeout",
             AuditEventType::EmergencyAccessPolicyUpdated => "emergency_access_policy.updated",
+            AuditEventType::EmergencyAccessVaultViewed => "emergency_access.vault_viewed",
+            AuditEventType::EmergencyAccessTakeover => "emergency_access.takeover",
             AuditEventType::UserDeactivated => "user.deactivated",
             AuditEventType::UserActivated => "user.activated",
             AuditEventType::UserPurged => "user.purged",
@@ -238,6 +246,7 @@ impl AuditEventType {
             AuditEventType::DirectorySyncConfigUpdated => "directory_sync.config_updated",
             AuditEventType::DirectorySyncDryRun => "directory_sync.dry_run",
             AuditEventType::DirectorySyncApplied => "directory_sync.applied",
+            AuditEventType::DirectorySyncAbortedMassDeactivation => "directory_sync.aborted_mass_deactivation",
             AuditEventType::ExternalShareCreated => "external_share.created",
             AuditEventType::ExternalShareAccessed => "external_share.accessed",
             AuditEventType::ExternalShareRevoked => "external_share.revoked",
@@ -327,6 +336,8 @@ impl AuditEventType {
             "emergency_access.revoked" => AuditEventType::EmergencyAccessRevoked,
             "emergency_access.granted_by_timeout" => AuditEventType::EmergencyAccessGrantedByTimeout,
             "emergency_access_policy.updated" => AuditEventType::EmergencyAccessPolicyUpdated,
+            "emergency_access.vault_viewed" => AuditEventType::EmergencyAccessVaultViewed,
+            "emergency_access.takeover" => AuditEventType::EmergencyAccessTakeover,
             "user.deactivated" => AuditEventType::UserDeactivated,
             "user.activated" => AuditEventType::UserActivated,
             "user.purged" => AuditEventType::UserPurged,
@@ -343,6 +354,7 @@ impl AuditEventType {
             "directory_sync.config_updated" => AuditEventType::DirectorySyncConfigUpdated,
             "directory_sync.dry_run" => AuditEventType::DirectorySyncDryRun,
             "directory_sync.applied" => AuditEventType::DirectorySyncApplied,
+            "directory_sync.aborted_mass_deactivation" => AuditEventType::DirectorySyncAbortedMassDeactivation,
             "external_share.created" => AuditEventType::ExternalShareCreated,
             "external_share.accessed" => AuditEventType::ExternalShareAccessed,
             "external_share.revoked" => AuditEventType::ExternalShareRevoked,

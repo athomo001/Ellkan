@@ -6,6 +6,7 @@
 	// pública después de mostrar la huella para compararla; abajo, las
 	// cuentas de las que yo soy contacto (aceptar, pedir acceso).
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import Card from '#lib/components/Card.svelte';
 	import Button from '#lib/components/Button.svelte';
@@ -237,6 +238,10 @@
 						{#if a.status === 'invited'}
 							<Button variant="primary" onclick={() => accion(a.id, emergenciaApi.aceptar)} loading={ocupadoId === a.id}>
 								{$t.settingsEmergency.aceptar}
+							</Button>
+						{:else if a.sealed_material_b64}
+							<Button variant="primary" onclick={() => goto(`/settings/emergency/${a.id}`)}>
+								{$t.settingsEmergency.verBoveda}
 							</Button>
 						{:else if a.request_status !== 'pending' && !a.sealed_material_b64}
 							<Button variant="secondary" onclick={() => accion(a.id, emergenciaApi.solicitar)} loading={ocupadoId === a.id}>

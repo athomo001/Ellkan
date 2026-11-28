@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update directory_sync_config set last_sync_at = now()\n                where organization_id = 1 and auto_sync_enabled and ldap_url is not null\n                  and (last_sync_at is null or last_sync_at <= now() - make_interval(secs => poll_interval_seconds))\n            returning organization_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "organization_id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "directory_sync_config",
+            "name": "organization_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e5b50c9f483ba758d7f529841acdef82e7ec1a50cbf8a060dd9d95fdc736c7d1"
+}

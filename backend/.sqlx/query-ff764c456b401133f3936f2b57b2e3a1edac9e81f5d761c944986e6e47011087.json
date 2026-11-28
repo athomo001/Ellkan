@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update directory_sync_config set last_auto_sync_error = $1 where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ff764c456b401133f3936f2b57b2e3a1edac9e81f5d761c944986e6e47011087"
+}

@@ -6,7 +6,7 @@ Las fuentes tipográficas (Atkinson Hyperlegible, Atkinson Hyperlegible Mono, Le
 
 Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano.
 
-## Rust (884 crates)
+## Rust (885 crates)
 
 | Crate | Versión | Licencia | Origen |
 | --- | --- | --- | --- |
@@ -594,6 +594,7 @@ Generado con `node frontend/scripts/licencias-terceros.mjs` — no editar a mano
 | scrypt | 0.11.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/password-hashes/tree/master/scrypt |
 | sec1 | 0.7.3 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats/tree/master/sec1 |
 | secrecy | 0.10.3 | Apache-2.0 OR MIT | https://github.com/iqlusioninc/crates/tree/main/secrecy |
+| security-framework | 2.11.1 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |
 | security-framework | 3.7.0 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |
 | security-framework-sys | 2.17.0 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |
 | selectors | 0.36.1 | MPL-2.0 | https://github.com/servo/stylo |
