@@ -200,16 +200,19 @@ pub async fn setup_status(State(state): State<AppState>) -> Result<Json<super::d
 }
 
 pub async fn challenge(State(state): State<AppState>, Json(req): Json<ChallengeRequest>) -> Result<Json<ChallengeResponse>, ApiError> {
-    let nonce = servicio(&state).challenge(&req.email).await?;
+    let id = super::identificador::identificar(&state.pool, &state.secrets_key, &req.email).await?;
+    let nonce = servicio(&state).challenge(&id.email).await?;
     Ok(Json(ChallengeResponse { nonce_b64: b64::encode(&nonce) }))
 }
 
 /// QA-03: primer paso del desbloqueo — sal y parámetros de Argon2id para
 /// derivar la `auth_key`. No entrega nada que sirva para crackear.
 pub async fn prelogin(State(state): State<AppState>, Json(req): Json<PreloginRequest>) -> Result<Json<PreloginResponse>, ApiError> {
-    let p = servicio(&state).prelogin(&req.email, &state.secrets_key).await?;
+    let id = super::identificador::identificar(&state.pool, &state.secrets_key, &req.email).await?;
+    let p = servicio(&state).prelogin(&id.email, &state.secrets_key).await?;
     Ok(Json(PreloginResponse {
-        email: p.email,
+        email: id.email_visible(p.email, &req.email),
+        user_id: Some(id.user_id),
         kdf_salt_b64: b64::encode(&p.kdf_salt),
         kdf_params: p.kdf_params,
         auth_key_required: p.auth_key_required,
@@ -231,9 +234,11 @@ pub async fn key_material(
     if state.limitador_auth_key.check_key(&req.email.trim().to_lowercase()).is_err() {
         return Err(DomainError::RateLimited.into());
     }
-    let material = servicio(&state).material_desbloqueo(&req.email, auth_key.as_deref()).await?;
+    let id = super::identificador::identificar(&state.pool, &state.secrets_key, &req.email).await?;
+    let material = servicio(&state).material_desbloqueo(&id.email, auth_key.as_deref()).await?;
     Ok(Json(KeyMaterialResponse {
-        email: material.email,
+        email: id.email_visible(material.email, &req.email),
+        user_id: Some(id.user_id),
         encrypted_private_key_blob_b64: b64::encode(&material.encrypted_private_key_blob),
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),
         kdf_salt_b64: b64::encode(&material.kdf_salt),
@@ -246,7 +251,8 @@ pub async fn verify(State(state): State<AppState>, Json(req): Json<VerifyRequest
     let firma = validacion::b64_exacto(&req.signature_b64, "signature_b64", 64)?;
     let device_token_hash = validacion::b64_exacto(&req.device_token_hash_b64, "device_token_hash_b64", 32)?;
 
-    let resultado = servicio(&state).verify(&req.email, &nonce, &firma, &device_token_hash, req.force_mfa).await?;
+    let id = super::identificador::identificar(&state.pool, &state.secrets_key, &req.email).await?;
+    let resultado = servicio(&state).verify(&id.email, &nonce, &firma, &device_token_hash, req.force_mfa).await?;
     Ok(Json(resultado_a_response(resultado)))
 }
 

@@ -13,6 +13,12 @@
 //   3. `POST /auth/key-material` con la `auth_key` → el blob.
 // Una cuenta sellada antes de QA-03 (`auth_key_required: false`) recibe el
 // blob sin la prueba y se re-sella en cuanto hay sesión (`mejorarKdf`).
+//
+// #49 (login con correo o nombre de usuario): el AAD del blob pasa a ser el
+// `user_id` (`aadDeUsuario`), que el servidor devuelve en `prelogin` y
+// `key-material` sin revelar el correo. Los blobs viejos (AAD = correo) se
+// siguen abriendo y se re-sellan con el `user_id` en el siguiente login, con
+// la misma passphrase (`POST /me/key-rewrap`, que no cierra sesiones).
 
 import { bytesABase64, base64ABytes } from './b64';
 import { cargarCrypto } from './wasm';
@@ -44,10 +50,13 @@ export interface MaterialClave {
 	private_key_nonce_b64: string;
 	kdf_salt_b64: string;
 	kdf_params?: ParametrosKdf;
+	/** #49: AAD de los blobs nuevos. Ausente en el escritorio y en servidores anteriores. */
+	user_id?: string;
 }
 
 interface Prelogin {
 	email?: string;
+	user_id?: string;
 	kdf_salt_b64: string;
 	kdf_params: ParametrosKdf;
 	auth_key_required: boolean;
@@ -63,11 +72,19 @@ export class ErrorPassphraseIncorrecta extends Error {
 }
 
 export interface Desbloqueado {
-	/** El email tal como está guardado (AAD del blob). */
+	/** El email tal como está guardado. Si se entró por nombre de usuario, el
+	 * servidor no lo revela antes de autenticar: es el nombre tipeado. */
 	email: string;
 	abierta: ResultadoAbrir;
 	/** `true`: cuenta sellada antes de QA-03, hay que re-sellarla. */
 	legado: boolean;
+	/** #49: `user_id` de la cuenta (si el servidor lo manda). */
+	userId?: string;
+	/** #49: el blob se abrió con el correo como AAD: hay que re-sellarlo con el `user_id`. */
+	aadLegada: boolean;
+	/** Sal y parámetros con que está sellado (para re-sellar con la misma passphrase). */
+	saltB64: string;
+	kdfParams: ParametrosKdf;
 }
 
 function conStatus(e: unknown, status: number): boolean {
@@ -78,6 +95,13 @@ function conStatus(e: unknown, status: number): boolean {
  * AAD de `secret_envelopes` (nunca variar según quién descifra). */
 export function aadClavePrivada(email: string): Uint8Array {
 	return new TextEncoder().encode(email);
+}
+
+/** #49: AAD de los blobs nuevos — el `user_id`, que no cambia aunque cambie
+ * el correo y no hace falta conocer el correo para abrirlo. Con prefijo para
+ * que nunca coincida con un correo. */
+export function aadDeUsuario(userId: string): Uint8Array {
+	return new TextEncoder().encode(`ellkan:user:${userId.toLowerCase()}`);
 }
 
 /** Pide el blob probando la `auth_key` y lo abre. Contra un servidor
@@ -117,14 +141,31 @@ export async function abrirMaterial(post: Post, email: string, passphrase: strin
 	}
 
 	const emailGuardado = material.email ?? pre?.email ?? email.trim();
-	try {
-		const abierta = await abrirClavePrivadaEnWorker(
-			claveEnvoltura,
+	const userId = material.user_id ?? pre?.user_id;
+	const abrirCon = (aad: Uint8Array) =>
+		abrirClavePrivadaEnWorker(
+			claveEnvoltura!,
 			base64ABytes(material.private_key_nonce_b64),
 			base64ABytes(material.encrypted_private_key_blob_b64),
-			aadClavePrivada(emailGuardado)
+			aad
 		);
-		return { email: emailGuardado, abierta, legado: pre ? !pre.auth_key_required : false };
+	const base = {
+		email: emailGuardado,
+		legado: pre ? !pre.auth_key_required : false,
+		userId,
+		saltB64: material.kdf_salt_b64,
+		kdfParams: material.kdf_params ?? pre?.kdf_params ?? PARAMETROS_LEGADO
+	};
+	try {
+		// #49: primero el AAD nuevo (`user_id`); si no abre, el viejo (correo).
+		if (userId) {
+			try {
+				return { ...base, abierta: await abrirCon(aadDeUsuario(userId)), aadLegada: false };
+			} catch {
+				/* blob anterior a #49: se prueba con el correo */
+			}
+		}
+		return { ...base, abierta: await abrirCon(aadClavePrivada(emailGuardado)), aadLegada: true };
 	} catch {
 		throw new ErrorPassphraseIncorrecta();
 	} finally {
@@ -143,16 +184,22 @@ export interface BlobClaveNueva {
 }
 
 /** Sella las dos privadas con `passphrase`, una sal nueva y los parámetros
- * actuales de Argon2id (en el Worker). */
+ * actuales de Argon2id (en el Worker). #49: con `opciones.userId`, el AAD es
+ * el `user_id` (lo nuevo); sin él, el correo (registro, recuperación sin
+ * sesión y la bóveda local del escritorio, que se re-sellan solos en el
+ * siguiente login). `opciones.saltB64` reusa la sal (re-sellar con la misma
+ * passphrase, `/me/key-rewrap`). */
 export async function sellarNuevo(
 	passphrase: string,
 	x25519Private: Uint8Array,
 	ed25519Private: Uint8Array,
-	email: string
+	email: string,
+	opciones: { userId?: string; saltB64?: string } = {}
 ): Promise<BlobClaveNueva> {
 	const wasm = await cargarCrypto();
-	const salt = wasm.generar_salt_kdf();
-	const r = await sellarClavePrivadaEnWorker(passphrase, salt, x25519Private, ed25519Private, aadClavePrivada(email));
+	const salt = opciones.saltB64 ? base64ABytes(opciones.saltB64) : wasm.generar_salt_kdf();
+	const aad = opciones.userId ? aadDeUsuario(opciones.userId) : aadClavePrivada(email);
+	const r = await sellarClavePrivadaEnWorker(passphrase, salt, x25519Private, ed25519Private, aad);
 	const blob: BlobClaveNueva = {
 		blobB64: bytesABase64(r.ciphertext),
 		nonceB64: bytesABase64(r.nonce),
@@ -226,14 +273,39 @@ export async function mejorarKdf(post: Post, email: string, passphrase: string, 
 export interface MejoraKdfPendiente {
 	email: string;
 	blob: BlobClaveNueva;
+	/** QA-03 (`kdf-upgrade`, sal y parámetros nuevos) o #49 (`key-rewrap`,
+	 * misma passphrase y sal, AAD = `user_id`). */
+	ruta: '/me/kdf-upgrade' | '/me/key-rewrap';
 }
 
 export async function prepararMejoraKdf(d: Desbloqueado, passphrase: string): Promise<MejoraKdfPendiente | undefined> {
-	if (!d.legado) return undefined;
-	return { email: d.email, blob: await sellarNuevo(passphrase, d.abierta.x25519Private, d.abierta.ed25519Private, d.email) };
+	const { x25519Private, ed25519Private } = d.abierta;
+	if (d.legado) {
+		return {
+			email: d.email,
+			blob: await sellarNuevo(passphrase, x25519Private, ed25519Private, d.email, { userId: d.userId }),
+			ruta: '/me/kdf-upgrade'
+		};
+	}
+	// #49: sólo el AAD cambia; misma sal y parámetros, así el servidor puede
+	// comprobar que la passphrase es la misma.
+	if (d.aadLegada && d.userId && sonParametrosActuales(d.kdfParams)) {
+		return {
+			email: d.email,
+			blob: await sellarNuevo(passphrase, x25519Private, ed25519Private, d.email, { userId: d.userId, saltB64: d.saltB64 }),
+			ruta: '/me/key-rewrap'
+		};
+	}
+	return undefined;
+}
+
+/** El Worker sella siempre con los parámetros actuales: re-sellar con la
+ * misma sal sólo da la misma `auth_key` si la cuenta ya los usa. */
+function sonParametrosActuales(p: ParametrosKdf): boolean {
+	return p.m_cost_kib === 65536 && p.t_cost === 3 && p.p_cost === 1;
 }
 
 export async function aplicarMejoraKdf(post: Post, mejora: MejoraKdfPendiente, ed25519Private: Uint8Array): Promise<void> {
 	const prueba = await pruebaDePosesion(post, mejora.email, ed25519Private, mejora.blob);
-	await post('/me/kdf-upgrade', { ...camposDelBlob(mejora.blob), ...prueba });
+	await post(mejora.ruta, { ...camposDelBlob(mejora.blob), ...prueba });
 }

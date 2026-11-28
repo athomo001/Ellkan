@@ -10,7 +10,10 @@ use crate::auth::extractor::{AdminUser, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::state::AppState;
 
-use super::dto::{ActualizarPoliticaRequest, BovedaTitularResponse, DesignarRequest, RecursoTitularResponse, EmergencyAccessPolicyResponse, EmergencyAccessResponse, PersonaResponse};
+use super::dto::{
+    ActualizarPoliticaRequest, BovedaTitularResponse, DesignarRequest, EmergencyAccessPolicyResponse, EmergencyAccessResponse,
+    PersonaResponse, RecursoTitularResponse,
+};
 use super::models::EmergencyAccess;
 use super::repository::{PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository};
 use super::service::EmergencyAccessService;

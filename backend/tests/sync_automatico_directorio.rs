@@ -89,10 +89,11 @@ async fn bajas_masivas_abortan_la_corrida_hasta_que_un_admin_confirma() {
 
     let mut auditado = 0i64;
     for _ in 0..50 {
-        auditado = sqlx::query_scalar("select count(*) from audit_log_entries where event_type = 'directory_sync.aborted_mass_deactivation'")
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
+        auditado =
+            sqlx::query_scalar("select count(*) from audit_log_entries where event_type = 'directory_sync.aborted_mass_deactivation'")
+                .fetch_one(&entorno.pool)
+                .await
+                .unwrap();
         if auditado > 0 {
             break;
         }

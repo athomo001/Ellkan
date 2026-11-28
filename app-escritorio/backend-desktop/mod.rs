@@ -80,14 +80,19 @@ async fn reparar_checksums_por_fin_de_linea(pool: &SqlitePool, migrador: &sqlx::
     }
     let filas: Vec<(i64, Vec<u8>)> = sqlx::query_as("select version, checksum from _sqlx_migrations").fetch_all(pool).await?;
     for (version, guardado) in filas {
-        let Some(m) = migrador.iter().find(|m| m.version == version) else { continue };
+        let Some(m) = migrador.iter().find(|m| m.version == version) else {
+            continue;
+        };
         if crate::checksum_difiere_solo_en_fin_de_linea(m, &guardado) {
             sqlx::query("update _sqlx_migrations set checksum = ? where version = ?")
                 .bind(&m.checksum[..])
                 .bind(version)
                 .execute(pool)
                 .await?;
-            tracing::warn!(version, "checksum de migración guardado con otros finales de línea (CRLF/LF) — actualizado, el SQL es el mismo");
+            tracing::warn!(
+                version,
+                "checksum de migración guardado con otros finales de línea (CRLF/LF) — actualizado, el SQL es el mismo"
+            );
         }
     }
     Ok(())

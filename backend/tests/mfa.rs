@@ -762,7 +762,17 @@ async fn fallos_consecutivos_de_mfa_bloquean_la_cuenta_de_forma_persistente() {
     let verificar = |codigo: String| {
         let cliente = entorno.cliente.clone();
         let url = format!("{}/auth/mfa/verify", entorno.base);
-        async move { cliente.post(url).bearer_auth(sesion).json(&json!({ "code": codigo })).send().await.unwrap().status().as_u16() }
+        async move {
+            cliente
+                .post(url)
+                .bearer_auth(sesion)
+                .json(&json!({ "code": codigo }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
     };
 
     // 10.º fallo -> bloqueo.

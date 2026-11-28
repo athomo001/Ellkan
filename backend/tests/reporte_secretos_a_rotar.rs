@@ -60,15 +60,17 @@ async fn lista_lo_que_tienen_las_cuentas_desactivadas() {
             .fetch_one(&entorno.pool)
             .await
             .unwrap();
-    sqlx::query("insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce) values ($1, $2, $3, $4, $5)")
-        .bind(de_ana)
-        .bind(beto.user_id)
-        .bind(&sobre.0)
-        .bind(&sobre.1)
-        .bind(&sobre.2)
-        .execute(&entorno.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "insert into secret_envelopes (resource_id, user_id, sealed_dek, secret_ciphertext, secret_nonce) values ($1, $2, $3, $4, $5)",
+    )
+    .bind(de_ana)
+    .bind(beto.user_id)
+    .bind(&sobre.0)
+    .bind(&sobre.1)
+    .bind(&sobre.2)
+    .execute(&entorno.pool)
+    .await
+    .unwrap();
 
     let reporte = |entorno: &common::Entorno| {
         let url = format!("{}/admin/reports/secrets_to_rotate", entorno.base);
@@ -81,7 +83,11 @@ async fn lista_lo_que_tienen_las_cuentas_desactivadas() {
     };
     assert_eq!(reporte(&entorno).await["items"], json!([]), "nadie desactivado, nada que rotar");
 
-    sqlx::query("update users set active = false where id = $1").bind(beto.user_id).execute(&entorno.pool).await.unwrap();
+    sqlx::query("update users set active = false where id = $1")
+        .bind(beto.user_id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
     let r = reporte(&entorno).await;
     assert_eq!(r["report_id"], "secrets_to_rotate");
     let items = r["items"].as_array().unwrap();

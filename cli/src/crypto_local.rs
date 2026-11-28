@@ -42,20 +42,23 @@ pub fn cifrar_para_registro(
     email: &str,
 ) -> Result<clave_privada::ClavePrivadaSellada, ellkan_crypto::clave_privada::ErrorClavePrivada> {
     let mut privadas = keypar.concatenar_privadas();
-    let sellada = sellar(passphrase, &privadas, email);
+    // Al registrarse todavía no hay `user_id`: va con el correo (#49, se abre igual).
+    let sellada = sellar(passphrase, &privadas, email.as_bytes());
     privadas.zeroize();
     sellada
 }
 
 /// QA-03: sella con sal nueva y los parámetros actuales de Argon2id;
 /// devuelve el blob y la `auth_key` para el servidor.
+/// #49: `aad` es `clave_privada::aad_de_usuario(user_id)` cuando se conoce
+/// el `user_id` (lo nuevo), o el correo (registro, antes de tener id).
 pub fn sellar(
     passphrase: &PassphraseSecreta,
     privadas: &[u8],
-    email: &str,
+    aad: &[u8],
 ) -> Result<clave_privada::ClavePrivadaSellada, ellkan_crypto::clave_privada::ErrorClavePrivada> {
     let salt: [u8; 16] = ellkan_crypto::aleatoriedad::bytes_aleatorios();
-    clave_privada::cifrar_clave_privada(passphrase, salt, ellkan_crypto::derivacion::ParametrosKdf::ACTUAL, privadas, email.as_bytes())
+    clave_privada::cifrar_clave_privada(passphrase, salt, ellkan_crypto::derivacion::ParametrosKdf::ACTUAL, privadas, aad)
 }
 
 /// Reconstruye la clave privada desde el blob cifrado — sólo para el
@@ -82,12 +85,16 @@ impl ClavePrivadaReconstruida {
     }
 }
 
+/// #49: prueba el AAD del `user_id` y, si no abre, el del correo (blobs
+/// sellados antes).
 pub fn reconstruir_clave_privada(
     passphrase: &PassphraseSecreta,
     blob: &EncryptedPrivateKeyBlob,
     email: &str,
+    user_id: uuid::Uuid,
 ) -> anyhow::Result<ClavePrivadaReconstruida> {
-    let mut privadas = clave_privada::descifrar_clave_privada(passphrase, blob, email.as_bytes())
+    let aad_usuario = clave_privada::aad_de_usuario(&user_id.to_string());
+    let mut privadas = clave_privada::descifrar_clave_privada_con_aads(passphrase, blob, &[&aad_usuario, email.as_bytes()])
         .map_err(|_| anyhow::anyhow!("passphrase incorrecta o blob corrupto"))?;
 
     let mut x25519_bytes = [0u8; 32];

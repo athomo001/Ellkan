@@ -18,7 +18,10 @@ async fn archivar_guarda_la_boveda_completa_y_la_siguiente_arranca_vacia() {
     // Bóveda con un dato escrito y la conexión todavía abierta: queda en el `-wal`.
     let pool = bootstrap_sqlite(&dir).await.unwrap();
     sqlx::query("create table marca_de_prueba (valor text)").execute(&pool).await.unwrap();
-    sqlx::query("insert into marca_de_prueba values ('dato de la cuenta anterior')").execute(&pool).await.unwrap();
+    sqlx::query("insert into marca_de_prueba values ('dato de la cuenta anterior')")
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
 
     archivar::marcar(&dir).unwrap();

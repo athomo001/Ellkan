@@ -34,7 +34,11 @@ async fn falsear_checksum_8(dir: &std::path::Path, sql_guardado: impl Fn(&str) -
     let m = migrador.iter().find(|m| m.version == 8).unwrap();
     let falso = Sha384::digest(sql_guardado(m.sql.as_str()).as_bytes()).to_vec();
     let pool = abrir(dir).await;
-    sqlx::query("update _sqlx_migrations set checksum = ? where version = 8").bind(&falso).execute(&pool).await.unwrap();
+    sqlx::query("update _sqlx_migrations set checksum = ? where version = 8")
+        .bind(&falso)
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
     m.checksum.to_vec()
 }
@@ -46,7 +50,10 @@ async fn una_boveda_con_checksum_crlf_arranca_y_queda_corregida() {
     let correcto = falsear_checksum_8(&dir, |sql| sql.replace("\r\n", "\n").replace('\n', "\r\n")).await;
 
     let pool = bootstrap_sqlite(&dir).await.expect("el mismo SQL con CRLF no debe frenar el arranque");
-    let guardado: Vec<u8> = sqlx::query_scalar("select checksum from _sqlx_migrations where version = 8").fetch_one(&pool).await.unwrap();
+    let guardado: Vec<u8> = sqlx::query_scalar("select checksum from _sqlx_migrations where version = 8")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(guardado, correcto);
     pool.close().await;
     std::fs::remove_dir_all(&dir).ok();

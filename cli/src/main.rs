@@ -353,7 +353,7 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
     let passphrase = leer_passphrase("Passphrase: ")?;
 
     let blob = blob_desde_perfil(&perfil)?;
-    let clave = crypto_local::reconstruir_clave_privada(&passphrase, &blob, email)?;
+    let clave = crypto_local::reconstruir_clave_privada(&passphrase, &blob, email, perfil.user_id)?;
 
     // Perfiles creados antes de F-02 no tienen device token todavía — se
     // genera acá una sola vez y se persiste, en vez de fallar.
@@ -399,7 +399,7 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("respuesta de verify sin session_id (requiere_cambiar_passphrase)"))?;
             println!("Esta cuenta tiene una passphrase provisoria — hay que cambiarla antes de poder operar.");
             let nueva_passphrase = leer_passphrase("Passphrase nueva: ")?;
-            let req = reemplazo_firmado(cliente, &clave, &nueva_passphrase, email)?;
+            let req = reemplazo_firmado(cliente, &clave, &nueva_passphrase, email, perfil.user_id)?;
             cliente.change_passphrase(session_parcial, &req.0)?;
             println!(
                 "Passphrase cambiada — la sesión murió (mismo criterio que un cambio de passphrase normal). Corré 'ellkan-cli login --email {email}' de nuevo con la passphrase nueva."
@@ -419,7 +419,7 @@ fn login(cliente: &Cliente, email: &str) -> anyhow::Result<()> {
     // re-sella con la misma passphrase y los parámetros actuales. Si falla,
     // la sesión ya está iniciada: se avisa y se reintenta en el próximo login.
     if !cliente.prelogin(email)?.auth_key_required {
-        match reemplazo_firmado(cliente, &clave, &passphrase, email).and_then(|(req, sellada)| {
+        match reemplazo_firmado(cliente, &clave, &passphrase, email, perfil.user_id).and_then(|(req, sellada)| {
             cliente.kdf_upgrade(session_id, &req)?;
             Ok(sellada)
         }) {
@@ -445,8 +445,11 @@ fn reemplazo_firmado(
     clave: &crypto_local::ClavePrivadaReconstruida,
     passphrase: &SecretBox<String>,
     email: &str,
+    user_id: Uuid,
 ) -> anyhow::Result<(api::CambiarPassphraseRequest, ellkan_crypto::clave_privada::ClavePrivadaSellada)> {
-    let sellada = crypto_local::sellar(passphrase, &clave.privadas_concatenadas(), email)
+    // #49: lo que se re-sella ya va con el `user_id` como AAD.
+    let aad = ellkan_crypto::clave_privada::aad_de_usuario(&user_id.to_string());
+    let sellada = crypto_local::sellar(passphrase, &clave.privadas_concatenadas(), &aad)
         .map_err(|_| anyhow::anyhow!("no se pudo re-sellar la clave privada"))?;
     let blob = &sellada.blob;
     let auth_key = sellada.auth_key.expose_secret();
@@ -555,7 +558,7 @@ fn abrir_dek_del_recurso(
     passphrase: &SecretBox<String>,
 ) -> anyhow::Result<(ellkan_crypto::secretos::ClaveSecreta32, api::SecretoResponse)> {
     let blob = blob_desde_perfil(perfil)?;
-    let clave = crypto_local::reconstruir_clave_privada(passphrase, &blob, &perfil.email)?;
+    let clave = crypto_local::reconstruir_clave_privada(passphrase, &blob, &perfil.email, perfil.user_id)?;
     let secreto = cliente.obtener_secreto(sesion.session_id, resource_id)?;
     let sealed_dek = B64.decode(&secreto.sealed_dek_b64)?;
     let dek = crypto_local::abrir_dek(&clave.x25519, &sealed_dek)?;
@@ -765,7 +768,7 @@ fn ejecutar(cliente: &Cliente, resource_id: Option<Uuid>, env_var: &str, env: &[
     let sesion = config::cargar_sesion()?;
     let passphrase = leer_passphrase("Passphrase: ")?;
     // Una sola derivación de la clave privada (Argon2) para todos los recursos.
-    let clave = crypto_local::reconstruir_clave_privada(&passphrase, &blob_desde_perfil(&perfil)?, &perfil.email)?;
+    let clave = crypto_local::reconstruir_clave_privada(&passphrase, &blob_desde_perfil(&perfil)?, &perfil.email, perfil.user_id)?;
 
     let pedidos = resource_id.map(|id| (env_var.to_string(), id)).into_iter().chain(env.iter().cloned());
     let mut variables = Vec::new();

@@ -3302,6 +3302,12 @@
 		font-size: var(--text-sm);
 		line-height: 1;
 		padding: 0 0 0 var(--space-1);
+		/* WCAG 2.5.8: objetivo táctil de al menos 24×24 px. */
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 24px;
+		min-height: 24px;
 		color: var(--text-secondary);
 		vertical-align: middle;
 	}

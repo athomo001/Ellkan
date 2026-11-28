@@ -141,7 +141,8 @@ export async function tomarControlDeLaCuenta(id: string, passphraseNueva: string
 	material.fill(0);
 	try {
 		const email = acceso.granter.email;
-		const blob = await sellarNuevo(passphraseNueva, x25519, ed25519, email);
+		// #49: AAD = `user_id` del titular.
+		const blob = await sellarNuevo(passphraseNueva, x25519, ed25519, email, { userId: acceso.granter_id });
 		const prueba = await pruebaDePosesion(api.post, email, ed25519, blob);
 		await emergenciaApi.takeover(id, { ...camposDelBlob(blob), ...prueba });
 	} finally {

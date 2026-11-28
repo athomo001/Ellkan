@@ -4,7 +4,8 @@
 #   - Merge/push a `main`    → Release oficial `vX.Y.Z`, marcada «Latest»;
 #                              imagen con etiquetas X.Y.Z, X.Y y latest.
 #                              Si `vX.Y.Z` ya existe (no se subió la versión),
-#                              no hace nada.
+#                              se usa el siguiente parche libre (X.Y.Z+1…):
+#                              un merge a main SIEMPRE publica.
 #   - Push a `develop`       → pre-release `vX.Y.Z-dev.N` (N = número de
 #                              corrida); imagen con etiquetas X.Y.Z-dev.N y
 #                              dev. Sólo queda la última pre-release -dev.
@@ -13,6 +14,8 @@
 # Se compila y publica:
 #   - Windows: MSI + ZIP portable (`build-windows.ps1`, el mismo script local)
 #   - Linux:   AppImage + .deb + .rpm (`build-linux.sh`)
+#   - macOS:   .dmg + .app (Apple Silicon) y la extensión de Safari, sin
+#              firma de Apple (pendientes #82/#87)
 #   - CLI de administración (`ellkan-cli`) para Windows y Linux
 #   - Extensión: .zip para Chrome/Edge/Brave/Opera y .xpi para Firefox
 #   - Servidor: imagen Docker en GHCR (ghcr.io/athomo001/ellkan)
@@ -60,6 +63,7 @@ jobs:
       canal: ${{ steps.v.outputs.canal }}
       seguir: ${{ steps.v.outputs.seguir }}
       publicar: ${{ steps.v.outputs.publicar }}
+      seccion: ${{ steps.v.outputs.seccion }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # canal: main (oficial), dev (pre-release) o prueba (manual, no publica).
@@ -70,21 +74,32 @@ jobs:
             echo "::error::versión inválida en tauri.conf.json: '$numero' (se espera X.Y.Z)"
             exit 1
           fi
+          # Si vX.Y.Z ya está publicada (se olvidó subir la versión), el
+          # siguiente parche libre: un merge a main nunca queda sin Release, y
+          # develop muestra el número que va a salir.
+          tags=$(git ls-remote --tags origin | sed -n 's|.*refs/tags/\(v[0-9.]*\)$|\1|p')
+          pedido="$numero"
+          while grep -qxF "v$numero" <<< "$tags"; do
+            IFS=. read -r mayor menor parche <<< "$numero"
+            numero="$mayor.$menor.$((parche + 1))"
+          done
+          if [ "$numero" != "$pedido" ]; then
+            echo "::notice::v$pedido ya está publicada: se usa $numero. Para elegir el número, fijar-version.mjs + CHANGELOG antes del merge."
+          fi
+          # Notas: la sección [X.Y.Z] del CHANGELOG si existe; si no, «Sin publicar».
+          seccion="Sin publicar"
+          grep -qF "## [$numero]" CHANGELOG.md && seccion="$numero"
           seguir=true; publicar=true
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             canal=prueba; tag="v$numero"; publicar=false
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             canal=main; tag="v$numero"
-            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
-              echo "::notice::$tag ya está publicada: subí la versión (fijar-version.mjs) para sacar una nueva."
-              seguir=false; publicar=false
-            fi
           else
-            canal=dev; tag="v$numero-dev.$GITHUB_RUN_NUMBER"
+            canal=dev; tag="v$numero-dev.$GITHUB_RUN_NUMBER"; seccion="Sin publicar"
           fi
-          { echo "numero=$numero"; echo "tag=$tag"; echo "canal=$canal"
+          { echo "numero=$numero"; echo "tag=$tag"; echo "canal=$canal"; echo "seccion=$seccion"
             echo "seguir=$seguir"; echo "publicar=$publicar"; } >> "$GITHUB_OUTPUT"
-          echo "Versión $numero → $tag (canal $canal, publicar=$publicar)"
+          echo "Versión $numero → $tag (canal $canal, notas «$seccion», publicar=$publicar)"
 
   windows:
     if: needs.version.outputs.seguir == 'true'
@@ -221,6 +236,142 @@ jobs:
           path: salida/*
           if-no-files-found: error
 
+  # macOS (pendientes #82/#87): sin cuenta de Apple Developer, firma ad hoc.
+  # Se abren con clic derecho → Abrir; la extensión, con «Permitir extensiones
+  # sin firmar» en Safari (Desarrollo).
+  macos:
+    if: needs.version.outputs.seguir == 'true'
+    name: macOS (.dmg + .app)
+    needs: version
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+      FIRMAR_ACTUALIZADOR: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Herramientas de wasm-pack
+        run: bash .github/scripts/herramientas-wasm.sh "$RUNNER_TEMP/binaryen"
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
+      - name: Fijar la versión
+        run: node .github/scripts/fijar-version.mjs "$VERSION"
+      # La extensión viaja dentro del ejecutable (build.rs la embebe).
+      - name: Preparar la extensión embebida
+        run: node app-escritorio/scripts/preparar-extension.mjs
+      # Con el secreto, Tauri arma además `Ellkan.app.tar.gz` + `.sig` para el
+      # actualizador (F-53): en macOS nadie retoca el paquete después, así que
+      # la firma de Tauri vale tal cual.
+      - name: Compilar y empaquetar (.app + .dmg)
+        working-directory: app-escritorio/src-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          extra=()
+          [ "$FIRMAR_ACTUALIZADOR" = "true" ] && extra=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+          node ../../frontend/node_modules/@tauri-apps/cli/tauri.js build --bundles app,dmg "${extra[@]}"
+      - name: Juntar artefactos
+        run: |
+          mkdir -p salida
+          cp -v target/release/bundle/dmg/*.dmg "salida/Ellkan_${VERSION}_aarch64.dmg"
+          ditto -c -k --keepParent target/release/bundle/macos/Ellkan.app "salida/Ellkan_${VERSION}_aarch64.app.zip"
+          if [ -f target/release/bundle/macos/Ellkan.app.tar.gz.sig ]; then
+            cp -v target/release/bundle/macos/Ellkan.app.tar.gz "salida/Ellkan_${VERSION}_aarch64.app.tar.gz"
+            cp -v target/release/bundle/macos/Ellkan.app.tar.gz.sig "salida/Ellkan_${VERSION}_aarch64.app.tar.gz.sig"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: salida/*
+          if-no-files-found: error
+
+  safari:
+    if: needs.version.outputs.seguir == 'true'
+    name: Extensión de Safari
+    needs: version
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.version.outputs.numero }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Herramientas de wasm-pack
+        run: bash .github/scripts/herramientas-wasm.sh "$RUNNER_TEMP/binaryen"
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
+      - name: Fijar la versión
+        run: node .github/scripts/fijar-version.mjs "$VERSION"
+      - name: Build de la extensión para Safari
+        run: pnpm -C extension build:safari
+      # Genera el proyecto Xcode de la app contenedora alrededor de
+      # extension/dist, sin abrir Xcode ni preguntar nada.
+      - name: Proyecto Xcode (safari-web-extension-converter)
+        run: |
+          xcrun safari-web-extension-converter extension/dist \
+            --project-location safari-proyecto --app-name Ellkan \
+            --bundle-identifier com.ellkan.safari --swift --macos-only \
+            --copy-resources --no-open --no-prompt --force
+      - name: Compilar (firma ad hoc)
+        run: |
+          proyecto=$(find safari-proyecto -maxdepth 3 -name '*.xcodeproj' | head -1)
+          esquema=$(xcodebuild -list -json -project "$proyecto" | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
+          echo "proyecto=$proyecto esquema=$esquema"
+          xcodebuild -project "$proyecto" -scheme "$esquema" -configuration Release \
+            -derivedDataPath safari-dd CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build
+      - name: Empaquetar
+        run: |
+          app=$(find safari-dd/Build/Products/Release -maxdepth 1 -name '*.app' | head -1)
+          mkdir -p salida
+          ditto -c -k --keepParent "$app" "salida/ellkan-safari-${VERSION}-macos.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: safari
+          path: salida/*
+          if-no-files-found: error
+
   extension:
     if: needs.version.outputs.seguir == 'true'
     name: Extensión (Chromium + Firefox)
@@ -339,7 +490,7 @@ jobs:
 
   publicar:
     name: Publicar la Release
-    needs: [version, windows, linux, extension, docker]
+    needs: [version, windows, linux, macos, safari, extension, docker]
     if: needs.version.outputs.publicar == 'true'
     runs-on: ubuntu-24.04
     permissions:
@@ -349,6 +500,7 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
       NUMERO: ${{ needs.version.outputs.numero }}
       CANAL: ${{ needs.version.outputs.canal }}
+      SECCION: ${{ needs.version.outputs.seccion }}
       DUENO: ${{ github.repository_owner }}
       REPO: ${{ github.repository }}
     steps:
@@ -363,8 +515,7 @@ jobs:
       # hay paquetes firmados (`.sig`).
       - name: Manifiesto del actualizador (latest.json)
         run: |
-          seccion="$NUMERO"; [ "$CANAL" = "main" ] || seccion="Sin publicar"
-          node .github/scripts/latest-json.mjs artefactos "$NUMERO" "https://github.com/$REPO/releases/download/$TAG" "$seccion"
+          node .github/scripts/latest-json.mjs artefactos "$NUMERO" "https://github.com/$REPO/releases/download/$TAG" "$SECCION"
       - name: Sumas SHA-256
         run: cd artefactos && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       # Las notas (.github/release-notas.md) separan lo que trae la Release
@@ -376,9 +527,9 @@ jobs:
       - name: Crear la Release
         run: |
           if [ "$CANAL" = "main" ]; then
-            extra=(--latest); titulo="Ellkan $TAG"; imagen="$NUMERO"; seccion="$NUMERO"
+            extra=(--latest); titulo="Ellkan $TAG"; imagen="$NUMERO"
           else
-            extra=(--prerelease --latest=false); titulo="Ellkan $TAG (desarrollo)"; imagen=dev; seccion="Sin publicar"
+            extra=(--prerelease --latest=false); titulo="Ellkan $TAG (desarrollo)"; imagen=dev
           fi
           {
             if [ "$CANAL" != "main" ]; then
@@ -391,7 +542,7 @@ jobs:
             echo
             echo '## Cambios'
             echo
-            bash .github/scripts/notas-del-changelog.sh "$seccion"
+            bash .github/scripts/notas-del-changelog.sh "$SECCION"
           } > notas.md
           gh release create "$TAG" artefactos/* --target "$GITHUB_SHA" --title "$titulo" --notes-file notas.md "${extra[@]}"
       # Sólo queda la pre-release -dev más reciente (las imágenes viejas

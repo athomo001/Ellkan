@@ -160,7 +160,11 @@ async fn con_el_directorio_caido_grace_usa_la_ultima_verificacion_y_deny_rechaza
         .await
         .unwrap();
     assert_eq!(intentar_login(&entorno, &u).await, 401);
-    let activa: bool = sqlx::query_scalar("select active from users where id = $1").bind(u.user_id).fetch_one(&entorno.pool).await.unwrap();
+    let activa: bool = sqlx::query_scalar("select active from users where id = $1")
+        .bind(u.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
     assert!(activa, "directorio caído no es una baja");
 
     // `deny`: ni con verificación reciente.

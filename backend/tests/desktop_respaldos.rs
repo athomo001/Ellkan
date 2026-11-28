@@ -132,10 +132,12 @@ async fn arrancar_con_migraciones_pendientes_guarda_una_copia_y_migra() {
     // Se simula una app vieja: las migraciones 7 (`metadata_deks`), 8 (tipos rdp/db),
     // 9 (tipo api-token), 10 (`avatar_local`), 11 (`sessions.proposito`), 12
     // (`recovery_reset_tokens.failed_attempts`) y 13 (`user_keys.kdf_params`/
-    // `auth_verifier`, QA-03) no se habían aplicado — se deshace
+    // `auth_verifier`, QA-03) y 14 (`mfa_failed_attempts`) no se habían aplicado — se deshace
     // lo que hicieron y se borra su registro.
     sqlx::query("drop table metadata_deks").execute(&pool).await.unwrap();
     sqlx::query("drop table avatar_local").execute(&pool).await.unwrap();
+    // 14 (`mfa_failed_attempts`, ELK-03 #149).
+    sqlx::query("drop table mfa_failed_attempts").execute(&pool).await.unwrap();
     sqlx::query("alter table sessions drop column proposito").execute(&pool).await.unwrap();
     sqlx::query("alter table recovery_reset_tokens drop column failed_attempts")
         .execute(&pool)

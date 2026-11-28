@@ -201,9 +201,19 @@ impl VerificadorDirectorio {
             .ok_or("sin credencial de bind")?;
         let mut ldap = conectar_ldap(cfg, credencial, &self.secrets_key).await.map_err(|e| e.to_string())?;
         let campo = cfg.attribute_mapping.get("external_id").cloned().unwrap_or_else(|| "uid".into());
-        let filtro = format!("(&{}({}={}))", filtro_de_usuarios(cfg), escapar_filtro_ldap(&campo), escapar_filtro_ldap(external_id));
+        let filtro = format!(
+            "(&{}({}={}))",
+            filtro_de_usuarios(cfg),
+            escapar_filtro_ldap(&campo),
+            escapar_filtro_ldap(external_id)
+        );
         let resultado = ldap
-            .search(base_dn, Scope::Subtree, &filtro, vec!["userAccountControl", "accountExpires", "pwdAccountLockedTime"])
+            .search(
+                base_dn,
+                Scope::Subtree,
+                &filtro,
+                vec!["userAccountControl", "accountExpires", "pwdAccountLockedTime"],
+            )
             .await
             .map_err(|e| e.to_string())?
             .success();
@@ -255,7 +265,10 @@ mod tests {
     #[test]
     fn ad_deshabilitada_expirada_y_vigente() {
         let ahora = OffsetDateTime::now_utc();
-        assert_eq!(estado_de_entrada(&attrs(&[("userAccountControl", "514")]), ahora), EstadoEnDirectorio::Baja("directory_disabled"));
+        assert_eq!(
+            estado_de_entrada(&attrs(&[("userAccountControl", "514")]), ahora),
+            EstadoEnDirectorio::Baja("directory_disabled")
+        );
         assert_eq!(estado_de_entrada(&attrs(&[("userAccountControl", "512")]), ahora), EstadoEnDirectorio::Vigente);
         // 2001-01-01 en FILETIME: vencida.
         assert_eq!(
@@ -263,7 +276,10 @@ mod tests {
             EstadoEnDirectorio::Baja("directory_expired")
         );
         assert_eq!(estado_de_entrada(&attrs(&[("accountExpires", "0")]), ahora), EstadoEnDirectorio::Vigente);
-        assert_eq!(estado_de_entrada(&attrs(&[("accountExpires", "9223372036854775807")]), ahora), EstadoEnDirectorio::Vigente);
+        assert_eq!(
+            estado_de_entrada(&attrs(&[("accountExpires", "9223372036854775807")]), ahora),
+            EstadoEnDirectorio::Vigente
+        );
     }
 
     #[test]

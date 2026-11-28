@@ -290,7 +290,9 @@ where
                     let _ = self.eventos.send(DomainEvent::Auditoria(
                         EventoAuditoria::nuevo(AuditEventType::AuthMfaLocked, Some(user_id))
                             .con_sujeto("user", user_id)
-                            .con_metadata(serde_json::json!({ "fallos_consecutivos": fallos, "bloqueo_segundos": duracion.whole_seconds() })),
+                            .con_metadata(
+                                serde_json::json!({ "fallos_consecutivos": fallos, "bloqueo_segundos": duracion.whole_seconds() }),
+                            ),
                     ));
                 }
             }

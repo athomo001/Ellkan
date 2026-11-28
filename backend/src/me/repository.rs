@@ -230,3 +230,46 @@ impl ClavePrivadaRepository for PgPreferenciasRepository {
         Ok(resultado.rows_affected() == 1)
     }
 }
+
+/// #49: operaciones propias del servidor (el escritorio no tiene nombre de
+/// usuario ni varios clientes que re-sellar).
+impl PgPreferenciasRepository {
+    /// Re-sella el blob de la clave privada con la misma passphrase (misma
+    /// sal, mismos parámetros, por lo tanto el mismo verificador) y otro AAD
+    /// (el `user_id` en vez del correo). Sólo si sal, parámetros y
+    /// verificador coinciden con los guardados: así no sirve para cambiar la
+    /// passphrase sin cerrar sesiones. `false` si no coinciden.
+    pub async fn reenvolver_misma_passphrase(&self, user_id: Uuid, nueva: &NuevaClavePrivada) -> Result<bool, RepoError> {
+        let resultado = sqlx::query!(
+            r#"update user_keys set encrypted_private_key_blob = $1, private_key_nonce = $2, updated_at = now()
+               where user_id = $3 and kdf_salt = $4 and auth_verifier = $5 and kdf_params = $6"#,
+            nueva.encrypted_private_key_blob,
+            nueva.private_key_nonce,
+            user_id,
+            nueva.kdf_salt,
+            nueva.auth_verifier(),
+            sqlx::types::Json(nueva.kdf_params) as _,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(resultado.rows_affected() == 1)
+    }
+
+    pub async fn nombre_de_usuario(&self, user_id: Uuid) -> Result<Option<String>, RepoError> {
+        Ok(sqlx::query_scalar!(r#"select username from users where id = $1"#, user_id)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
+    /// `Conflict` si otra cuenta ya lo usa.
+    pub async fn fijar_nombre_de_usuario(&self, user_id: Uuid, username: Option<&str>) -> Result<(), RepoError> {
+        sqlx::query!(r#"update users set username = $2, updated_at = now() where id = $1"#, user_id, username)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| match &e {
+                sqlx::Error::Database(db) if db.is_unique_violation() => RepoError::Conflict,
+                _ => RepoError::Database(e),
+            })?;
+        Ok(())
+    }
+}

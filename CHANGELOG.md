@@ -29,12 +29,13 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Instalación
 
+- **Cada merge a `main` publica una Release:** si la versión del repo ya estaba publicada, se usa el siguiente número de parche (antes no se publicaba nada).
 - **Linux: paquete `.rpm`** (Fedora, openSUSE, RHEL) en cada Release, junto al `.deb` y el AppImage.
 - **El servidor ya no queda caído en Windows cuando Docker Desktop se reinicia solo** (por ejemplo al despertar del Ahorro de recursos): `ellkan` quedaba en `Restarting` con `Permission denied` al leer sus secretos y sólo se destrababa recreando el contenedor. Ahora el servicio `ellkan-secretos` copia los secretos a un volumen de Docker en cada `docker compose up` (sin red, sistema de archivos de sólo lectura y una sola capacidad), y el servidor los lee de ahí. Si cambiás un archivo de `secrets/`, corré `docker compose up -d`.
 
 ### App de escritorio
 
-- **macOS y Safari (vista previa, sin firmar):** un workflow nuevo compila la app para Mac con Apple Silicon (`.dmg`) y la extensión de Safari en GitHub Actions. Todavía no van en las Releases. En Mac, las contraseñas que la app guarda en el llavero usan el Keychain del sistema.
+- **macOS y Safari (vista previa, sin firmar):** cada Release trae la app para Mac con Apple Silicon (`.dmg`) y la extensión de Safari, compiladas en GitHub Actions junto con el resto. La app de Mac también se actualiza sola. En Mac, las contraseñas que la app guarda en el llavero usan el Keychain del sistema.
 - **Actualizaciones automáticas firmadas:** la app avisa cuando hay una versión nueva (un minuto después de abrirla) y se instala desde Ajustes → Escritorio → Actualizaciones con «Instalar y reiniciar». Cada paquete viene firmado y la app verifica la firma antes de instalar: un paquete alterado o sin firma se rechaza. Antes de migrar la base, la bóveda se respalda sola. En modo portable no se actualiza sola (se baja el ZIP nuevo).
 
 ### Sincronización
@@ -45,6 +46,7 @@ Registro de cambios de Ellkan. Formato basado en [Keep a Changelog](https://keep
 
 ### Extensión y web
 
+- **Se puede entrar con el correo o con un nombre de usuario** (web, extensión, app vinculada y CLI). El nombre es opcional y se elige en Ajustes → Perfil. Quien prueba un nombre no se entera del correo ni de si la cuenta existe. La clave privada pasa a quedar atada al identificador interno de la cuenta en vez del correo: se adapta sola en el siguiente inicio de sesión, con la misma contraseña y sin cerrar otras sesiones.
 - **Acceso de emergencia: el contacto ya puede abrir la bóveda del titular.** Con el acceso concedido, «Ver bóveda» muestra las contraseñas propias del titular en sólo lectura (ver y copiar, ni editar ni compartir), descifradas en el navegador con las claves que el titular le confió. Con nivel «acceso total», el contacto puede además fijarle una frase de contraseña nueva a la cuenta del titular (se cierran todas sus sesiones). Cada apertura y cada cambio quedan en la auditoría.
 - Promesas sin manejar en el popup y en el cliente de puertos, campo de búsqueda sin etiqueta, encabezados vacíos y `autofocus` reemplazado por foco al mostrar cada vista. Un carácter NUL escrito tal cual en la detección de campos impedía analizar ese archivo.
 

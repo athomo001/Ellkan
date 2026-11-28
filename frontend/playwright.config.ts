@@ -19,7 +19,10 @@ export default defineConfig({
 	use: {
 		baseURL: `http://localhost:${PUERTO}`,
 		...(process.env.CI ? {} : { channel: 'chrome' }),
-		headless: true
+		headless: true,
+		// Sin animaciones: axe no puede auditar un modal a mitad de su fundido
+		// (en el runner lento del CI daba contrastes mezclados que nadie ve).
+		reducedMotion: 'reduce'
 	},
 	webServer: {
 		command: `pnpm exec vite dev --port ${PUERTO} --strictPort`,

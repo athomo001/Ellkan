@@ -79,6 +79,31 @@ pub fn descifrar_clave_privada(
     descifrar_con_clave_de_envoltura(&desbloqueo.clave_envoltura, &blob.envoltura, aad)
 }
 
+/// #49: AAD del blob de clave privada desde el login por nombre de usuario:
+/// el `user_id` con prefijo (nunca coincide con un correo, que era el AAD
+/// anterior). El mismo formato que `frontend/src/lib/crypto/desbloqueo.ts::aadDeUsuario`.
+pub fn aad_de_usuario(user_id: &str) -> Vec<u8> {
+    format!("ellkan:user:{}", user_id.to_lowercase()).into_bytes()
+}
+
+/// #49: abre el blob probando primero el AAD nuevo (`user_id`) y después el
+/// viejo (correo), derivando la passphrase una sola vez.
+pub fn descifrar_clave_privada_con_aads(
+    passphrase: &PassphraseSecreta,
+    blob: &EncryptedPrivateKeyBlob,
+    aads: &[&[u8]],
+) -> Result<Zeroizing<Vec<u8>>, ErrorClavePrivada> {
+    let desbloqueo = derivar_desbloqueo(passphrase, &blob.salt, &blob.parametros)?;
+    let mut ultimo = None;
+    for aad in aads {
+        match descifrar_con_clave_de_envoltura(&desbloqueo.clave_envoltura, &blob.envoltura, aad) {
+            Ok(abierta) => return Ok(abierta),
+            Err(e) => ultimo = Some(e),
+        }
+    }
+    Err(ultimo.expect("al menos un AAD"))
+}
+
 /// QA-06: prefijo de dominio del mensaje que prueba la posesión de la
 /// identidad al reemplazar el blob sellado. Distinto del challenge de login
 /// (F-02, que firma el nonce crudo), así que ninguna de las dos firmas sirve

@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use tauri::Manager;
 use zeroize::Zeroizing;
 
+mod actualizador;
 #[cfg(windows)]
 mod canal_extension;
 mod portable;
-mod actualizador;
 mod sistema;
 #[cfg(windows)]
 #[doc(hidden)]

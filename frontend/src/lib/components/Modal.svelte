@@ -19,6 +19,9 @@
 
 	const idTitulo = `modal-titulo-${Math.random().toString(36).slice(2, 10)}`;
 
+	// WCAG 2.3.3: con «reducir movimiento» el diálogo aparece sin animación.
+	const sinMovimiento = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') onCerrar();
 	}
@@ -26,7 +29,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="overlay" role="presentation" onclick={onCerrar} transition:fade={{ duration: 120 }}>
+<div class="overlay" role="presentation" onclick={onCerrar} transition:fade={{ duration: sinMovimiento ? 0 : 120 }}>
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
@@ -37,7 +40,7 @@
 		tabindex="-1"
 		use:atraparFoco
 		onclick={(e) => e.stopPropagation()}
-		transition:scale={{ duration: 150, start: 0.96, opacity: 0 }}
+		transition:scale={{ duration: sinMovimiento ? 0 : 150, start: 0.96, opacity: 0 }}
 	>
 		<div class="cabecera">
 			<div>

@@ -25,7 +25,7 @@
 	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
 	import { obtenerTokenSeguridad, COLOR_HEX } from '#lib/state/securityToken';
 	import { t } from '#lib/i18n';
-	import { ApiError } from '#lib/api/client';
+	import { ApiError, api } from '#lib/api/client';
 	import { ssoApi, RUTA_INICIO_SSO } from '#lib/api/sso';
 
 	let email = $state('');
@@ -154,6 +154,14 @@
 		// QA-03: una cuenta sellada con el esquema anterior se re-sella ahora
 		// que la sesión es completa (en segundo plano; si falla, en el próximo login).
 		void aplicarMejoraKdfPendiente(get(clavesDesbloqueadas)?.ed25519Private);
+		// #49: si se entró por nombre de usuario, el servidor recién da el
+		// correo real ahora (con sesión): es el que queda en la sesión.
+		try {
+			const yo = await api.get<{ email: string }>('/me');
+			if (yo.email) sesion.update((s) => ({ ...s, email: yo.email }));
+		} catch {
+			/* sin /me (o error), queda lo tipeado: el servidor acepta las dos cosas */
+		}
 		try {
 			const estado = await recoveryKitApi.estado();
 			if (!estado.configured) {
@@ -457,7 +465,7 @@
 	{:else}
 		<p class="subtitulo">{$t.login.subtitulo}</p>
 		<form onsubmit={enviar}>
-			<TextField label={$t.login.email} type="email" bind:value={email} autocomplete="email" required />
+			<TextField label={$t.login.emailOUsuario} bind:value={email} autocomplete="username" required />
 			{#if tokenSeguridad}
 				<p class="token-seguridad">
 					<span class="punto-token" style:background={COLOR_HEX[tokenSeguridad.color]}></span>

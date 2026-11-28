@@ -21,6 +21,11 @@ function aadClavePrivada(email: string): Uint8Array {
 	return new TextEncoder().encode(email);
 }
 
+/** #49: AAD de los blobs nuevos (mismo formato que `frontend/src/lib/crypto/desbloqueo.ts::aadDeUsuario`). */
+function aadDeUsuario(userId: string): Uint8Array {
+	return new TextEncoder().encode(`ellkan:user:${userId.toLowerCase()}`);
+}
+
 interface ErrorApi {
 	error?: { code?: string; message?: string };
 }
@@ -102,6 +107,7 @@ export const AuthService = {
 		// CLI en su próximo login (la extensión sólo desbloquea).
 		const pre = await post<{
 			email?: string;
+			user_id?: string;
 			kdf_salt_b64: string;
 			kdf_params: { m_cost_kib: number; t_cost: number; p_cost: number };
 			auth_key_required: boolean;
@@ -115,6 +121,7 @@ export const AuthService = {
 
 		let material: {
 			email?: string;
+			user_id?: string;
 			encrypted_private_key_blob_b64: string;
 			private_key_nonce_b64: string;
 		};
@@ -130,14 +137,25 @@ export const AuthService = {
 		// servidor anterior no lo manda.
 		email = material.email ?? pre.email ?? email.trim();
 
-		let abierta: ReturnType<typeof wasm.abrir_clave_privada>;
-		try {
-			abierta = wasm.abrir_clave_privada(
+		// #49: primero el AAD nuevo (`user_id`), después el viejo (correo). Si
+		// se entró por nombre de usuario, `email` es el nombre (el servidor no
+		// revela el correo); el servidor acepta las dos cosas en el resto.
+		const userId = material.user_id ?? pre.user_id;
+		const abrirCon = (aad: Uint8Array) =>
+			wasm.abrir_clave_privada(
 				claveEnvoltura,
 				base64ABytes(material.private_key_nonce_b64),
 				base64ABytes(material.encrypted_private_key_blob_b64),
-				aadClavePrivada(email)
+				aad
 			);
+		let abierta: ReturnType<typeof wasm.abrir_clave_privada>;
+		try {
+			try {
+				if (!userId) throw new Error('sin user_id');
+				abierta = abrirCon(aadDeUsuario(userId));
+			} catch {
+				abierta = abrirCon(aadClavePrivada(email));
+			}
 		} finally {
 			claveEnvoltura.fill(0);
 		}

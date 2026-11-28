@@ -62,6 +62,7 @@ Every version is published on **[Releases](https://github.com/athomo001/Ellkan/r
 | `Ellkan_X.Y.Z_x64_es-ES.msi` | Desktop app for Windows (installer, includes the extension) |
 | `Ellkan_X.Y.Z_x64_portable.zip` | The same app, no install needed |
 | `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` · `Ellkan_X.Y.Z_x86_64.rpm` | Desktop app for Linux (experimental: the [guide](app-escritorio/GUIA.md) still covers Windows only) |
+| `Ellkan_X.Y.Z_aarch64.dmg` · `ellkan-safari-X.Y.Z-macos.zip` | Desktop app for Apple Silicon Macs and Safari extension (preview, not signed by Apple: open with right-click → Open; in Safari, Develop → "Allow unsigned extensions") |
 | `ellkan-chrome-X.Y.Z.zip` (also `-edge`, `-brave`, `-opera`) | Extension for Chromium browsers |
 | `ellkan-firefox-X.Y.Z.xpi` | Extension for Firefox |
 

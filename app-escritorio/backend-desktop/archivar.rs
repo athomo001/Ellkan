@@ -42,8 +42,15 @@ pub async fn ejecutar(datadir: &Path) -> anyhow::Result<Option<PathBuf>> {
         // Todo lo que esté en el `-wal` pasa al `.db` y el `-wal` queda vacío:
         // la copia es un solo archivo completo, sin depender de mover tres.
         let opciones = SqliteConnectOptions::new().filename(&base).create_if_missing(false);
-        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opciones).await.context("no se pudo abrir la bóveda para archivarla")?;
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&pool).await.context("no se pudo consolidar la bóveda antes de archivarla")?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opciones)
+            .await
+            .context("no se pudo abrir la bóveda para archivarla")?;
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await
+            .context("no se pudo consolidar la bóveda antes de archivarla")?;
         pool.close().await;
 
         let carpeta = carpeta_de_respaldos(datadir);

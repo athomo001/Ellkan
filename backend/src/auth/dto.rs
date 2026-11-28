@@ -65,6 +65,8 @@ pub struct SetupStatusResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ChallengeRequest {
+    /// #49: correo o nombre de usuario.
+    #[serde(alias = "identifier")]
     pub email: String,
 }
 
@@ -75,6 +77,8 @@ pub struct ChallengeRequest {
 /// un perfil local tras registrarse, un navegador no tiene ese cache).
 #[derive(Debug, Deserialize)]
 pub struct KeyMaterialRequest {
+    /// #49: correo o nombre de usuario.
+    #[serde(alias = "identifier")]
     pub email: String,
     /// QA-03: `auth_key` derivada con la sal y los parámetros de
     /// `POST /auth/prelogin`. Obligatoria salvo para una cuenta sellada
@@ -91,11 +95,16 @@ pub struct KeyMaterialResponse {
     pub private_key_nonce_b64: String,
     pub kdf_salt_b64: String,
     pub kdf_params: ParametrosKdf,
+    /// #49: AAD de los blobs nuevos. Ausente en el escritorio (cuenta local).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<uuid::Uuid>,
 }
 
 /// QA-03: `POST /auth/prelogin`.
 #[derive(Debug, Deserialize)]
 pub struct PreloginRequest {
+    /// #49: correo o nombre de usuario.
+    #[serde(alias = "identifier")]
     pub email: String,
 }
 
@@ -110,6 +119,9 @@ pub struct PreloginResponse {
     pub kdf_salt_b64: String,
     pub kdf_params: ParametrosKdf,
     pub auth_key_required: bool,
+    /// #49: AAD de los blobs nuevos (falso y estable si no hay cuenta).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +131,8 @@ pub struct ChallengeResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct VerifyRequest {
+    /// #49: correo o nombre de usuario.
+    #[serde(alias = "identifier")]
     pub email: String,
     pub nonce_b64: String,
     pub signature_b64: String,

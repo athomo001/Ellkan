@@ -13,6 +13,8 @@ const es = {
 		titulo: 'Iniciar sesión — Ellkan',
 		subtitulo: 'Ingresá con tu cuenta de Ellkan.',
 		email: 'Email',
+		// #49: el campo principal acepta las dos cosas.
+		emailOUsuario: 'Correo o nombre de usuario',
 		passphrase: 'Contraseña',
 		iniciarSesion: 'Iniciar sesión',
 		sinCuenta: '¿No tenés cuenta?',
@@ -902,6 +904,13 @@ const es = {
 		extensionErrorGenerico: 'No se pudo completar la operación con la extensión.'
 	},
 	settingsProfile: {
+		// #49
+		usuarioTitulo: 'Nombre de usuario',
+		usuarioHint:
+			'Opcional: para entrar con él en vez del correo. De 3 a 32 letras, números, «.», «_» o «-». Si no te deja entrar con el nombre, entrá una vez con el correo y la contraseña.',
+		usuarioCampo: 'Nombre de usuario',
+		usuarioGuardar: 'Guardar',
+		usuarioGuardado: 'Guardado.',
 		titulo: 'Mi perfil',
 		perfilTitulo: 'Perfil',
 		email: 'Correo electrónico',

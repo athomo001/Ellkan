@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update user_keys set encrypted_private_key_blob = $1, private_key_nonce = $2, updated_at = now()\n               where user_id = $3 and kdf_salt = $4 and auth_verifier = $5 and kdf_params = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea",
+        "Uuid",
+        "Bytea",
+        "Bytea",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4271419478eb2c665fa6f82c206767cb7d039f89bace5a41820461c48a83d139"
+}

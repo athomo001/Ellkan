@@ -239,3 +239,88 @@ pub fn reemplazo_desde(req: &CambiarPassphraseRequest) -> Result<(NuevaClavePriv
     };
     Ok((nueva, prueba))
 }
+
+/// #49: `POST /me/key-rewrap` — mismo cuerpo y prueba de posesión que
+/// `change-passphrase`, pero con la MISMA passphrase (misma sal y
+/// parámetros → mismo verificador, que se compara): sólo cambia el AAD del
+/// blob (correo → `user_id`), así la cuenta puede entrar por nombre de
+/// usuario. No cierra sesiones. 409 si la sal, los parámetros o el
+/// verificador no coinciden (eso sería cambiar la passphrase).
+pub async fn reenvolver_clave(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<CambiarPassphraseRequest>,
+) -> Result<StatusCode, ApiError> {
+    let (nueva, prueba) = reemplazo_desde(&req)?;
+    let verificado = verificar_posesion(&state.usuarios, &state.challenges, user.user_id, nueva, &prueba).await?;
+    let (user_id, nueva) = verificado.en_partes();
+    if !state
+        .preferencias_usuario
+        .reenvolver_misma_passphrase(user_id, &nueva)
+        .await
+        .map_err(DomainError::from)?
+    {
+        return Err(DomainError::Conflict.into());
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct NombreDeUsuario {
+    pub username: Option<String>,
+}
+
+/// #49: `GET /me/username`.
+pub async fn nombre_de_usuario(State(state): State<AppState>, user: AuthenticatedUser) -> Result<Json<NombreDeUsuario>, ApiError> {
+    let username = state.preferencias_usuario.nombre_de_usuario(user.user_id).await.map_err(DomainError::from)?;
+    Ok(Json(NombreDeUsuario { username }))
+}
+
+/// #49: `PUT /me/username` — `null` o vacío lo quita. 3–32 caracteres,
+/// letras/números/`.`/`_`/`-`, sin `@`; se guarda en minúsculas. 409 si ya lo
+/// usa otra cuenta.
+pub async fn fijar_nombre_de_usuario(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    Json(req): Json<NombreDeUsuario>,
+) -> Result<Json<NombreDeUsuario>, ApiError> {
+    let username = req.username.map(|u| u.trim().to_lowercase()).filter(|u| !u.is_empty());
+    if let Some(u) = &username
+        && !nombre_de_usuario_valido(u)
+    {
+        return Err(DomainError::ValidacionInvalida(
+            "el nombre de usuario lleva de 3 a 32 letras, números, «.», «_» o «-», y empieza con letra o número".into(),
+        )
+        .into());
+    }
+    state
+        .preferencias_usuario
+        .fijar_nombre_de_usuario(user.user_id, username.as_deref())
+        .await
+        .map_err(|e| match e {
+            crate::error::RepoError::Conflict => DomainError::ValidacionInvalida("ese nombre de usuario ya está en uso".into()),
+            otro => DomainError::from(otro),
+        })?;
+    Ok(Json(NombreDeUsuario { username }))
+}
+
+/// Misma regla que el CHECK de la migración 0072.
+fn nombre_de_usuario_valido(u: &str) -> bool {
+    let b = u.as_bytes();
+    (3..=32).contains(&b.len())
+        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-'))
+}
+
+#[cfg(test)]
+mod tests_nombre_de_usuario {
+    #[test]
+    fn valida_como_el_check_de_la_base() {
+        for ok in ["ana", "ana.perez", "a_b-c", "007"] {
+            assert!(super::nombre_de_usuario_valido(ok), "{ok}");
+        }
+        for mal in ["an", "ana@x.com", ".ana", "Ana", "ana perez", &"a".repeat(33)] {
+            assert!(!super::nombre_de_usuario_valido(mal), "{mal}");
+        }
+    }
+}

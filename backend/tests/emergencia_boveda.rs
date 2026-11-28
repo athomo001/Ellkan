@@ -82,12 +82,14 @@ async fn el_contacto_lee_la_boveda_del_titular_solo_con_el_acceso_concedido() {
     // Un recurso de otra persona compartido con el titular no es del titular:
     // no tiene que aparecer.
     let ajeno = crear_recurso(&entorno, s_otro, &otro, b"ajeno").await;
-    sqlx::query("insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level) values ('resource', $1, 'user', $2, 'read')")
-        .bind(ajeno)
-        .bind(titular.user_id)
-        .execute(&entorno.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "insert into permissions (subject_type, subject_id, grantee_type, grantee_id, level) values ('resource', $1, 'user', $2, 'read')",
+    )
+    .bind(ajeno)
+    .bind(titular.user_id)
+    .execute(&entorno.pool)
+    .await
+    .unwrap();
 
     // Material: las privadas del titular selladas para el contacto (lo que
     // hace el cliente al designar).
@@ -127,7 +129,8 @@ async fn el_contacto_lee_la_boveda_del_titular_solo_con_el_acceso_concedido() {
     assert_eq!(r["id"], propio.to_string());
 
     // El contacto abre todo con lo que recibió.
-    let privada_titular = sellado::abrir_bytes(contacto.x25519.privada(), &B64.decode(cuerpo["sealed_material_b64"].as_str().unwrap()).unwrap()).unwrap();
+    let privada_titular =
+        sellado::abrir_bytes(contacto.x25519.privada(), &B64.decode(cuerpo["sealed_material_b64"].as_str().unwrap()).unwrap()).unwrap();
     let privada_titular: [u8; 32] = privada_titular[..32].try_into().unwrap();
     let privada_titular = x25519_dalek::StaticSecret::from(privada_titular);
     let dek = sellado::abrir_dek(&privada_titular, &B64.decode(r["sealed_dek_b64"].as_str().unwrap()).unwrap()).unwrap();
@@ -135,17 +138,22 @@ async fn el_contacto_lee_la_boveda_del_titular_solo_con_el_acceso_concedido() {
     aad.extend_from_slice(propio.as_bytes());
     aad.extend_from_slice(titular.user_id.as_bytes());
     let nonce: [u8; 24] = B64.decode(r["secret_nonce_b64"].as_str().unwrap()).unwrap().try_into().unwrap();
-    let env = Envoltura { nonce, ciphertext: B64.decode(r["secret_ciphertext_b64"].as_str().unwrap()).unwrap() };
+    let env = Envoltura {
+        nonce,
+        ciphertext: B64.decode(r["secret_ciphertext_b64"].as_str().unwrap()).unwrap(),
+    };
     assert_eq!(aead::descifrar(&dek, &env, &aad).unwrap(), b"clave-del-banco");
 
     // Auditado (el escritor de auditoría es asíncrono).
     let mut auditado = 0i64;
     for _ in 0..50 {
-        auditado = sqlx::query_scalar("select count(*) from audit_log_entries where event_type = 'emergency_access.vault_viewed' and actor_user_id = $1")
-            .bind(contacto.user_id)
-            .fetch_one(&entorno.pool)
-            .await
-            .unwrap();
+        auditado = sqlx::query_scalar(
+            "select count(*) from audit_log_entries where event_type = 'emergency_access.vault_viewed' and actor_user_id = $1",
+        )
+        .bind(contacto.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
         if auditado > 0 {
             break;
         }

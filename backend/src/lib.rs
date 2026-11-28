@@ -410,16 +410,24 @@ pub fn checksum_difiere_solo_en_fin_de_linea(m: &sqlx::migrate::Migration, guard
 async fn reparar_checksums_de_migraciones(pool: &sqlx::PgPool, migrator: &sqlx::migrate::Migrator) {
     // Siempre: una migración guardada con otros finales de línea es el mismo
     // SQL (ver `checksum_difiere_solo_en_fin_de_linea`).
-    if let Ok(filas) = sqlx::query_as::<_, (i64, Vec<u8>)>("select version, checksum from _sqlx_migrations").fetch_all(pool).await {
+    if let Ok(filas) = sqlx::query_as::<_, (i64, Vec<u8>)>("select version, checksum from _sqlx_migrations")
+        .fetch_all(pool)
+        .await
+    {
         for (version, guardado) in filas {
-            let Some(m) = migrator.iter().find(|m| m.version == version) else { continue };
+            let Some(m) = migrator.iter().find(|m| m.version == version) else {
+                continue;
+            };
             if checksum_difiere_solo_en_fin_de_linea(m, &guardado) {
                 let _ = sqlx::query("update _sqlx_migrations set checksum = $1 where version = $2")
                     .bind(&m.checksum[..])
                     .bind(version)
                     .execute(pool)
                     .await;
-                tracing::warn!(version, "checksum de migración guardado con otros finales de línea (CRLF/LF) — actualizado, el SQL es el mismo");
+                tracing::warn!(
+                    version,
+                    "checksum de migración guardado con otros finales de línea (CRLF/LF) — actualizado, el SQL es el mismo"
+                );
             }
         }
     }
@@ -642,7 +650,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/keys/enroll", post(me::handlers::enrolar_claves))
         // QA-03: re-sellar con los parámetros actuales una cuenta sellada
         // antes de QA-03, con la misma passphrase y sin cerrar sesiones.
-        .route("/kdf-upgrade", post(me::handlers::mejorar_kdf));
+        .route("/kdf-upgrade", post(me::handlers::mejorar_kdf))
+        // #49: login por nombre de usuario.
+        .route("/key-rewrap", post(me::handlers::reenvolver_clave))
+        .route("/username", get(me::handlers::nombre_de_usuario).put(me::handlers::fijar_nombre_de_usuario));
     // El límite de body por default de Axum es 2 MB — el avatar decodificado
     // ya puede llegar a 2 MB (`AVATAR_MAX_BYTES`, `me/service.rs`), y viaja
     // en base64 dentro de un JSON (~33% más grande que los bytes crudos),

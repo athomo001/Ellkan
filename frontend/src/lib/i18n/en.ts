@@ -14,6 +14,7 @@ const en: Diccionario = {
 		titulo: 'Sign in — Ellkan',
 		subtitulo: 'Sign in with your Ellkan account.',
 		email: 'Email',
+		emailOUsuario: 'Email or username',
 		passphrase: 'Passphrase',
 		iniciarSesion: 'Sign in',
 		sinCuenta: "Don't have an account?",
@@ -895,6 +896,12 @@ const en: Diccionario = {
 		extensionErrorGenerico: 'Could not complete the operation with the extension.'
 	},
 	settingsProfile: {
+		usuarioTitulo: 'Username',
+		usuarioHint:
+			'Optional: sign in with it instead of your email. 3 to 32 letters, numbers, ".", "_" or "-". If it does not let you sign in with the username, sign in once with your email and password.',
+		usuarioCampo: 'Username',
+		usuarioGuardar: 'Save',
+		usuarioGuardado: 'Saved.',
 		titulo: 'My profile',
 		perfilTitulo: 'Profile',
 		email: 'Email',

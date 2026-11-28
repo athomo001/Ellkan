@@ -471,6 +471,7 @@ async fn prelogin(State(state): State<AppStateDesktop>, Json(req): Json<Prelogin
         kdf_salt_b64: b64::encode(&p.kdf_salt),
         kdf_params: p.kdf_params,
         auth_key_required: p.auth_key_required,
+        user_id: None,
     }))
 }
 
@@ -490,6 +491,7 @@ async fn key_material(
         private_key_nonce_b64: b64::encode(&material.private_key_nonce),
         kdf_salt_b64: b64::encode(&material.kdf_salt),
         kdf_params: material.kdf_params,
+        user_id: None,
     }))
 }
 

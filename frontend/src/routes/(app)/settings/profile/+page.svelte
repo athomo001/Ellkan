@@ -7,10 +7,11 @@
 	import { onMount } from 'svelte';
 	import Card from '#lib/components/Card.svelte';
 	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
 	import { perfilApi, misGruposApi, descargarDatosPersonales, type Perfil, type GrupoDeUsuario } from '#lib/api/profile';
 	import { enModoEscritorio } from '#lib/tauri/conectar';
 	import { t } from '#lib/i18n';
-	import { ApiError } from '#lib/api/client';
+	import { ApiError, api } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let perfil = $state<Perfil | undefined>();
@@ -26,6 +27,36 @@
 			cargando = false;
 		}
 	});
+
+	// #49: nombre de usuario opcional para entrar (en vez del correo). Sólo
+	// contra el servidor: la bóveda local del escritorio tiene una sola cuenta.
+	let username = $state('');
+	let guardandoUsuario = $state(false);
+	let errorUsuario = $state<string | undefined>();
+	let usuarioGuardado = $state(false);
+	onMount(async () => {
+		if (enModoEscritorio()) return;
+		try {
+			username = (await api.get<{ username: string | null }>('/me/username')).username ?? '';
+		} catch {
+			/* servidor anterior a #49: el campo queda vacío */
+		}
+	});
+	async function guardarUsuario(e: SubmitEvent) {
+		e.preventDefault();
+		guardandoUsuario = true;
+		errorUsuario = undefined;
+		usuarioGuardado = false;
+		try {
+			const r = await api.put<{ username: string | null }>('/me/username', { username: username.trim() || null });
+			username = r.username ?? '';
+			usuarioGuardado = true;
+		} catch (err) {
+			errorUsuario = err instanceof ApiError ? err.message : $t.settingsProfile.error;
+		} finally {
+			guardandoUsuario = false;
+		}
+	}
 
 	// Pendiente #58: derecho de acceso. Sólo contra el servidor: la app de
 	// escritorio sin servidor no guarda datos personales de nadie más.
@@ -90,6 +121,16 @@
 
 {#if !cargando && !error && !enModoEscritorio()}
 	<Card>
+		<h2>{$t.settingsProfile.usuarioTitulo}</h2>
+		<p class="hint">{$t.settingsProfile.usuarioHint}</p>
+		<form class="usuario" onsubmit={guardarUsuario}>
+			<TextField label={$t.settingsProfile.usuarioCampo} bind:value={username} autocomplete="username" />
+			<Button type="submit" variant="secondary" loading={guardandoUsuario}>{$t.settingsProfile.usuarioGuardar}</Button>
+		</form>
+		{#if errorUsuario}<p class="error">{errorUsuario}</p>{/if}
+		{#if usuarioGuardado}<p class="hint" role="status">{$t.settingsProfile.usuarioGuardado}</p>{/if}
+	</Card>
+	<Card>
 		<h2>{$t.settingsProfile.datosTitulo}</h2>
 		<p class="hint">{$t.settingsProfile.datosHint}</p>
 		<Button variant="secondary" loading={descargando} onclick={descargar}>{$t.settingsProfile.datosDescargar}</Button>
@@ -98,6 +139,12 @@
 {/if}
 
 <style>
+	.usuario {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		max-width: 24rem;
+	}
 	h1 {
 		margin: 0 0 var(--space-6) 0;
 		font-size: var(--text-2xl);

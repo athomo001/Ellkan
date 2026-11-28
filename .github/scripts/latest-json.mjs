@@ -8,6 +8,7 @@
 // Busca los paquetes firmados (`<paquete>.sig`, de `tauri signer sign`):
 //   - Ellkan_X.Y.Z_x64_es-ES.msi      → windows-x86_64
 //   - Ellkan_X.Y.Z_amd64.AppImage     → linux-x86_64
+//   - Ellkan_X.Y.Z_aarch64.app.tar.gz → darwin-aarch64
 // Si no hay ninguno (no estaba el secreto de firma), no escribe nada: la app
 // instalada no ve esa versión como actualización, que es lo correcto.
 // La firma se verifica en la app contra la clave pública de `tauri.conf.json`
@@ -25,7 +26,8 @@ if (!carpeta || !/^\d+\.\d+\.\d+$/.test(version ?? '') || !urlBase?.startsWith('
 
 const paquetes = {
 	'windows-x86_64': `Ellkan_${version}_x64_es-ES.msi`,
-	'linux-x86_64': `Ellkan_${version}_amd64.AppImage`
+	'linux-x86_64': `Ellkan_${version}_amd64.AppImage`,
+	'darwin-aarch64': `Ellkan_${version}_aarch64.app.tar.gz`
 };
 
 const platforms = {};

@@ -278,8 +278,9 @@ export async function cambiarPassphrase(
 	passphraseActual: string,
 	passphraseNueva: string
 ): Promise<void> {
-	const { abierta, email: emailGuardado } = await abrirMaterial(api.post, email, passphraseActual);
-	const blob = await sellarNuevo(passphraseNueva, abierta.x25519Private, abierta.ed25519Private, emailGuardado);
+	const { abierta, email: emailGuardado, userId } = await abrirMaterial(api.post, email, passphraseActual);
+	// #49: el blob nuevo ya va con el `user_id` como AAD (si el servidor lo da).
+	const blob = await sellarNuevo(passphraseNueva, abierta.x25519Private, abierta.ed25519Private, emailGuardado, { userId });
 	// QA-06: la sesión sola no alcanza para reemplazar el blob.
 	const prueba = await pruebaDePosesion(api.post, email, abierta.ed25519Private, blob);
 	await api.post('/me/change-passphrase', { ...camposDelBlob(blob), ...prueba });
