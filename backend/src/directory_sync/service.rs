@@ -95,6 +95,55 @@ fn validar_tls(cfg: &DirectorySyncConfig) -> Result<(), DirectorySyncError> {
     Err(DirectorySyncError::TlsRequerido)
 }
 
+/// Conecta y hace el bind de servicio (TLS obligatorio, mapeo validado).
+/// Compartido por el sync (`buscar_entradas`) y la verificación puntual del
+/// login (`verificacion.rs`, spec/15 §3).
+pub(crate) async fn conectar_ldap(
+    cfg: &DirectorySyncConfig,
+    credencial: (Vec<u8>, Vec<u8>),
+    secrets_key: &ClaveSecreta32,
+) -> Result<ldap3::Ldap, DirectorySyncError> {
+    validar_tls(cfg)?;
+    validar_mapeo(&cfg.attribute_mapping)?;
+
+    let url = cfg.ldap_url.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
+    let bind_dn = cfg.bind_dn.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
+
+    let (cifrado, nonce) = credencial;
+    let nonce: [u8; 24] = nonce.try_into().map_err(|_| DirectorySyncError::NoConfigurado)?;
+    let envoltura = aead::Envoltura { nonce, ciphertext: cifrado };
+    let bind_password_bytes = aead::descifrar(secrets_key, &envoltura, b"directory_sync_bind_password")
+        .map_err(|_| DirectorySyncError::Ldap("no se pudo descifrar la credencial de bind".into()))?;
+    let bind_password = String::from_utf8(bind_password_bytes).map_err(|_| DirectorySyncError::Ldap("credencial inválida".into()))?;
+
+    let settings = LdapConnSettings::new()
+        .set_starttls(url.starts_with("ldap://"))
+        .set_conn_timeout(Duration::from_secs(10))
+        // Sólo para el LDAP de prueba de esta fase (certificado
+        // autofirmado) — producción necesita un certificado válido.
+        .set_no_tls_verify(std::env::var("ELLKAN_DIRECTORY_SYNC_INSECURE_TLS").is_ok());
+
+    let (conn, mut ldap) = LdapConnAsync::with_settings(settings, url)
+        .await
+        .map_err(|e| DirectorySyncError::Ldap(e.to_string()))?;
+    ldap3::drive!(conn);
+
+    ldap.simple_bind(bind_dn, &bind_password)
+        .await
+        .and_then(|r| r.success())
+        .map_err(|e| DirectorySyncError::Ldap(e.to_string()))?;
+    Ok(ldap)
+}
+
+/// Filtro base de usuarios (`objectClass` + filtro del admin), escapado.
+pub(crate) fn filtro_de_usuarios(cfg: &DirectorySyncConfig) -> String {
+    let filtro_base = format!("(objectClass={})", escapar_filtro_ldap(&cfg.user_object_class));
+    match &cfg.user_filter {
+        Some(custom) if !custom.is_empty() => format!("(&{filtro_base}({}))", escapar_filtro_ldap(custom)),
+        _ => filtro_base,
+    }
+}
+
 pub struct DirectorySyncService<'a, C, U, GR, GM, P> {
     pub config: &'a C,
     pub usuarios: &'a U,
@@ -177,45 +226,60 @@ where
         self.config().await
     }
 
+    /// spec/15 §3.2 (#52): política de verificación. Lo que no viene queda
+    /// como estaba.
+    pub async fn actualizar_verificacion(
+        &self,
+        politica: Option<String>,
+        grace_seconds: Option<i32>,
+        session_revalidate_seconds: Option<i32>,
+    ) -> Result<(), DomainError> {
+        let actual = self.config().await?;
+        let politica = politica.unwrap_or(actual.directory_unreachable_policy);
+        if politica != "grace" && politica != "deny" {
+            return Err(DomainError::ValidacionInvalida("directory_unreachable_policy debe ser 'grace' o 'deny'".into()));
+        }
+        let grace = grace_seconds.unwrap_or(actual.grace_seconds);
+        if !(0..=86_400).contains(&grace) {
+            return Err(DomainError::ValidacionInvalida("grace_seconds debe estar entre 0 y 86400".into()));
+        }
+        let revalidar = session_revalidate_seconds.unwrap_or(actual.session_revalidate_seconds);
+        if !(30..=86_400).contains(&revalidar) {
+            return Err(DomainError::ValidacionInvalida("session_revalidate_seconds debe estar entre 30 y 86400".into()));
+        }
+        self.config.actualizar_verificacion(&politica, grace, revalidar).await?;
+        Ok(())
+    }
+
+    /// #53: sincronización automática y tope de bajas.
+    pub async fn actualizar_sync_automatico(
+        &self,
+        habilitado: Option<bool>,
+        intervalo: Option<i32>,
+        tope: Option<Option<i32>>,
+    ) -> Result<(), DomainError> {
+        let actual = self.config().await?;
+        let habilitado = habilitado.unwrap_or(actual.auto_sync_enabled);
+        let intervalo = intervalo.unwrap_or(actual.poll_interval_seconds);
+        if !(30..=86_400).contains(&intervalo) {
+            return Err(DomainError::ValidacionInvalida("poll_interval_seconds debe estar entre 30 y 86400".into()));
+        }
+        let tope = tope.unwrap_or(actual.max_deactivations_per_run);
+        if tope.is_some_and(|t| t < 1) {
+            return Err(DomainError::ValidacionInvalida("max_deactivations_per_run debe ser al menos 1".into()));
+        }
+        self.config.actualizar_sync_automatico(habilitado, intervalo, tope).await?;
+        Ok(())
+    }
+
     async fn buscar_entradas(&self, cfg: &DirectorySyncConfig) -> Result<Vec<EntradaLdap>, DomainError> {
+        // TLS y mapeo antes que cualquier otra cosa (F-19).
         validar_tls(cfg)?;
         validar_mapeo(&cfg.attribute_mapping)?;
-
-        let url = cfg.ldap_url.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
         let base_dn = cfg.base_dn.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
-        let bind_dn = cfg.bind_dn.as_deref().ok_or(DirectorySyncError::NoConfigurado)?;
-
-        let (cifrado, nonce) = self.config.obtener_credencial_bind().await?.ok_or(DirectorySyncError::NoConfigurado)?;
-        let nonce: [u8; 24] = nonce.try_into().map_err(|_| DirectorySyncError::NoConfigurado)?;
-        let envoltura = aead::Envoltura { nonce, ciphertext: cifrado };
-        let bind_password_bytes = aead::descifrar(self.secrets_key, &envoltura, b"directory_sync_bind_password")
-            .map_err(|_| DirectorySyncError::Ldap("no se pudo descifrar la credencial de bind".into()))?;
-        let bind_password = String::from_utf8(bind_password_bytes).map_err(|_| DirectorySyncError::Ldap("credencial inválida".into()))?;
-
-        let settings = LdapConnSettings::new()
-            .set_starttls(url.starts_with("ldap://"))
-            .set_conn_timeout(Duration::from_secs(10))
-            // Sólo para el LDAP de prueba de esta fase (certificado
-            // autofirmado) — producción necesita un certificado válido.
-            .set_no_tls_verify(std::env::var("ELLKAN_DIRECTORY_SYNC_INSECURE_TLS").is_ok());
-
-        let (conn, mut ldap) = LdapConnAsync::with_settings(settings, url)
-            .await
-            .map_err(|e| DirectorySyncError::Ldap(e.to_string()))?;
-        ldap3::drive!(conn);
-
-        ldap.simple_bind(bind_dn, &bind_password)
-            .await
-            .and_then(|r| r.success())
-            .map_err(|e| DirectorySyncError::Ldap(e.to_string()))?;
-
-        let filtro_base = format!("(objectClass={})", escapar_filtro_ldap(&cfg.user_object_class));
-        let filtro = match &cfg.user_filter {
-            Some(custom) if !custom.is_empty() => {
-                format!("(&{filtro_base}({}))", escapar_filtro_ldap(custom))
-            }
-            _ => filtro_base,
-        };
+        let credencial = self.config.obtener_credencial_bind().await?.ok_or(DirectorySyncError::NoConfigurado)?;
+        let mut ldap = conectar_ldap(cfg, credencial, self.secrets_key).await?;
+        let filtro = filtro_de_usuarios(cfg);
 
         let campo_external_id = cfg.attribute_mapping.get("external_id").cloned().unwrap_or_else(|| "uid".into());
         let campo_email = cfg.attribute_mapping.get("email").cloned().unwrap_or_else(|| "mail".into());
@@ -301,6 +365,7 @@ where
         // SCIM F-18).
         let (gestionados, _total) = self.usuarios.listar(0, 10_000).await?;
         let ids_ldap: std::collections::HashSet<&str> = entradas.iter().map(|e| e.external_id.as_str()).collect();
+        let gestionadas_activas = gestionados.iter().filter(|u| u.active && u.external_id.is_some()).count();
         for u in gestionados {
             if u.active
                 && let Some(ext) = &u.external_id
@@ -309,6 +374,12 @@ where
                 resultado.would_deactivate.push(ext.clone());
             }
         }
+
+        // spec/15 §2.5 (#53): freno de bajas masivas. Un base DN mal escrito
+        // o un directorio que devuelve 0 resultados no puede desactivar a
+        // toda la organización.
+        let directorio_vacio = entradas.is_empty() && gestionadas_activas > 0;
+        resultado.requires_confirmation = directorio_vacio || resultado.would_deactivate.len() > cfg.tope_de_bajas(gestionadas_activas);
 
         Ok(resultado)
     }
@@ -328,10 +399,30 @@ where
         Ok(resultado)
     }
 
-    pub async fn aplicar(&self, actor_id: Uuid) -> Result<ResultadoSync, DomainError> {
+    /// `actor_id = None`: corrida automática (#53). `confirmar_bajas_masivas`:
+    /// el admin vio el dry-run y acepta aplicar más bajas que el tope (§2.5);
+    /// la corrida automática nunca confirma.
+    pub async fn aplicar(&self, actor_id: Option<Uuid>, confirmar_bajas_masivas: bool) -> Result<ResultadoSync, DomainError> {
         let cfg = self.config().await?;
         let entradas = self.buscar_entradas(&cfg).await?;
-        let resultado = self.calcular_diff(&cfg, &entradas).await?;
+        let mut resultado = self.calcular_diff(&cfg, &entradas).await?;
+
+        if resultado.requires_confirmation && !confirmar_bajas_masivas {
+            resultado.aborted = true;
+            tracing::warn!(
+                bajas = resultado.would_deactivate.len(),
+                entradas = entradas.len(),
+                "directory sync: corrida abortada por bajas masivas, no se aplicó nada"
+            );
+            let _ = self.eventos.send(DomainEvent::Auditoria(
+                EventoAuditoria::nuevo(AuditEventType::DirectorySyncAbortedMassDeactivation, actor_id).con_metadata(serde_json::json!({
+                    "would_deactivate": resultado.would_deactivate.len(),
+                    "directory_entries": entradas.len(),
+                    "automatic": actor_id.is_none(),
+                })),
+            ));
+            return Ok(resultado);
+        }
 
         for entrada in &entradas {
             match self.usuarios.buscar_por_external_id(&entrada.external_id).await? {
@@ -374,7 +465,7 @@ where
                 // queda auditado quién se desactivó, y dispara la revocación
                 // remota en sus apps de escritorio vinculadas (`revocacion`).
                 let _ = self.eventos.send(DomainEvent::Auditoria(
-                    EventoAuditoria::nuevo(AuditEventType::UserDeactivated, Some(actor_id))
+                    EventoAuditoria::nuevo(AuditEventType::UserDeactivated, actor_id)
                         .con_sujeto("user", u.id)
                         .con_metadata(serde_json::json!({ "origen": "directory_sync" })),
                 ));
@@ -414,11 +505,16 @@ where
             }
         }
 
+        // #52: lo que el directorio acaba de mostrar queda gestionado por él
+        // (se verifica en cada login) y verificado ahora.
+        let vistos: Vec<String> = entradas.iter().map(|e| e.external_id.clone()).collect();
+        self.config.marcar_gestionados(&vistos).await?;
+
         self.config.marcar_sync_aplicado().await?;
 
         let _ = self
             .eventos
-            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::DirectorySyncApplied, Some(actor_id))));
+            .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::DirectorySyncApplied, actor_id)));
 
         Ok(resultado)
     }

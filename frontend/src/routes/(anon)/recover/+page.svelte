@@ -11,22 +11,22 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Card from '$lib/components/Card.svelte';
-	import { recoveryKitApi } from '$lib/api/recoveryKit';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Card from '#lib/components/Card.svelte';
+	import { recoveryKitApi } from '#lib/api/recoveryKit';
 	import {
 		desellarMaterialDelEscrow,
 		reSellarConNuevaPassphrase,
 		firmarChallengeConMaterial,
 		pruebaDePosesion,
 		type BlobClaveNueva
-	} from '$lib/crypto/accountRecovery';
-	import { base64ABytes } from '$lib/crypto/b64';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
-	import { t } from '$lib/i18n';
-	import { ApiError, api } from '$lib/api/client';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
+	} from '#lib/crypto/accountRecovery';
+	import { base64ABytes } from '#lib/crypto/b64';
+	import { evaluarFortaleza } from '#lib/crypto/passwordStrength.svelte';
+	import { t } from '#lib/i18n';
+	import { ApiError, api } from '#lib/api/client';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
 
 	// Punto 8: la app de escritorio no tiene SMTP, así que no hay link ni
 	// código por correo. Ahí el flujo salta esos pasos ('esperando-email' y

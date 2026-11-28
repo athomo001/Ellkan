@@ -11,6 +11,8 @@ pub enum ReportId {
     MfaCoverage,
     InactiveUsers,
     ResourcesNeverRotated,
+    /// spec/15 §7 (#56): lo que tenían cuentas ya desactivadas.
+    SecretsToRotate,
 }
 
 impl ReportId {
@@ -20,6 +22,7 @@ impl ReportId {
             "mfa_coverage" => ReportId::MfaCoverage,
             "inactive_users" => ReportId::InactiveUsers,
             "resources_never_rotated" => ReportId::ResourcesNeverRotated,
+            "secrets_to_rotate" => ReportId::SecretsToRotate,
             _ => return None,
         })
     }
@@ -59,4 +62,19 @@ pub struct FilaRecursoSinRotar {
     pub resource_id: Uuid,
     pub created_by: Option<Uuid>,
     pub created_at: OffsetDateTime,
+}
+
+/// spec/15 §7 (#56): un recurso que una o más cuentas desactivadas todavía
+/// tienen descifrable (conservan su sobre). Con cifrado de extremo a extremo
+/// revocar no borra lo que ya vieron: hay que rotarlo. Los nombres van
+/// cifrados; el reporte dice tipo, dueños (a quién pedirle que rote) y quién
+/// se fue.
+#[derive(Debug, Clone)]
+pub struct FilaSecretoARotar {
+    pub resource_id: Uuid,
+    pub resource_type_slug: String,
+    /// Infraestructura y tokens primero (`ssh`, `rdp`, bases, `api-token`…).
+    pub prioridad_alta: bool,
+    pub owners: Vec<String>,
+    pub deactivated_users: Vec<String>,
 }

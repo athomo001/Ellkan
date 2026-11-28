@@ -4,6 +4,7 @@
 // Service (spec 06 §2). Sin lógica de negocio acá.
 
 import { AuthService, type ResultadoLogin, type EstadoSesionActual } from '../services/auth-service';
+import { quitarFinales } from '../../shared/texto';
 
 interface PedidoLogin {
 	serverUrl: string;
@@ -49,17 +50,17 @@ function validarPedidoVerificarDispositivo(payload: unknown): PedidoVerificarDis
 export const AuthController = {
 	async login(payload: unknown): Promise<ResultadoLogin> {
 		const { serverUrl, email, passphrase, forceMfa } = validarPedidoLogin(payload);
-		return AuthService.login(serverUrl.replace(/\/+$/, ''), email, passphrase, forceMfa);
+		return AuthService.login(quitarFinales(serverUrl, '/'), email, passphrase, forceMfa);
 	},
 
 	async verificarDispositivo(payload: unknown): Promise<{ estado: string; sessionId?: string }> {
 		const { serverUrl, deviceChallengeId, codigo } = validarPedidoVerificarDispositivo(payload);
-		return AuthService.verificarDispositivo(serverUrl.replace(/\/+$/, ''), deviceChallengeId, codigo);
+		return AuthService.verificarDispositivo(quitarFinales(serverUrl, '/'), deviceChallengeId, codigo);
 	},
 
 	async verificarMfa(payload: unknown): Promise<void> {
 		const { serverUrl, sessionIdParcial, codigo } = validarPedidoVerificarMfa(payload);
-		return AuthService.verificarMfa(serverUrl.replace(/\/+$/, ''), sessionIdParcial, codigo);
+		return AuthService.verificarMfa(quitarFinales(serverUrl, '/'), sessionIdParcial, codigo);
 	},
 
 	async estadoSesion(): Promise<EstadoSesionActual | null> {

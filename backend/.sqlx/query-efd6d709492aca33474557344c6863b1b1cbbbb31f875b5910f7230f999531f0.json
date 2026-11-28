@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update users set managed_by = 'directory_sync', last_directory_check_at = now()\n                where external_id = any($1) and deleted_at is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "efd6d709492aca33474557344c6863b1b1cbbbb31f875b5910f7230f999531f0"
+}

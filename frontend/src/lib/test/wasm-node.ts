@@ -7,7 +7,7 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import init, * as ellkanCrypto from '$lib/wasm/ellkan_crypto.js';
+import init, * as ellkanCrypto from '#lib/wasm/ellkan_crypto.js';
 
 let listo: Promise<typeof ellkanCrypto> | null = null;
 

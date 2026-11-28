@@ -37,13 +37,54 @@ services:
       # `ELLKAN_MIGRATE_REPAIR_CHECKSUMS` NO va acá: apaga la detección de
       # migraciones alteradas. Es una bandera de emergencia de un solo uso
       # (ver manual/instalacion.md, troubleshooting).
-    secrets:
-      - database_url
-      - ellkan_secrets_key
+    # Los secretos se leen de un volumen de Docker que llena `ellkan-secretos`,
+    # no de `./secrets` directo: en Docker Desktop (Windows) un archivo
+    # montado desde el disco del host queda ilegible («Permission denied»)
+    # si Docker se reinicia solo —p. ej. al despertar del Ahorro de recursos—
+    # y vuelve a levantar este contenedor antes de que el disco esté listo.
+    # El volumen vive dentro de Docker, así que ese reinicio no lo afecta.
+    volumes:
+      - ellkan_secretos:/run/secrets:ro
     depends_on:
+      ellkan-secretos:
+        condition: service_completed_successfully
       ellkan-db:
         condition: service_healthy
     restart: unless-stopped
+
+  # Copia `./secrets/*.txt` al volumen `ellkan_secretos` y termina. Corre en
+  # cada `docker compose up` (cambiar un secreto = editar el .txt + `up -d`);
+  # el reinicio automático de Docker no lo vuelve a correr ni lo necesita.
+  # Usa la imagen de Postgres porque ya está descargada y trae `sh`.
+  ellkan-secretos:
+    image: "${POSTGRES_IMAGE:-postgres:18}"
+    container_name: ellkan-secretos
+    entrypoint: ["sh", "-c"]
+    # 65532 = usuario `nonroot` de la imagen distroless del servidor. Se
+    # borra antes de copiar porque el archivo de la corrida anterior ya es
+    # 0400 de 65532 y, sin DAC_OVERRIDE, root no puede sobrescribirlo; el
+    # chmod va antes del chown porque, sin FOWNER, root sólo cambia el modo
+    # de lo que es suyo.
+    command:
+      - >-
+        set -e;
+        cd /destino;
+        rm -f database_url ellkan_secrets_key;
+        cp /origen/database_url.txt database_url;
+        cp /origen/ellkan_secrets_key.txt ellkan_secrets_key;
+        chmod 0400 database_url ellkan_secrets_key;
+        chown 65532:65532 database_url ellkan_secrets_key
+    volumes:
+      - ./secrets:/origen:ro
+      - ellkan_secretos:/destino
+    # Mínimo privilegio: sin red, sistema de archivos de sólo lectura (sólo
+    # escribe en el volumen) y, de las capacidades de root, sólo CHOWN.
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
 
   ellkan-db:
     image: "${POSTGRES_IMAGE:-postgres:18}"
@@ -74,12 +115,9 @@ services:
     restart: unless-stopped
 
 secrets:
-  database_url:
-    file: ./secrets/database_url.txt
   postgres_password:
     file: ./secrets/postgres_password.txt
-  ellkan_secrets_key:
-    file: ./secrets/ellkan_secrets_key.txt
 
 volumes:
   postgres_data:
+  ellkan_secretos:

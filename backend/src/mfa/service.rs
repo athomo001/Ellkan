@@ -35,6 +35,27 @@ pub fn hash_de_sesion(session_id: Uuid) -> Vec<u8> {
     Sha256::digest(session_id.as_bytes()).to_vec()
 }
 
+/// ELK-03 (#149): fallos consecutivos de MFA tolerados antes de bloquear la
+/// cuenta. Muy por debajo del tope de NIST SP 800-63B §5.2.2 (100) y del
+/// espacio de un código de 6 dígitos.
+pub const FALLOS_MFA_ANTES_DE_BLOQUEAR: i32 = 10;
+/// Primer bloqueo: 15 min. Cada fallo extra lo duplica, hasta 24 h.
+const BLOQUEO_MFA_INICIAL_SEGUNDOS: i64 = 15 * 60;
+const BLOQUEO_MFA_MAXIMO_SEGUNDOS: i64 = 24 * 60 * 60;
+
+/// ELK-03 (#149): cuánto se bloquea la cuenta después de `fallos` fallos
+/// consecutivos (`None` = todavía no). Función pura, testeable sin base.
+pub fn bloqueo_tras_fallos(fallos: i32) -> Option<time::Duration> {
+    if fallos < FALLOS_MFA_ANTES_DE_BLOQUEAR {
+        return None;
+    }
+    // A partir del 10.º: 15 min, 30 min, 1 h… (el exponente se acota antes
+    // de desplazar para no desbordar).
+    let extra = (fallos - FALLOS_MFA_ANTES_DE_BLOQUEAR).min(16) as u32;
+    let segundos = BLOQUEO_MFA_INICIAL_SEGUNDOS.saturating_mul(1i64 << extra).min(BLOQUEO_MFA_MAXIMO_SEGUNDOS);
+    Some(time::Duration::seconds(segundos))
+}
+
 /// Decide qué le corresponde a un login ya pasado F-02 (dispositivo
 /// conocido) — función pura, sin I/O, para poder testearla sin Postgres.
 pub fn decidir(politica: &MfaPolicy, tiene_confirmado: bool, user_created_at: OffsetDateTime) -> DecisionMfa {
@@ -244,12 +265,36 @@ where
         codigo: u32,
         device_token_hash: Option<&[u8]>,
     ) -> Result<(), DomainError> {
+        // ELK-03 (#149): con la cuenta bloqueada no se mira el código (ni
+        // siendo correcto): así el bloqueo no se puede usar como oráculo.
+        // Persistente en la base: sobrevive reinicios y vale entre réplicas.
+        if self.challenges.bloqueado_hasta(user_id).await?.is_some() {
+            return Err(DomainError::RateLimited);
+        }
+
         let resultado = self.verificar_login_interno(user_id, session_id_actual, codigo, device_token_hash).await;
 
-        if resultado.is_err() {
-            let _ = self
-                .eventos
-                .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthMfaFailed, Some(user_id))));
+        match &resultado {
+            Ok(()) => self.challenges.reiniciar_fallos(user_id).await?,
+            // Sólo cuenta un código rechazado (o una sesión sin desafío), no un
+            // error de la base.
+            Err(DomainError::InvalidCredentials) => {
+                let _ = self
+                    .eventos
+                    .send(DomainEvent::Auditoria(EventoAuditoria::nuevo(AuditEventType::AuthMfaFailed, Some(user_id))));
+                let fallos = self.challenges.registrar_fallo(user_id).await?;
+                if let Some(duracion) = bloqueo_tras_fallos(fallos) {
+                    let hasta = OffsetDateTime::now_utc() + duracion;
+                    self.challenges.fijar_bloqueo(user_id, hasta).await?;
+                    tracing::warn!(%user_id, fallos, bloqueo_segundos = duracion.whole_seconds(), "cuenta bloqueada por fallos de MFA");
+                    let _ = self.eventos.send(DomainEvent::Auditoria(
+                        EventoAuditoria::nuevo(AuditEventType::AuthMfaLocked, Some(user_id))
+                            .con_sujeto("user", user_id)
+                            .con_metadata(serde_json::json!({ "fallos_consecutivos": fallos, "bloqueo_segundos": duracion.whole_seconds() })),
+                    ));
+                }
+            }
+            Err(_) => {}
         }
 
         resultado
@@ -313,5 +358,25 @@ where
         ));
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests_bloqueo {
+    use super::*;
+
+    #[test]
+    fn no_bloquea_antes_del_umbral() {
+        assert_eq!(bloqueo_tras_fallos(0), None);
+        assert_eq!(bloqueo_tras_fallos(FALLOS_MFA_ANTES_DE_BLOQUEAR - 1), None);
+    }
+
+    #[test]
+    fn el_bloqueo_se_duplica_y_tiene_tope() {
+        assert_eq!(bloqueo_tras_fallos(10), Some(time::Duration::minutes(15)));
+        assert_eq!(bloqueo_tras_fallos(11), Some(time::Duration::minutes(30)));
+        assert_eq!(bloqueo_tras_fallos(12), Some(time::Duration::hours(1)));
+        assert_eq!(bloqueo_tras_fallos(30), Some(time::Duration::hours(24)));
+        assert_eq!(bloqueo_tras_fallos(i32::MAX), Some(time::Duration::hours(24)));
     }
 }

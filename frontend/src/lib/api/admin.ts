@@ -8,7 +8,7 @@
 
 import { get } from 'svelte/store';
 import { api } from './client';
-import { sesion } from '$lib/state/session';
+import { sesion } from '#lib/state/session';
 import type { ClaveOrg } from './accountRecovery';
 
 // --- roles ---
@@ -276,6 +276,16 @@ export interface DirectorySyncConfig {
 	user_object_class: string;
 	sync_groups: boolean;
 	group_membership_attribute: string;
+	/** spec/15 §3.2 (#52). */
+	directory_unreachable_policy: 'grace' | 'deny';
+	grace_seconds: number;
+	session_revalidate_seconds: number;
+	/** spec/15 §2 (#53). */
+	auto_sync_enabled: boolean;
+	poll_interval_seconds: number;
+	/** `null` = automático (10 %, mínimo 5). */
+	max_deactivations_per_run: number | null;
+	last_auto_sync_error: string | null;
 }
 export interface DirectorySyncConfigUpdate {
 	ldap_url?: string;
@@ -288,6 +298,13 @@ export interface DirectorySyncConfigUpdate {
 	user_object_class: string;
 	sync_groups: boolean;
 	group_membership_attribute: string;
+	directory_unreachable_policy?: 'grace' | 'deny';
+	grace_seconds?: number;
+	session_revalidate_seconds?: number;
+	auto_sync_enabled?: boolean;
+	poll_interval_seconds?: number;
+	/** `0` = automático. */
+	max_deactivations_per_run?: number;
 }
 export interface CambioGrupoUsuario {
 	external_id: string;
@@ -301,12 +318,17 @@ export interface ResultadoSync {
 	unchanged: number;
 	conflicts: string[];
 	group_changes: CambioGrupoUsuario[];
+	/** §2.5 (#53): superaría el tope de bajas; `aplicar` no hace nada sin confirmar. */
+	requires_confirmation: boolean;
+	aborted: boolean;
 }
 export const directorySyncApi = {
 	obtenerConfig: () => api.get<DirectorySyncConfig>('/admin/directory-sync/config'),
 	actualizarConfig: (c: DirectorySyncConfigUpdate) => api.put<DirectorySyncConfig>('/admin/directory-sync/config', c),
 	dryRun: () => api.post<ResultadoSync>('/admin/directory-sync/dry-run'),
-	aplicar: () => api.post<ResultadoSync>('/admin/directory-sync/apply')
+	aplicar: () => api.post<ResultadoSync>('/admin/directory-sync/apply'),
+	/** §2.5: aplicar aunque supere el tope de bajas (después de ver el dry-run). */
+	aplicarConfirmando: () => api.post<ResultadoSync>('/admin/directory-sync/apply?confirm_mass_deactivation=true')
 };
 
 // --- Metadata keys ---
@@ -435,7 +457,7 @@ export async function obtenerAvatarUrlAdmin(userId: string): Promise<string | nu
 }
 
 // --- Reportes (F-23) ---
-export type ReportId = 'passwords_expired' | 'mfa_coverage' | 'inactive_users' | 'resources_never_rotated';
+export type ReportId = 'passwords_expired' | 'mfa_coverage' | 'inactive_users' | 'resources_never_rotated' | 'secrets_to_rotate';
 export interface ReportItem {
 	user_id?: string;
 	email?: string;
@@ -445,6 +467,11 @@ export interface ReportItem {
 	passphrase_set_at?: string;
 	last_login_at?: string | null;
 	created_at?: string;
+	/** `secrets_to_rotate` (spec/15 §7, #56). */
+	resource_type_slug?: string;
+	high_priority?: boolean;
+	owners?: string[];
+	deactivated_users?: string[];
 }
 export interface ReportPage {
 	report_id: ReportId;

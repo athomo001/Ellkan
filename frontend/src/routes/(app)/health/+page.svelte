@@ -6,14 +6,14 @@
 	// comprobación de filtraciones (HIBP, k-anonymous), que es OPT-IN y sólo
 	// corre cuando el usuario aprieta el botón.
 	import { onDestroy } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { t } from '$lib/i18n';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { listarRecursos, verSecreto } from '$lib/crypto/recursos';
-	import { evaluarFortaleza, cargarMedidor } from '$lib/crypto/passwordStrength.svelte';
-	import { analizar, huellaLocal, type Informe, type ItemSalud } from '$lib/salud/informe';
-	import { contarFiltraciones } from '$lib/salud/hibp';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { t } from '#lib/i18n';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { listarRecursos, verSecreto } from '#lib/crypto/recursos';
+	import { evaluarFortaleza, cargarMedidor } from '#lib/crypto/passwordStrength.svelte';
+	import { analizar, huellaLocal, type Informe, type ItemSalud } from '#lib/salud/informe';
+	import { contarFiltraciones } from '#lib/salud/hibp';
 
 	const CLAVE_UMBRAL = 'ellkan:salud:umbral';
 	const CLAVE_HIBP = 'ellkan:salud:hibp';

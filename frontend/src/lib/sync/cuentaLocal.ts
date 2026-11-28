@@ -6,16 +6,16 @@
 // con el de allá — de ahí que haga falta poder cambiarlo.
 //
 // El cambio en sí (re-sellar el blob de la clave privada, que usa el correo
-// como AAD, + `PUT /me/email`) vive en `$lib/crypto/identity.ts`. Este módulo
+// como AAD, + `PUT /me/email`) vive en `#lib/crypto/identity.ts`. Este módulo
 // orquesta lo que rodea al cambio del lado del cliente: lo que estaba
 // guardado POR correo y se rompería o quedaría huérfano.
 
 import { get } from 'svelte/store';
-import { cambiarEmailDeCuenta } from '$lib/crypto/identity';
-import * as llaveroLocal from '$lib/crypto/llavero-local';
-import * as totpLocal from '$lib/crypto/totp-local';
-import { moverTokenSeguridad } from '$lib/state/securityToken';
-import { sesion } from '$lib/state/session';
+import { cambiarEmailDeCuenta } from '#lib/crypto/identity';
+import * as llaveroLocal from '#lib/crypto/llavero-local';
+import * as totpLocal from '#lib/crypto/totp-local';
+import { moverTokenSeguridad } from '#lib/state/securityToken';
+import { sesion } from '#lib/state/session';
 import { obtenerVinculacion } from './vinculacion';
 
 export interface ResultadoCambioEmail {

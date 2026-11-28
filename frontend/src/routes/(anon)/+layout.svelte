@@ -11,10 +11,10 @@
 	// (`$t` es un store derivado de `preferencias`, y `aplicarTema` ya se
 	// llama desde el layout raíz en cada cambio, en toda ruta).
 	import type { Snippet } from 'svelte';
-	import { preferencias } from '$lib/state/session';
-	import { alternarTema } from '$lib/api/preferences';
-	import { t } from '$lib/i18n';
-	import CodigoFuente from '$lib/components/CodigoFuente.svelte';
+	import { preferencias } from '#lib/state/session';
+	import { alternarTema } from '#lib/api/preferences';
+	import { t } from '#lib/i18n';
+	import CodigoFuente from '#lib/components/CodigoFuente.svelte';
 	let { children }: { children: Snippet } = $props();
 
 	function alternarIdioma() {

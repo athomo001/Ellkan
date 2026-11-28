@@ -15,9 +15,8 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			// Kit 3 sacó el alias `$lib` (ahora `#lib`); se conserva explícito
-			// para no reescribir los ~500 imports existentes.
-			alias: { $lib: 'src/lib' },
+			// `#lib` sale del campo `imports` de package.json (subpath imports,
+			// reemplazo de `$lib` en Kit 3; #130).
 			adapter: adapter({
 				pages: 'build',
 				assets: 'build',

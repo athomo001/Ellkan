@@ -1,15 +1,15 @@
 // Autor: Athan Espinoza
 
 // F-47 (modo conectado): cliente HTTP mínimo para hablar con un servidor
-// Ellkan REMOTO — deliberadamente separado de `$lib/api/client.ts`. Ese
+// Ellkan REMOTO — deliberadamente separado de `#lib/api/client.ts`. Ese
 // cliente está atado al store global de sesión LOCAL y a `baseUrl()` (el
 // backend local), con efectos secundarios reales en un 401 (logout +
 // redirect a `/login`) que serían un bug acá: una sesión remota vencida o
 // un servidor remoto caído nunca deben desloguear al usuario de su propia
 // bóveda local, sólo fallar el sync puntual.
 
-import { fetchConReintento, parsearCuerpo } from '$lib/api/reintento';
-import { traerTodasLasPaginas } from '$lib/api/paginado';
+import { fetchConReintento, parsearCuerpo } from '#lib/api/reintento';
+import { traerTodasLasPaginas } from '#lib/api/paginado';
 
 export class RemoteApiError extends Error {
 	constructor(

@@ -13,7 +13,7 @@
 // (para pedir el blob) y la clave de envoltura (para abrirlo); `abrir` ya no
 // deriva nada. `sellar` usa siempre los parámetros actuales del crate.
 
-import init, * as ellkanCrypto from '$lib/wasm/ellkan_crypto.js';
+import init, * as ellkanCrypto from '#lib/wasm/ellkan_crypto.js';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 

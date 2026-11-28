@@ -5,13 +5,13 @@
 // API y el sync se reemplazan por dobles que capturan lo que se enviaría.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cargarCryptoEnNode } from '$lib/test/wasm-node';
+import { cargarCryptoEnNode } from '#lib/test/wasm-node';
 
 const enviados = vi.hoisted(() => ({ posts: [] as { ruta: string; cuerpo: Record<string, string> }[] }));
 const respuestasGet = vi.hoisted(() => new Map<string, unknown>());
 
 vi.mock('./wasm', () => ({ cargarCrypto: cargarCryptoEnNode }));
-vi.mock('$lib/api/client', () => {
+vi.mock('#lib/api/client', () => {
 	class ApiError extends Error {
 		constructor(
 			public status: number,
@@ -35,15 +35,15 @@ vi.mock('$lib/api/client', () => {
 		}
 	};
 });
-vi.mock('$lib/sync/notificador', () => ({
+vi.mock('#lib/sync/notificador', () => ({
 	notificarRecursoCreado: vi.fn(),
 	notificarRecursoEditado: vi.fn(),
 	notificarRecursoEliminado: vi.fn()
 }));
-vi.mock('$lib/sync/vinculacion', () => ({ obtenerVinculacion: vi.fn(), sesionRemotaVigente: vi.fn() }));
-vi.mock('$lib/sync/remoteClient', () => ({ clienteRemoto: vi.fn() }));
-vi.mock('$lib/sync/persistencia', () => ({ obtenerPersistencia: vi.fn(async () => 'full') }));
-vi.mock('$lib/cache/metadataCache', () => ({ leerDeCache: vi.fn(), guardarEnCache: vi.fn() }));
+vi.mock('#lib/sync/vinculacion', () => ({ obtenerVinculacion: vi.fn(), sesionRemotaVigente: vi.fn() }));
+vi.mock('#lib/sync/remoteClient', () => ({ clienteRemoto: vi.fn() }));
+vi.mock('#lib/sync/persistencia', () => ({ obtenerPersistencia: vi.fn(async () => 'full') }));
+vi.mock('#lib/cache/metadataCache', () => ({ leerDeCache: vi.fn(), guardarEnCache: vi.fn() }));
 
 const { comandoDeConexion, crearRecurso, infoConexion, urlSegura, verSecreto } = await import('./recursos');
 

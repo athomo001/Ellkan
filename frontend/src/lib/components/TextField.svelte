@@ -6,7 +6,7 @@
 	// el submit fallaba. Mismo ícono/criterio que `SecretField` (👁/🙈),
 	// puesto acá una sola vez porque `TextField` es el campo compartido por
 	// login/registro/cambio de passphrase/etc.
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	let {
 		label,

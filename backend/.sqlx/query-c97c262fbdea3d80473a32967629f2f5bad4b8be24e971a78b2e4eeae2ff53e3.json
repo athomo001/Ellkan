@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update update_check set enabled = $1, updated_at = now() where id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c97c262fbdea3d80473a32967629f2f5bad4b8be24e971a78b2e4eeae2ff53e3"
+}

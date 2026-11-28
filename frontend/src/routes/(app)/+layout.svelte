@@ -10,28 +10,28 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
-	import { sesion, preferencias, esAdmin, permisos, externalSharePolicy } from '$lib/state/session';
-	import { externalSharePolicyApi } from '$lib/api/externalShares';
-	import { cargarPreferencias, alternarTema as alternarTemaLocal, guardarPreferencias } from '$lib/api/preferences';
-	import { preferenciasLectura, alternarFuenteLectura, normalizarLectura } from '$lib/state/lectura';
+	import { sesion, preferencias, esAdmin, permisos, externalSharePolicy } from '#lib/state/session';
+	import { externalSharePolicyApi } from '#lib/api/externalShares';
+	import { cargarPreferencias, alternarTema as alternarTemaLocal, guardarPreferencias } from '#lib/api/preferences';
+	import { preferenciasLectura, alternarFuenteLectura, normalizarLectura } from '#lib/state/lectura';
 	// Normalizado: lo guardado por la versión anterior no tenía `activa`.
 	const lecturaActiva = $derived(normalizarLectura($preferenciasLectura).activa);
-	import { cerrarSesion } from '$lib/crypto/identity';
-	import { limpiarStoresEn } from '$lib/state/declarative-store';
-	import { perfilApi, permisosApi, obtenerAvatarUrl, type Perfil } from '$lib/api/profile';
-	import { ApiError } from '$lib/api/client';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { obtenerVinculacion } from '$lib/sync/vinculacion';
-	import { iniciarSyncAutomatico } from '$lib/sync/automatico';
-	import { escucharAvisosEnWeb } from '$lib/sync/avisosWeb';
-	import { progresoSync } from '$lib/sync/motor';
-	import { vigilarEstados } from '$lib/tauri/vigilancia';
-	import BarraProgreso from '$lib/components/BarraProgreso.svelte';
-	import { avatarCambiado } from '$lib/sync/avatar';
-	import { cuentaRevocada } from '$lib/sync/revocacion';
-	import CuentaRevocada from '$lib/components/CuentaRevocada.svelte';
-	import RecuperacionDesactualizada from '$lib/components/RecuperacionDesactualizada.svelte';
+	import { cerrarSesion } from '#lib/crypto/identity';
+	import { limpiarStoresEn } from '#lib/state/declarative-store';
+	import { perfilApi, permisosApi, obtenerAvatarUrl, type Perfil } from '#lib/api/profile';
+	import { ApiError } from '#lib/api/client';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { obtenerVinculacion } from '#lib/sync/vinculacion';
+	import { iniciarSyncAutomatico } from '#lib/sync/automatico';
+	import { escucharAvisosEnWeb } from '#lib/sync/avisosWeb';
+	import { progresoSync } from '#lib/sync/motor';
+	import { vigilarEstados } from '#lib/tauri/vigilancia';
+	import BarraProgreso from '#lib/components/BarraProgreso.svelte';
+	import { avatarCambiado } from '#lib/sync/avatar';
+	import { cuentaRevocada } from '#lib/sync/revocacion';
+	import CuentaRevocada from '#lib/components/CuentaRevocada.svelte';
+	import RecuperacionDesactualizada from '#lib/components/RecuperacionDesactualizada.svelte';
 
 	// F-47: bóveda de escritorio vinculada y desbloqueada → trae lo nuevo del
 	// servidor sola (al entrar, cada pocos minutos y al volver a la ventana).
@@ -48,12 +48,12 @@
 		if (enModoEscritorio() || !$sesion.sessionId || !$clavesDesbloqueadas) return;
 		return escucharAvisosEnWeb();
 	});
-	import Button from '$lib/components/Button.svelte';
-	import LockOverlay from '$lib/components/LockOverlay.svelte';
-	import FolderTree from '$lib/components/FolderTree.svelte';
-	import { carpetasSidebar } from '$lib/state/carpetasSidebar';
-	import { t } from '$lib/i18n';
-	import CodigoFuente from '$lib/components/CodigoFuente.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import LockOverlay from '#lib/components/LockOverlay.svelte';
+	import FolderTree from '#lib/components/FolderTree.svelte';
+	import { carpetasSidebar } from '#lib/state/carpetasSidebar';
+	import { t } from '#lib/i18n';
+	import CodigoFuente from '#lib/components/CodigoFuente.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -82,7 +82,7 @@
 	});
 
 	// Se resuelve una sola vez por sesión — ver comentario de `esAdmin`/`permisos`
-	// en `$lib/state/session.ts`. Antes esto probaba `GET /admin/roles` y miraba
+	// en `#lib/state/session.ts`. Antes esto probaba `GET /admin/roles` y miraba
 	// si daba 403 (hack); `GET /me/permissions` da el conjunto real y `esAdmin`
 	// queda como un derivado (`'*'` presente) en vez de una llamada aparte.
 	$effect(() => {
@@ -189,7 +189,7 @@
 	function alternarTema(e: MouseEvent) {
 		// `onAplicado`, no código después del llamado — con la View Transition
 		// API el cambio de store no es sincrónico, ver comentario en
-		// `$lib/api/preferences.ts::alternarTema`.
+		// `#lib/api/preferences.ts::alternarTema`.
 		alternarTemaLocal($preferencias.theme, e, sincronizarPreferencias);
 	}
 

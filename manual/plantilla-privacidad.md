@@ -60,7 +60,7 @@ Podés pedir acceso, rectificación, eliminación, oposición, portabilidad [y l
 
 - **Ver qué datos tuyos tenemos:** en **Mi perfil → Mis datos personales** descargás un archivo con todo lo que el servidor sabe de tu cuenta.
 - **Exportar tu bóveda:** lo podés hacer vos desde la aplicación (CSV, KeePass), salvo que la política de la organización lo restrinja.
-- **Eliminar tu cuenta:** [cómo pedirlo]. Algunas entradas del registro de auditoría se conservan por [motivo] durante [plazo].
+- **Eliminar tu cuenta:** [cómo pedirlo]. Las entradas del registro de auditoría donde figurás como autor de una acción se conservan, sin anonimizar, por seguridad e integridad del registro (interés legítimo) durante [el plazo de retención de la auditoría, 365 días por defecto]; nunca contienen el contenido de tus contraseñas.
 
 También podés reclamar ante [autoridad de control: por ejemplo, la Agencia de Protección de Datos Personales en Chile o la autoridad de tu país en la UE].
 

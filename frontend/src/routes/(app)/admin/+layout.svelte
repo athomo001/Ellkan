@@ -16,10 +16,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
-	import { esAdmin } from '$lib/state/session';
-	import { t } from '$lib/i18n';
+	import { esAdmin } from '#lib/state/session';
+	import { t } from '#lib/i18n';
 	import { categorias } from './secciones';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
 
 	let { children }: { children: Snippet } = $props();
 

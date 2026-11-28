@@ -28,6 +28,7 @@
 // §2.2 vive en `extension/self-check.ts` (sección de `uri-match`).
 
 import { getDomain } from 'tldts';
+import { quitarFinales } from '../../shared/texto';
 
 // El tipo, la lista y `normalizarEstrategia` se comparten con el frontend web
 // (mismo criterio que `b64`/`uuid`/`passwordGenerator`) — sólo la evaluación
@@ -60,7 +61,7 @@ export function partesDeUri(uri: string): PartesUri | null {
 		// [a-z0-9+.-], seguido de `://`.
 		const conEsquema = /^[a-z][a-z0-9+.-]{0,31}:\/\//i.test(uri) ? uri : `https://${uri}`;
 		const u = new URL(conEsquema);
-		const path = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname;
+		const path = u.pathname.length > 1 ? quitarFinales(u.pathname, '/') : u.pathname;
 		return { hostname: u.hostname.toLowerCase(), port: u.port, pathNormalizado: path };
 	} catch {
 		return null;

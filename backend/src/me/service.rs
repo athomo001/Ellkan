@@ -84,12 +84,21 @@ where
 
     /// Pendiente #133: primer par de claves de una cuenta creada por SSO.
     /// 409 si la cuenta ya tiene claves.
+    ///
+    /// ELK-01 (#147, a2): además de una sesión válida exige que la haya
+    /// emitido el callback SSO hace menos de `MINUTOS_SESION_SSO_PARA_ENROLAR`.
+    /// Una sesión obtenida por cualquier otro camino (p. ej. una firma contra
+    /// una clave de relleno, el ataque original) no alcanza.
     pub async fn enrolar_claves(
         &self,
         user_id: Uuid,
+        session_id: Uuid,
         claves: &super::models::ClavesIniciales,
         eventos: &EmisorDeEventos,
     ) -> Result<(), DomainError> {
+        if !self.perfil.sesion_sso_reciente(session_id, user_id, MINUTOS_SESION_SSO_PARA_ENROLAR).await? {
+            return Err(DomainError::PermissionDenied);
+        }
         if !self.perfil.enrolar_claves(user_id, claves).await? {
             return Err(DomainError::Conflict);
         }
@@ -97,6 +106,11 @@ where
         Ok(())
     }
 }
+
+/// ELK-01 (#147, a2): ventana para enrolar tras el login SSO. Alcanza para
+/// configurar el segundo factor si la política lo pide; si se pasa, se vuelve
+/// a entrar por SSO.
+pub const MINUTOS_SESION_SSO_PARA_ENROLAR: i32 = 30;
 
 /// Formatos aceptados para el avatar — mismo criterio que cualquier otra
 /// validación de la app (rechazo explícito, nunca silencioso).

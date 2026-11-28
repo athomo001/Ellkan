@@ -17,10 +17,15 @@ pub trait PerfilRepository {
     async fn obtener(&self, user_id: Uuid) -> Result<Perfil, RepoError>;
 
     /// Pendiente #133: guarda el primer par de claves de una cuenta que no
-    /// tiene (blob vacío, alta por SSO). `false` si ya tenía: nunca pisa
-    /// claves existentes (eso es cambiar la contraseña, con prueba de
-    /// posesión).
+    /// tiene (alta por SSO/SCIM/directorio: sin fila en `user_keys`, ELK-01).
+    /// `false` si ya tenía: nunca pisa claves existentes (eso es cambiar la
+    /// contraseña, con prueba de posesión).
     async fn enrolar_claves(&self, user_id: Uuid, claves: &super::models::ClavesIniciales) -> Result<bool, RepoError>;
+
+    /// ELK-01 (#147, a2): si `session_id` es de `user_id`, la emitió el
+    /// callback SSO y tiene menos de `minutos`. Es la prueba independiente del
+    /// login por firma que exige el enrolamiento.
+    async fn sesion_sso_reciente(&self, session_id: Uuid, user_id: Uuid, minutos: i32) -> Result<bool, RepoError>;
 }
 
 pub trait AvatarRepository {
@@ -82,12 +87,15 @@ impl PreferenciasRepository for PgPreferenciasRepository {
 
 impl PerfilRepository for PgPreferenciasRepository {
     async fn enrolar_claves(&self, user_id: Uuid, claves: &super::models::ClavesIniciales) -> Result<bool, RepoError> {
+        // ELK-01 (#147): la cuenta sin enrolar no tiene fila; si ya la tiene,
+        // `on conflict do nothing` no toca nada y se devuelve `false`.
         let resultado = sqlx::query!(
-            r#"update user_keys
-               set public_key_x25519 = $2, public_key_ed25519 = $3, encrypted_private_key_blob = $4,
-                   private_key_nonce = $5, kdf_salt = $6, kdf_params = $7, auth_verifier = $8,
-                   created_at = now(), updated_at = now()
-               where user_id = $1 and octet_length(encrypted_private_key_blob) = 0"#,
+            r#"insert into user_keys (
+                   user_id, public_key_x25519, public_key_ed25519, encrypted_private_key_blob,
+                   private_key_nonce, kdf_salt, kdf_params, auth_verifier
+               )
+               values ($1, $2, $3, $4, $5, $6, $7, $8)
+               on conflict (user_id) do nothing"#,
             user_id,
             claves.public_key_x25519,
             claves.public_key_ed25519,
@@ -102,14 +110,30 @@ impl PerfilRepository for PgPreferenciasRepository {
         Ok(resultado.rows_affected() == 1)
     }
 
+    async fn sesion_sso_reciente(&self, session_id: Uuid, user_id: Uuid, minutos: i32) -> Result<bool, RepoError> {
+        let fila = sqlx::query!(
+            r#"select exists (
+                   select 1 from sessions
+                   where id = $1 and user_id = $2 and emitida_por_sso and revoked_at is null
+                     and created_at > now() - make_interval(mins => $3)
+               ) as "ok!""#,
+            session_id,
+            user_id,
+            minutos,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fila.ok)
+    }
+
     async fn obtener(&self, user_id: Uuid) -> Result<Perfil, RepoError> {
         let fila = sqlx::query!(
             r#"select u.email, u.display_name, r.name as role, u.created_at, u.updated_at,
-                      uk.created_at as keys_created_at,
-                      octet_length(uk.encrypted_private_key_blob) = 0 as "necesita_enrolar_claves!"
+                      coalesce(uk.created_at, u.created_at) as "keys_created_at!",
+                      (uk.user_id is null) as "necesita_enrolar_claves!"
                from users u
                join roles r on r.id = u.role_id
-               join user_keys uk on uk.user_id = u.id
+               left join user_keys uk on uk.user_id = u.id
                where u.id = $1"#,
             user_id,
         )

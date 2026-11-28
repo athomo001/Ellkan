@@ -5,7 +5,7 @@
 // del backend de escritorio (`app-escritorio/backend-desktop/router.rs`)
 // pero sin ningún consumidor hasta este cambio.
 
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client';
 
 export type ModoPersistencia = 'full' | 'memory' | 'names_only';
 

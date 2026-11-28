@@ -9,10 +9,10 @@
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 import { sellarNuevo, type BlobClaveNueva } from './desbloqueo';
-import { accountRecoveryApi, type ClaveOrg } from '$lib/api/accountRecovery';
-import type { MaterialParaCustodio, SobreCustodio } from '$lib/api/admin';
+import { accountRecoveryApi, type ClaveOrg } from '#lib/api/accountRecovery';
+import type { MaterialParaCustodio, SobreCustodio } from '#lib/api/admin';
 
 /** El servidor nunca ve más que bytes opacos: concatena las dos privadas
  * antes de sellar contra la clave pública organizacional. Genérica pese al

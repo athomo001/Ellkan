@@ -16,8 +16,8 @@
 // un recurso cambiara alguna vez (edición, todavía no implementada), el
 // nonce cambia con ella y la entrada vieja deja de matchear.
 
-import { cargarCrypto } from '$lib/crypto/wasm';
-import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
+import { cargarCrypto } from '#lib/crypto/wasm';
+import { bytesABase64, base64ABytes } from '#lib/crypto/b64';
 
 const DB_NAME = 'ellkan-cache';
 const STORE = 'recursos';
@@ -30,7 +30,7 @@ function abrirDb(): Promise<IDBDatabase> {
 			req.result.createObjectStore(STORE, { keyPath: 'resourceId' });
 		};
 		req.onsuccess = () => resolve(req.result);
-		req.onerror = () => reject(req.error);
+		req.onerror = () => reject(req.error ?? new Error('IndexedDB: error sin detalle'));
 	});
 }
 
@@ -77,7 +77,7 @@ export async function guardarEnCache(
 			const tx = db.transaction(STORE, 'readwrite');
 			tx.objectStore(STORE).put(entrada);
 			tx.oncomplete = () => resolve();
-			tx.onerror = () => reject(tx.error);
+			tx.onerror = () => reject(tx.error ?? new Error('IndexedDB: error sin detalle'));
 		});
 	} catch {
 		// La cache es una optimización, no una fuente de verdad — si
@@ -93,7 +93,7 @@ export async function leerDeCache<T>(resourceId: string, metadataNonceB64: strin
 			const tx = db.transaction(STORE, 'readonly');
 			const req = tx.objectStore(STORE).get(resourceId);
 			req.onsuccess = () => resolve(req.result);
-			req.onerror = () => reject(req.error);
+			req.onerror = () => reject(req.error ?? new Error('IndexedDB: error sin detalle'));
 		});
 		if (!entrada || entrada.metadataNonceB64 !== metadataNonceB64) return null;
 

@@ -65,6 +65,23 @@ pub trait MfaChallengeRepository {
     async fn listar_pendientes(&self, user_id: Uuid) -> Result<Vec<MfaChallengeRow>, RepoError>;
 
     async fn consumir(&self, id: Uuid) -> Result<(), RepoError>;
+
+    /// ELK-03 (#149): consume todos los desafíos pendientes del usuario. Se
+    /// llama al emitir uno nuevo: un solo desafío vivo por cuenta.
+    async fn invalidar_pendientes(&self, user_id: Uuid) -> Result<(), RepoError>;
+
+    /// ELK-03 (#149): hasta cuándo está bloqueada la cuenta por fallos de MFA
+    /// (`None` = sin bloqueo vigente).
+    async fn bloqueado_hasta(&self, user_id: Uuid) -> Result<Option<OffsetDateTime>, RepoError>;
+
+    /// ELK-03 (#149): suma un fallo consecutivo (atómico) y devuelve el total.
+    async fn registrar_fallo(&self, user_id: Uuid) -> Result<i32, RepoError>;
+
+    /// ELK-03 (#149): fija el bloqueo temporal de la cuenta.
+    async fn fijar_bloqueo(&self, user_id: Uuid, hasta: OffsetDateTime) -> Result<(), RepoError>;
+
+    /// ELK-03 (#149): un acierto reinicia los fallos consecutivos y el bloqueo.
+    async fn reiniciar_fallos(&self, user_id: Uuid) -> Result<(), RepoError>;
 }
 
 #[derive(Clone)]
@@ -263,6 +280,53 @@ impl MfaChallengeRepository for PgMfaChallengeRepository {
 
     async fn consumir(&self, id: Uuid) -> Result<(), RepoError> {
         sqlx::query!(r#"update mfa_challenges set consumed_at = now() where id = $1"#, id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn invalidar_pendientes(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(
+            r#"update mfa_challenges set consumed_at = now() where user_id = $1 and consumed_at is null"#,
+            user_id
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn bloqueado_hasta(&self, user_id: Uuid) -> Result<Option<OffsetDateTime>, RepoError> {
+        let fila = sqlx::query!(
+            r#"select locked_until from mfa_failed_attempts where user_id = $1 and locked_until > now()"#,
+            user_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(fila.and_then(|f| f.locked_until))
+    }
+
+    async fn registrar_fallo(&self, user_id: Uuid) -> Result<i32, RepoError> {
+        let fila = sqlx::query!(
+            r#"insert into mfa_failed_attempts (user_id, failed_count, last_failed_at) values ($1, 1, now())
+               on conflict (user_id) do update
+                 set failed_count = mfa_failed_attempts.failed_count + 1, last_failed_at = now()
+               returning failed_count"#,
+            user_id
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fila.failed_count)
+    }
+
+    async fn fijar_bloqueo(&self, user_id: Uuid, hasta: OffsetDateTime) -> Result<(), RepoError> {
+        sqlx::query!(r#"update mfa_failed_attempts set locked_until = $2 where user_id = $1"#, user_id, hasta)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn reiniciar_fallos(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query!(r#"delete from mfa_failed_attempts where user_id = $1"#, user_id)
             .execute(&self.pool)
             .await?;
         Ok(())

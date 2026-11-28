@@ -72,7 +72,7 @@ Genera, en la raíz de `extension/` (o en `--out`):
 | `ellkan-firefox.xpi` | Firefox |
 | `ellkan-chrome.crx` | Chrome, firmado (opcional — sólo si Chrome está instalado en la máquina) |
 
-Edge/Brave/Opera son Chromium con Manifest V3 sin ninguna diferencia de manifest respecto a Chrome hoy, así que sus `.zip` salen del mismo build — no hay un build separado por cada uno. Safari queda afuera del script: requiere empaquetado nativo vía Xcode/Swift, no automatizable desde acá (`node cli.mjs -b safari` sólo recuerda el paso manual).
+Edge/Brave/Opera son Chromium con Manifest V3 sin ninguna diferencia de manifest respecto a Chrome hoy, así que sus `.zip` salen del mismo build — no hay un build separado por cada uno. Safari queda afuera de este script porque requiere Xcode: lo empaqueta el workflow `macOS y Safari` de GitHub Actions (`.github/workflows/macos.yml`), que convierte el build `BROWSER=safari` con `safari-web-extension-converter` y lo compila sin firmar. `node cli.mjs -b safari` sólo recuerda el paso manual.
 
 ### Versionamiento automático
 

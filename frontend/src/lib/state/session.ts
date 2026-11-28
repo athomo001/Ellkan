@@ -6,7 +6,7 @@
 // lock/logout — nunca tocan disco.
 
 import { declararStore } from './declarative-store';
-import type { ExternalSharePolicy } from '$lib/api/externalShares';
+import type { ExternalSharePolicy } from '#lib/api/externalShares';
 
 export interface ClavesDesbloqueadas {
 	x25519Private: Uint8Array;
@@ -68,7 +68,7 @@ clavesDesbloqueadas.subscribe((nuevas) => {
  * F-48, modo de persistencia "sólo-memoria" (spec/13 §8): secretos
  * descifrados de recursos que NO se replican en SQLite local, indexados por
  * `resource_id` — se piden al servidor remoto una sola vez por sesión
- * (`$lib/crypto/recursos.ts::verSecreto`) y se guardan acá para no repetir el
+ * (`#lib/crypto/recursos.ts::verSecreto`) y se guardan acá para no repetir el
  * viaje de red en cada reveal. `ubicacion: 'memory'` + `clearOn` es el mismo
  * mecanismo que ya protege `clavesDesbloqueadas` — nunca toca disco, se
  * pierde al bloquear/cerrar sesión o al reiniciar el proceso. El modo

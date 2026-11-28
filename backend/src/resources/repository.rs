@@ -677,6 +677,49 @@ impl ResourceTypeRepository for PgResourceTypeRepository {
     }
 }
 
+/// ELK-02: al revocar un permiso sobre un recurso, borra el `secret_envelope`
+/// de quien se quedó sin acceso. Si no, `listar_destinatarios` lo sigue
+/// devolviendo y cada edición vuelve a cifrar el secreto para él. Va en la
+/// misma transacción que el `delete from permissions`, que ya se ejecutó, así
+/// que el permiso revocado no cuenta. Si el revocado es un grupo, se revisa a
+/// cada miembro. Quien conserva acceso por un permiso directo o por otro grupo
+/// conserva su sobre (mismo criterio que `groups/repository.rs` al sacar a
+/// alguien de un grupo).
+async fn borrar_sobres_sin_acceso(
+    tx: &mut sqlx::PgConnection,
+    resource_id: Uuid,
+    grantee_type: &str,
+    grantee_id: Uuid,
+) -> Result<(), RepoError> {
+    sqlx::query(
+        r#"
+        delete from secret_envelopes se
+        where se.resource_id = $1
+          and se.user_id in (
+              select $3::uuid where $2::text = 'user'
+              union
+              select gm.user_id from group_members gm where $2::text = 'group' and gm.group_id = $3::uuid
+          )
+          and not exists (
+              select 1 from permissions p
+              where p.subject_type = 'resource' and p.subject_id = se.resource_id
+                and p.grantee_type = 'user' and p.grantee_id = se.user_id
+          )
+          and not exists (
+              select 1 from permissions p
+              join group_members gm on gm.group_id = p.grantee_id and gm.user_id = se.user_id
+              where p.subject_type = 'resource' and p.subject_id = se.resource_id and p.grantee_type = 'group'
+          )
+        "#,
+    )
+    .bind(resource_id)
+    .bind(grantee_type)
+    .bind(grantee_id)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 /// QA-25: mismo insert que `SecretEnvelopeRepository::insertar`, dentro de
 /// una transacción ajena (`crear`, `compartir_con`).
 async fn insertar_envelope(tx: &mut sqlx::PgConnection, resource_id: Uuid, env: &EnvelopeInput) -> Result<(), RepoError> {
@@ -972,6 +1015,7 @@ impl PermissionRepository for PgPermissionRepository {
     }
 
     async fn revocar(&self, subject_type: &str, subject_id: Uuid, grantee_type: &str, grantee_id: Uuid) -> Result<(), RepoError> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query!(
             r#"
             delete from permissions
@@ -982,8 +1026,12 @@ impl PermissionRepository for PgPermissionRepository {
             grantee_type,
             grantee_id,
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        if subject_type == "resource" {
+            borrar_sobres_sin_acceso(&mut tx, subject_id, grantee_type, grantee_id).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1036,6 +1084,9 @@ impl PermissionRepository for PgPermissionRepository {
         )
         .execute(&mut *tx)
         .await?;
+        if subject_type == "resource" {
+            borrar_sobres_sin_acceso(&mut tx, subject_id, grantee_type, grantee_id).await?;
+        }
         tx.commit().await?;
         Ok(true)
     }

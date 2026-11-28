@@ -4,12 +4,12 @@
 	// limpieza de portapapeles y auto-bloqueo. El campo de auto-bloqueo en sí
 	// (temporizador que efectivamente bloquea la UI) es F-39, checklist
 	// aparte — acá sólo se persiste la preferencia.
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { preferencias } from '$lib/state/session';
-	import { guardarPreferencias } from '$lib/api/preferences';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { preferencias } from '#lib/state/session';
+	import { guardarPreferencias } from '#lib/api/preferences';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 	import {
 		preferenciasLectura,
 		normalizarLectura,
@@ -18,7 +18,7 @@
 		ESCALA_MAX,
 		ESCALA_PASO,
 		type PreferenciasLectura
-	} from '$lib/state/lectura';
+	} from '#lib/state/lectura';
 
 	// Accesibilidad / lectura: se aplica al instante y queda en este
 	// dispositivo, sin botón de guardar (no pasa por el servidor).

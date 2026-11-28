@@ -3,13 +3,13 @@
 	// F-47: "modo conectado" por bóveda — vincular a un servidor Ellkan
 	// remoto (equipo), opt-in, nunca automático. Sólo el camino feliz de
 	// login/registro remoto (sin MFA/verificación de dispositivo del otro
-	// lado, ver `$lib/sync/vinculacion.ts`).
+	// lado, ver `#lib/sync/vinculacion.ts`).
 	import { get } from 'svelte/store';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { t } from '$lib/i18n';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { t } from '#lib/i18n';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
 	import {
 		obtenerVinculacion,
 		desvincular,
@@ -19,20 +19,20 @@
 		diagnosticarCuentaRemota,
 		ErrorCuentaRemota,
 		type DiagnosticoFallido
-	} from '$lib/sync/vinculacion';
-	import { sincronizarAhora, type ResultadoSync } from '$lib/sync/motor';
-	import { unirConCuentaDelServidor, type PasoUnion } from '$lib/sync/union';
-	import { ErrorRequiereNuevaFrase } from '$lib/sync/vinculacion';
+	} from '#lib/sync/vinculacion';
+	import { sincronizarAhora, type ResultadoSync } from '#lib/sync/motor';
+	import { unirConCuentaDelServidor, type PasoUnion } from '#lib/sync/union';
+	import { ErrorRequiereNuevaFrase } from '#lib/sync/vinculacion';
 	import { goto } from '$app/navigation';
-	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import { estadoSync } from '$lib/sync/notificador';
-	import { obtenerPersistencia, cambiarPersistencia, type ModoPersistencia } from '$lib/sync/persistencia';
-	import { cambiarEmailLocal, CambioEmailBloqueado, CambioEmailNoAplica } from '$lib/sync/cuentaLocal';
-	import { servidorAlcanzable, type EstadoConexion } from '$lib/sync/conectividad';
-	import { verificarTraspaso } from '$lib/sync/diagnostico';
-	import type { InformeTraspaso } from '$lib/sync/traspaso';
-	import { ApiError } from '$lib/api/client';
-	import { base64ABytes } from '$lib/crypto/b64';
+	import { recoveryKitApi } from '#lib/api/recoveryKit';
+	import { estadoSync } from '#lib/sync/notificador';
+	import { obtenerPersistencia, cambiarPersistencia, type ModoPersistencia } from '#lib/sync/persistencia';
+	import { cambiarEmailLocal, CambioEmailBloqueado, CambioEmailNoAplica } from '#lib/sync/cuentaLocal';
+	import { servidorAlcanzable, type EstadoConexion } from '#lib/sync/conectividad';
+	import { verificarTraspaso } from '#lib/sync/diagnostico';
+	import type { InformeTraspaso } from '#lib/sync/traspaso';
+	import { ApiError } from '#lib/api/client';
+	import { base64ABytes } from '#lib/crypto/b64';
 
 	const email = $derived($sesion.email ?? '');
 	let vinculacion = $state<ReturnType<typeof obtenerVinculacion>>(null);

@@ -9,6 +9,6 @@
 export function uuidABytes(uuid: string): Uint8Array {
 	const hex = uuid.replace(/-/g, '');
 	const bytes = new Uint8Array(16);
-	for (let i = 0; i < 16; i++) bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+	for (let i = 0; i < 16; i++) bytes[i] = Number.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
 	return bytes;
 }

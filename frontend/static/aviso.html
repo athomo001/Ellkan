@@ -9,6 +9,7 @@
     { tipo: 'puerto', esperado: N, actual: M } el puerto fijo estaba ocupado
     { tipo: 'puerto_reservado', … }           Windows lo reservó (error 10013)
     { tipo: 'puerto_reservado_cambiado', … }  ídem, y se cambió para siempre
+    { tipo: 'actualizacion' }                 hay una versión nueva (F-53, #60)
   Un tipo desconocido no muestra nada. Idioma y tema salen de las preferencias
   que la app ya guardó (mismo origen).
 -->
@@ -73,7 +74,7 @@
 	<body>
 		<div class="aviso" role="status">
 			<div>
-				<h1 id="titulo"></h1>
+				<h1 id="titulo">Ellkan</h1>
 				<p id="texto"></p>
 			</div>
 		</div>
@@ -117,6 +118,16 @@
 					en: {
 						titulo: 'Windows reserved port {esperado}',
 						texto: 'Ellkan now uses {actual} permanently, outside the range Windows reserves. If the extension was open, close it and open it again.'
+					}
+				},
+				actualizacion: {
+					es: {
+						titulo: 'Hay una versión nueva de Ellkan',
+						texto: 'Instalala desde Ajustes → Escritorio → Actualizaciones. Antes de migrar, la bóveda se respalda sola.'
+					},
+					en: {
+						titulo: 'A new version of Ellkan is available',
+						texto: 'Install it from Settings → Desktop → Updates. Your vault is backed up automatically before migrating.'
 					}
 				}
 			};

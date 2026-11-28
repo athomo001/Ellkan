@@ -557,6 +557,10 @@ pub fn construir_router(estado: AppState) -> Router {
     // sin cursor propio (cada corrida sólo actúa sobre lo que siga vencido).
     retention::job::spawn(&estado.eventos, estado.retention_policy.clone(), estado.purge.clone(), Duration::from_secs(86_400));
 
+    // spec/15 §2 (#53): sincronización automática con el directorio LDAP
+    // (apagada hasta que un admin la prende en el panel).
+    directory_sync::job::spawn(estado.clone());
+
     // F-36: resuelve `granted_by_timeout` cuando una solicitud de emergency
     // access vence sin respuesta del titular — horaria, para no dejar a un
     // contacto esperando más de una hora de más sobre `wait_time_days`.
@@ -583,10 +587,10 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/login/verify", post(passkeys::handlers::login_verify));
 
     // F-14: rate limit dedicado, keyed por sesión parcial — más estricto que
-    // el general, ver `rate_limit::limitar_mfa_por_sesion`.
+    // el general, ver `rate_limit::limitar_mfa_por_cuenta`.
     let auth_mfa_router = Router::new()
         .route("/verify", post(mfa::handlers::verify))
-        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_sesion));
+        .route_layer(axum::middleware::from_fn_with_state(estado.clone(), rate_limit::limitar_mfa_por_cuenta));
 
     let sso_router = Router::new()
         .route("/{provider}/redirect", get(sso::handlers::redirect))
@@ -822,7 +826,7 @@ pub fn construir_router(estado: AppState) -> Router {
     // Recovery kit: reset por email sin sesión — mismo patrón de rate limit
     // por IP que `external_shares_router` (`GovernorLayer` + `retain_recent()`
     // en background), no el `governor::RateLimiter::keyed` de
-    // `limitar_mfa_por_sesion` (ese exige una identidad ya extraída, acá no
+    // `limitar_mfa_por_cuenta` (ese exige una identidad ya extraída, acá no
     // hay sesión). Dos tiers: general para pedir/verificar el link, y uno
     // más estricto dedicado sobre `complete` (ahí se juega el segundo
     // factor, mismo criterio de F-14 para `POST /auth/mfa/verify`).
@@ -871,7 +875,9 @@ pub fn construir_router(estado: AppState) -> Router {
         .route("/{id}/accept", post(emergency_access::handlers::aceptar))
         .route("/{id}/request", post(emergency_access::handlers::solicitar))
         .route("/{id}/approve", post(emergency_access::handlers::aprobar))
-        .route("/{id}/reject", post(emergency_access::handlers::rechazar));
+        .route("/{id}/reject", post(emergency_access::handlers::rechazar))
+        .route("/{id}/vault", get(emergency_access::handlers::boveda))
+        .route("/{id}/takeover", post(emergency_access::handlers::takeover));
 
     let admin_emergency_access_policy_router =
         Router::new().route("/", get(emergency_access::handlers::politica).put(emergency_access::handlers::actualizar_politica));

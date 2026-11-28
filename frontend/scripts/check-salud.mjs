@@ -37,7 +37,7 @@ await check('lo más débil va primero', async () => {
 await check('una contraseña repetida en dos recursos queda marcada en AMBOS', async () => {
 	const inf = await analizar([item('a', 'la-misma-clave-larga'), item('b', 'la-misma-clave-larga'), item('c', 'otra-clave-distinta-larga')], { ...base, umbralDias: null });
 	assert.equal(inf.repetidas.length, 1);
-	assert.deepEqual(inf.repetidas[0].map((i) => i.id).sort(), ['a', 'b']);
+	assert.deepEqual(inf.repetidas[0].map((i) => i.id).sort((x, y) => x.localeCompare(y)), ['a', 'b']);
 });
 
 await check('tres recursos con la misma contraseña son UN grupo de tres', async () => {
@@ -138,7 +138,7 @@ await check('un token no se marca como débil ni como viejo', async () => {
 
 await check('el mismo token en dos recursos aparece como repetido', async () => {
 	const inf = await analizar([token('a', 'ghp_igual'), token('b', 'ghp_igual')], { ...base, umbralDias: null });
-	assert.deepEqual(inf.repetidas[0].map((i) => i.id).sort(), ['a', 'b']);
+	assert.deepEqual(inf.repetidas[0].map((i) => i.id).sort((x, y) => x.localeCompare(y)), ['a', 'b']);
 });
 
 await check('tokens vencidos primero, después los que vencen antes; los vigentes no aparecen', async () => {

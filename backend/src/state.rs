@@ -90,8 +90,9 @@ pub struct AppState {
     /// el primer registro de una instancia vacía nace admin sin pedirlo.
     pub setup_token: Option<Arc<secrecy::SecretBox<String>>>,
     /// Rate limiting dedicado sobre `POST /auth/mfa/verify`, keyed por
-    /// sesión parcial — más estricto que el general por usuario, porque un
-    /// código TOTP de 6 dígitos tiene espacio de búsqueda acotado (F-14).
+    /// cuenta (ELK-03; antes era por sesión parcial) — más estricto que el
+    /// general por usuario, porque un código TOTP de 6 dígitos tiene espacio
+    /// de búsqueda acotado (F-14).
     pub limitador_mfa: Arc<DefaultKeyedRateLimiter<Uuid>>,
     /// QA-03: `POST /auth/key-material` por email (normalizado), exista o
     /// no la cuenta, así el 429 no la delata. Frena adivinar la passphrase
@@ -139,6 +140,8 @@ pub struct AppState {
     pub scim_users: PgScimUserRepository,
     // F-19
     pub directory_sync_config: PgDirectorySyncConfigRepository,
+    /// spec/15 §3 (#52): verificación contra el directorio en login y sesión.
+    pub directorio: crate::directory_sync::verificacion::VerificadorDirectorio,
     // F-36 (emergency access, peer-to-peer)
     pub emergency_access_policy: PgEmergencyAccessPolicyRepository,
     pub emergency_access: PgEmergencyAccessRepository,
@@ -192,23 +195,30 @@ impl AppState {
         // fuerza bruta: el login es por firma Ed25519 (no hay contraseña que
         // adivinar), el código de dispositivo tiene su propio tope de 5
         // intentos por desafío (migración 0052), MFA tiene `limitador_mfa`
-        // por sesión, y recuperación / enlaces públicos sus propios límites
+        // por cuenta, y recuperación / enlaces públicos sus propios límites
         // más estrictos.
         let cuota_ip =
             Quota::per_second(NonZeroU32::new(10).expect("10 no es cero")).allow_burst(NonZeroU32::new(250).expect("250 no es cero"));
         // F-14: "más estricto que el general" — 5 intentos por minuto por
-        // sesión parcial, muy por debajo del espacio de búsqueda de un
+        // cuenta (ELK-03), muy por debajo del espacio de búsqueda de un
         // código de 6 dígitos incluso sin la ventana de ±1 paso de TOTP.
         let cuota_mfa = Quota::per_minute(NonZeroU32::new(5).expect("5 no es cero"));
         let cuota_auth_key = Quota::per_minute(NonZeroU32::new(10).expect("10 no es cero"));
+        let canal_eventos = eventos::nuevo_canal();
+        let secrets_key = Arc::new(secrets_key);
         Self {
+            directorio: crate::directory_sync::verificacion::VerificadorDirectorio::nuevo(
+                pool.clone(),
+                secrets_key.clone(),
+                canal_eventos.clone(),
+            ),
             usuarios: PgUserRepository { pool: pool.clone() },
             challenges: PgAuthChallengeRepository { pool: pool.clone() },
             sesiones: PgSessionRepository { pool: pool.clone() },
             dispositivos: PgKnownDeviceRepository { pool: pool.clone() },
             desafios_dispositivo: PgDeviceChallengeRepository { pool: pool.clone() },
             emails: PgOutboundEmailRepository { pool: pool.clone() },
-            eventos: eventos::nuevo_canal(),
+            eventos: canal_eventos,
             avisos_sync: crate::sync::avisos::nuevo_canal(),
             conexiones_sse: Default::default(),
             recursos: PgResourceRepository { pool: pool.clone() },
@@ -231,7 +241,7 @@ impl AppState {
             mfa_totp: PgTotpCredentialRepository { pool: pool.clone() },
             mfa_challenges: PgMfaChallengeRepository { pool: pool.clone() },
             smtp_config: PgSmtpConfigRepository { pool: pool.clone() },
-            secrets_key: Arc::new(secrets_key),
+            secrets_key,
             setup_token: None,
             limitador_mfa: Arc::new(governor::RateLimiter::keyed(cuota_mfa)),
             limitador_auth_key: Arc::new(governor::RateLimiter::keyed(cuota_auth_key)),

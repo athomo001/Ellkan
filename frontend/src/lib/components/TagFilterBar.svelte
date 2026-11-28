@@ -2,8 +2,8 @@
 <script lang="ts">
 	import TextField from './TextField.svelte';
 	import Button from './Button.svelte';
-	import { t } from '$lib/i18n';
-	import type { Tag } from '$lib/api/tags';
+	import { t } from '#lib/i18n';
+	import type { Tag } from '#lib/api/tags';
 
 	let {
 		tags,

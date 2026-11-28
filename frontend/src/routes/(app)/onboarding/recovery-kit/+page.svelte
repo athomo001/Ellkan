@@ -8,9 +8,9 @@
 	// manda para acá vive en `(anon)/login/+page.svelte::completarSesion`.
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import Card from '$lib/components/Card.svelte';
-	import GenerarRecoveryKit from '$lib/components/GenerarRecoveryKit.svelte';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import GenerarRecoveryKit from '#lib/components/GenerarRecoveryKit.svelte';
+	import { t } from '#lib/i18n';
 
 	const esRotacion = $derived(page.url.searchParams.get('motivo') === 'rotacion');
 	const mensaje = $derived(esRotacion ? $t.recoveryKit.introRotacion : $t.recoveryKit.introOnboarding);

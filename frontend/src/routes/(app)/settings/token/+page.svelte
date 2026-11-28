@@ -1,13 +1,13 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
 	// F-01: "Token de seguridad" — sección de "Mi cuenta", 100% client-side
-	// (ver $lib/state/securityToken.ts para el porqué).
+	// (ver #lib/state/securityToken.ts para el porqué).
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { obtenerTokenSeguridad, generarTokenSeguridad, COLOR_HEX, type TokenSeguridad } from '$lib/state/securityToken';
-	import { sesion } from '$lib/state/session';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { obtenerTokenSeguridad, generarTokenSeguridad, COLOR_HEX, type TokenSeguridad } from '#lib/state/securityToken';
+	import { sesion } from '#lib/state/session';
+	import { t } from '#lib/i18n';
 
 	const email = $derived($sesion.email ?? '');
 	let token = $state<TokenSeguridad | null>(null);

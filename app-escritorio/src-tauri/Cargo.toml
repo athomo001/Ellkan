@@ -34,7 +34,7 @@ tauri-plugin-log = "2"
 # migrados (auth/mfa/smtp_config/self_registration/recovery_kit).
 ellkan-backend = { path = "../../backend", features = ["desktop"] }
 axum = "0.8.9"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "io-util"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "net", "io-util", "time"] }
 # F-56: el canal de la extensión ejecuta cada pedido contra el router del
 # backend local en el propio proceso (`ServiceExt::oneshot`), sin TCP.
 tower = { version = "0.5.3", features = ["util"] }
@@ -54,6 +54,10 @@ keyring = "3"
 # simultáneas chocando por el puerto, una de ellas cayendo a un puerto
 # random mientras la ventana visible sigue cacheado el puerto viejo).
 tauri-plugin-single-instance = "2"
+# F-53 (#60): actualizador firmado. Verifica cada paquete contra la clave
+# pública de `tauri.conf.json` (minisign, clave propia de *updates*, distinta
+# de una firma de código) antes de instalarlo; canal = GitHub Releases.
+tauri-plugin-updater = "2"
 
 # F-52 (bloqueo al bloquear la pantalla de Windows): aviso de cambio de sesión
 # (`WTSRegisterSessionNotification`) y credenciales de Escritorio remoto
@@ -73,5 +77,10 @@ webview2-com = "0.38"
 
 # Linux: acceso al WebView de WebKitGTK para bajar su caché (`ajustar_webview_linux`).
 # Misma versión que ya trae Tauri (vía `wry`), no agrega nada al binario.
+# #87: en macOS el llavero real (Keychain); sin la feature, `keyring` usa un
+# almacén en memoria que no persiste (mismo síntoma que #69 en Linux).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"

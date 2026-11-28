@@ -12,9 +12,9 @@
 // El avatar no es un dato secreto (va en claro en los dos lados).
 
 import { get, writable } from 'svelte/store';
-import { api, baseUrl } from '$lib/api/client';
-import { bytesABase64 } from '$lib/crypto/b64';
-import { sesion, clavesDesbloqueadas } from '$lib/state/session';
+import { api, baseUrl } from '#lib/api/client';
+import { bytesABase64 } from '#lib/crypto/b64';
+import { sesion, clavesDesbloqueadas } from '#lib/state/session';
 import { obtenerVinculacion, sesionRemotaVigente, olvidarSesionRemota, claveEstadoAvatar as claveEstado, type VinculacionServidor } from './vinculacion';
 import { clienteRemoto } from './remoteClient';
 

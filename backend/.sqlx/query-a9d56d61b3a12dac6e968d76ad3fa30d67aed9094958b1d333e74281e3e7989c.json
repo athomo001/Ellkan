@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select distinct u.id, u.email, u.display_name, uk.public_key_x25519\n            from users u\n            join role_permissions rp on rp.role_id = u.role_id and rp.permission = '*'\n            join user_keys uk on uk.user_id = u.id and octet_length(uk.encrypted_private_key_blob) > 0\n            where u.deleted_at is null\n              and not exists (\n                  select 1 from org_recovery_key_envelopes s\n                  where s.org_recovery_key_id = $1 and s.admin_id = u.id\n              )\n            order by u.email\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "public_key_x25519"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a9d56d61b3a12dac6e968d76ad3fa30d67aed9094958b1d333e74281e3e7989c"
+}

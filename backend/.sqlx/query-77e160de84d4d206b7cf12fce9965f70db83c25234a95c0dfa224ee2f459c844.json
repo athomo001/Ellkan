@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select uk.public_key_x25519\n            from users u\n            join role_permissions rp on rp.role_id = u.role_id and rp.permission = '*'\n            join user_keys uk on uk.user_id = u.id and octet_length(uk.encrypted_private_key_blob) > 0\n            where u.id = $1 and u.deleted_at is null\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "user_keys",
+            "name": "public_key_x25519"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "77e160de84d4d206b7cf12fce9965f70db83c25234a95c0dfa224ee2f459c844"
+}

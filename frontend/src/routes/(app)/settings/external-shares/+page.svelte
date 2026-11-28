@@ -6,12 +6,12 @@
 	// y se revocan, server-side sólo guarda metadata (nunca `ciphertext` en
 	// este listado).
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import Table from '$lib/components/Table.svelte';
-	import { externalSharesApi, type ExternalShareResumen } from '$lib/api/externalShares';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import Table from '#lib/components/Table.svelte';
+	import { externalSharesApi, type ExternalShareResumen } from '#lib/api/externalShares';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();

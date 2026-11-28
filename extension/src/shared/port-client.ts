@@ -44,7 +44,9 @@ export class PortClient {
 				if (Array.isArray(mensaje) && mensaje[0] === 'ellkan.port.connect') {
 					// El service worker se reinició (MV3) y perdió el puerto —
 					// reabre con reintentos acotados (spec 06 §2).
-					this.reconectarConReintentos();
+					// No se espera a propósito (estamos dentro de un listener);
+					// `reconectarConReintentos` nunca rechaza.
+					void this.reconectarConReintentos();
 					return;
 				}
 				this.despacharRespuesta(mensaje as MensajeResponse);
@@ -74,6 +76,9 @@ export class PortClient {
 				await new Promise((r) => setTimeout(r, INTERVALO_REINTENTO_MS));
 			}
 		}
+		// Agotados los reintentos: queda sin puerto y el próximo `request`
+		// vuelve a intentar conectar desde cero.
+		console.warn(`[ellkan] no se pudo reconectar con el service worker tras ${MAX_REINTENTOS_RECONEXION} intentos`);
 	}
 
 	private despacharRespuesta(mensaje: MensajeResponse): void {

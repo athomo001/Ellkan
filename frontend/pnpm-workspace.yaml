@@ -35,6 +35,6 @@ overrides:
   'source-map-js': '^1.2.2'
 
 # Cadena de suministro (ola Shai-Hulud, 2026): no instalar versiones con
-# menos de 3 días publicadas — los paquetes secuestrados se detectan y
+# menos de 7 días publicadas — los paquetes secuestrados se detectan y
 # retiran casi siempre antes de eso. En minutos.
-minimumReleaseAge: 4320
+minimumReleaseAge: 10080

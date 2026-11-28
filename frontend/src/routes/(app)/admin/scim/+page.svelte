@@ -1,10 +1,10 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { scimApi } from '$lib/api/admin';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { scimApi } from '#lib/api/admin';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let generando = $state(false);
 	let error = $state<string | undefined>();

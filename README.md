@@ -61,7 +61,7 @@ Cada versión se publica en **[Releases](https://github.com/athomo001/Ellkan/rel
 | --- | --- |
 | `Ellkan_X.Y.Z_x64_es-ES.msi` | App de escritorio para Windows (instalador, trae la extensión) |
 | `Ellkan_X.Y.Z_x64_portable.zip` | La misma app, sin instalar |
-| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` | App de escritorio para Linux (experimental: la [guía](app-escritorio/GUIA.md) todavía la da sólo para Windows) |
+| `Ellkan_X.Y.Z_amd64.AppImage` · `Ellkan_X.Y.Z_amd64.deb` · `Ellkan_X.Y.Z_x86_64.rpm` | App de escritorio para Linux (experimental: la [guía](app-escritorio/GUIA.md) todavía la da sólo para Windows) |
 | `ellkan-chrome-X.Y.Z.zip` (también `-edge`, `-brave`, `-opera`) | Extensión para navegadores Chromium |
 | `ellkan-firefox-X.Y.Z.xpi` | Extensión para Firefox |
 
@@ -259,6 +259,8 @@ Descarga la imagen de la versión indicada en `ELLKAN_VERSION` (`.env`; por defe
 La app queda en `http://localhost:8080` (o el puerto de `ELLKAN_PORT`).
 
 > En Windows, si falla con `bind source path does not exist: .../secrets/postgres_password.txt` aunque el archivo existe, Docker Desktop no está viendo el disco: reinicialo (o `wsl --shutdown`) y volvé a levantar. Detalle en [manual/instalacion.md](manual/instalacion.md#problemas-comunes-y-cómo-repararlos).
+>
+> Los secretos del servidor se copian a un volumen de Docker en cada `docker compose up` (servicio `ellkan-secretos`, que corre y termina: es normal verlo como `Exited (0)`). Si cambiás un archivo de `secrets/`, corré `docker compose up -d` para que tome el valor nuevo. Si venís de una versión anterior y en Windows el contenedor `ellkan` queda en `Restarting` con `no se pudo leer el archivo de ELLKAN_SECRETS_KEY_FILE: Permission denied` (pasaba cuando Docker Desktop se reiniciaba solo), actualizá `docker-compose.yml` y corré `docker compose up -d`.
 
 #### 4. Crear el primer administrador (token de instalación)
 

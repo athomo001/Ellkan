@@ -4,7 +4,7 @@
 
 import { get } from 'svelte/store';
 import { api, baseUrl } from './client';
-import { sesion } from '$lib/state/session';
+import { sesion } from '#lib/state/session';
 
 export interface Perfil {
 	id: string;
@@ -57,7 +57,7 @@ export const permisosApi = {
 
 /**
  * `GET /me/avatar` devuelve bytes de imagen, no JSON — igual criterio que
- * `descargarExport` (`$lib/api/admin.ts`): un `<img src="/me/avatar">` no
+ * `descargarExport` (`#lib/api/admin.ts`): un `<img src="/me/avatar">` no
  * manda el header `Authorization`, así que hay que pedirlo con `fetch`
  * autenticado a mano y armar un blob URL. `null` si el usuario no tiene
  * avatar cargado (`404`) — nunca una excepción para ese caso, es un estado

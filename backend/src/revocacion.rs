@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
@@ -235,7 +235,9 @@ fn verificar_pregunta(req: &EstadoCuentaRequest) -> Option<Vec<u8>> {
         return None;
     }
     let mensaje = mensaje_estado_cuenta(&req.email, &req.public_key_ed25519_b64, &req.emitido_en);
-    clave.verify(mensaje.as_bytes(), &firma).ok()?;
+    // ELK-01: estricta, para no aceptar firmas forjadas contra una clave de
+    // orden pequeño enviada por el propio cliente.
+    clave.verify_strict(mensaje.as_bytes(), &firma).ok()?;
     Some(publica)
 }
 

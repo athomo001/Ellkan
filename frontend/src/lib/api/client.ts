@@ -7,8 +7,8 @@
 
 import { get } from 'svelte/store';
 import { goto } from '$app/navigation';
-import { sesion } from '$lib/state/session';
-import { limpiarStoresEn } from '$lib/state/declarative-store';
+import { sesion } from '#lib/state/session';
+import { limpiarStoresEn } from '#lib/state/declarative-store';
 import { fetchConReintento, parsearCuerpo } from './reintento';
 import { traerTodasLasPaginas, type Pagina } from './paginado';
 

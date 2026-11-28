@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update directory_sync_config\n                  set auto_sync_enabled = $1, poll_interval_seconds = $2, max_deactivations_per_run = $3\n                where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5e8587c09a2de333b598b940ab06fc16e0fed6320c7be875304467f37255bcc8"
+}

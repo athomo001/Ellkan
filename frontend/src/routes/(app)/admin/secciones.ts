@@ -6,7 +6,7 @@
 // `+page.svelte` lo admitía), con el riesgo real de que una sección nueva se
 // agregara en un solo lugar y no en el otro. Ahora los dos importan esto.
 
-import type { Diccionario } from '$lib/i18n/es';
+import type { Diccionario } from '#lib/i18n/es';
 
 export interface Seccion {
 	href: string;

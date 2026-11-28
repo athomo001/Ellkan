@@ -97,7 +97,7 @@ pub async fn enrolar_claves(
         kdf_params: req.kdf_params,
     };
     PerfilService { perfil: &state.preferencias_usuario }
-        .enrolar_claves(user.user_id, &claves, &state.eventos)
+        .enrolar_claves(user.user_id, user.session_id, &claves, &state.eventos)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

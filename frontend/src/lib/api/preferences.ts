@@ -5,7 +5,7 @@
 // tema elegido entre pestañas) contra el valor real del servidor.
 
 import { api } from './client';
-import { preferencias, type Preferencias } from '$lib/state/session';
+import { preferencias, type Preferencias } from '#lib/state/session';
 
 // El backend usa snake_case (envelope de error/DTOs, 08-backend.md) — el
 // store cliente usa camelCase como el resto del código TS de este repo.

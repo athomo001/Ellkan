@@ -4,10 +4,10 @@
 	// todo, cuando el servidor vinculado revocó la cuenta y la bóveda local ya
 	// se borró. No hay forma de volver a la app desde acá: sólo cerrarla. Al
 	// abrirla de nuevo arranca como recién instalada.
-	import Button from '$lib/components/Button.svelte';
-	import { t } from '$lib/i18n';
-	import { cerrarAplicacion } from '$lib/tauri/ventana';
-	import { atraparFoco } from '$lib/a11y/foco';
+	import Button from '#lib/components/Button.svelte';
+	import { t } from '#lib/i18n';
+	import { cerrarAplicacion } from '#lib/tauri/ventana';
+	import { atraparFoco } from '#lib/a11y/foco';
 
 	let { servidor, motivo }: { servidor: string; motivo: 'deactivated' | 'purged' } = $props();
 </script>

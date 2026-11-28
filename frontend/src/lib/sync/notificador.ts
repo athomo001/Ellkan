@@ -3,7 +3,7 @@
 // F-47 (push automático): "cada vez que creás/editás/borrás una contraseña
 // con la bóveda conectada, se replica al servidor al toque" (decisión
 // confirmada con el usuario) — este módulo es el único punto que
-// `$lib/crypto/recursos.ts` toca para eso, una línea por operación, sin
+// `#lib/crypto/recursos.ts` toca para eso, una línea por operación, sin
 // que esos call sites necesiten saber nada de vinculación/sesión remota.
 //
 // Lee `sesion`/`clavesDesbloqueadas` directo de sus stores en vez de que
@@ -25,13 +25,13 @@
 // prioridad esta extensión.
 
 import { get, writable } from 'svelte/store';
-import { api, ApiError } from '$lib/api/client';
-import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '$lib/state/session';
+import { api, ApiError } from '#lib/api/client';
+import { sesion, clavesDesbloqueadas, type ClavesDesbloqueadas } from '#lib/state/session';
 import { obtenerVinculacion, sesionRemotaVigente, olvidarSesionRemota, type VinculacionServidor } from './vinculacion';
 import { clienteRemoto, RemoteApiError, type ClienteRemoto } from './remoteClient';
 import { esAdaptado } from './adaptacion';
 import { marcarPendiente, quitarPendiente, obtenerPendientes, type OperacionPendiente } from './pendientes';
-import { registrar } from '$lib/tauri/registro';
+import { registrar } from '#lib/tauri/registro';
 
 export interface EstadoSync {
 	ultimoError: string | null;
@@ -129,8 +129,13 @@ async function subirEnServidor(
 	cuerpoParaCrear: Record<string, unknown>
 ): Promise<void> {
 	try {
-		const remoto = await cliente.get<{ updated_at: string }>(`/resources/${resourceId}`);
+		const remoto = await cliente.get<{ updated_at: string; resource_type_slug: string }>(`/resources/${resourceId}`);
 		await cliente.put(`/resources/${resourceId}`, cuerpoParaEditar, { 'If-Match': remoto.updated_at });
+		// #135: el tipo no viaja en el PUT de contenido; se iguala aparte.
+		const tipoLocal = cuerpoParaCrear.resource_type_slug;
+		if (typeof tipoLocal === 'string' && tipoLocal !== remoto.resource_type_slug) {
+			await cliente.put(`/resources/${resourceId}/type`, { resource_type_slug: tipoLocal });
+		}
 	} catch (err) {
 		// El servidor responde 403 (no 404) a un id que no existe, para no
 		// revelar qué ids hay: los dos significan "todavía no está allá".
@@ -260,6 +265,21 @@ export function notificarRecursoEditado(resourceId: string, cuerpoParaEditar: Re
 	// versión lo dejaría ilegible allá. Se edita en la web.
 	if (esAdaptado(get(sesion).email, resourceId)) return;
 	void ejecutar(resourceId, 'subir', (cliente) => subirEnServidor(cliente, resourceId, cuerpoParaEditar, cuerpoParaCrear));
+}
+
+/** #135: cambiar el tipo en la app no avisaba al servidor. Si allá todavía no
+ * existe (403/404), no hay nada que cambiar: su alta pendiente ya sube con el
+ * tipo vigente de la copia local (`cuerposDesdeLocal`). */
+export function notificarTipoCambiado(resourceId: string, nuevoTipo: string): void {
+	if (esAdaptado(get(sesion).email, resourceId)) return;
+	void ejecutar(resourceId, 'subir', async (cliente) => {
+		try {
+			await cliente.put(`/resources/${resourceId}/type`, { resource_type_slug: nuevoTipo });
+		} catch (err) {
+			if (err instanceof RemoteApiError && (err.status === 404 || err.status === 403)) return;
+			throw err;
+		}
+	});
 }
 
 export function notificarRecursoEliminado(resourceId: string): void {

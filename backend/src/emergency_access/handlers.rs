@@ -10,7 +10,7 @@ use crate::auth::extractor::{AdminUser, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::state::AppState;
 
-use super::dto::{ActualizarPoliticaRequest, DesignarRequest, EmergencyAccessPolicyResponse, EmergencyAccessResponse, PersonaResponse};
+use super::dto::{ActualizarPoliticaRequest, BovedaTitularResponse, DesignarRequest, RecursoTitularResponse, EmergencyAccessPolicyResponse, EmergencyAccessResponse, PersonaResponse};
 use super::models::EmergencyAccess;
 use super::repository::{PgEmergencyAccessPolicyRepository, PgEmergencyAccessRepository, PgEmergencyAccessRequestRepository};
 use super::service::EmergencyAccessService;
@@ -128,4 +128,65 @@ pub async fn aprobar(State(state): State<AppState>, auth: AuthenticatedUser, Pat
 pub async fn rechazar(State(state): State<AppState>, auth: AuthenticatedUser, Path(id): Path<Uuid>) -> Result<(), ApiError> {
     servicio(&state).rechazar(auth.user_id, id).await?;
     Ok(())
+}
+
+/// F-36 (#134): la bóveda del titular, sólo lectura y auditada.
+pub async fn boveda(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<BovedaTitularResponse>, ApiError> {
+    let (acceso, recursos) = servicio(&state).boveda(auth.user_id, id).await?;
+    let granter = servicio(&state)
+        .personas_relacionadas(auth.user_id)
+        .await?
+        .into_iter()
+        .find(|p| p.id == acceso.granter_id)
+        .map(|p| PersonaResponse { email: p.email, display_name: p.display_name })
+        .unwrap_or_default();
+    Ok(Json(BovedaTitularResponse {
+        granter_id: acceso.granter_id,
+        granter,
+        access_level: acceso.access_level,
+        sealed_material_b64: B64.encode(&acceso.sealed_material),
+        resources: recursos
+            .into_iter()
+            .map(|r| RecursoTitularResponse {
+                id: r.id,
+                created_by: r.created_by,
+                resource_type_slug: r.resource_type_slug,
+                metadata_ciphertext_b64: B64.encode(&r.metadata_ciphertext),
+                metadata_nonce_b64: B64.encode(&r.metadata_nonce),
+                metadata_key_type: r.metadata_key_type,
+                metadata_key_id: r.metadata_key_id,
+                metadata_sealed_key_b64: r.metadata_sealed_key.as_deref().map(|k| B64.encode(k)),
+                sealed_dek_b64: B64.encode(&r.sealed_dek),
+                secret_ciphertext_b64: B64.encode(&r.secret_ciphertext),
+                secret_nonce_b64: B64.encode(&r.secret_nonce),
+                updated_at: r.updated_at,
+            })
+            .collect(),
+    }))
+}
+
+/// F-36 (#134): `POST /me/emergency-access/{id}/takeover`. Mismo cuerpo que
+/// `POST /me/change-passphrase`: el blob del titular re-sellado con la
+/// passphrase nueva y la prueba de posesión firmada con su Ed25519 sobre un
+/// desafío emitido para su correo. Al aplicarse rota el `security_stamp` del
+/// titular (se cierran sus sesiones). Sólo con nivel `takeover`.
+pub async fn takeover(
+    State(state): State<AppState>,
+    auth: AuthenticatedUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<crate::me::dto::CambiarPassphraseRequest>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    let servicio = servicio(&state);
+    let acceso = servicio.autorizar_takeover(auth.user_id, id).await?;
+    let (nueva, prueba) = crate::me::handlers::reemplazo_desde(&req)?;
+    let verificado = crate::me::service::verificar_posesion(&state.usuarios, &state.challenges, acceso.granter_id, nueva, &prueba).await?;
+    crate::me::service::CambiarPassphraseService { claves: &state.preferencias_usuario, eventos: state.eventos.clone() }
+        .actualizar(verificado)
+        .await?;
+    servicio.registrar_takeover(auth.user_id, &acceso);
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }

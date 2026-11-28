@@ -2,7 +2,7 @@
 
 // F-16: wrapper de los endpoints públicos/de usuario de Account Recovery —
 // distinto de `accountRecoveryPolicyApi`/`accountRecoveryAdminApi`
-// (`$lib/api/admin.ts`, sólo admin). `crearSolicitud`/`confirmar`/
+// (`#lib/api/admin.ts`, sólo admin). `crearSolicitud`/`confirmar`/
 // `estadoSolicitud`/`completar` no llevan sesión a propósito: cubren justo
 // el caso de alguien que perdió la passphrase. En su lugar, la solicitud se
 // confirma con el código que llega al email de la cuenta y eso entrega un
@@ -10,7 +10,7 @@
 // completarla.
 
 import { api } from './client';
-import { camposDelBlob, type BlobClaveNueva, type PruebaDePosesion } from '$lib/crypto/desbloqueo';
+import { camposDelBlob, type BlobClaveNueva, type PruebaDePosesion } from '#lib/crypto/desbloqueo';
 
 export const accountRecoveryApi = {
 	miEstado: () => api.get<EstadoRecovery>('/account-recovery/status'),

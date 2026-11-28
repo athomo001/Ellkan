@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update directory_sync_config\n                  set directory_unreachable_policy = $1, grace_seconds = $2, session_revalidate_seconds = $3\n                where organization_id = 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "46734ca4e1fd1de60bc490d5fa81b6c2a99c4dba3e41306a960176e881f6b1a8"
+}

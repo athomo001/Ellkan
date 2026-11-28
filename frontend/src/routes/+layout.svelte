@@ -1,16 +1,16 @@
 <script lang="ts">
-	import '$lib/styles/base.css';
-	import { preferencias } from '$lib/state/session';
-	import { aplicarTema } from '$lib/api/preferences';
-	import { preferenciasLectura, aplicarLectura } from '$lib/state/lectura';
+	import '#lib/styles/base.css';
+	import { preferencias } from '#lib/state/session';
+	import { aplicarTema } from '#lib/api/preferences';
+	import { preferenciasLectura, aplicarLectura } from '#lib/state/lectura';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 
-	import TitleBar from '$lib/components/TitleBar.svelte';
-	import CerrarAppDialogo from '$lib/components/CerrarAppDialogo.svelte';
+	import TitleBar from '#lib/components/TitleBar.svelte';
+	import CerrarAppDialogo from '#lib/components/CerrarAppDialogo.svelte';
 	import { goto } from '$app/navigation';
-	import { enlacePendiente } from '$lib/tauri/sistema';
-	import { instalarRegistroEnArchivo } from '$lib/tauri/registro';
-	import { limpiarRestosWeb } from '$lib/crypto/totp-local';
+	import { enlacePendiente } from '#lib/tauri/sistema';
+	import { instalarRegistroEnArchivo } from '#lib/tauri/registro';
+	import { limpiarRestosWeb } from '#lib/crypto/totp-local';
 
 	let { children } = $props();
 
@@ -24,7 +24,7 @@
 	});
 
 	// El backend emite `cierre-solicitado` cuando el usuario cierra la ventana
-	// y la preferencia es "preguntar" — ver `$lib/tauri/ventana.ts`.
+	// y la preferencia es "preguntar" — ver `#lib/tauri/ventana.ts`.
 	let mostrarCierre = $state(false);
 
 	// Enlace `ellkan://…` (la app se abrió por él, o ya estaba abierta): el shell
@@ -80,7 +80,7 @@
 		return () => document.removeEventListener('click', alClickear);
 	});
 
-	import { clavesDesbloqueadas } from '$lib/state/session';
+	import { clavesDesbloqueadas } from '#lib/state/session';
 
 	// Eventos nativos de Tauri (Bandeja y Atajo Global F-45, F-51)
 	$effect(() => {

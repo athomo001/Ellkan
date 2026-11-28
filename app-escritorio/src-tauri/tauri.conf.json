@@ -57,5 +57,16 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCMDMwMEU1MDU4QTk0MzMKUldRemxJb0Y1UUFERytyQ1BiRzZLc0pKRTM4RWV0MU5CbEdJR2daNk9Da0dYalBwQkJMLzhwQWEK",
+      "endpoints": [
+        "https://github.com/athomo001/Ellkan/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

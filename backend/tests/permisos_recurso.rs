@@ -175,6 +175,30 @@ async fn listar_cambiar_y_revocar_permisos_respeta_el_invariante_de_owner() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 403, "revocado, Bob no debería seguir teniendo acceso al secreto");
+
+    // ELK-02: el sobre de Bob se borra junto con el permiso; si quedara, Bob
+    // seguiría en `/recipients` y cada edición le volvería a cifrar el secreto.
+    let sobres_bob: i64 = sqlx::query_scalar("select count(*) from secret_envelopes where resource_id = $1 and user_id = $2")
+        .bind(resource_id)
+        .bind(bob.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(sobres_bob, 0, "revocado, el secret_envelope de Bob no debería quedar");
+
+    let resp = entorno
+        .cliente
+        .get(format!("{}/resources/{}/recipients", entorno.base, resource_id))
+        .bearer_auth(sesion_alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let destinatarios: Value = resp.json().await.unwrap();
+    assert!(
+        destinatarios.as_array().unwrap().iter().all(|d| d["user_id"] != json!(bob.user_id)),
+        "revocado, Bob no debería seguir entre los destinatarios"
+    );
 }
 
 /// 2026-08-13: `POST /resources/{id}/leave` — hallazgo real de uso, a

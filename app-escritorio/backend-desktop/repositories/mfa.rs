@@ -204,4 +204,55 @@ impl MfaChallengeRepository for SqliteMfaChallengeRepository {
             .await?;
         Ok(())
     }
+
+    async fn invalidar_pendientes(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query(r#"update mfa_challenges set consumed_at = ?2 where user_id = ?1 and consumed_at is null"#)
+            .bind(user_id.to_string())
+            .bind(fmt_dt(OffsetDateTime::now_utc()))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn bloqueado_hasta(&self, user_id: Uuid) -> Result<Option<OffsetDateTime>, RepoError> {
+        let fila = sqlx::query(
+            r#"select locked_until from mfa_failed_attempts
+               where user_id = ?1 and locked_until > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"#,
+        )
+        .bind(user_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        fila.map(|f| parse_dt(f.try_get::<String, _>("locked_until")?.as_str())).transpose()
+    }
+
+    async fn registrar_fallo(&self, user_id: Uuid) -> Result<i32, RepoError> {
+        let fila = sqlx::query(
+            r#"insert into mfa_failed_attempts (user_id, failed_count, last_failed_at) values (?1, 1, ?2)
+               on conflict (user_id) do update
+                 set failed_count = mfa_failed_attempts.failed_count + 1, last_failed_at = ?2
+               returning failed_count"#,
+        )
+        .bind(user_id.to_string())
+        .bind(fmt_dt(OffsetDateTime::now_utc()))
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(fila.try_get::<i32, _>("failed_count")?)
+    }
+
+    async fn fijar_bloqueo(&self, user_id: Uuid, hasta: OffsetDateTime) -> Result<(), RepoError> {
+        sqlx::query(r#"update mfa_failed_attempts set locked_until = ?2 where user_id = ?1"#)
+            .bind(user_id.to_string())
+            .bind(fmt_dt(hasta))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn reiniciar_fallos(&self, user_id: Uuid) -> Result<(), RepoError> {
+        sqlx::query(r#"delete from mfa_failed_attempts where user_id = ?1"#)
+            .bind(user_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

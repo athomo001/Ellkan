@@ -7,16 +7,16 @@
 	// el modo de persistencia y se trae todo con un primer sync.
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
-	import { iniciarSesion } from '$lib/crypto/identity';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import { conectarDesdeServidor, ErrorRequiereNuevaFrase } from '$lib/sync/vinculacion';
-	import { cambiarPersistencia, type ModoPersistencia } from '$lib/sync/persistencia';
-	import { sincronizarAhora } from '$lib/sync/motor';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
+	import { iniciarSesion } from '#lib/crypto/identity';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { recoveryKitApi } from '#lib/api/recoveryKit';
+	import { conectarDesdeServidor, ErrorRequiereNuevaFrase } from '#lib/sync/vinculacion';
+	import { cambiarPersistencia, type ModoPersistencia } from '#lib/sync/persistencia';
+	import { sincronizarAhora } from '#lib/sync/motor';
 
 	let servidor = $state('');
 	let email = $state('');

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into known_devices (user_id, device_token_hash) values ($1, $2)\n         on conflict (user_id, device_token_hash) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f22bcf5c2b04451d64394a504caa123937d080575886e7113c85d7a1787bbe8"
+}

@@ -15,15 +15,15 @@
 	// (mismo patrón que agregar un miembro a un grupo, F-12) y la persiste
 	// vía `POST /admin/metadata-keys/{id}/members`, sin rotar la key.
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import { metadataKeysApi, type MetadataKeyAdmin, type RotationStatus } from '$lib/api/admin';
-	import { cargarCrypto } from '$lib/crypto/wasm';
-	import { bytesABase64, base64ABytes } from '$lib/crypto/b64';
-	import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-	import { t } from '$lib/i18n';
-	import { ApiError, api } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import { metadataKeysApi, type MetadataKeyAdmin, type RotationStatus } from '#lib/api/admin';
+	import { cargarCrypto } from '#lib/crypto/wasm';
+	import { bytesABase64, base64ABytes } from '#lib/crypto/b64';
+	import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+	import { t } from '#lib/i18n';
+	import { ApiError, api } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let error = $state<string | undefined>();

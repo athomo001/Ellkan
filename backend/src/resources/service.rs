@@ -365,10 +365,10 @@ where
     }
 
     /// `DELETE /resources/{id}/permissions/{grantee_type}/{grantee_id}` —
-    /// revoca acceso; el `secret_envelope` que le quede al destinatario
-    /// borrado queda huérfano (inalcanzable, `obtener_secreto` chequea
-    /// `permissions` primero) — no hace falta borrarlo aparte para que deje
-    /// de tener efecto.
+    /// revoca acceso. ELK-02: el repositorio borra en la misma transacción el
+    /// `secret_envelope` de quien se queda sin acceso; si quedara, seguiría
+    /// en `listar_destinatarios` y cada edición volvería a cifrar el secreto
+    /// para él.
     pub async fn revocar_permiso(
         &self,
         resource_id: Uuid,

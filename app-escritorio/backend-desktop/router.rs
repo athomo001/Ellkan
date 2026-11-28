@@ -132,6 +132,8 @@ fn servicio(
         self_registration: &state.self_registration_policy,
         email_verification: &state.usuarios,
         eventos: state.eventos.clone(),
+        // Cuenta local única: no hay directorio contra el cual verificar.
+        directorio: None,
     }
 }
 
@@ -1439,7 +1441,7 @@ use crate::recovery_kit::dto::{
     EstadoResponse as EstadoKitResponse, GenerarRequest as GenerarKitRequest, GenerarResponse as GenerarKitResponse,
 };
 use crate::recovery_kit::repository::RecoveryKitRepository;
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 
 /// `GET /me/recovery-kit` — nunca expone el contenido del kit, sólo su estado.
 async fn recovery_kit_estado(
@@ -1599,7 +1601,8 @@ async fn recovery_kit_local_completar(
     let firma: [u8; 64] = firma_bytes.try_into().map_err(|_| DomainError::InvalidCredentials)?;
     VerifyingKey::from_bytes(&publica)
         .map_err(|_| DomainError::InvalidCredentials)?
-        .verify(&nonce, &Signature::from_bytes(&firma))
+        // ELK-01: estricta, rechaza claves y firmas de orden pequeño.
+        .verify_strict(&nonce, &Signature::from_bytes(&firma))
         .map_err(|_| DomainError::InvalidCredentials)?;
 
     let nueva = nueva_clave_local(

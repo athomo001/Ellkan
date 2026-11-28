@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            select r.id, r.created_by, rt.slug as resource_type_slug, r.metadata_ciphertext, r.metadata_nonce,\n                   r.metadata_key_type, r.metadata_key_id, mke.sealed_private_key as \"metadata_sealed_key?\",\n                   se.sealed_dek, se.secret_ciphertext, se.secret_nonce, r.updated_at\n            from resources r\n            join resource_types rt on rt.id = r.resource_type_id\n            join secret_envelopes se on se.resource_id = r.id and se.user_id = $1\n            left join metadata_key_envelopes mke\n              on r.metadata_key_type = 'shared_key' and mke.metadata_key_id = r.metadata_key_id and mke.user_id = $1\n            where r.deleted_at is null\n              and exists (\n                select 1 from permissions p\n                where p.subject_type = 'resource' and p.subject_id = r.id and p.level = 'owner'\n                  and (\n                    (p.grantee_type = 'user' and p.grantee_id = $1)\n                    or (p.grantee_type = 'group' and p.grantee_id in (select group_id from group_members where user_id = $1))\n                  )\n              )\n            order by r.created_at desc\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "created_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "created_by"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "resource_type_slug",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "resource_types",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata_ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "metadata_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "metadata_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "metadata_nonce"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata_key_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "metadata_key_type"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "metadata_key_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "metadata_key_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "metadata_sealed_key?",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "metadata_key_envelopes",
+            "name": "sealed_private_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "sealed_dek",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "sealed_dek"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "secret_ciphertext",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "secret_ciphertext"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "secret_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "secret_envelopes",
+            "name": "secret_nonce"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "resources",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "aa8c5dacb47f72d7518ad0de8d121accb7c7c4fa7d91038c02270c6790c75d81"
+}

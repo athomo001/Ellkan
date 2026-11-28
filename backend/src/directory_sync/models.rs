@@ -24,6 +24,29 @@ pub struct DirectorySyncConfig {
     /// `memberOf`, estilo Active Directory — funciona igual en OpenLDAP con
     /// el overlay `memberof` activado).
     pub group_membership_attribute: String,
+    /// spec/15 §3.2 (#52): `grace` o `deny` si el directorio no responde.
+    pub directory_unreachable_policy: String,
+    pub grace_seconds: i32,
+    /// spec/15 §3.1: cada cuánto se re-verifica una sesión abierta.
+    pub session_revalidate_seconds: i32,
+    /// spec/15 §2 (#53): el servidor corre el «aplicar» solo cada
+    /// `poll_interval_seconds`.
+    pub auto_sync_enabled: bool,
+    pub poll_interval_seconds: i32,
+    /// §2.5: tope de bajas por corrida; `None` = 10 % de las gestionadas
+    /// activas, mínimo 5.
+    pub max_deactivations_per_run: Option<i32>,
+    pub last_auto_sync_error: Option<String>,
+}
+
+impl DirectorySyncConfig {
+    /// §2.5: cuántas bajas se aceptan en una corrida sin confirmación.
+    pub fn tope_de_bajas(&self, gestionadas_activas: usize) -> usize {
+        match self.max_deactivations_per_run {
+            Some(n) => n.max(1) as usize,
+            None => (gestionadas_activas / 10).max(5),
+        }
+    }
 }
 
 impl Default for DirectorySyncConfig {
@@ -40,6 +63,13 @@ impl Default for DirectorySyncConfig {
             user_object_class: "inetOrgPerson".to_string(),
             sync_groups: false,
             group_membership_attribute: "memberOf".to_string(),
+            directory_unreachable_policy: "grace".to_string(),
+            grace_seconds: 900,
+            session_revalidate_seconds: 300,
+            auto_sync_enabled: false,
+            poll_interval_seconds: 60,
+            max_deactivations_per_run: None,
+            last_auto_sync_error: None,
         }
     }
 }
@@ -58,6 +88,12 @@ pub struct ResultadoSync {
     /// Vacío si `sync_groups=false` — un ítem por usuario con al menos un
     /// cambio de membresía (alta o baja) en un grupo gestionado.
     pub group_changes: Vec<CambioGrupoUsuario>,
+    /// spec/15 §2.5 (#53): la corrida desactivaría más de lo permitido (o
+    /// el directorio devolvió 0 usuarios con cuentas gestionadas): `aplicar`
+    /// no hace nada salvo que un admin lo confirme.
+    pub requires_confirmation: bool,
+    /// `true` si `aplicar` se abortó por eso.
+    pub aborted: bool,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]

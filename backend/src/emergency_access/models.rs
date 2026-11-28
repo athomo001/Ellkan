@@ -59,3 +59,24 @@ pub struct EmergencyAccessRequest {
     pub status: String,
     pub resolved_at: Option<OffsetDateTime>,
 }
+
+/// F-36 (#134): un recurso de la bóveda del titular, tal como lo ve su
+/// contacto de emergencia. Todo opaco: el contacto lo abre con las privadas
+/// del titular que le llegaron en `sealed_material`.
+#[derive(Debug, Clone)]
+pub struct RecursoDelTitular {
+    pub id: Uuid,
+    pub created_by: Option<Uuid>,
+    pub resource_type_slug: String,
+    pub metadata_ciphertext: Vec<u8>,
+    pub metadata_nonce: Vec<u8>,
+    pub metadata_key_type: String,
+    pub metadata_key_id: Option<Uuid>,
+    /// Sólo con `metadata_key_type = 'shared_key'`: la privada de esa
+    /// metadata key sellada para el titular.
+    pub metadata_sealed_key: Option<Vec<u8>>,
+    pub sealed_dek: Vec<u8>,
+    pub secret_ciphertext: Vec<u8>,
+    pub secret_nonce: Vec<u8>,
+    pub updated_at: OffsetDateTime,
+}

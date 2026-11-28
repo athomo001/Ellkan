@@ -4,8 +4,8 @@
 	// instancia, si el admin los cargó (`GET /auth/setup-status`). Sin links,
 	// no muestra nada. El servidor sólo acepta http(s).
 	import { onMount } from 'svelte';
-	import { api } from '$lib/api/client';
-	import { t } from '$lib/i18n';
+	import { api } from '#lib/api/client';
+	import { t } from '#lib/i18n';
 
 	let privacidad = $state<string | null>(null);
 	let terminos = $state<string | null>(null);

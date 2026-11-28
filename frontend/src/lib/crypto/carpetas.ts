@@ -22,8 +22,8 @@
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
-import { api } from '$lib/api/client';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { api } from '#lib/api/client';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 
 export interface NodoCarpeta {
 	id: string;

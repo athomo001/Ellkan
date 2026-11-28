@@ -7,7 +7,7 @@
 // el archivo lo escribe el backend en la carpeta Descargas y se muestra en el
 // explorador para que el usuario vea dónde quedó.
 
-import { bytesABase64 } from '$lib/crypto/b64';
+import { bytesABase64 } from '#lib/crypto/b64';
 
 /**
  * Guarda `contenido` en la carpeta Descargas del usuario (sin pisar nada:

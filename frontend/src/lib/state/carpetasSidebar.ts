@@ -9,7 +9,7 @@
 // de las páginas la dejan en `null` y el layout no renderiza nada.
 
 import { writable } from 'svelte/store';
-import type { NodoCarpeta } from '$lib/crypto/carpetas';
+import type { NodoCarpeta } from '#lib/crypto/carpetas';
 
 export interface CarpetasSidebarProps {
 	nodos: NodoCarpeta[];

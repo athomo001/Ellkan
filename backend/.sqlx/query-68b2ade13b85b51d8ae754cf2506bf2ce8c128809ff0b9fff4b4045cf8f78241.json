@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, public_key_x25519, encrypted_private_key, private_key_nonce, custody, created_at\n               from org_recovery_keys order by id desc limit 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "public_key_x25519",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "public_key_x25519"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "encrypted_private_key",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "encrypted_private_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "private_key_nonce",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "private_key_nonce"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "custody",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "custody"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "org_recovery_keys",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "68b2ade13b85b51d8ae754cf2506bf2ce8c128809ff0b9fff4b4045cf8f78241"
+}

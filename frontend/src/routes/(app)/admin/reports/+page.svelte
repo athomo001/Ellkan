@@ -4,13 +4,13 @@
 	// nunca contenido cifrado. `reportId` es un enum cerrado del lado del
 	// servidor (un valor inválido da 404) — acá el selector sólo ofrece los
 	// cuatro valores reales, nunca un id libre.
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Table from '$lib/components/Table.svelte';
-	import { reportsApi, type ReportId, type ReportItem } from '$lib/api/admin';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Table from '#lib/components/Table.svelte';
+	import { reportsApi, type ReportId, type ReportItem } from '#lib/api/admin';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let reportId = $state<ReportId>('passwords_expired');
 	let dias = $state('90');
@@ -22,6 +22,14 @@
 	const usaDias = $derived(reportId === 'inactive_users' || reportId === 'resources_never_rotated');
 
 	const columnas = $derived.by(() => {
+		if (reportId === 'secrets_to_rotate') {
+			return [
+				{ key: 'recurso', header: $t.admin.reportes.colRecurso },
+				{ key: 'tipo', header: $t.admin.reportes.colTipo },
+				{ key: 'duenos', header: $t.admin.reportes.colDuenos },
+				{ key: 'bajas', header: $t.admin.reportes.colBajas }
+			];
+		}
 		if (reportId === 'resources_never_rotated') {
 			return [
 				{ key: 'recurso', header: $t.admin.reportes.colRecurso },
@@ -75,6 +83,7 @@
 				<option value="mfa_coverage">{$t.admin.reportes.mfaCoverage}</option>
 				<option value="inactive_users">{$t.admin.reportes.inactiveUsers}</option>
 				<option value="resources_never_rotated">{$t.admin.reportes.resourcesNeverRotated}</option>
+				<option value="secrets_to_rotate">{$t.admin.reportes.secretsToRotate}</option>
 			</select>
 		</div>
 		{#if usaDias}
@@ -85,6 +94,8 @@
 
 	{#if reportId === 'passwords_expired'}
 		<p class="hint">{$t.admin.reportes.hintPasswordsExpired}</p>
+	{:else if reportId === 'secrets_to_rotate'}
+		<p class="hint">{$t.admin.reportes.hintSecretsToRotate}</p>
 	{/if}
 
 	{#if error}<p class="error">{error}</p>{/if}
@@ -92,7 +103,12 @@
 	{#if items.length > 0 || !cargando}
 		<Table {columnas} filas={items} claveFila={(f) => f.user_id ?? f.resource_id ?? ''} vacio={$t.admin.reportes.sinResultados}>
 			{#snippet fila(f)}
-				{#if reportId === 'resources_never_rotated'}
+				{#if reportId === 'secrets_to_rotate'}
+					<td><code>{f.resource_id}</code></td>
+					<td>{f.resource_type_slug}{#if f.high_priority} · <strong>{$t.admin.reportes.prioridadAlta}</strong>{/if}</td>
+					<td>{f.owners?.join(', ') || '—'}</td>
+					<td>{f.deactivated_users?.join(', ')}</td>
+				{:else if reportId === 'resources_never_rotated'}
 					<td><code>{f.resource_id}</code></td>
 					<td>{f.created_at}</td>
 				{:else}

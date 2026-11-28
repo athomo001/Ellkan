@@ -3,9 +3,9 @@
 	// F-39: oculto por defecto, revelar con clic explícito — nunca se pinta
 	// en claro sólo por abrir el recurso. Copiar dispara la limpieza
 	// automática configurable (`preferencias.clipboardClearMinutes`).
-	import { copiarConLimpieza } from '$lib/clipboard';
-	import { preferencias } from '$lib/state/session';
-	import { t } from '$lib/i18n';
+	import { copiarConLimpieza } from '#lib/clipboard';
+	import { preferencias } from '#lib/state/session';
+	import { t } from '#lib/i18n';
 
 	// Módulo 1 (RBAC granular): `password.preview`/`password.copy` — por
 	// default `true` (los demás usos de este componente, TOTP/share externo,

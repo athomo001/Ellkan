@@ -21,8 +21,8 @@
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
 import { desbloquearConPassphrase } from './identity';
-import { api } from '$lib/api/client';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { api } from '#lib/api/client';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 
 const PRF_EVAL_SALT = new Uint8Array([
 	0x65, 0x6c, 0x6c, 0x6b, 0x61, 0x6e, 0x3a, 0x76, 0x31, 0x3a, 0x77, 0x65, 0x62, 0x61, 0x75, 0x74, 0x68, 0x6e, 0x2d,

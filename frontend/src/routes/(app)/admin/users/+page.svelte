@@ -5,11 +5,11 @@
 	// Se busca por email vía `/users/{email}/public-key` (ya devuelve
 	// `user_id`) y de ahí se opera sobre ese usuario puntual.
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import SecretField from '$lib/components/SecretField.svelte';
-	import Table from '$lib/components/Table.svelte';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import SecretField from '#lib/components/SecretField.svelte';
+	import Table from '#lib/components/Table.svelte';
 	import {
 		usersAdminApi,
 		obtenerAvatarUrlAdmin,
@@ -21,10 +21,10 @@
 		type DestinoPropiedad,
 		type RecursoBloqueado,
 		type TransferenciaPropiedad
-	} from '$lib/api/admin';
-	import { crearUsuarioPorAdmin } from '$lib/crypto/identity';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	} from '#lib/api/admin';
+	import { crearUsuarioPorAdmin } from '#lib/crypto/identity';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	// Parte C: misma ceremonia de F-01 que la pantalla pública de registro
 	// (`(anon)/register/+page.svelte::enviar`), pero contra `POST /admin/users`

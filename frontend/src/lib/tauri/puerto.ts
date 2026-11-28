@@ -4,7 +4,7 @@
 // backend local, en vez de que quede siempre en el autoelegido del primer
 // arranque (`bindear_puerto`, `app-escritorio/backend-desktop/mod.rs`).
 // Sólo tiene sentido en modo escritorio — mismo criterio de gateo que
-// `$lib/tauri/conectar.ts::enModoEscritorio`.
+// `#lib/tauri/conectar.ts::enModoEscritorio`.
 
 export interface ResultadoConfigurarPuerto {
 	advertencia: string | null;
@@ -24,7 +24,7 @@ export async function infoApp(): Promise<InfoApp> {
 }
 
 /** Puerto realmente escuchando en esta sesión (`puerto_backend`, ya usado
- * por `$lib/api/client.ts`) vs. el fijo persistido en `config.json` — pueden
+ * por `#lib/api/client.ts`) vs. el fijo persistido en `config.json` — pueden
  * diferir si el fijo dejó de estar disponible entre arranques. */
 export async function puertoActual(): Promise<number> {
 	const { invoke } = await import('@tauri-apps/api/core');

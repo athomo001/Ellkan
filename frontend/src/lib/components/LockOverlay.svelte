@@ -1,6 +1,6 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
-	import { atraparFoco } from '$lib/a11y/foco';
+	import { atraparFoco } from '#lib/a11y/foco';
 	// F-39: overlay de auto-bloqueo — cubre el contenido sin desmontarlo y
 	// sin tocar la sesión HTTP (`sesion` store nunca se limpia acá, sólo
 	// `clavesDesbloqueadas` ya se limpió antes de mostrar esto). Reanuda con
@@ -9,12 +9,12 @@
 	import { get } from 'svelte/store';
 	import TextField from './TextField.svelte';
 	import Button from './Button.svelte';
-	import { desbloquearConPassphrase } from '$lib/crypto/identity';
-	import { desbloquear as desbloquearLocal, estaActivo } from '$lib/crypto/totp-local';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { obtenerTokenSeguridad, COLOR_HEX } from '$lib/state/securityToken';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import { desbloquearConPassphrase } from '#lib/crypto/identity';
+	import { desbloquear as desbloquearLocal, estaActivo } from '#lib/crypto/totp-local';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { obtenerTokenSeguridad, COLOR_HEX } from '#lib/state/securityToken';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let { email, onDesbloqueado }: { email: string; onDesbloqueado: () => void } = $props();
 	const tokenSeguridad = $derived(email ? obtenerTokenSeguridad(email) : null);

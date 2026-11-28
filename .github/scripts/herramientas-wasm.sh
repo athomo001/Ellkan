@@ -41,41 +41,51 @@ destino="${1:?uso: herramientas-wasm.sh <carpeta-destino>}"
 raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # --- binaryen (wasm-opt) -----------------------------------------------------
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64) plataforma="x86_64-linux"; esperado="$SHA256_LINUX_X64"; exe="wasm-opt" ;;
-  MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64)
-    plataforma="x86_64-windows"; esperado="$SHA256_WINDOWS_X64"; exe="wasm-opt.exe" ;;
-  *)
-    echo "herramientas-wasm: plataforma sin hash fijado: $(uname -s)-$(uname -m)" >&2
-    exit 1 ;;
-esac
+# macOS (#82–#87): el tarball de binaryen para Mac no trae `wasm-opt` estático
+# (depende de `lib/libbinaryen.dylib`), así que ahí se usa Homebrew (bottles
+# firmados; wasm-pack acepta cualquier `wasm-opt` del PATH, ver arriba).
+if [ "$(uname -s)" = "Darwin" ]; then
+  mkdir -p "$destino/bin"
+  destino="$(cd "$destino" && pwd)"
+  command -v wasm-opt >/dev/null || brew install binaryen
+  wasm-opt --version
+else
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) plataforma="x86_64-linux"; esperado="$SHA256_LINUX_X64"; exe="wasm-opt" ;;
+    MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64)
+      plataforma="x86_64-windows"; esperado="$SHA256_WINDOWS_X64"; exe="wasm-opt.exe" ;;
+    *)
+      echo "herramientas-wasm: plataforma sin hash fijado: $(uname -s)-$(uname -m)" >&2
+      exit 1 ;;
+  esac
 
-archivo="binaryen-${BINARYEN_VERSION}-${plataforma}.tar.gz"
-url="https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${archivo}"
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+  archivo="binaryen-${BINARYEN_VERSION}-${plataforma}.tar.gz"
+  url="https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${archivo}"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
 
-echo "herramientas-wasm: bajando $archivo"
-# --retry-all-errors reintenta también los 5xx y los cortes a mitad de la
-# descarga, que es lo que falla de verdad contra los assets de GitHub.
-curl --fail --silent --show-error --location \
-  --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
-  --output "$tmp/$archivo" "$url"
+  echo "herramientas-wasm: bajando $archivo"
+  # --retry-all-errors reintenta también los 5xx y los cortes a mitad de la
+  # descarga, que es lo que falla de verdad contra los assets de GitHub.
+  curl --fail --silent --show-error --location \
+    --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+    --output "$tmp/$archivo" "$url"
 
-calculado="$(sha256sum "$tmp/$archivo" | cut -d' ' -f1)"
-if [ "$calculado" != "$esperado" ]; then
-  echo "herramientas-wasm: SHA-256 de $archivo no coincide" >&2
-  echo "  esperado:  $esperado" >&2
-  echo "  calculado: $calculado" >&2
-  exit 1
+  calculado="$(sha256sum "$tmp/$archivo" | cut -d' ' -f1)"
+  if [ "$calculado" != "$esperado" ]; then
+    echo "herramientas-wasm: SHA-256 de $archivo no coincide" >&2
+    echo "  esperado:  $esperado" >&2
+    echo "  calculado: $calculado" >&2
+    exit 1
+  fi
+
+  mkdir -p "$destino/bin"
+  destino="$(cd "$destino" && pwd)"   # GITHUB_PATH necesita una ruta absoluta
+  # En los dos tarballs wasm-opt viene enlazado estático: alcanza con el ejecutable.
+  tar -xzf "$tmp/$archivo" -C "$tmp" "binaryen-${BINARYEN_VERSION}/bin/$exe"
+  install -m 0755 "$tmp/binaryen-${BINARYEN_VERSION}/bin/$exe" "$destino/bin/$exe"
+  "$destino/bin/$exe" --version
 fi
-
-mkdir -p "$destino/bin"
-destino="$(cd "$destino" && pwd)"   # GITHUB_PATH necesita una ruta absoluta
-# En los dos tarballs wasm-opt viene enlazado estático: alcanza con el ejecutable.
-tar -xzf "$tmp/$archivo" -C "$tmp" "binaryen-${BINARYEN_VERSION}/bin/$exe"
-install -m 0755 "$tmp/binaryen-${BINARYEN_VERSION}/bin/$exe" "$destino/bin/$exe"
-"$destino/bin/$exe" --version
 
 # --- wasm-bindgen-cli ----------------------------------------------------------
 # Primera `version = "…"` después de `name = "wasm-bindgen"` en Cargo.lock.

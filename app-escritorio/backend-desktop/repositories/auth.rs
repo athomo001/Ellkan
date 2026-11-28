@@ -259,6 +259,13 @@ impl UserRepository for SqliteUserRepository {
         self.insertar(nuevo, ya_verificado, Uuid::now_v7()).await
     }
 
+    /// ELK-01 (#147): sólo lo usa el alta por SSO-JIT, que la bóveda local
+    /// no tiene (ni SCIM ni directorio). Se rechaza en vez de crear una
+    /// cuenta sin claves que el escritorio no sabría completar.
+    async fn crear_sin_claves(&self, _email: &str, _display_name: &str, _ya_verificado: bool) -> Result<User, RepoError> {
+        Err(RepoError::Conflict)
+    }
+
     async fn buscar_por_email(&self, email: &str) -> Result<Option<User>, RepoError> {
         let fila = sqlx::query(
             r#"select id, security_stamp, created_at, must_change_passphrase from users
@@ -568,6 +575,19 @@ impl SessionRepository for SqliteSessionRepository {
             .bind(fmt_dt(OffsetDateTime::now_utc()))
             .execute(&self.pool)
             .await?;
+        Ok(())
+    }
+
+    async fn revocar_parciales(&self, user_id: Uuid, proposito: PropositoSesion) -> Result<(), RepoError> {
+        sqlx::query(
+            r#"update sessions set revoked_at = ?3
+               where user_id = ?1 and proposito = ?2 and mfa_verified_at is null and revoked_at is null"#,
+        )
+        .bind(user_id.to_string())
+        .bind(proposito.como_str())
+        .bind(fmt_dt(OffsetDateTime::now_utc()))
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }

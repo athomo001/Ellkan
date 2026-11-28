@@ -5,17 +5,17 @@
 // Guarda sólo `{serverUrl, email}` en `localStorage` — nunca un
 // `session_id` de larga vida: las sesiones remotas vencen por TTL del
 // servidor, así que cada sync re-autentica con las claves YA desbloqueadas
-// de la sesión local (`$lib/state/session.ts::clavesDesbloqueadas`), sin
+// de la sesión local (`#lib/state/session.ts::clavesDesbloqueadas`), sin
 // volver a pedir la passphrase ni re-derivar nada.
 
 import { cargarCrypto } from '../crypto/wasm';
 import { bytesABase64, base64ABytes } from '../crypto/b64';
 import { deviceTokenHashB64 } from '../crypto/device';
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client';
 import { clienteRemoto, RemoteApiError } from './remoteClient';
 import { olvidarPendientes } from './pendientes';
-import { registrar } from '$lib/tauri/registro';
-import type { ClavesDesbloqueadas } from '$lib/state/session';
+import { registrar } from '#lib/tauri/registro';
+import type { ClavesDesbloqueadas } from '#lib/state/session';
 import {
 	abrirMaterial,
 	camposDelBlob,

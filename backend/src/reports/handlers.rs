@@ -7,7 +7,9 @@ use crate::auth::extractor::AdminUser;
 use crate::error::{ApiError, DomainError};
 use crate::state::AppState;
 
-use super::dto::{ListarReporteQuery, MfaCoverageItem, PasswordExpiradoItem, RecursoSinRotarItem, ReportResponse, UsuarioInactivoItem};
+use super::dto::{
+    ListarReporteQuery, MfaCoverageItem, PasswordExpiradoItem, RecursoSinRotarItem, ReportResponse, SecretoARotarItem, UsuarioInactivoItem,
+};
 use super::models::ReportId;
 use super::service::ReportsService;
 
@@ -66,6 +68,22 @@ pub async fn obtener(
                 items: filas
                     .into_iter()
                     .map(|f| RecursoSinRotarItem { resource_id: f.resource_id, created_by: f.created_by, created_at: f.created_at })
+                    .collect(),
+                next_cursor,
+            }
+        }
+        ReportId::SecretsToRotate => {
+            let (filas, next_cursor) = servicio.secrets_to_rotate(q.cursor, None).await?;
+            ReportResponse::SecretsToRotate {
+                items: filas
+                    .into_iter()
+                    .map(|f| SecretoARotarItem {
+                        resource_id: f.resource_id,
+                        resource_type_slug: f.resource_type_slug,
+                        high_priority: f.prioridad_alta,
+                        owners: f.owners,
+                        deactivated_users: f.deactivated_users,
+                    })
                     .collect(),
                 next_cursor,
             }

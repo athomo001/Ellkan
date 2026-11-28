@@ -6,8 +6,8 @@
 // la comunicación con el servidor (sube bien ↔ falla). Una línea por cambio,
 // nunca una por cada pedido. Nunca secretos: sólo el correo de la sesión.
 
-import { sesion, clavesDesbloqueadas } from '$lib/state/session';
-import { estadoSync } from '$lib/sync/notificador';
+import { sesion, clavesDesbloqueadas } from '#lib/state/session';
+import { estadoSync } from '#lib/sync/notificador';
 import { registrar } from './registro';
 import { enModoEscritorio } from './conectar';
 

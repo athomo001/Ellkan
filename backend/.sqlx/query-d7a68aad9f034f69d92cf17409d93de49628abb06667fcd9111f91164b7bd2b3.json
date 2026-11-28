@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from account_recovery_escrow where org_recovery_key_id in (\n                   select id from org_recovery_keys where custody = 'server')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d7a68aad9f034f69d92cf17409d93de49628abb06667fcd9111f91164b7bd2b3"
+}

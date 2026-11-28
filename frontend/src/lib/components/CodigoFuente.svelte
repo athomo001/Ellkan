@@ -5,7 +5,7 @@
 	// operador que modifique Ellkan y lo ofrezca a otros debe apuntar a SU
 	// código, no al repo oficial: lo define al compilar el frontend con
 	// `VITE_ELLKAN_SOURCE_URL`. Sin esa variable, apunta al repo oficial.
-	import { t } from '$lib/i18n';
+	import { t } from '#lib/i18n';
 
 	let { compacto = false }: { compacto?: boolean } = $props();
 

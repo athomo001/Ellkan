@@ -7,16 +7,16 @@
 	// en Ajustes (regeneración voluntaria) — mismo componente, nunca
 	// re-muestra un kit ya generado antes.
 	import { get } from 'svelte/store';
-	import Button from '$lib/components/Button.svelte';
-	import { generarClaveEfimera, sellarMaterialParaKit } from '$lib/crypto/accountRecovery';
-	import { recoveryKitApi } from '$lib/api/recoveryKit';
-	import { clavesDesbloqueadas } from '$lib/state/session';
-	import { bytesABase64 } from '$lib/crypto/b64';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
-	import { copiarConLimpieza } from '$lib/clipboard';
-	import { sincronizarKit } from '$lib/sync/kit';
+	import Button from '#lib/components/Button.svelte';
+	import { generarClaveEfimera, sellarMaterialParaKit } from '#lib/crypto/accountRecovery';
+	import { recoveryKitApi } from '#lib/api/recoveryKit';
+	import { clavesDesbloqueadas } from '#lib/state/session';
+	import { bytesABase64 } from '#lib/crypto/b64';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
+	import { copiarConLimpieza } from '#lib/clipboard';
+	import { sincronizarKit } from '#lib/sync/kit';
 
 	let { mensaje, onGenerado }: { mensaje: string; onGenerado: () => void } = $props();
 
@@ -62,7 +62,7 @@
 		if (enModoEscritorio()) {
 			error = undefined;
 			try {
-				const { guardarEnDescargas } = await import('$lib/tauri/archivos');
+				const { guardarEnDescargas } = await import('#lib/tauri/archivos');
 				rutaGuardada = await guardarEnDescargas('ellkan-recovery-kit.txt', new TextEncoder().encode(kitPrivadaB64));
 				yaGuardado = true;
 			} catch (err) {

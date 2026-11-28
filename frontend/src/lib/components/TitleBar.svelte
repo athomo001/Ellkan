@@ -1,7 +1,7 @@
 <!-- Autor: Athan Espinoza -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
 
 	// Estado reactivo para determinar si estamos en el entorno nativo de escritorio Tauri.
 	let esDesktop = $state(false);

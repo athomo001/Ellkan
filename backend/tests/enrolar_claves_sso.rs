@@ -22,11 +22,48 @@ fn claves(n: u8) -> Value {
     })
 }
 
+async fn busca(entorno: &common::Entorno, sesion: uuid::Uuid, q: &str) -> Vec<String> {
+    let lista: Vec<Value> = entorno
+        .cliente
+        .get(format!("{}/users/search", entorno.base))
+        .query(&[("q", q)])
+        .bearer_auth(sesion)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    lista.iter().filter_map(|u| u["email"].as_str().map(str::to_owned)).collect()
+}
+
+async fn enrolar(entorno: &common::Entorno, sesion: uuid::Uuid, cuerpo: &Value) -> u16 {
+    entorno
+        .cliente
+        .post(format!("{}/me/keys/enroll", entorno.base))
+        .bearer_auth(sesion)
+        .json(cuerpo)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
+}
+
 #[tokio::test]
 async fn una_cuenta_sin_claves_las_enrola_una_sola_vez() {
     let entorno = common::levantar().await;
     let ana = common::registrar(&entorno, "ana@test.ellkan").await;
     let sesion = common::login(&entorno, &ana).await;
+    let bob = common::registrar(&entorno, "bob@test.ellkan").await;
+    let sesion_bob = common::login(&entorno, &bob).await;
+    // Sin restricción por grupo, así el buscador muestra a todos y lo único
+    // que puede esconder a ana es no tener claves.
+    sqlx::query("update sharing_policy set restrict_visibility_by_group = false")
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+    assert!(busca(&entorno, sesion_bob, "ana@").await.contains(&"ana@test.ellkan".to_string()));
 
     let perfil = |entorno: &common::Entorno| {
         let pedido = entorno.cliente.get(format!("{}/me", entorno.base)).bearer_auth(sesion).send();
@@ -34,51 +71,50 @@ async fn una_cuenta_sin_claves_las_enrola_una_sola_vez() {
     };
     assert_eq!(perfil(&entorno).await["needs_key_enrollment"], false);
 
-    // Una cuenta con claves no puede reemplazarlas por esta vía.
-    let resp = entorno
-        .cliente
-        .post(format!("{}/me/keys/enroll", entorno.base))
-        .bearer_auth(sesion)
-        .json(&claves(10))
-        .send()
+    // ELK-01 (#147, a2): una sesión que no emitió el callback SSO no enrola,
+    // aunque sea válida.
+    assert_eq!(enrolar(&entorno, sesion, &claves(10)).await, 403);
+
+    // Desde acá la sesión pasa por emitida por SSO.
+    sqlx::query("update sessions set emitida_por_sso = true where id = $1")
+        .bind(sesion)
+        .execute(&entorno.pool)
         .await
         .unwrap();
-    assert_eq!(resp.status(), 409);
 
-    // Como la deja el alta JIT de SSO: blob vacío y públicas en cero.
-    sqlx::query(
-        "update user_keys set encrypted_private_key_blob = '', public_key_x25519 = $2, public_key_ed25519 = $2
-         where user_id = $1",
-    )
-    .bind(ana.user_id)
-    .bind(vec![0u8; 32])
-    .execute(&entorno.pool)
-    .await
-    .unwrap();
+    // Una cuenta con claves no puede reemplazarlas por esta vía.
+    assert_eq!(enrolar(&entorno, sesion, &claves(10)).await, 409);
+
+    // Como la deja el alta JIT de SSO, SCIM o directorio (ELK-01 c): sin fila
+    // en `user_keys`.
+    sqlx::query("delete from user_keys where user_id = $1")
+        .bind(ana.user_id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
     assert_eq!(perfil(&entorno).await["needs_key_enrollment"], true);
+    // Sin claves no aparece como destinataria: nadie le puede sellar un secreto.
+    assert!(!busca(&entorno, sesion_bob, "ana@").await.contains(&"ana@test.ellkan".to_string()));
+
+    // Sesión SSO vieja (más de 30 min): ya no alcanza.
+    sqlx::query("update sessions set created_at = now() - interval '31 minutes' where id = $1")
+        .bind(sesion)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(enrolar(&entorno, sesion, &claves(20)).await, 403);
+    sqlx::query("update sessions set created_at = now() where id = $1")
+        .bind(sesion)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
 
     // Largos equivocados: 400, y no se guarda nada.
     let mut mal = claves(20);
     mal["private_key_nonce_b64"] = json!(B64.encode([1u8; 12]));
-    let resp = entorno
-        .cliente
-        .post(format!("{}/me/keys/enroll", entorno.base))
-        .bearer_auth(sesion)
-        .json(&mal)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 400);
+    assert_eq!(enrolar(&entorno, sesion, &mal).await, 400);
 
-    let resp = entorno
-        .cliente
-        .post(format!("{}/me/keys/enroll", entorno.base))
-        .bearer_auth(sesion)
-        .json(&claves(20))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 204);
+    assert_eq!(enrolar(&entorno, sesion, &claves(20)).await, 204);
     assert_eq!(perfil(&entorno).await["needs_key_enrollment"], false);
     let (publica,): (Vec<u8>,) = sqlx::query_as("select public_key_x25519 from user_keys where user_id = $1")
         .bind(ana.user_id)
@@ -86,17 +122,10 @@ async fn una_cuenta_sin_claves_las_enrola_una_sola_vez() {
         .await
         .unwrap();
     assert_eq!(publica, vec![20u8; 32]);
+    assert!(busca(&entorno, sesion_bob, "ana@").await.contains(&"ana@test.ellkan".to_string()));
 
     // Una segunda vez ya no: no pisa las claves recién creadas.
-    let resp = entorno
-        .cliente
-        .post(format!("{}/me/keys/enroll", entorno.base))
-        .bearer_auth(sesion)
-        .json(&claves(30))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 409);
+    assert_eq!(enrolar(&entorno, sesion, &claves(30)).await, 409);
 
     // La auditoría la escribe el consumidor de eventos, en segundo plano.
     let mut eventos = 0;
@@ -113,6 +142,21 @@ async fn una_cuenta_sin_claves_las_enrola_una_sola_vez() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     assert_eq!(eventos, 1i64);
+}
+
+/// ELK-01 (#147, c): la base ya no acepta una fila de relleno por ningún camino.
+#[tokio::test]
+async fn la_base_rechaza_claves_de_relleno() {
+    let entorno = common::levantar().await;
+    let ana = common::registrar(&entorno, "relleno@test.ellkan").await;
+    for (sql, valor) in [
+        ("update user_keys set public_key_x25519 = $2 where user_id = $1", vec![0u8; 32]),
+        ("update user_keys set public_key_ed25519 = $2 where user_id = $1", vec![0u8; 32]),
+        ("update user_keys set encrypted_private_key_blob = $2 where user_id = $1", Vec::new()),
+    ] {
+        let resultado = sqlx::query(sql).bind(ana.user_id).bind(valor).execute(&entorno.pool).await;
+        assert!(resultado.is_err(), "la base tendría que rechazar el relleno: {sql}");
+    }
 }
 
 #[tokio::test]

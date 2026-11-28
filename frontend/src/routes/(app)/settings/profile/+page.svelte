@@ -5,12 +5,12 @@
 	// secciones en una sola página larga; separado en su propia ruta para
 	// no obligar a hacer scroll para llegar a algo puntual.
 	import { onMount } from 'svelte';
-	import Card from '$lib/components/Card.svelte';
-	import Button from '$lib/components/Button.svelte';
-	import { perfilApi, misGruposApi, descargarDatosPersonales, type Perfil, type GrupoDeUsuario } from '$lib/api/profile';
-	import { enModoEscritorio } from '$lib/tauri/conectar';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
+	import Card from '#lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import { perfilApi, misGruposApi, descargarDatosPersonales, type Perfil, type GrupoDeUsuario } from '#lib/api/profile';
+	import { enModoEscritorio } from '#lib/tauri/conectar';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
 
 	let cargando = $state(true);
 	let perfil = $state<Perfil | undefined>();

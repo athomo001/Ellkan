@@ -3,24 +3,24 @@
 	// F-01: genera el keypair y sella la clave privada client-side antes de
 	// que nada viaje al servidor — el servidor sólo recibe claves públicas
 	// y un blob ya cifrado (identity.ts::registrar).
-	import EnlacesLegales from '$lib/components/EnlacesLegales.svelte';
+	import EnlacesLegales from '#lib/components/EnlacesLegales.svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import Button from '$lib/components/Button.svelte';
-	import TextField from '$lib/components/TextField.svelte';
-	import Card from '$lib/components/Card.svelte';
+	import Button from '#lib/components/Button.svelte';
+	import TextField from '#lib/components/TextField.svelte';
+	import Card from '#lib/components/Card.svelte';
 	import {
 		registrar,
 		verificarEmail,
 		reenviarVerificacionEmail,
 		requiereTokenDeInstalacion,
 		tokenDeInstalacionInicial
-	} from '$lib/crypto/identity';
-	import { evaluarFortaleza } from '$lib/crypto/passwordStrength.svelte';
-	import { t } from '$lib/i18n';
-	import { ApiError } from '$lib/api/client';
-	import { enModoEscritorio, existeUsuarioLocal, CLAVE_ABRIR_CONECTAR_SERVIDOR } from '$lib/tauri/conectar';
-	import ConectarServidorInicial from '$lib/components/ConectarServidorInicial.svelte';
+	} from '#lib/crypto/identity';
+	import { evaluarFortaleza } from '#lib/crypto/passwordStrength.svelte';
+	import { t } from '#lib/i18n';
+	import { ApiError } from '#lib/api/client';
+	import { enModoEscritorio, existeUsuarioLocal, CLAVE_ABRIR_CONECTAR_SERVIDOR } from '#lib/tauri/conectar';
+	import ConectarServidorInicial from '#lib/components/ConectarServidorInicial.svelte';
 
 	// Escritorio, primer arranque: crear una cuenta sólo local, o usar la que ya
 	// existe en un servidor Ellkan (F-47). En la web sólo existe la primera.

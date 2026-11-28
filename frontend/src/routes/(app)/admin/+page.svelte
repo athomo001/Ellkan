@@ -6,8 +6,8 @@
 	// `secciones.ts`) — las métricas reales ya viven en `/admin/reports` y
 	// `/admin/system-status`, no hace falta duplicarlas acá con una llamada
 	// aparte.
-	import Card from '$lib/components/Card.svelte';
-	import { t } from '$lib/i18n';
+	import Card from '#lib/components/Card.svelte';
+	import { t } from '#lib/i18n';
 	import { categorias } from './secciones';
 </script>
 

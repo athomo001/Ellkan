@@ -1,0 +1,151 @@
+# Autor: Athan Espinoza
+#
+# macOS y Safari (pendientes #82 y #87): compila en un runner de GitHub con
+# Xcode lo que no se puede hacer sin una Mac.
+#   - App de escritorio: Ellkan.app + .dmg (Apple Silicon).
+#   - Extensión de Safari: convierte el build `BROWSER=safari` en una app
+#     contenedora de Safari Web Extension y la compila.
+# Las dos salen SIN firmar ni notarizar (eso exige una cuenta de Apple
+# Developer, paga). Para abrirlas:
+#   - App: clic derecho → Abrir (o `xattr -dr com.apple.quarantine Ellkan.app`).
+#   - Safari: Ajustes → Avanzado → «Mostrar funciones para desarrolladores»,
+#     después Desarrollo → «Permitir extensiones sin firmar», y abrir la app
+#     contenedora una vez.
+#
+# Está separado de `release.yml` a propósito: hasta verlo en verde no frena
+# ninguna Release. Corre a mano y en cada push a `develop`; deja los paquetes
+# como artefactos de la corrida.
+
+name: macOS y Safari
+
+on:
+  push:
+    branches: [develop]
+    paths-ignore: ['**.md', 'manual/**', 'assets/**', 'LICENSE*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  safari:
+    name: Extensión de Safari
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Herramientas de wasm-pack
+        run: bash .github/scripts/herramientas-wasm.sh "$RUNNER_TEMP/binaryen"
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
+      - name: Build de la extensión para Safari
+        run: pnpm -C extension build:safari
+      # Genera el proyecto Xcode de la app contenedora (macOS) alrededor de
+      # extension/dist, sin abrir Xcode ni preguntar nada.
+      - name: Proyecto Xcode (safari-web-extension-converter)
+        run: |
+          xcrun safari-web-extension-converter extension/dist \
+            --project-location safari-proyecto --app-name Ellkan \
+            --bundle-identifier com.ellkan.safari --swift --macos-only \
+            --copy-resources --no-open --no-prompt --force
+      # Firma ad hoc («-»): sin identidad de Apple. Safari la carga con
+      # «Permitir extensiones sin firmar».
+      - name: Compilar
+        run: |
+          proyecto=$(find safari-proyecto -maxdepth 3 -name '*.xcodeproj' | head -1)
+          esquema=$(xcodebuild -list -json -project "$proyecto" | python3 -c 'import json,sys; print(json.load(sys.stdin)["project"]["schemes"][0])')
+          echo "proyecto=$proyecto esquema=$esquema"
+          xcodebuild -project "$proyecto" -scheme "$esquema" -configuration Release \
+            -derivedDataPath safari-dd CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build
+      - name: Empaquetar
+        run: |
+          version=$(node -p "require('./extension/package.json').version")
+          app=$(find safari-dd/Build/Products/Release -maxdepth 1 -name '*.app' | head -1)
+          mkdir -p salida
+          ditto -c -k --keepParent "$app" "salida/ellkan-safari-${version}-macos.zip"
+          ls -l salida
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: safari
+          path: salida/*
+          if-no-files-found: error
+
+  app:
+    name: App de escritorio (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Herramientas de wasm-pack
+        run: bash .github/scripts/herramientas-wasm.sh "$RUNNER_TEMP/binaryen"
+      - name: Bindings WASM de ellkan-crypto
+        run: wasm-pack build --target web --out-dir ../../frontend/src/lib/wasm crates/ellkan-crypto
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 12
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            extension/pnpm-lock.yaml
+      - name: Dependencias
+        run: |
+          pnpm -C frontend install --frozen-lockfile
+          pnpm -C extension install --frozen-lockfile
+      - name: Sincronizar SvelteKit
+        run: pnpm -C frontend exec svelte-kit sync
+      # La extensión viaja dentro del ejecutable (build.rs la embebe).
+      - name: Preparar la extensión embebida
+        run: node app-escritorio/scripts/preparar-extension.mjs
+      # `beforeBuildCommand` compila el frontend. Sin firma de Apple: firma ad
+      # hoc, que macOS acepta con «clic derecho → Abrir».
+      - name: Compilar y empaquetar (.app + .dmg)
+        working-directory: app-escritorio/src-tauri
+        run: node ../../frontend/node_modules/@tauri-apps/cli/tauri.js build --bundles app,dmg
+      - name: Juntar artefactos
+        run: |
+          version=$(node -p "require('./app-escritorio/src-tauri/tauri.conf.json').version")
+          mkdir -p salida
+          cp -v target/release/bundle/dmg/*.dmg "salida/Ellkan_${version}_aarch64.dmg"
+          ditto -c -k --keepParent target/release/bundle/macos/Ellkan.app "salida/Ellkan_${version}_aarch64.app.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: salida/*
+          if-no-files-found: error

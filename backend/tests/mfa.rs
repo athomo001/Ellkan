@@ -529,7 +529,7 @@ async fn codigo_incorrecto_no_completa_la_sesion() {
 /// funcionando aunque exista una más nueva para el mismo usuario, porque el
 /// binding compara por hash de sesión, no "el desafío más reciente".
 #[tokio::test]
-async fn verificar_encuentra_su_propio_desafio_entre_varias_sesiones_parciales() {
+async fn un_login_nuevo_deja_sin_efecto_el_pendiente_de_mfa_anterior() {
     let entorno = common::levantar().await;
     let admin = common::registrar(&entorno, "mfa-admin-4@test.ellkan").await;
     let sesion_admin = common::login(&entorno, &admin).await;
@@ -557,16 +557,15 @@ async fn verificar_encuentra_su_propio_desafio_entre_varias_sesiones_parciales()
         .await
         .unwrap();
 
-    // Dos intentos de login concurrentes -> dos sesiones parciales + dos
-    // desafíos distintos para el mismo usuario.
+    // ELK-03 (#149): dos logins seguidos -> el segundo deja sin efecto al
+    // primero (sesión parcial revocada y su desafío consumido).
     let cuerpo_a = intentar_login(&entorno, &usuario).await;
     let sesion_a: Uuid = cuerpo_a["session_id"].as_str().unwrap().parse().unwrap();
     let cuerpo_b = intentar_login(&entorno, &usuario).await;
     let sesion_b: Uuid = cuerpo_b["session_id"].as_str().unwrap().parse().unwrap();
     assert_ne!(sesion_a, sesion_b);
 
-    // Verificar con la sesión A (la más vieja) debe encontrar SU propio
-    // desafío, no fallar porque exista uno más nuevo (B) para el mismo user.
+    // A ya no sirve ni con el código correcto.
     let resp = entorno
         .cliente
         .post(format!("{}/auth/mfa/verify", entorno.base))
@@ -575,10 +574,20 @@ async fn verificar_encuentra_su_propio_desafio_entre_varias_sesiones_parciales()
         .send()
         .await
         .unwrap();
+    assert_eq!(resp.status(), 401, "la sesión parcial anterior tendría que estar revocada");
+    assert!(!puede_operar(&entorno, sesion_a).await);
+
+    // B (la vigente) verifica normalmente.
+    let resp = entorno
+        .cliente
+        .post(format!("{}/auth/mfa/verify", entorno.base))
+        .bearer_auth(sesion_b)
+        .json(&json!({ "code": generar_codigo_actual(&secreto).to_string() }))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
-    assert!(puede_operar(&entorno, sesion_a).await);
-    // B sigue parcial — verificar A no la afecta.
-    assert!(!puede_operar(&entorno, sesion_b).await);
+    assert!(puede_operar(&entorno, sesion_b).await);
 }
 
 /// Regresión de seguridad (auditoría 2026-08-12, H-06): antes, un código
@@ -618,10 +627,10 @@ async fn el_mismo_codigo_totp_no_sirve_dos_veces_aunque_siga_en_la_ventana_de_va
     // Dos intentos de login "concurrentes" (mismo atacante con el código
     // observado, o dos logins legítimos casi a la vez) -> dos desafíos
     // distintos para el mismo usuario.
+    // (Desde ELK-03 un login nuevo revoca el pendiente anterior, así que B se
+    // abre después de completar A; A ya es completa y no se revoca.)
     let cuerpo_a = intentar_login(&entorno, &usuario).await;
     let sesion_a: Uuid = cuerpo_a["session_id"].as_str().unwrap().parse().unwrap();
-    let cuerpo_b = intentar_login(&entorno, &usuario).await;
-    let sesion_b: Uuid = cuerpo_b["session_id"].as_str().unwrap().parse().unwrap();
 
     let codigo = generar_codigo_actual(&secreto).to_string();
 
@@ -636,6 +645,9 @@ async fn el_mismo_codigo_totp_no_sirve_dos_veces_aunque_siga_en_la_ventana_de_va
         .unwrap();
     assert_eq!(resp.status(), 200, "el primer uso del código debería completar la sesión A");
     assert!(puede_operar(&entorno, sesion_a).await);
+
+    let cuerpo_b = intentar_login(&entorno, &usuario).await;
+    let sesion_b: Uuid = cuerpo_b["session_id"].as_str().unwrap().parse().unwrap();
 
     // El mismo código, contra un desafío DISTINTO (nunca antes consumido),
     // debe rechazarse igual — ya se usó para este mismo credential TOTP.
@@ -703,6 +715,100 @@ async fn rate_limit_dedicado_de_mfa_verify() {
         }
     }
     assert!(vio_429, "10 intentos rápidos con código incorrecto deberían agotar el rate limit dedicado");
+}
+
+/// ELK-03 (#149): los fallos de MFA se cuentan por cuenta y en la base. Al
+/// llegar al umbral la cuenta queda bloqueada: ni el código correcto entra
+/// (el bloqueo no sirve de oráculo), queda el evento `auth.mfa_locked`, y al
+/// vencer el bloqueo un acierto reinicia el contador. Los 9 fallos previos se
+/// siembran en la base para no chocar con el limitador en memoria (5/min).
+#[tokio::test]
+async fn fallos_consecutivos_de_mfa_bloquean_la_cuenta_de_forma_persistente() {
+    let entorno = common::levantar().await;
+    let admin = common::registrar(&entorno, "mfa-admin-7@test.ellkan").await;
+    let sesion_admin = common::login(&entorno, &admin).await;
+    common::promover_admin(&entorno.pool, admin.user_id).await;
+    activar_mfa_requerido(&entorno, sesion_admin).await;
+
+    let usuario = common::registrar(&entorno, "mfa-bloqueo@test.ellkan").await;
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    let sesion_setup: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    let resp = entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/setup", entorno.base))
+        .bearer_auth(sesion_setup)
+        .send()
+        .await
+        .unwrap();
+    let setup: Value = resp.json().await.unwrap();
+    let secreto = base32::decode(base32::Alphabet::Rfc4648 { padding: false }, setup["secret_base32"].as_str().unwrap()).unwrap();
+    entorno
+        .cliente
+        .post(format!("{}/me/mfa/totp/confirm", entorno.base))
+        .bearer_auth(sesion_setup)
+        .json(&json!({ "code": generar_codigo_actual(&secreto).to_string() }))
+        .send()
+        .await
+        .unwrap();
+
+    sqlx::query("insert into mfa_failed_attempts (user_id, failed_count) values ($1, 9)")
+        .bind(usuario.user_id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+
+    let cuerpo = intentar_login(&entorno, &usuario).await;
+    let sesion: Uuid = cuerpo["session_id"].as_str().unwrap().parse().unwrap();
+    let verificar = |codigo: String| {
+        let cliente = entorno.cliente.clone();
+        let url = format!("{}/auth/mfa/verify", entorno.base);
+        async move { cliente.post(url).bearer_auth(sesion).json(&json!({ "code": codigo })).send().await.unwrap().status().as_u16() }
+    };
+
+    // 10.º fallo -> bloqueo.
+    assert_eq!(verificar("000000".into()).await, 401);
+    let (fallos, bloqueada): (i32, bool) =
+        sqlx::query_as("select failed_count, locked_until > now() from mfa_failed_attempts where user_id = $1")
+            .bind(usuario.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
+    assert_eq!(fallos, 10);
+    assert!(bloqueada, "al 10.º fallo la cuenta tendría que quedar bloqueada");
+    // La auditoría la escribe un listener del canal de eventos, después de la
+    // respuesta: se espera a que aparezca.
+    let mut eventos: i64 = 0;
+    for _ in 0..50 {
+        eventos = sqlx::query_scalar("select count(*) from audit_log_entries where event_type = 'auth.mfa_locked' and actor_user_id = $1")
+            .bind(usuario.user_id)
+            .fetch_one(&entorno.pool)
+            .await
+            .unwrap();
+        if eventos > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(eventos, 1);
+
+    // Bloqueada: ni el código correcto entra, y no gasta el paso TOTP.
+    assert_eq!(verificar(generar_codigo_actual(&secreto).to_string()).await, 429);
+    assert!(!puede_operar(&entorno, sesion).await);
+
+    // Vence el bloqueo -> el código correcto entra y el contador se reinicia.
+    sqlx::query("update mfa_failed_attempts set locked_until = now() - interval '1 second' where user_id = $1")
+        .bind(usuario.user_id)
+        .execute(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(verificar(generar_codigo_actual(&secreto).to_string()).await, 200);
+    assert!(puede_operar(&entorno, sesion).await);
+    let quedan: i64 = sqlx::query_scalar("select count(*) from mfa_failed_attempts where user_id = $1")
+        .bind(usuario.user_id)
+        .fetch_one(&entorno.pool)
+        .await
+        .unwrap();
+    assert_eq!(quedan, 0, "un acierto tendría que reiniciar los fallos consecutivos");
 }
 
 #[tokio::test]

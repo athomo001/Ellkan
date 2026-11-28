@@ -7,7 +7,7 @@
 // normal sin volver a escribirla. A diferencia de F-38 (clave derivada de
 // un secreto TOTP que el usuario también posee), acá la clave de
 // envoltura es un DEK aleatorio que NUNCA sale de la máquina: sólo vive en
-// el almacén nativo de credenciales del SO (`$lib/tauri/llavero.ts`,
+// el almacén nativo de credenciales del SO (`#lib/tauri/llavero.ts`,
 // comandos Tauri `guardar/recuperar/eliminar_envoltura_llavero`, criterio
 // H-01 — nunca la passphrase/clave privada en claro en ese almacén).
 //
@@ -17,8 +17,8 @@
 
 import { cargarCrypto } from './wasm';
 import { bytesABase64, base64ABytes } from './b64';
-import { guardarEnvolturaLlavero, recuperarEnvolturaLlavero, eliminarEnvolturaLlavero } from '$lib/tauri/llavero';
-import { enModoEscritorio } from '$lib/tauri/conectar';
+import { guardarEnvolturaLlavero, recuperarEnvolturaLlavero, eliminarEnvolturaLlavero } from '#lib/tauri/llavero';
+import { enModoEscritorio } from '#lib/tauri/conectar';
 
 interface BlobEnvuelto {
 	cipherB64: string;

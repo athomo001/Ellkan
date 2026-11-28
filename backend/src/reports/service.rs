@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::error::DomainError;
 use crate::password_policy::repository::PasswordPolicyRepository;
 
-use super::models::{FilaMfaCoverage, FilaPasswordExpirado, FilaRecursoSinRotar, FilaUsuarioInactivo};
+use super::models::{FilaMfaCoverage, FilaPasswordExpirado, FilaRecursoSinRotar, FilaSecretoARotar, FilaUsuarioInactivo};
 use super::repository::ReportsRepository;
 
 pub const LIMITE_PAGINA_DEFAULT: i64 = 50;
@@ -94,6 +94,22 @@ where
         let umbral_dias = dias.unwrap_or(DIAS_DEFAULT).max(1);
         let limite = self.limite(limit);
         let filas = self.reportes.resources_never_rotated(umbral_dias, cursor, limite).await?;
+        let next_cursor = if filas.len() as i64 == limite {
+            filas.last().map(|f| f.resource_id)
+        } else {
+            None
+        };
+        Ok((filas, next_cursor))
+    }
+
+    /// spec/15 §7 (#56).
+    pub async fn secrets_to_rotate(
+        &self,
+        cursor: Option<Uuid>,
+        limit: Option<i64>,
+    ) -> Result<(Vec<FilaSecretoARotar>, Option<Uuid>), DomainError> {
+        let limite = self.limite(limit);
+        let filas = self.reportes.secrets_to_rotate(cursor, limite).await?;
         let next_cursor = if filas.len() as i64 == limite {
             filas.last().map(|f| f.resource_id)
         } else {
